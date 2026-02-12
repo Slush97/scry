@@ -7,5 +7,5 @@
 pub mod cache;
 pub mod skia;
 
-pub use cache::RasterCache;
+pub use cache::{DirtyTile, RasterCache, TILE_SIZE};
 pub use skia::Rasterizer;

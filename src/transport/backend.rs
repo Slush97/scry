@@ -80,6 +80,8 @@ pub enum ProtocolKind {
     Kitty,
     /// Sixel graphics protocol.
     Sixel,
+    /// iTerm2 inline image protocol.
+    Iterm2,
     /// Unicode halfblock fallback (no protocol needed).
     Halfblock,
 }
@@ -89,6 +91,7 @@ impl std::fmt::Display for ProtocolKind {
         match self {
             Self::Kitty => write!(f, "Kitty"),
             Self::Sixel => write!(f, "Sixel"),
+            Self::Iterm2 => write!(f, "iTerm2"),
             Self::Halfblock => write!(f, "Halfblock"),
         }
     }

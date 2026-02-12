@@ -9,6 +9,8 @@
 //! | Backend | Feature | Quality | Transparency |
 //! |---------|---------|---------|-------------|
 //! | [`kitty::KittyBackend`] | `kitty` | Pixel-perfect | ✅ |
+//! | [`sixel::SixelBackend`] | `sixel` | 256-color quantized | ❌ |
+//! | [`iterm2::Iterm2Backend`] | `iterm2` | PNG inline | ✅ |
 //! | [`halfblock::HalfblockBackend`] | always | 1×2 per cell | ❌ |
 
 pub mod backend;
@@ -17,6 +19,12 @@ pub mod kitty;
 
 pub mod halfblock;
 pub mod picker;
+
+#[cfg(feature = "sixel")]
+pub mod sixel;
+
+#[cfg(feature = "iterm2")]
+pub mod iterm2;
 
 #[cfg(feature = "shm")]
 pub(crate) mod shm;

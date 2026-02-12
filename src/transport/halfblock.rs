@@ -44,37 +44,69 @@ impl HalfblockBackend {
     /// (top, bottom) pixel colors for that cell position.
     ///
     /// The grid dimensions are `(pixmap.width(), pixmap.height() / 2)`.
+    ///
+    /// **Tip**: For animation loops, use [`render_to_cells_flat`](Self::render_to_cells_flat)
+    /// with a reusable buffer to avoid per-frame allocation.
     #[must_use]
     pub fn render_to_cells(pixmap: &Pixmap) -> Vec<Vec<HalfblockCell>> {
         let w = pixmap.width() as usize;
         let h = pixmap.height() as usize;
-        let rows = h.div_ceil(2); // Ceiling division: 2 pixel rows per cell row
+        let rows = h.div_ceil(2);
+        let mut flat = Vec::with_capacity(rows * w);
+        Self::fill_cells_flat(pixmap, &mut flat);
+        flat.chunks(w).map(<[HalfblockCell]>::to_vec).collect()
+    }
 
+    /// Render a pixmap into a pre-allocated flat buffer (row-major order).
+    ///
+    /// The buffer is resized (never shrunk) to fit `rows × width` cells.
+    /// Reuse the same `Vec` across frames to avoid per-frame allocation —
+    /// this is **significantly faster** for animation loops.
+    ///
+    /// To index into the flat buffer: `buf[row * width + col]`.
+    ///
+    /// Returns `(rows, cols)` — the logical grid dimensions.
+    pub fn render_to_cells_flat(pixmap: &Pixmap, buf: &mut Vec<HalfblockCell>) -> (usize, usize) {
+        Self::fill_cells_flat(pixmap, buf);
+        let w = pixmap.width() as usize;
+        let h = pixmap.height() as usize;
+        (h.div_ceil(2), w)
+    }
+
+    /// Internal: fill a flat buffer with halfblock cells from a pixmap.
+    fn fill_cells_flat(pixmap: &Pixmap, buf: &mut Vec<HalfblockCell>) {
+        let w = pixmap.width() as usize;
+        let h = pixmap.height() as usize;
+        let rows = h.div_ceil(2);
+        let total = rows * w;
         let data = pixmap.data();
 
-        (0..rows)
-            .map(|row| {
-                (0..w)
-                    .map(|col| {
-                        let top_y = row * 2;
-                        let bot_y = top_y + 1;
+        // Resize without shrinking — reuses existing allocation.
+        buf.resize(total, HalfblockCell {
+            char: '▀',
+            fg: (0, 0, 0),
+            bg: (0, 0, 0),
+        });
 
-                        let top = pixel_at(data, w, col, top_y);
-                        let bot = if bot_y < h {
-                            pixel_at(data, w, col, bot_y)
-                        } else {
-                            (0, 0, 0)
-                        };
+        for row in 0..rows {
+            for col in 0..w {
+                let top_y = row * 2;
+                let bot_y = top_y + 1;
 
-                        HalfblockCell {
-                            char: '▀',
-                            fg: top,
-                            bg: bot,
-                        }
-                    })
-                    .collect()
-            })
-            .collect()
+                let top = pixel_at(data, w, col, top_y);
+                let bot = if bot_y < h {
+                    pixel_at(data, w, col, bot_y)
+                } else {
+                    (0, 0, 0)
+                };
+
+                buf[row * w + col] = HalfblockCell {
+                    char: '▀',
+                    fg: top,
+                    bg: bot,
+                };
+            }
+        }
     }
 }
 
@@ -246,6 +278,41 @@ mod tests {
 
         assert!(backend.remove(&handle).is_ok());
         assert!(backend.clear_all().is_ok());
+    }
+
+    #[test]
+    fn flat_rendering_matches_2d() {
+        let pm = make_pixmap(2, 2, &[
+            (255, 0, 0, 255), (0, 255, 0, 255),
+            (0, 0, 255, 255), (255, 255, 0, 255),
+        ]);
+        let cells_2d = HalfblockBackend::render_to_cells(&pm);
+        let mut flat = Vec::new();
+        let (rows, cols) = HalfblockBackend::render_to_cells_flat(&pm, &mut flat);
+        assert_eq!(rows, 1);
+        assert_eq!(cols, 2);
+        assert_eq!(flat.len(), rows * cols);
+        // Contents should match
+        for r in 0..rows {
+            for c in 0..cols {
+                assert_eq!(flat[r * cols + c], cells_2d[r][c]);
+            }
+        }
+    }
+
+    #[test]
+    fn flat_rendering_reuses_buffer() {
+        let pm = make_pixmap(2, 2, &[
+            (255, 0, 0, 255), (0, 255, 0, 255),
+            (0, 0, 255, 255), (255, 255, 0, 255),
+        ]);
+        let mut buf = Vec::new();
+        HalfblockBackend::render_to_cells_flat(&pm, &mut buf);
+        let ptr1 = buf.as_ptr();
+        // Render again — should reuse the same allocation
+        HalfblockBackend::render_to_cells_flat(&pm, &mut buf);
+        let ptr2 = buf.as_ptr();
+        assert_eq!(ptr1, ptr2, "flat buffer should reuse allocation");
     }
 }
 

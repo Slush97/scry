@@ -19,6 +19,7 @@ readme = "README.md"
 default = ["kitty", "widget"]
 kitty = []
 sixel = []
+iterm2 = []
 widget = ["dep:ratatui"]
 text = ["dep:fontdue"]
 shm = ["dep:libc"]

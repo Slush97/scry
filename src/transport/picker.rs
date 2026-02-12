@@ -75,7 +75,17 @@ impl Picker {
             return ProtocolKind::Kitty;
         }
 
-        // Future: check for Sixel via DA2 or TERM capabilities
+        // Check for iTerm2
+        #[cfg(feature = "iterm2")]
+        if Self::is_iterm2_compatible() {
+            return ProtocolKind::Iterm2;
+        }
+
+        // Check for Sixel
+        #[cfg(feature = "sixel")]
+        if Self::is_sixel_compatible() {
+            return ProtocolKind::Sixel;
+        }
 
         // Default fallback
         ProtocolKind::Halfblock
@@ -104,6 +114,56 @@ impl Picker {
         // KITTY_WINDOW_ID is set inside Kitty
         if std::env::var("KITTY_WINDOW_ID").is_ok() {
             return true;
+        }
+
+        false
+    }
+
+    /// Check if the terminal supports the Sixel protocol.
+    #[cfg(feature = "sixel")]
+    fn is_sixel_compatible() -> bool {
+        // Known Sixel-capable terminals
+        if let Ok(prog) = std::env::var("TERM_PROGRAM") {
+            let prog_lower = prog.to_lowercase();
+            if prog_lower.contains("foot")
+                || prog_lower.contains("mlterm")
+                || prog_lower.contains("contour")
+                || prog_lower.contains("yaft")
+            {
+                return true;
+            }
+        }
+
+        // xterm with Sixel support often sets TERM=xterm or xterm-256color
+        // We check TERM for known Sixel terminals
+        if let Ok(term) = std::env::var("TERM") {
+            let term_lower = term.to_lowercase();
+            if term_lower.contains("foot")
+                || term_lower.contains("mlterm")
+                || term_lower.contains("yaft")
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if the terminal supports the iTerm2 inline image protocol.
+    #[cfg(feature = "iterm2")]
+    fn is_iterm2_compatible() -> bool {
+        if let Ok(prog) = std::env::var("TERM_PROGRAM") {
+            let prog_lower = prog.to_lowercase();
+            if prog_lower.contains("iterm2") || prog_lower.contains("mintty") {
+                return true;
+            }
+        }
+
+        // LC_TERMINAL is set by iTerm2
+        if let Ok(lc) = std::env::var("LC_TERMINAL") {
+            if lc.to_lowercase().contains("iterm2") {
+                return true;
+            }
         }
 
         false

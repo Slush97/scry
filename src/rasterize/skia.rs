@@ -68,17 +68,14 @@ impl Rasterizer {
 
     /// Internal: clear and render into a pixmap (shared by both public methods).
     fn rasterize_into_pixmap(canvas: &PixelCanvas, pixmap: &mut Pixmap) {
-        // Clear to transparent
-        for byte in pixmap.data_mut() {
-            *byte = 0;
-        }
-
-        // Fill background
+        // Fill background in a single pass (avoids double-write).
         let bg = canvas.background_color();
-        if bg != Color::TRANSPARENT {
-            if let Some(color) = bg.to_tiny_skia() {
-                pixmap.fill(color);
-            }
+        if bg == Color::TRANSPARENT {
+            pixmap.data_mut().fill(0);
+        } else if let Some(color) = bg.to_tiny_skia() {
+            pixmap.fill(color);
+        } else {
+            pixmap.data_mut().fill(0);
         }
 
         // Render each command

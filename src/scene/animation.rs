@@ -445,14 +445,12 @@ impl Lerp for f64 {
 }
 
 impl Lerp for Color {
-    /// Interpolate in linear RGB space with alpha.
+    /// Interpolate in Oklab perceptual color space with alpha.
+    ///
+    /// Produces perceptually smooth gradients — avoids the muddy
+    /// midpoints of linear RGB (e.g., red→green won't go through brown).
     fn lerp(&self, other: &Self, t: f32) -> Self {
-        Self {
-            r: self.r + (other.r - self.r) * t,
-            g: self.g + (other.g - self.g) * t,
-            b: self.b + (other.b - self.b) * t,
-            a: self.a + (other.a - self.a) * t,
-        }
+        self.mix(*other, t)
     }
 }
 
@@ -467,22 +465,58 @@ impl Lerp for Point {
 }
 
 impl Lerp for Transform {
-    /// Interpolate each matrix component independently.
+    /// Interpolate by decomposing into translate, rotate, scale, then
+    /// interpolating each component and recomposing.
     ///
-    /// This produces correct results for translations and scales, and
-    /// reasonable approximations for rotations when the angle difference
-    /// is small (< 180°). For large rotations, decompose into angle +
-    /// translate + scale and interpolate those separately.
+    /// This is the standard SVG/CSS approach — it preserves rotation
+    /// direction, scale uniformity, and translation linearity, unlike
+    /// naive matrix component lerp.
     fn lerp(&self, other: &Self, t: f32) -> Self {
+        // Decompose both transforms
+        let (tx1, ty1, sx1, sy1, r1) = decompose_transform(self);
+        let (tx2, ty2, sx2, sy2, r2) = decompose_transform(other);
+
+        // Interpolate each component
+        let tx = tx1 + (tx2 - tx1) * t;
+        let ty = ty1 + (ty2 - ty1) * t;
+        let sx = sx1 + (sx2 - sx1) * t;
+        let sy = sy1 + (sy2 - sy1) * t;
+
+        // For rotation, take the shortest path
+        let mut dr = r2 - r1;
+        if dr > std::f32::consts::PI {
+            dr -= std::f32::consts::TAU;
+        } else if dr < -std::f32::consts::PI {
+            dr += std::f32::consts::TAU;
+        }
+        let r = r1 + dr * t;
+
+        // Recompose: Scale × Rotate × Translate
+        let cos = r.cos();
+        let sin = r.sin();
         Self {
-            sx: self.sx + (other.sx - self.sx) * t,
-            kx: self.kx + (other.kx - self.kx) * t,
-            ky: self.ky + (other.ky - self.ky) * t,
-            sy: self.sy + (other.sy - self.sy) * t,
-            tx: self.tx + (other.tx - self.tx) * t,
-            ty: self.ty + (other.ty - self.ty) * t,
+            sx: sx * cos,
+            kx: sx * sin,
+            ky: -sy * sin,
+            sy: sy * cos,
+            tx,
+            ty,
         }
     }
+}
+
+/// Decompose a 2D affine transform into (tx, ty, sx, sy, rotation).
+///
+/// Assumes the matrix is composed as `Scale × Rotate × Translate` (the
+/// standard SVG/CSS decomposition). Returns rotation in radians.
+#[inline]
+fn decompose_transform(t: &Transform) -> (f32, f32, f32, f32, f32) {
+    let tx = t.tx;
+    let ty = t.ty;
+    let sx = (t.sx * t.sx + t.kx * t.kx).sqrt();
+    let sy = (t.ky * t.ky + t.sy * t.sy).sqrt();
+    let rotation = t.kx.atan2(t.sx);
+    (tx, ty, sx, sy, rotation)
 }
 
 // Also implement for tuples of lerp-able types
@@ -784,16 +818,10 @@ impl AnimationState {
 
     /// Advance all animations by `dt`. Completed animations are removed.
     pub fn tick(&mut self, dt: Duration) {
-        let mut completed = Vec::new();
-        for (id, anim) in &mut self.animations {
+        self.animations.retain(|_, anim| {
             anim.advance_any(dt);
-            if anim.is_complete_any() {
-                completed.push(*id);
-            }
-        }
-        for id in completed {
-            self.animations.remove(id);
-        }
+            !anim.is_complete_any()
+        });
     }
 
     /// Get the current value of a named animation.
@@ -1031,9 +1059,42 @@ mod tests {
         let black = Color::BLACK;
         let white = Color::WHITE;
         let mid = black.lerp(&white, 0.5);
-        assert!((mid.r - 0.5).abs() < 0.01);
-        assert!((mid.g - 0.5).abs() < 0.01);
-        assert!((mid.b - 0.5).abs() < 0.01);
+        // Oklab midpoint of black→white is perceptual mid-gray.
+        // In Oklab, L=0.5 maps to sRGB ~0.39 (not 0.5 as in linear RGB).
+        assert!((mid.r - mid.g).abs() < 0.01, "mid-gray should be neutral");
+        assert!((mid.g - mid.b).abs() < 0.01, "mid-gray should be neutral");
+        assert!(mid.r > 0.3 && mid.r < 0.5, "mid-gray R={} should be ~0.39", mid.r);
+    }
+
+    #[test]
+    fn oklab_round_trip() {
+        let colors = [Color::RED, Color::GREEN, Color::BLUE, Color::WHITE, Color::BLACK];
+        for color in colors {
+            let (l, a, b) = color.to_oklab();
+            let restored = Color::from_oklab(l, a, b, color.a);
+            assert!((color.r - restored.r).abs() < 0.01, "R: {:.4} vs {:.4}", color.r, restored.r);
+            assert!((color.g - restored.g).abs() < 0.01, "G: {:.4} vs {:.4}", color.g, restored.g);
+            assert!((color.b - restored.b).abs() < 0.01, "B: {:.4} vs {:.4}", color.b, restored.b);
+        }
+    }
+
+    #[test]
+    fn lerp_color_oklab_no_muddy_midtones() {
+        let red = Color::RED;
+        let green = Color::GREEN;
+        let oklab_mid = red.lerp(&green, 0.5);
+        // The Oklab midpoint of red→green should be a bright yellow/olive,
+        // not the dull brown that linear RGB produces.
+        // In Oklab, the midpoint should have higher perceived brightness
+        // than the brown produced by linear RGB.
+        let (l_oklab, _, _) = oklab_mid.to_oklab();
+        // Compare with linear RGB midpoint
+        let linear_mid = red.mix_rgb(green, 0.5);
+        let (l_linear, _, _) = linear_mid.to_oklab();
+        assert!(
+            l_oklab > l_linear - 0.05,
+            "Oklab mid L={l_oklab:.3} should be ≥ linear mid L={l_linear:.3}"
+        );
     }
 
     #[test]

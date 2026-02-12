@@ -1,1 +1,7 @@
-# Auto-generated\n/target/\n*.swp\n*.swo\n*~\n.DS_Store\nCargo.lock
+# Auto-generated
+/target/
+*.swp
+*.swo
+*~
+.DS_Store
+Cargo.lock

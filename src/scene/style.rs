@@ -170,19 +170,97 @@ impl Color {
         Self::from_hsla(h, s, l, 1.0)
     }
 
-    /// Linearly interpolate between two colors in RGB space.
+    /// Linearly interpolate between two colors in Oklab perceptual space.
     ///
     /// `t = 0.0` returns `self`, `t = 1.0` returns `other`.
     /// This is the same as the [`Lerp`](crate::scene::animation::Lerp) trait
     /// but available directly on `Color` without importing the trait.
+    ///
+    /// Oklab interpolation produces perceptually uniform gradients — unlike
+    /// linear RGB, it avoids muddy midpoints (e.g., red→green won't go
+    /// through brown).
     #[must_use]
     pub fn mix(self, other: Self, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let (l1, a1, b1) = self.to_oklab();
+        let (l2, a2, b2) = other.to_oklab();
+        Self::from_oklab(
+            (l2 - l1).mul_add(t, l1),
+            (a2 - a1).mul_add(t, a1),
+            (b2 - b1).mul_add(t, b1),
+            (other.a - self.a).mul_add(t, self.a),
+        )
+    }
+
+    /// Linearly interpolate in raw RGB space (no perceptual correction).
+    ///
+    /// Use this when you need exact RGB blending or when Oklab overhead
+    /// is not desired.
+    #[must_use]
+    pub fn mix_rgb(self, other: Self, t: f32) -> Self {
         let t = t.clamp(0.0, 1.0);
         Self {
             r: (other.r - self.r).mul_add(t, self.r),
             g: (other.g - self.g).mul_add(t, self.g),
             b: (other.b - self.b).mul_add(t, self.b),
             a: (other.a - self.a).mul_add(t, self.a),
+        }
+    }
+
+    // --- Oklab color space conversion ---
+
+    /// Convert sRGB to Oklab perceptual color space.
+    ///
+    /// Returns `(L, a, b)` where L is lightness [0,1], a is green-red, b is blue-yellow.
+    /// Reference: Björn Ottosson, "A perceptual color space for image processing" (2020).
+    #[must_use]
+    pub fn to_oklab(self) -> (f32, f32, f32) {
+        // sRGB → linear
+        let rl = srgb_to_linear(self.r);
+        let gl = srgb_to_linear(self.g);
+        let bl = srgb_to_linear(self.b);
+
+        // Linear RGB → LMS (using Oklab matrix)
+        let l = 0.412_165_6_f32.mul_add(rl, 0.536_275_2_f32.mul_add(gl, 0.051_457_57 * bl));
+        let m = 0.211_859_1_f32.mul_add(rl, 0.680_719_9_f32.mul_add(gl, 0.107_406_58 * bl));
+        let s = 0.088_309_78_f32.mul_add(rl, 0.281_847_42_f32.mul_add(gl, 0.629_927_6 * bl));
+
+        // Cube root
+        let l_ = l.cbrt();
+        let m_ = m.cbrt();
+        let s_ = s.cbrt();
+
+        // LMS → Lab
+        let ok_l = 0.210_454_26_f32.mul_add(l_, 0.793_617_8_f32.mul_add(m_, -0.004_072_047 * s_));
+        let ok_a = 1.977_998_5_f32.mul_add(l_, (-2.428_592_2_f32).mul_add(m_, 0.450_593_7 * s_));
+        let ok_b = 0.025_904_037_f32.mul_add(l_, 0.782_771_8_f32.mul_add(m_, -0.808_675_77 * s_));
+
+        (ok_l, ok_a, ok_b)
+    }
+
+    /// Create a color from Oklab components plus alpha.
+    #[must_use]
+    pub fn from_oklab(l: f32, a_ok: f32, b_ok: f32, alpha: f32) -> Self {
+        // Lab → LMS
+        let l_ = 0.396_337_78_f32.mul_add(a_ok, 0.215_803_76_f32.mul_add(b_ok, l));
+        let m_ = (-0.105_561_346_f32).mul_add(a_ok, (-0.063_854_17_f32).mul_add(b_ok, l));
+        let s_ = (-0.089_484_18_f32).mul_add(a_ok, (-1.291_485_5_f32).mul_add(b_ok, l));
+
+        // Cube
+        let l_lin = l_ * l_ * l_;
+        let m_lin = m_ * m_ * m_;
+        let s_lin = s_ * s_ * s_;
+
+        // LMS → linear RGB
+        let rl = 4.076_741_7_f32.mul_add(l_lin, (-3.307_711_6_f32).mul_add(m_lin, 0.230_969_94 * s_lin));
+        let gl = (-1.268_438_f32).mul_add(l_lin, 2.609_757_4_f32.mul_add(m_lin, -0.341_319_38 * s_lin));
+        let bl = (-0.004_196_086_3_f32).mul_add(l_lin, (-0.703_418_6_f32).mul_add(m_lin, 1.707_614_7 * s_lin));
+
+        Self {
+            r: linear_to_srgb(rl),
+            g: linear_to_srgb(gl),
+            b: linear_to_srgb(bl),
+            a: alpha,
         }
     }
 
@@ -203,6 +281,29 @@ impl Color {
     #[must_use]
     pub fn to_tiny_skia(self) -> Option<tiny_skia::Color> {
         tiny_skia::Color::from_rgba(self.r, self.g, self.b, self.a)
+    }
+}
+
+// --- sRGB transfer functions ---
+
+/// sRGB gamma → linear (inverse OETF).
+#[inline]
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.040_45 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Linear → sRGB gamma (OETF).
+#[inline]
+fn linear_to_srgb(c: f32) -> f32 {
+    let c = c.clamp(0.0, 1.0);
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055_f32.mul_add(c.powf(1.0 / 2.4), -0.055)
     }
 }
 
