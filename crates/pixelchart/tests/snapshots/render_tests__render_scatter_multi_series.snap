@@ -1,0 +1,17 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 99
+expression: summarize(&rendered)
+---
+canvas: 400x300, 26 commands
+overlays: 10
+  [0] (71, 279) Center "1"
+  [1] (176, 279) Center "2"
+  [2] (282, 279) Center "3"
+  [3] (388, 279) Center "4"
+  [4] (52, 235) Right "2"
+  [5] (52, 183) Right "4"
+  [6] (52, 132) Right "6"
+  [7] (52, 81) Right "8"
+  [8] (52, 30) Right "10"
+  [9] (224, 6) Center "Multi-Series Scatter"

@@ -1,0 +1,14 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 563
+expression: summarize(&rendered)
+---
+canvas: 400x300, 10 commands
+overlays: 7
+  [0] (80, 281) Center "0"
+  [1] (183, 281) Center "10"
+  [2] (286, 281) Center "20"
+  [3] (388, 281) Center "30"
+  [4] (52, 91) Right "A"
+  [5] (52, 212) Right "B"
+  [6] (224, 6) Center "Horizontal Stacked"

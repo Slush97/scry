@@ -1,0 +1,17 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 623
+expression: summarize(&rendered)
+---
+canvas: 400x300, 24 commands
+overlays: 10
+  [0] (76, 279) Center "1"
+  [1] (154, 279) Center "2"
+  [2] (232, 279) Center "3"
+  [3] (310, 279) Center "4"
+  [4] (388, 279) Center "5"
+  [5] (52, 243) Right "2"
+  [6] (52, 182) Right "4"
+  [7] (52, 121) Right "6"
+  [8] (52, 60) Right "8"
+  [9] (224, 6) Center "NaN Data"

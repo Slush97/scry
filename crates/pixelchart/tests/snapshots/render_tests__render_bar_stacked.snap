@@ -1,0 +1,15 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 218
+expression: summarize(&rendered)
+---
+canvas: 400x300, 16 commands
+overlays: 8
+  [0] (52, 258) Right "0"
+  [1] (52, 182) Right "10"
+  [2] (52, 106) Right "20"
+  [3] (52, 30) Right "30"
+  [4] (115, 281) Center "A"
+  [5] (224, 281) Center "B"
+  [6] (333, 281) Center "C"
+  [7] (224, 6) Center "Stacked Bars"

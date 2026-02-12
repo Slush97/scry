@@ -1,0 +1,17 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 81
+expression: summarize(&rendered)
+---
+canvas: 400x300, 21 commands
+overlays: 10
+  [0] (145, 264) Center "2"
+  [1] (266, 264) Center "4"
+  [2] (388, 264) Center "6"
+  [3] (64, 220) Right "2"
+  [4] (64, 166) Right "4"
+  [5] (64, 111) Right "6"
+  [6] (64, 57) Right "8"
+  [7] (230, 6) Center "Scatter Test"
+  [8] (230, 280) Center "X"
+  [9] (2, 144) Left "Y"

@@ -1,0 +1,674 @@
+//! Kitty graphics protocol backend.
+//!
+//! Implements the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
+//! for transmitting pixel-perfect images to supported terminal emulators.
+//!
+//! The protocol works by base64-encoding image data and sending it via
+//! escape sequences. Images are assigned unique IDs and can be placed at
+//! specific positions, layered with z-index, and cleaned up individually.
+//!
+//! # Transmission Formats
+//!
+//! | Format | Wire size | Encode cost | Best for |
+//! |---------|-----------|-------------|----------|
+//! | `ZlibRgba` | ~500 KB | ~2 ms | **Animation** (default) |
+//! | `RawRgba` | ~5.5 MB | ~0 ms | Debugging |
+//! | `Png` | ~50 KB | ~30 ms | Static images |
+
+use std::io::Write;
+
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use tiny_skia::Pixmap;
+
+use crate::transport::backend::{
+    FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
+};
+use crate::PixelCanvasError;
+
+/// Global image ID counter. Kitty image IDs must be unique across the
+/// terminal session, so we use an atomic counter.
+static NEXT_IMAGE_ID: AtomicU32 = AtomicU32::new(1);
+
+/// Maximum bytes to send in a single Kitty protocol chunk.
+/// The protocol recommends splitting large payloads into 4096-byte chunks.
+const CHUNK_SIZE: usize = 4096;
+
+/// How to encode pixel data for Kitty protocol transmission.
+///
+/// The default is [`ZlibRgba`](TransmitFormat::ZlibRgba), which provides
+/// the best balance of encode speed and wire size for animation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TransmitFormat {
+    /// Zlib-compressed 32-bit RGBA pixels (`f=32,o=z`). Compresses raw
+    /// pixels with deflate level 1 before base64 encoding, giving ~5–10×
+    /// smaller payloads than `RawRgba` at a cost of ~2 ms per frame.
+    /// This is the **recommended format for animation**.
+    #[default]
+    ZlibRgba,
+    /// Raw 32-bit RGBA pixels (`f=32`). No compression overhead, but
+    /// very large on the wire (~5 MB for a 1280×800 image). Useful for
+    /// debugging or when the terminal does not support `o=z`.
+    RawRgba,
+    /// PNG-encoded pixels (`f=100`). 10–20× more compact on the wire, but
+    /// requires a PNG encoding step per frame which can be slow for large
+    /// images (~30 ms+). Best for static or infrequently updated content.
+    Png,
+    /// POSIX shared memory (`t=s,f=32`). Zero-copy: pixel data is written
+    /// to a shared memory object and the terminal reads it directly.
+    /// No base64, no pipe I/O. Fastest possible path for local terminals.
+    /// Requires the `shm` feature.
+    #[cfg(feature = "shm")]
+    SharedMemory,
+}
+
+// ---------------------------------------------------------------------------
+// KittyBackend
+// ---------------------------------------------------------------------------
+
+/// Backend for the Kitty graphics protocol.
+///
+/// Transmits images via stdout escape sequences. Each image is assigned a
+/// unique ID that can be used for later removal.
+///
+/// # Note
+///
+/// This backend writes directly to a configurable writer (defaulting to
+/// stdout). In testing, you can provide a `Vec<u8>` buffer instead.
+#[derive(Debug)]
+pub struct KittyBackend<W: Write + std::fmt::Debug = std::io::Stdout> {
+    writer: W,
+    /// IDs of all images currently managed by this backend.
+    active_ids: Vec<u32>,
+    /// Font size for pixel ↔ cell conversion.
+    font_size: FontSize,
+    /// Transmission format: raw RGBA, zlib, PNG, or shm.
+    format: TransmitFormat,
+    /// Reusable base64 encoding buffer to avoid per-frame allocation.
+    encode_buf: String,
+    /// Reusable zlib compression buffer to avoid per-frame allocation.
+    compress_buf: Vec<u8>,
+    /// Fixed placement ID for flicker-free in-place replacement.
+    /// The Kitty protocol replaces a placement atomically when the
+    /// same (`image_id`, `placement_id`) pair is reused.
+    placement_id: u32,
+    /// Shared memory buffer for zero-copy transmission.
+    #[cfg(feature = "shm")]
+    shm_buf: Option<crate::transport::shm::ShmBuffer>,
+}
+
+impl KittyBackend<std::io::Stdout> {
+    /// Create a new Kitty backend that writes to stdout.
+    #[must_use]
+    pub fn new(font_size: FontSize) -> Self {
+        Self {
+            writer: std::io::stdout(),
+            active_ids: Vec::new(),
+            font_size,
+            format: TransmitFormat::default(),
+            encode_buf: String::new(),
+            compress_buf: Vec::new(),
+            placement_id: 1,
+            #[cfg(feature = "shm")]
+            shm_buf: None,
+        }
+    }
+}
+
+impl<W: Write + std::fmt::Debug> KittyBackend<W> {
+    /// Create a new Kitty backend with a custom writer.
+    ///
+    /// This is useful for testing (pass a `Vec<u8>`) or for writing to
+    /// a file descriptor other than stdout.
+    #[must_use]
+    pub fn with_writer(writer: W, font_size: FontSize) -> Self {
+        Self {
+            writer,
+            active_ids: Vec::new(),
+            font_size,
+            format: TransmitFormat::default(),
+            encode_buf: String::new(),
+            compress_buf: Vec::new(),
+            placement_id: 1,
+            #[cfg(feature = "shm")]
+            shm_buf: None,
+        }
+    }
+
+    /// Set the transmission format.
+    #[must_use]
+    pub const fn format(mut self, format: TransmitFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// The font size used for pixel ↔ cell conversion.
+    #[must_use]
+    pub const fn font_size(&self) -> FontSize {
+        self.font_size
+    }
+
+    /// Consume the backend and return the underlying writer.
+    ///
+    /// Useful for inspecting written output in tests.
+    #[must_use]
+    pub fn into_writer(self) -> W {
+        self.writer
+    }
+
+    /// Allocate a new unique image ID, skipping ID 0 which is reserved
+    /// by the Kitty protocol as "unspecified".
+    fn next_id() -> u32 {
+        loop {
+            let id = NEXT_IMAGE_ID.fetch_add(1, Ordering::Relaxed);
+            if id != 0 {
+                return id;
+            }
+        }
+    }
+
+    /// Encode a pixmap as PNG bytes.
+    fn encode_png(pixmap: &Pixmap) -> Result<Vec<u8>, PixelCanvasError> {
+        pixmap
+            .encode_png()
+            .map_err(|e| PixelCanvasError::Rasterization(e.to_string()))
+    }
+
+    /// Send a Kitty graphics command with chunked base64 payload.
+    fn send_chunked(
+        &mut self,
+        image_id: u32,
+        png_data: &[u8],
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<(), PixelCanvasError> {
+        use base64::Engine;
+        self.encode_buf.clear();
+        base64::engine::general_purpose::STANDARD.encode_string(png_data, &mut self.encode_buf);
+        let chunks: Vec<&str> = self.encode_buf.as_bytes().chunks(CHUNK_SIZE).map(|c| {
+            // SAFETY: base64 encoding always produces valid ASCII/UTF-8
+            std::str::from_utf8(c).unwrap_or("")
+        }).collect();
+
+        let placement_id = self.placement_id;
+
+        // Begin synchronized update — terminal batches everything until the
+        // matching end marker, preventing any intermediate rendering.
+        write!(self.writer, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        // Move cursor to target position
+        write!(
+            self.writer,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunks.len() - 1;
+            let more = i32::from(!is_last);
+
+            if i == 0 {
+                // First chunk: include all metadata + placement ID for
+                // atomic in-place replacement
+                write!(
+                    self.writer,
+                    "\x1b_Ga=T,q=2,f=100,i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
+                    position.width_cells,
+                    position.height_cells,
+                )
+                .map_err(PixelCanvasError::Transmission)?;
+            } else {
+                // Continuation chunks
+                write!(self.writer, "\x1b_Gm={more};{chunk}\x1b\\")
+                    .map_err(PixelCanvasError::Transmission)?;
+            }
+        }
+
+        // End synchronized update
+        write!(self.writer, "\x1b[?2026l")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        Ok(())
+    }
+
+    /// Send a delete command for a specific image ID.
+    fn send_delete(&mut self, image_id: u32) -> Result<(), PixelCanvasError> {
+        write!(self.writer, "\x1b_Ga=d,d=I,q=2,i={image_id};\x1b\\")
+            .map_err(PixelCanvasError::Transmission)?;
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+        Ok(())
+    }
+
+    /// Send raw RGBA pixel data (f=32) — much faster than PNG for animation.
+    ///
+    /// This sends the raw pixel buffer with `f=32` (32-bit RGBA) and includes
+    /// `s=` (source width) and `v=` (source height) so the terminal knows the
+    /// image dimensions without needing a header.
+    fn send_raw_rgba(
+        &mut self,
+        image_id: u32,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<(), PixelCanvasError> {
+        use base64::Engine;
+
+        let pixel_width = pixmap.width();
+        let pixel_height = pixmap.height();
+        let raw_data = pixmap.data(); // &[u8] — RGBA pixels
+        let placement_id = self.placement_id;
+
+        self.encode_buf.clear();
+        base64::engine::general_purpose::STANDARD.encode_string(raw_data, &mut self.encode_buf);
+        let chunks: Vec<&str> = self.encode_buf
+            .as_bytes()
+            .chunks(CHUNK_SIZE)
+            .map(|c| std::str::from_utf8(c).unwrap_or(""))
+            .collect();
+
+        // Begin synchronized update
+        write!(self.writer, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        // Move cursor to target position
+        write!(
+            self.writer,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunks.len() - 1;
+            let more = i32::from(!is_last);
+
+            if i == 0 {
+                // First chunk: f=32 (raw RGBA), s=width, v=height,
+                // p=placement_id for atomic replacement
+                write!(
+                    self.writer,
+                    "\x1b_Ga=T,q=2,f=32,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
+                    position.width_cells,
+                    position.height_cells,
+                )
+                .map_err(PixelCanvasError::Transmission)?;
+            } else {
+                write!(self.writer, "\x1b_Gm={more};{chunk}\x1b\\")
+                    .map_err(PixelCanvasError::Transmission)?;
+            }
+        }
+
+        // End synchronized update
+        write!(self.writer, "\x1b[?2026l")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        Ok(())
+    }
+
+    /// Send zlib-compressed RGBA pixel data (`f=32,o=z`).
+    ///
+    /// This compresses the raw RGBA buffer with deflate level 1 (fast),
+    /// then base64-encodes and sends via chunked escape sequences.
+    /// Typically achieves ~5–10× compression on graphics content, reducing
+    /// a 5 MB payload to ~500 KB.
+    fn send_zlib_rgba(
+        &mut self,
+        image_id: u32,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<(), PixelCanvasError> {
+        use base64::Engine;
+
+        let pixel_width = pixmap.width();
+        let pixel_height = pixmap.height();
+        let raw_data = pixmap.data();
+        let placement_id = self.placement_id;
+
+        // Compress with zlib level 1 (fastest) — reuse buffer
+        self.compress_buf.clear();
+        {
+            let mut encoder = ZlibEncoder::new(&mut self.compress_buf, Compression::fast());
+            encoder
+                .write_all(raw_data)
+                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib compress failed: {e}")))?;
+            encoder
+                .finish()
+                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib finish failed: {e}")))?;
+        }
+
+        // Base64 encode the compressed data — reuse buffer
+        self.encode_buf.clear();
+        base64::engine::general_purpose::STANDARD
+            .encode_string(&self.compress_buf, &mut self.encode_buf);
+        let chunks: Vec<&str> = self
+            .encode_buf
+            .as_bytes()
+            .chunks(CHUNK_SIZE)
+            .map(|c| std::str::from_utf8(c).unwrap_or(""))
+            .collect();
+
+        // Begin synchronized update
+        write!(self.writer, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        // Move cursor to target position
+        write!(
+            self.writer,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunks.len() - 1;
+            let more = i32::from(!is_last);
+
+            if i == 0 {
+                // f=32 (raw RGBA), o=z (zlib compressed),
+                // s=width, v=height, p=placement_id
+                write!(
+                    self.writer,
+                    "\x1b_Ga=T,q=2,f=32,o=z,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
+                    position.width_cells,
+                    position.height_cells,
+                )
+                .map_err(PixelCanvasError::Transmission)?;
+            } else {
+                write!(self.writer, "\x1b_Gm={more};{chunk}\x1b\\")
+                    .map_err(PixelCanvasError::Transmission)?;
+            }
+        }
+
+        // End synchronized update
+        write!(self.writer, "\x1b[?2026l")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        Ok(())
+    }
+
+    /// Send pixel data via POSIX shared memory (`t=s,f=32`).
+    ///
+    /// Writes raw RGBA directly into a shared memory object, then sends
+    /// a tiny escape sequence telling the terminal to read from it.
+    /// No base64 encoding, no pipe I/O — just a ~200 byte control sequence.
+    #[cfg(feature = "shm")]
+    fn send_shm(
+        &mut self,
+        image_id: u32,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<(), PixelCanvasError> {
+        let pixel_width = pixmap.width();
+        let pixel_height = pixmap.height();
+        let raw_data = pixmap.data();
+        let data_size = raw_data.len();
+        let placement_id = self.placement_id;
+
+        // Ensure shm buffer exists and is large enough
+        let shm_name = format!("pixelcanvas-{}", std::process::id());
+        let buf = match self.shm_buf {
+            Some(ref mut buf) => {
+                if buf.capacity() < data_size {
+                    buf.resize(data_size)
+                        .map_err(|e| PixelCanvasError::Rasterization(format!("shm resize failed: {e}")))?;
+                }
+                buf
+            }
+            None => {
+                self.shm_buf = Some(
+                    crate::transport::shm::ShmBuffer::new(&shm_name, data_size)
+                        .map_err(|e| PixelCanvasError::Rasterization(format!("shm_open failed: {e}")))?,
+                );
+                self.shm_buf.as_mut().expect("just created")
+            }
+        };
+
+        // Write pixels into shared memory
+        buf.write(raw_data);
+        let name = buf.name().to_string();
+
+        // Begin synchronized update
+        write!(self.writer, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        // Move cursor to target position
+        write!(
+            self.writer,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
+
+        // Single escape: t=s (shared memory), f=32 (raw RGBA),
+        // s=width, v=height — payload is the shm object name
+        write!(
+            self.writer,
+            "\x1b_Ga=T,q=2,t=s,f=32,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index},c={},r={};{name}\x1b\\",
+            position.width_cells,
+            position.height_cells,
+        )
+        .map_err(PixelCanvasError::Transmission)?;
+
+        // End synchronized update
+        write!(self.writer, "\x1b[?2026l")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        Ok(())
+    }
+}
+
+impl<W: Write + std::fmt::Debug + Send> ProtocolBackend for KittyBackend<W> {
+    fn transmit(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        let image_id = Self::next_id();
+
+        match self.format {
+            TransmitFormat::ZlibRgba => {
+                self.send_zlib_rgba(image_id, pixmap, position, z_index)?;
+            }
+            TransmitFormat::RawRgba => {
+                self.send_raw_rgba(image_id, pixmap, position, z_index)?;
+            }
+            TransmitFormat::Png => {
+                let png_data = Self::encode_png(pixmap)?;
+                self.send_chunked(image_id, &png_data, position, z_index)?;
+            }
+            #[cfg(feature = "shm")]
+            TransmitFormat::SharedMemory => {
+                self.send_shm(image_id, pixmap, position, z_index)?;
+            }
+        }
+        self.active_ids.push(image_id);
+
+        Ok(ImageHandle {
+            id: image_id,
+            protocol: ProtocolKind::Kitty,
+        })
+    }
+
+    fn remove(&mut self, handle: &ImageHandle) -> Result<(), PixelCanvasError> {
+        self.send_delete(handle.id)?;
+        self.active_ids.retain(|&id| id != handle.id);
+        Ok(())
+    }
+
+    fn clear_all(&mut self) -> Result<(), PixelCanvasError> {
+        // Delete all images managed by this backend
+        let ids: Vec<u32> = self.active_ids.drain(..).collect();
+        for id in ids {
+            self.send_delete(id)?;
+        }
+        Ok(())
+    }
+
+    fn replace(
+        &mut self,
+        handle: &ImageHandle,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        // Reuse the existing image ID — Kitty atomically replaces the pixel
+        // data for an ID when you transmit with a=T and the same i=.
+        let image_id = handle.id;
+
+        match self.format {
+            TransmitFormat::ZlibRgba => {
+                self.send_zlib_rgba(image_id, pixmap, position, z_index)?;
+            }
+            TransmitFormat::RawRgba => {
+                self.send_raw_rgba(image_id, pixmap, position, z_index)?;
+            }
+            TransmitFormat::Png => {
+                let png_data = Self::encode_png(pixmap)?;
+                self.send_chunked(image_id, &png_data, position, z_index)?;
+            }
+            #[cfg(feature = "shm")]
+            TransmitFormat::SharedMemory => {
+                self.send_shm(image_id, pixmap, position, z_index)?;
+            }
+        }
+
+        Ok(ImageHandle {
+            id: image_id,
+            protocol: ProtocolKind::Kitty,
+        })
+    }
+
+    fn supports_alpha(&self) -> bool {
+        true
+    }
+
+    fn protocol_kind(&self) -> ProtocolKind {
+        ProtocolKind::Kitty
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_backend() -> KittyBackend<Vec<u8>> {
+        KittyBackend::with_writer(Vec::new(), FontSize::default())
+    }
+
+    #[test]
+    fn transmit_produces_escape_sequence() {
+        let mut backend = test_backend();
+        let pixmap = Pixmap::new(10, 10).unwrap();
+        let pos = TerminalPosition::new(0, 0, 5, 5);
+
+        let handle = backend.transmit(&pixmap, pos, 0).unwrap();
+        assert_eq!(handle.protocol(), ProtocolKind::Kitty);
+
+        // Check that output contains Kitty escape sequence markers
+        let output = String::from_utf8_lossy(&backend.writer);
+        assert!(output.contains("\x1b_G"));
+        assert!(output.contains("\x1b\\"));
+        assert!(output.contains("a=T"));
+        assert!(output.contains("f=32")); // RGBA pixel format
+        assert!(output.contains("o=z"), "default format should use zlib compression");
+        assert!(output.contains("p=1"), "should include placement ID");
+        // Synchronized output wrapping
+        assert!(output.contains("\x1b[?2026h"), "should begin synchronized update");
+        assert!(output.contains("\x1b[?2026l"), "should end synchronized update");
+    }
+
+    #[test]
+    fn remove_sends_delete_command() {
+        let mut backend = test_backend();
+        let pixmap = Pixmap::new(10, 10).unwrap();
+        let pos = TerminalPosition::new(0, 0, 5, 5);
+
+        let handle = backend.transmit(&pixmap, pos, 0).unwrap();
+        let id = handle.id();
+
+        backend.writer.clear();
+        backend.remove(&handle).unwrap();
+
+        let output = String::from_utf8_lossy(&backend.writer);
+        assert!(output.contains("a=d"));
+        assert!(output.contains(&format!("i={id}")));
+    }
+
+    #[test]
+    fn clear_all_removes_all_images() {
+        let mut backend = test_backend();
+        let pixmap = Pixmap::new(10, 10).unwrap();
+        let pos = TerminalPosition::new(0, 0, 5, 5);
+
+        backend.transmit(&pixmap, pos, 0).unwrap();
+        backend.transmit(&pixmap, pos, 0).unwrap();
+        assert_eq!(backend.active_ids.len(), 2);
+
+        backend.clear_all().unwrap();
+        assert!(backend.active_ids.is_empty());
+    }
+
+    #[test]
+    fn supports_alpha() {
+        let backend = test_backend();
+        assert!(backend.supports_alpha());
+    }
+
+    #[test]
+    fn replace_reuses_image_id() {
+        let mut backend = test_backend();
+        let pixmap = Pixmap::new(10, 10).unwrap();
+        let pos = TerminalPosition::new(0, 0, 5, 5);
+
+        // Transmit initial image
+        let handle = backend.transmit(&pixmap, pos, 0).unwrap();
+        let original_id = handle.id();
+
+        // Replace with new data
+        backend.writer.clear();
+        let new_handle = backend.replace(&handle, &pixmap, pos, 0).unwrap();
+
+        // Must reuse the same image ID
+        assert_eq!(new_handle.id(), original_id);
+
+        // Must NOT contain a delete command
+        let output = String::from_utf8_lossy(&backend.writer);
+        assert!(!output.contains("a=d"), "replace should not emit a delete command");
+        assert!(output.contains("a=T"), "replace should emit a transmit command");
+        assert!(output.contains(&format!("i={original_id}")));
+        assert!(output.contains("p=1"), "replace should include placement id for atomic swap");
+    }
+}

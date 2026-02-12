@@ -1,0 +1,13 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 674
+expression: summarize(&rendered)
+---
+canvas: 400x300, 20 commands
+overlays: 6
+  [0] (136, 279) Center "2"
+  [1] (262, 279) Center "4"
+  [2] (388, 279) Center "6"
+  [3] (52, 230) Right "2"
+  [4] (52, 142) Right "4"
+  [5] (52, 56) Right "6"

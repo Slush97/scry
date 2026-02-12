@@ -1,0 +1,19 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 236
+expression: summarize(&rendered)
+---
+canvas: 400x300, 50 commands
+overlays: 12
+  [0] (80, 264) Center "0"
+  [1] (157, 264) Center "50"
+  [2] (234, 264) Center "100"
+  [3] (311, 264) Center "150"
+  [4] (388, 264) Center "200"
+  [5] (64, 251) Right "0"
+  [6] (64, 177) Right "10"
+  [7] (64, 104) Right "20"
+  [8] (64, 30) Right "30"
+  [9] (230, 6) Center "Distribution"
+  [10] (230, 280) Center "Value"
+  [11] (2, 144) Left "Frequency"

@@ -1,0 +1,18 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 134
+expression: summarize(&rendered)
+---
+canvas: 400x300, 24 commands
+overlays: 11
+  [0] (89, 264) Center "0"
+  [1] (174, 264) Center "2"
+  [2] (260, 264) Center "4"
+  [3] (345, 264) Center "6"
+  [4] (64, 220) Right "2"
+  [5] (64, 166) Right "4"
+  [6] (64, 111) Right "6"
+  [7] (64, 57) Right "8"
+  [8] (230, 6) Center "Line Test"
+  [9] (230, 280) Center "Time"
+  [10] (2, 144) Left "Value"

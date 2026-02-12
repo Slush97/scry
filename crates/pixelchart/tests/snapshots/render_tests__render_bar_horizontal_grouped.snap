@@ -1,0 +1,15 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 547
+expression: summarize(&rendered)
+---
+canvas: 400x300, 11 commands
+overlays: 8
+  [0] (73, 281) Center "0"
+  [1] (151, 281) Center "5"
+  [2] (230, 281) Center "10"
+  [3] (309, 281) Center "15"
+  [4] (388, 281) Center "20"
+  [5] (52, 91) Right "Q1"
+  [6] (52, 212) Right "Q2"
+  [7] (224, 6) Center "Horizontal Grouped"

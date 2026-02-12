@@ -1,0 +1,18 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 583
+expression: summarize(&rendered)
+---
+canvas: 400x300, 56 commands
+overlays: 11
+  [0] (115, 279) Center "20"
+  [1] (193, 279) Center "40"
+  [2] (271, 279) Center "60"
+  [3] (349, 279) Center "80"
+  [4] (52, 258) Right "0"
+  [5] (52, 182) Right "10"
+  [6] (52, 106) Right "20"
+  [7] (52, 30) Right "30"
+  [8] (322, 38) Left "Series 1"
+  [9] (322, 52) Left "Series B"
+  [10] (224, 6) Center "Multi-Histogram"

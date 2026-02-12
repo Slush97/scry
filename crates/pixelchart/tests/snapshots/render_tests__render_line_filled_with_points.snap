@@ -1,0 +1,15 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 148
+expression: summarize(&rendered)
+---
+canvas: 400x300, 26 commands
+overlays: 8
+  [0] (73, 279) Center "0"
+  [1] (199, 279) Center "2"
+  [2] (325, 279) Center "4"
+  [3] (52, 232) Right "2"
+  [4] (52, 175) Right "4"
+  [5] (52, 117) Right "6"
+  [6] (52, 59) Right "8"
+  [7] (224, 6) Center "Filled Line"

@@ -1,0 +1,17 @@
+---
+source: crates/pixelchart/tests/render_tests.rs
+assertion_line: 604
+expression: summarize(&rendered)
+---
+canvas: 500x350, 22 commands
+overlays: 10
+  [0] (87, 324) Center "0"
+  [1] (220, 324) Center "1"
+  [2] (353, 324) Center "2"
+  [3] (486, 324) Center "3"
+  [4] (66, 271) Right "20"
+  [5] (66, 177) Right "40"
+  [6] (66, 82) Right "60"
+  [7] (420, 43) Left "Temp"
+  [8] (420, 57) Left "Humidity"
+  [9] (280, 7) Center "Legend Text Check"
