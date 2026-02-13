@@ -160,11 +160,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Page::PenroseTriangle => build_penrose(area, &state, t),
             };
 
-            frame.render_stateful_widget(
-                PixelCanvasWidget::new(canvas).z_index(-1),
-                area,
-                &mut state,
-            );
+            // skip_cache: these scenes change every frame, so content
+            // hashing would never hit cache — saves ~2ms per frame.
+            let widget = PixelCanvasWidget::new(canvas).z_index(-1).skip_cache();
+            frame.render_stateful_widget(widget, area, &mut state);
 
             let idx = page.index();
             let status_text = format!(
@@ -222,7 +221,8 @@ fn build_moire(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     let cx = wf / 2.0;
     let cy = hf / 2.0;
     let r_max = wf.min(hf) * 0.48;
-    let spacing = 3.5; // very dense rings for maximum interference
+    // Wider spacing = fewer commands, still great moiré effect
+    let spacing = 5.0;
     let num_rings = (r_max / spacing) as usize;
 
     // Oscillating offset for the second grid
@@ -234,7 +234,7 @@ fn build_moire(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
         let r = i as f32 * spacing;
         canvas = canvas
             .circle(cx, cy, r)
-            .stroke(C::from_rgba8(0, 180, 255, 70), 1.2)
+            .stroke(C::from_rgba8(0, 180, 255, 70), 1.5)
             .done();
     }
 
@@ -243,52 +243,40 @@ fn build_moire(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
         let r = i as f32 * spacing;
         canvas = canvas
             .circle(cx + offset_x, cy + offset_y, r)
-            .stroke(C::from_rgba8(255, 0, 180, 70), 1.2)
+            .stroke(C::from_rgba8(255, 0, 180, 70), 1.5)
             .done();
     }
 
-    // Grid 3: A third grid of radial lines rotating — creates rotating moiré
-    let num_spokes = 90;
+    // Radial spokes — pre-rotate endpoints instead of using Group transforms.
+    // This eliminates 2 expensive Group commands (temp pixmap alloc each).
+    let num_spokes = 60;
     let spoke_len = r_max;
-    let rotation = t * 0.15;
-
-    canvas = canvas
-        .group(Transform::rotate_at(rotation, cx, cy))
-        .canvas(|mut inner| {
-            for i in 0..num_spokes {
-                let angle = (i as f32 / num_spokes as f32) * std::f32::consts::TAU;
-                let (sin_a, cos_a) = angle.sin_cos();
-                let x2 = cx + cos_a * spoke_len;
-                let y2 = cy + sin_a * spoke_len;
-                inner = inner
-                    .line(cx, cy, x2, y2)
-                    .color(C::from_rgba8(180, 180, 255, 35))
-                    .width(1.0)
-                    .done();
-            }
-            inner
-        })
-        .done();
-
-    // Second spoke grid, counter-rotating
+    let rotation1 = t * 0.15;
     let rotation2 = -t * 0.1;
-    canvas = canvas
-        .group(Transform::rotate_at(rotation2, cx, cy))
-        .canvas(|mut inner| {
-            for i in 0..num_spokes {
-                let angle = (i as f32 / num_spokes as f32) * std::f32::consts::TAU;
-                let (sin_a, cos_a) = angle.sin_cos();
-                let x2 = cx + cos_a * spoke_len;
-                let y2 = cy + sin_a * spoke_len;
-                inner = inner
-                    .line(cx, cy, x2, y2)
-                    .color(C::from_rgba8(255, 200, 100, 30))
-                    .width(1.0)
-                    .done();
-            }
-            inner
-        })
-        .done();
+
+    for i in 0..num_spokes {
+        let base_angle = (i as f32 / num_spokes as f32) * std::f32::consts::TAU;
+
+        // Spoke grid 1 (rotated)
+        let a1 = base_angle + rotation1;
+        let x2 = cx + a1.cos() * spoke_len;
+        let y2 = cy + a1.sin() * spoke_len;
+        canvas = canvas
+            .line(cx, cy, x2, y2)
+            .color(C::from_rgba8(180, 180, 255, 35))
+            .width(1.0)
+            .done();
+
+        // Spoke grid 2 (counter-rotated)
+        let a2 = base_angle + rotation2;
+        let x2b = cx + a2.cos() * spoke_len;
+        let y2b = cy + a2.sin() * spoke_len;
+        canvas = canvas
+            .line(cx, cy, x2b, y2b)
+            .color(C::from_rgba8(255, 200, 100, 30))
+            .width(1.0)
+            .done();
+    }
 
     canvas
 }
@@ -319,30 +307,28 @@ fn build_rotating_snakes(area: Rect, state: &PixelCanvasState, _t: f32) -> Pixel
         C::from_rgba8(240, 210, 60, 255),    // yellow
     ];
 
-    // Grid of discs
-    let disc_size = (wf.min(hf) / 4.5).min(120.0);
-    let cols = ((wf - disc_size * 0.5) / (disc_size * 1.15)) as usize;
-    let rows = ((hf - disc_size * 0.5) / (disc_size * 1.15)) as usize;
-    let cols = cols.max(1);
-    let rows = rows.max(1);
+    // Grid of discs — cap total discs to keep arc count manageable
+    let disc_size = (wf.min(hf) / 4.0).min(140.0);
+    let cols = (((wf - disc_size * 0.5) / (disc_size * 1.2)) as usize).max(1).min(6);
+    let rows = (((hf - disc_size * 0.5) / (disc_size * 1.2)) as usize).max(1).min(4);
 
-    let total_w = cols as f32 * disc_size * 1.15;
-    let total_h = rows as f32 * disc_size * 1.15;
-    let start_x = (wf - total_w) / 2.0 + disc_size * 0.575;
-    let start_y = (hf - total_h) / 2.0 + disc_size * 0.575;
+    let total_w = cols as f32 * disc_size * 1.2;
+    let total_h = rows as f32 * disc_size * 1.2;
+    let start_x = (wf - total_w) / 2.0 + disc_size * 0.6;
+    let start_y = (hf - total_h) / 2.0 + disc_size * 0.6;
 
     let pi = std::f32::consts::PI;
 
     for row in 0..rows {
         for col in 0..cols {
-            let dcx = start_x + col as f32 * disc_size * 1.15;
-            let dcy = start_y + row as f32 * disc_size * 1.15;
+            let dcx = start_x + col as f32 * disc_size * 1.2;
+            let dcy = start_y + row as f32 * disc_size * 1.2;
 
             // Alternate rotation direction per disc for maximum effect
             let direction: f32 = if (row + col) % 2 == 0 { 1.0 } else { -1.0 };
 
-            // Concentric rings within each disc
-            let num_rings = 5;
+            // Fewer rings per disc (3 instead of 5) — still effective
+            let num_rings = 3;
             let ring_width = disc_size * 0.5 / num_rings as f32;
 
             for ring in 0..num_rings {
@@ -351,8 +337,8 @@ fn build_rotating_snakes(area: Rect, state: &PixelCanvasState, _t: f32) -> Pixel
                     break;
                 }
 
-                // Number of segments per ring (more segments in outer rings)
-                let segs = (8 + ring * 2).max(6);
+                // Fewer segments per ring — 8 is plenty for the illusion
+                let segs = 8;
                 let seg_sweep = 2.0 * pi / segs as f32;
 
                 // Phase offset per ring to create the spiral illusion
@@ -486,7 +472,7 @@ fn build_motion_blindness(area: Rect, state: &PixelCanvasState, t: f32) -> Pixel
     // Rotating field of blue crosses
     let cross_arm = 5.0;
     let cross_width = 1.8;
-    let grid_spacing = 28.0;
+    let grid_spacing = 40.0; // wider spacing = fewer crosses = faster
     let rotation = t * 0.35; // slow, steady rotation
 
     canvas = canvas
