@@ -796,7 +796,7 @@ fn draw_label(canvas: &mut PixelCanvas, x: f32, y: f32, text: &str) {
         if let Some((_, bits)) = PIXEL_FONT.iter().find(|(c, _)| *c == upper.to_string()) {
             for (row, &byte) in bits.iter().enumerate() {
                 for col in 0..5 {
-                    if byte & (1 << col) != 0 {
+                    if byte & (1 << (4 - col)) != 0 {
                         if let Some(r) = tiny_skia::Rect::from_xywh(
                             cursor + col as f32, y + row as f32, 1.0, 1.0,
                         ) {

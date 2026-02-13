@@ -44,7 +44,7 @@ pub(crate) enum BatchedOp<'a> {
 /// Append a circle sub-path to the builder.
 fn append_circle(pb: &mut PathBuilder, cx: f32, cy: f32, radius: f32) {
     // 4-conic approximation of a circle (same as tiny_skia::PathBuilder::from_circle)
-    let kappa = 0.552_284_75; // 4/3 * (sqrt(2) - 1)
+    let kappa = 0.552_284_8; // 4/3 * (sqrt(2) - 1)
     let k = radius * kappa;
 
     pb.move_to(cx + radius, cy);
@@ -100,7 +100,7 @@ fn append_arc(pb: &mut PathBuilder, cx: f32, cy: f32, radius: f32, start: f32, s
 #[allow(clippy::similar_names, clippy::many_single_char_names)]
 fn append_round_rect(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, cr: f32) {
     let r = cr.min(w / 2.0).min(h / 2.0);
-    let kappa = 0.552_284_75_f32;
+    let kappa = 0.552_284_8_f32;
     let k = r * kappa;
 
     pb.move_to(x + r, y);
@@ -124,7 +124,7 @@ fn append_round_rect(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, cr: f
 ///
 /// Lines are excluded because they use a different render path (stroke-only,
 /// no fill, separate anti-alias flag).
-fn batchable_style(cmd: &DrawCommand) -> Option<&ShapeStyle> {
+const fn batchable_style(cmd: &DrawCommand) -> Option<&ShapeStyle> {
     match cmd {
         DrawCommand::Circle { style, .. }
         | DrawCommand::Rectangle { style, .. }
@@ -164,7 +164,7 @@ fn append_command(pb: &mut PathBuilder, cmd: &DrawCommand) -> bool {
             // Only batch non-rotated ellipses; rotated ones need per-command transforms
             if rotation.abs() <= f32::EPSILON {
                 // Use kappa approximation for ellipse (same approach as circle)
-                let kappa = 0.552_284_75_f32;
+                let kappa = 0.552_284_8_f32;
                 let kx = *rx * kappa;
                 let ky = *ry * kappa;
                 pb.move_to(cx + rx, *cy);

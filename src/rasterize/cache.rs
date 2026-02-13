@@ -154,7 +154,7 @@ impl RasterCache {
     ///
     /// This cache persists across frames so that identical gradients
     /// are rendered once and blitted thereafter (~10× faster).
-    pub fn grad_cache_mut(&mut self) -> &mut GradientCache {
+    pub const fn grad_cache_mut(&mut self) -> &mut GradientCache {
         &mut self.grad_cache
     }
 

@@ -75,7 +75,7 @@ pub const ALL_COMMAND_TYPES: [CommandType; NUM_COMMAND_TYPES] = [
 impl CommandType {
     /// Classify a `DrawCommand` into its `CommandType`.
     #[must_use]
-    pub fn from_command(cmd: &DrawCommand) -> Self {
+    pub const fn from_command(cmd: &DrawCommand) -> Self {
         match cmd {
             DrawCommand::Clear { .. } => Self::Clear,
             DrawCommand::Circle { .. } => Self::Circle,
@@ -149,7 +149,7 @@ pub struct CommandTiming {
 
 impl CommandTiming {
     /// Record a single command's elapsed time.
-    pub fn record(&mut self, elapsed_us: u64) {
+    pub const fn record(&mut self, elapsed_us: u64) {
         self.count += 1;
         self.total_us += elapsed_us;
         if elapsed_us > self.max_us {
@@ -183,7 +183,7 @@ pub struct RasterProfile {
     pub group_temp_count: u32,
     /// Time spent on group temp pixmap allocation/clear in microseconds.
     pub group_alloc_us: u64,
-    /// Time spent on group compositing (draw_pixmap back to parent) in microseconds.
+    /// Time spent on group compositing (`draw_pixmap` back to parent) in microseconds.
     pub group_composite_us: u64,
     /// Number of pixmaps in the pool after rasterization.
     pub pool_size: usize,
@@ -207,7 +207,7 @@ impl Default for RasterProfile {
 impl RasterProfile {
     /// Get timing for a specific command type.
     #[must_use]
-    pub fn timing(&self, ct: CommandType) -> &CommandTiming {
+    pub const fn timing(&self, ct: CommandType) -> &CommandTiming {
         &self.by_type[ct as usize]
     }
 
@@ -485,7 +485,7 @@ where
     values.sort_unstable();
     let n = values.len();
     // Ceiling-based nearest-rank: ceil(pct/100 * n) - 1
-    let rank = ((pct * n + 99) / 100).saturating_sub(1).min(n - 1);
+    let rank = (pct * n).div_ceil(100).saturating_sub(1).min(n - 1);
     values[rank]
 }
 
@@ -561,7 +561,7 @@ pub struct PipelineProfile {
 impl PipelineProfile {
     /// Total frame time in microseconds.
     #[must_use]
-    pub fn total_us(&self) -> u64 {
+    pub const fn total_us(&self) -> u64 {
         self.scene_build_us + self.raster.total_us + self.transport.total_us
     }
 

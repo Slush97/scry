@@ -34,7 +34,7 @@ static NEXT_IMAGE_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Maximum bytes to send in a single Kitty protocol chunk.
 /// The protocol spec suggests 4096 as a guideline, but modern terminals
-/// (kitty, WezTerm, Ghostty) handle much larger chunks efficiently.
+/// (kitty, `WezTerm`, Ghostty) handle much larger chunks efficiently.
 /// 64 KB reduces escape-sequence framing overhead by ~16×.
 const CHUNK_SIZE: usize = 65_536;
 

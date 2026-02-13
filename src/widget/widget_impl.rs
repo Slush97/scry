@@ -196,7 +196,7 @@ impl PixelCanvasState {
     ///
     /// Useful for manual profiled rasterization where you need to
     /// rasterize into the cache's pixmap directly.
-    pub fn cache_mut(&mut self) -> &mut RasterCache {
+    pub const fn cache_mut(&mut self) -> &mut RasterCache {
         &mut self.cache
     }
 
