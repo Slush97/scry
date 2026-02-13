@@ -66,6 +66,13 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                         .fill(color)
                         .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
                         .done();
+                    if theme.bar_stroke_width > 0.0 {
+                        ctx.canvas = take_canvas(&mut ctx)
+                            .rect(bar_x, top_y, bar_width, bar_h)
+                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
+                            .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
+                            .done();
+                    }
                 }
                 cumulative += value;
             }
@@ -93,6 +100,13 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                         .fill(color)
                         .corner_radius(bc.corner_radius)
                         .done();
+                    if theme.bar_stroke_width > 0.0 {
+                        ctx.canvas = take_canvas(&mut ctx)
+                            .rect(bar_x, top_y, bar_width, bar_h)
+                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
+                            .corner_radius(bc.corner_radius)
+                            .done();
+                    }
                 }
             }
         }
@@ -143,11 +157,14 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 
         // Grid line
         if theme.show_grid {
-            ctx.canvas = take_canvas(&mut ctx)
+            let mut grid = take_canvas(&mut ctx)
                 .line(x_pos, py, x_pos, py + ph)
                 .color(theme.grid_color)
-                .width(theme.grid_width)
-                .done();
+                .width(theme.grid_width);
+            if let Some(ref dash) = theme.grid_dash {
+                grid = grid.dash(dash.clone());
+            }
+            ctx.canvas = grid.done();
         }
     }
 
@@ -188,6 +205,13 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                         .fill(color)
                         .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
                         .done();
+                    if theme.bar_stroke_width > 0.0 {
+                        ctx.canvas = take_canvas(&mut ctx)
+                            .rect(left_x, bar_y, bar_w, bar_height)
+                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
+                            .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
+                            .done();
+                    }
                 }
                 cumulative += value;
             }
@@ -215,6 +239,13 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                         .fill(color)
                         .corner_radius(bc.corner_radius)
                         .done();
+                    if theme.bar_stroke_width > 0.0 {
+                        ctx.canvas = take_canvas(&mut ctx)
+                            .rect(baseline_x, bar_y, bar_w, bar_height)
+                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
+                            .corner_radius(bc.corner_radius)
+                            .done();
+                    }
                 }
             }
         }

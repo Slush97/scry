@@ -33,8 +33,10 @@ use crate::PixelCanvasError;
 static NEXT_IMAGE_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Maximum bytes to send in a single Kitty protocol chunk.
-/// The protocol recommends splitting large payloads into 4096-byte chunks.
-const CHUNK_SIZE: usize = 4096;
+/// The protocol spec suggests 4096 as a guideline, but modern terminals
+/// (kitty, WezTerm, Ghostty) handle much larger chunks efficiently.
+/// 64 KB reduces escape-sequence framing overhead by ~16×.
+const CHUNK_SIZE: usize = 65_536;
 
 /// How to encode pixel data for Kitty protocol transmission.
 ///
@@ -90,6 +92,10 @@ pub struct KittyBackend<W: Write + std::fmt::Debug = std::io::Stdout> {
     encode_buf: String,
     /// Reusable zlib compression buffer to avoid per-frame allocation.
     compress_buf: Vec<u8>,
+    /// Reusable write buffer: all escape sequences are assembled here
+    /// before a single `write_all` + `flush`, reducing syscall count
+    /// from ~124 to 1–2 per frame.
+    send_buf: Vec<u8>,
     /// Fixed placement ID for flicker-free in-place replacement.
     /// The Kitty protocol replaces a placement atomically when the
     /// same (`image_id`, `placement_id`) pair is reused.
@@ -110,6 +116,7 @@ impl KittyBackend<std::io::Stdout> {
             format: TransmitFormat::default(),
             encode_buf: String::new(),
             compress_buf: Vec::new(),
+            send_buf: Vec::with_capacity(128 * 1024),
             placement_id: 1,
             #[cfg(feature = "shm")]
             shm_buf: None,
@@ -131,6 +138,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             format: TransmitFormat::default(),
             encode_buf: String::new(),
             compress_buf: Vec::new(),
+            send_buf: Vec::with_capacity(128 * 1024),
             placement_id: 1,
             #[cfg(feature = "shm")]
             shm_buf: None,
@@ -187,54 +195,45 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         use base64::Engine;
         self.encode_buf.clear();
         base64::engine::general_purpose::STANDARD.encode_string(png_data, &mut self.encode_buf);
-        let chunks: Vec<&str> = self.encode_buf.as_bytes().chunks(CHUNK_SIZE).map(|c| {
-            // SAFETY: base64 encoding always produces valid ASCII/UTF-8
-            std::str::from_utf8(c).unwrap_or("")
-        }).collect();
 
         let placement_id = self.placement_id;
+        let total = self.encode_buf.len();
+        let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
 
-        // Begin synchronized update — terminal batches everything until the
-        // matching end marker, preventing any intermediate rendering.
-        write!(self.writer, "\x1b[?2026h")
+        // Build all escape sequences into send_buf, then write+flush once.
+        self.send_buf.clear();
+
+        // Begin synchronized update
+        write!(self.send_buf, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
             .map_err(PixelCanvasError::Transmission)?;
 
-        // Move cursor to target position
-        write!(
-            self.writer,
-            "\x1b[{};{}H",
-            position.row + 1,
-            position.col + 1
-        )
-        .map_err(PixelCanvasError::Transmission)?;
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            let is_last = i == chunks.len() - 1;
-            let more = i32::from(!is_last);
+        for i in 0..n_chunks {
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(total);
+            let chunk = &self.encode_buf[start..end];
+            let more = i32::from(i != n_chunks - 1);
 
             if i == 0 {
-                // First chunk: include all metadata + placement ID for
-                // atomic in-place replacement
                 write!(
-                    self.writer,
+                    self.send_buf,
                     "\x1b_Ga=T,q=2,f=100,i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
-                    position.width_cells,
-                    position.height_cells,
-                )
-                .map_err(PixelCanvasError::Transmission)?;
+                    position.width_cells, position.height_cells,
+                ).map_err(PixelCanvasError::Transmission)?;
             } else {
-                // Continuation chunks
-                write!(self.writer, "\x1b_Gm={more};{chunk}\x1b\\")
+                write!(self.send_buf, "\x1b_Gm={more};{chunk}\x1b\\")
                     .map_err(PixelCanvasError::Transmission)?;
             }
         }
 
         // End synchronized update
-        write!(self.writer, "\x1b[?2026l")
+        write!(self.send_buf, "\x1b[?2026l")
             .map_err(PixelCanvasError::Transmission)?;
 
-        self.writer
-            .flush()
+        self.writer.write_all(&self.send_buf)
+            .map_err(PixelCanvasError::Transmission)?;
+        self.writer.flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
@@ -266,56 +265,46 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
 
         let pixel_width = pixmap.width();
         let pixel_height = pixmap.height();
-        let raw_data = pixmap.data(); // &[u8] — RGBA pixels
+        let raw_data = pixmap.data();
         let placement_id = self.placement_id;
 
         self.encode_buf.clear();
         base64::engine::general_purpose::STANDARD.encode_string(raw_data, &mut self.encode_buf);
-        let chunks: Vec<&str> = self.encode_buf
-            .as_bytes()
-            .chunks(CHUNK_SIZE)
-            .map(|c| std::str::from_utf8(c).unwrap_or(""))
-            .collect();
 
-        // Begin synchronized update
-        write!(self.writer, "\x1b[?2026h")
+        let total = self.encode_buf.len();
+        let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
+
+        self.send_buf.clear();
+
+        write!(self.send_buf, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
             .map_err(PixelCanvasError::Transmission)?;
 
-        // Move cursor to target position
-        write!(
-            self.writer,
-            "\x1b[{};{}H",
-            position.row + 1,
-            position.col + 1
-        )
-        .map_err(PixelCanvasError::Transmission)?;
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            let is_last = i == chunks.len() - 1;
-            let more = i32::from(!is_last);
+        for i in 0..n_chunks {
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(total);
+            let chunk = &self.encode_buf[start..end];
+            let more = i32::from(i != n_chunks - 1);
 
             if i == 0 {
-                // First chunk: f=32 (raw RGBA), s=width, v=height,
-                // p=placement_id for atomic replacement
                 write!(
-                    self.writer,
+                    self.send_buf,
                     "\x1b_Ga=T,q=2,f=32,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
-                    position.width_cells,
-                    position.height_cells,
-                )
-                .map_err(PixelCanvasError::Transmission)?;
+                    position.width_cells, position.height_cells,
+                ).map_err(PixelCanvasError::Transmission)?;
             } else {
-                write!(self.writer, "\x1b_Gm={more};{chunk}\x1b\\")
+                write!(self.send_buf, "\x1b_Gm={more};{chunk}\x1b\\")
                     .map_err(PixelCanvasError::Transmission)?;
             }
         }
 
-        // End synchronized update
-        write!(self.writer, "\x1b[?2026l")
+        write!(self.send_buf, "\x1b[?2026l")
             .map_err(PixelCanvasError::Transmission)?;
 
-        self.writer
-            .flush()
+        self.writer.write_all(&self.send_buf)
+            .map_err(PixelCanvasError::Transmission)?;
+        self.writer.flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
@@ -357,52 +346,41 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         self.encode_buf.clear();
         base64::engine::general_purpose::STANDARD
             .encode_string(&self.compress_buf, &mut self.encode_buf);
-        let chunks: Vec<&str> = self
-            .encode_buf
-            .as_bytes()
-            .chunks(CHUNK_SIZE)
-            .map(|c| std::str::from_utf8(c).unwrap_or(""))
-            .collect();
 
-        // Begin synchronized update
-        write!(self.writer, "\x1b[?2026h")
+        let total = self.encode_buf.len();
+        let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
+
+        self.send_buf.clear();
+
+        write!(self.send_buf, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
             .map_err(PixelCanvasError::Transmission)?;
 
-        // Move cursor to target position
-        write!(
-            self.writer,
-            "\x1b[{};{}H",
-            position.row + 1,
-            position.col + 1
-        )
-        .map_err(PixelCanvasError::Transmission)?;
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            let is_last = i == chunks.len() - 1;
-            let more = i32::from(!is_last);
+        for i in 0..n_chunks {
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(total);
+            let chunk = &self.encode_buf[start..end];
+            let more = i32::from(i != n_chunks - 1);
 
             if i == 0 {
-                // f=32 (raw RGBA), o=z (zlib compressed),
-                // s=width, v=height, p=placement_id
                 write!(
-                    self.writer,
+                    self.send_buf,
                     "\x1b_Ga=T,q=2,f=32,o=z,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
-                    position.width_cells,
-                    position.height_cells,
-                )
-                .map_err(PixelCanvasError::Transmission)?;
+                    position.width_cells, position.height_cells,
+                ).map_err(PixelCanvasError::Transmission)?;
             } else {
-                write!(self.writer, "\x1b_Gm={more};{chunk}\x1b\\")
+                write!(self.send_buf, "\x1b_Gm={more};{chunk}\x1b\\")
                     .map_err(PixelCanvasError::Transmission)?;
             }
         }
 
-        // End synchronized update
-        write!(self.writer, "\x1b[?2026l")
+        write!(self.send_buf, "\x1b[?2026l")
             .map_err(PixelCanvasError::Transmission)?;
 
-        self.writer
-            .flush()
+        self.writer.write_all(&self.send_buf)
+            .map_err(PixelCanvasError::Transmission)?;
+        self.writer.flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
@@ -429,21 +407,18 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
 
         // Ensure shm buffer exists and is large enough
         let shm_name = format!("pixelcanvas-{}", std::process::id());
-        let buf = match self.shm_buf {
-            Some(ref mut buf) => {
-                if buf.capacity() < data_size {
-                    buf.resize(data_size)
-                        .map_err(|e| PixelCanvasError::Rasterization(format!("shm resize failed: {e}")))?;
-                }
-                buf
+        let buf = if let Some(ref mut buf) = self.shm_buf {
+            if buf.capacity() < data_size {
+                buf.resize(data_size)
+                    .map_err(|e| PixelCanvasError::Rasterization(format!("shm resize failed: {e}")))?;
             }
-            None => {
-                self.shm_buf = Some(
-                    crate::transport::shm::ShmBuffer::new(&shm_name, data_size)
-                        .map_err(|e| PixelCanvasError::Rasterization(format!("shm_open failed: {e}")))?,
-                );
-                self.shm_buf.as_mut().expect("just created")
-            }
+            buf
+        } else {
+            self.shm_buf = Some(
+                crate::transport::shm::ShmBuffer::new(&shm_name, data_size)
+                    .map_err(|e| PixelCanvasError::Rasterization(format!("shm_open failed: {e}")))?,
+            );
+            self.shm_buf.as_mut().expect("just created")
         };
 
         // Write pixels into shared memory
@@ -482,6 +457,96 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
+    }
+    /// Send zlib-compressed RGBA with per-stage profiling.
+    ///
+    /// Returns a `TransportProfile` breaking down compress, encode, and I/O time.
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn send_zlib_rgba_profiled(
+        &mut self,
+        image_id: u32,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<crate::rasterize::TransportProfile, PixelCanvasError> {
+        use base64::Engine;
+        use std::time::Instant;
+
+        let total_start = Instant::now();
+        let mut tp = crate::rasterize::TransportProfile::default();
+
+        let pixel_width = pixmap.width();
+        let pixel_height = pixmap.height();
+        let raw_data = pixmap.data();
+        let placement_id = self.placement_id;
+
+        tp.raw_bytes = raw_data.len();
+
+        // 1. Zlib compression
+        let compress_start = Instant::now();
+        self.compress_buf.clear();
+        {
+            let mut encoder = ZlibEncoder::new(&mut self.compress_buf, Compression::fast());
+            encoder
+                .write_all(raw_data)
+                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib compress failed: {e}")))?;
+            encoder
+                .finish()
+                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib finish failed: {e}")))?;
+        }
+        tp.compress_us = compress_start.elapsed().as_micros() as u64;
+
+        // 2. Base64 encoding
+        let encode_start = Instant::now();
+        self.encode_buf.clear();
+        base64::engine::general_purpose::STANDARD
+            .encode_string(&self.compress_buf, &mut self.encode_buf);
+        tp.encode_us = encode_start.elapsed().as_micros() as u64;
+
+        tp.wire_bytes = self.encode_buf.len();
+
+        // 3. Build + write + flush
+        let io_start = Instant::now();
+        let total = self.encode_buf.len();
+        let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
+
+        self.send_buf.clear();
+
+        write!(self.send_buf, "\x1b[?2026h")
+            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
+            .map_err(PixelCanvasError::Transmission)?;
+
+        for i in 0..n_chunks {
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(total);
+            let chunk = &self.encode_buf[start..end];
+            let more = i32::from(i != n_chunks - 1);
+
+            if i == 0 {
+                write!(
+                    self.send_buf,
+                    "\x1b_Ga=T,q=2,f=32,o=z,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index},c={},r={},m={more};{chunk}\x1b\\",
+                    position.width_cells, position.height_cells,
+                ).map_err(PixelCanvasError::Transmission)?;
+            } else {
+                write!(self.send_buf, "\x1b_Gm={more};{chunk}\x1b\\")
+                    .map_err(PixelCanvasError::Transmission)?;
+            }
+        }
+
+        write!(self.send_buf, "\x1b[?2026l")
+            .map_err(PixelCanvasError::Transmission)?;
+
+        self.writer.write_all(&self.send_buf)
+            .map_err(PixelCanvasError::Transmission)?;
+        self.writer.flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        tp.io_us = io_start.elapsed().as_micros() as u64;
+        tp.total_us = total_start.elapsed().as_micros() as u64;
+
+        Ok(tp)
     }
 }
 

@@ -3,7 +3,7 @@
 //! Draws axes on a `PixelCanvas` using the scale system.
 
 use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::style::Color;
+use ratatui_pixelcanvas::style::{Color, DashPattern};
 
 use crate::scale::{LinearScale, Scale};
 
@@ -33,6 +33,8 @@ pub struct AxisConfig {
     pub tick_length: f32,
     /// Whether to draw gridlines.
     pub show_grid: bool,
+    /// Dash pattern for grid lines (`None` = solid).
+    pub grid_dash: Option<DashPattern>,
 }
 
 impl Default for AxisConfig {
@@ -45,6 +47,7 @@ impl Default for AxisConfig {
             grid_width: 0.5,
             tick_length: 5.0,
             show_grid: true,
+            grid_dash: None,
         }
     }
 }
@@ -90,11 +93,14 @@ pub fn draw_axis(
 
                 // Gridline
                 if config.show_grid {
-                    canvas = canvas
+                    let mut grid = canvas
                         .line(x, py, x, py + ph)
                         .color(config.grid_color)
-                        .width(config.grid_width)
-                        .done();
+                        .width(config.grid_width);
+                    if let Some(ref dash) = config.grid_dash {
+                        grid = grid.dash(dash.clone());
+                    }
+                    canvas = grid.done();
                 }
 
                 tick_labels.push((x, scale.format_tick(t)));
@@ -123,11 +129,14 @@ pub fn draw_axis(
 
                 // Gridline
                 if config.show_grid {
-                    canvas = canvas
+                    let mut grid = canvas
                         .line(px, y, px + pw, y)
                         .color(config.grid_color)
-                        .width(config.grid_width)
-                        .done();
+                        .width(config.grid_width);
+                    if let Some(ref dash) = config.grid_dash {
+                        grid = grid.dash(dash.clone());
+                    }
+                    canvas = grid.done();
                 }
 
                 tick_labels.push((y, scale.format_tick(t)));

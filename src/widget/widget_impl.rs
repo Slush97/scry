@@ -13,7 +13,7 @@
 //! sequences are written after ratatui has flushed its buffer diff, avoiding
 //! visible flicker from interleaved cursor movements.
 
-use tiny_skia::Pixmap;
+
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -22,7 +22,7 @@ use ratatui::widgets::StatefulWidget;
 use crate::rasterize::{RasterCache, Rasterizer};
 use crate::scene::PixelCanvas;
 use crate::transport::backend::{FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
-use crate::transport::halfblock::HalfblockBackend;
+use crate::transport::halfblock::{HalfblockBackend, HalfblockCell};
 use crate::PixelCanvasError;
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,7 @@ use crate::PixelCanvasError;
 pub struct PixelCanvasWidget {
     canvas: PixelCanvas,
     z_index: i32,
+    skip_cache: bool,
 }
 
 impl PixelCanvasWidget {
@@ -65,6 +66,7 @@ impl PixelCanvasWidget {
         Self {
             canvas,
             z_index: -1, // Default: render behind text
+            skip_cache: false,
         }
     }
 
@@ -77,18 +79,29 @@ impl PixelCanvasWidget {
         self.z_index = z;
         self
     }
+
+    /// Skip content-hash caching for this frame.
+    ///
+    /// Useful for fully-animated scenes where the scene changes every frame
+    /// and the content hash would never hit cache. Saves the cost of hashing
+    /// all draw commands (~2ms for 1000+ commands).
+    #[must_use]
+    pub const fn skip_cache(mut self) -> Self {
+        self.skip_cache = true;
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Pending frame — deferred image data awaiting transmission
 // ---------------------------------------------------------------------------
 
-/// A rasterized frame ready for protocol transmission.
+/// Metadata for a rasterized frame awaiting protocol transmission.
 ///
-/// Stored in [`PixelCanvasState`] during `render()` and actually sent to
-/// the terminal when [`PixelCanvasState::flush()`] is called.
+/// The actual pixmap data lives in the [`RasterCache`] to avoid per-frame
+/// allocations. This struct holds only the transmission metadata needed by
+/// [`PixelCanvasState::flush()`].
 struct PendingFrame {
-    pixmap: Pixmap,
     position: TerminalPosition,
     z_index: i32,
     content_hash: u64,
@@ -111,8 +124,11 @@ pub struct PixelCanvasState {
     cache: RasterCache,
     current_handle: Option<ImageHandle>,
     font_size: FontSize,
-    /// Image data rasterized during `render()`, awaiting transmission.
+    /// Transmission metadata for a frame rasterized during `render()`.
+    /// The pixmap itself lives in `cache`.
     pending: Option<PendingFrame>,
+    /// Reusable flat buffer for halfblock cell rendering (avoids per-frame Vec<Vec<>> allocation).
+    halfblock_buf: Vec<HalfblockCell>,
 }
 
 impl PixelCanvasState {
@@ -124,6 +140,7 @@ impl PixelCanvasState {
             current_handle: None,
             font_size,
             pending: None,
+            halfblock_buf: Vec::new(),
         }
     }
 
@@ -150,18 +167,20 @@ impl PixelCanvasState {
             return Ok(());
         };
 
+        // The pixmap was rasterized into the cache during render().
+        let Some(pixmap) = self.cache.get(frame.content_hash) else {
+            return Ok(());
+        };
+
         let result = if let Some(ref old_handle) = self.current_handle {
-            // Replace in-place — Kitty reuses the same image ID atomically
-            self.backend.replace(old_handle, &frame.pixmap, frame.position, frame.z_index)
+            self.backend.replace(old_handle, pixmap, frame.position, frame.z_index)
         } else {
-            // First frame: allocate a new image
-            self.backend.transmit(&frame.pixmap, frame.position, frame.z_index)
+            self.backend.transmit(pixmap, frame.position, frame.z_index)
         };
 
         match result {
             Ok(handle) => {
                 self.current_handle = Some(handle);
-                self.cache.store(frame.content_hash, frame.pixmap);
             }
             Err(e) => {
                 self.current_handle = None;
@@ -171,6 +190,14 @@ impl PixelCanvasState {
         }
 
         Ok(())
+    }
+
+    /// Mutable access to the raster cache.
+    ///
+    /// Useful for manual profiled rasterization where you need to
+    /// rasterize into the cache's pixmap directly.
+    pub fn cache_mut(&mut self) -> &mut RasterCache {
+        &mut self.cache
     }
 
     /// Manually clean up the current image.
@@ -216,42 +243,58 @@ impl StatefulWidget for PixelCanvasWidget {
         }
 
         let canvas = self.canvas;
-
-        // Check content hash — skip everything if unchanged
-        let content_hash = canvas.content_hash();
         let is_halfblock = state.backend.protocol_kind() == ProtocolKind::Halfblock;
 
-        if state.cache.is_valid(content_hash) {
+        // Content hash check — skip hashing entirely for animated scenes
+        let content_hash = if self.skip_cache {
+            // Use a sentinel that never matches, so we always rasterize
+            // but still have a key to store/retrieve the pixmap in cache.
+            0
+        } else {
+            canvas.content_hash()
+        };
+
+        if !self.skip_cache && state.cache.is_valid(content_hash) {
             if is_halfblock {
-                // For halfblock: re-render cells from cached pixmap
                 if let Some(pixmap) = state.cache.get(content_hash) {
-                    render_halfblock_to_buffer(buf, area, pixmap, state.font_size);
+                    render_halfblock_to_buffer(buf, area, pixmap, state.font_size, &mut state.halfblock_buf);
                 }
             } else if state.current_handle.is_some() {
-                // For protocol backends: image is already on screen, nothing to do
                 fill_area_with_spaces(buf, area);
             }
             return;
         }
 
-        // Rasterize scene → Pixmap
-        let Ok(pixmap) = Rasterizer::rasterize(&canvas) else {
+        // Rasterize scene into cache's reusable pixmap (avoids per-frame allocation)
+        let (pixmap_opt, gc) = state.cache.get_or_insert_with_grad_cache(canvas.width(), canvas.height());
+        let Some(pixmap) = pixmap_opt else {
             return;
         };
+        Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
+        // Use a unique hash per frame when skip_cache is on, so flush() can find it.
+        let store_hash = if self.skip_cache {
+            // Monotonic counter to ensure cache is always "valid" for flush()
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static FRAME_SEQ: AtomicU64 = AtomicU64::new(1);
+            FRAME_SEQ.fetch_add(1, Ordering::Relaxed)
+        } else {
+            content_hash
+        };
+        state.cache.mark_valid(store_hash);
 
         if is_halfblock {
-            // Halfblock path: render directly into the ratatui Buffer
-            render_halfblock_to_buffer(buf, area, &pixmap, state.font_size);
-            state.cache.store(content_hash, pixmap);
+            // Halfblock path: render directly into the ratatui Buffer.
+            if let Some(pixmap) = state.cache.get(store_hash) {
+                render_halfblock_to_buffer(buf, area, pixmap, state.font_size, &mut state.halfblock_buf);
+            }
         } else {
             // Protocol path (Kitty/Sixel): defer transmission until flush()
             let position = TerminalPosition::new(area.x, area.y, area.width, area.height);
 
             state.pending = Some(PendingFrame {
-                pixmap,
                 position,
                 z_index: self.z_index,
-                content_hash,
+                content_hash: store_hash,
             });
 
             fill_area_with_spaces(buf, area);
@@ -287,10 +330,9 @@ fn render_halfblock_to_buffer(
     area: Rect,
     pixmap: &tiny_skia::Pixmap,
     font_size: FontSize,
+    hb_buf: &mut Vec<HalfblockCell>,
 ) {
-    let cells = HalfblockBackend::render_to_cells(pixmap);
-    let cell_rows = cells.len();
-    let cell_cols = cells.first().map_or(0, Vec::len);
+    let (cell_rows, cell_cols) = HalfblockBackend::render_to_cells_flat(pixmap, hb_buf);
 
     if cell_cols == 0 || cell_rows == 0 {
         return;
@@ -313,7 +355,7 @@ fn render_halfblock_to_buffer(
                 continue;
             }
 
-            let cell_data = &cells[py][px];
+            let cell_data = &hb_buf[py * cell_cols + px];
 
             let buf_x = area.x + col as u16;
             let buf_y = area.y + row as u16;

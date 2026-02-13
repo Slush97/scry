@@ -3,6 +3,7 @@
 //! Ships with dark-terminal-optimized defaults and seaborn-inspired palettes.
 
 use ratatui_pixelcanvas::style::Color;
+use ratatui_pixelcanvas::style::DashPattern;
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -31,6 +32,12 @@ pub struct Theme {
     pub grid_width: f32,
     /// Whether to draw gridlines.
     pub show_grid: bool,
+    /// Dash pattern for grid lines (`None` = solid).
+    pub grid_dash: Option<DashPattern>,
+    /// Stroke width for bar chart outlines (0.0 = no stroke).
+    pub bar_stroke_width: f32,
+    /// Default opacity for area fills (0.0–1.0).
+    pub fill_opacity: f32,
 }
 
 impl Theme {
@@ -58,6 +65,9 @@ impl Theme {
             axis_width: 1.5,
             grid_width: 0.5,
             show_grid: true,
+            grid_dash: Some(DashPattern::new(vec![3.0, 3.0], 0.0)),
+            bar_stroke_width: 1.0,
+            fill_opacity: 0.25,
         }
     }
 
@@ -83,6 +93,9 @@ impl Theme {
             axis_width: 1.5,
             grid_width: 0.5,
             show_grid: true,
+            grid_dash: Some(DashPattern::new(vec![3.0, 3.0], 0.0)),
+            bar_stroke_width: 1.0,
+            fill_opacity: 0.25,
         }
     }
 
@@ -108,6 +121,9 @@ impl Theme {
             axis_width: 1.0,
             grid_width: 0.5,
             show_grid: true,
+            grid_dash: Some(DashPattern::new(vec![3.0, 3.0], 0.0)),
+            bar_stroke_width: 1.0,
+            fill_opacity: 0.25,
         }
     }
 

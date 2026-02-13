@@ -71,7 +71,7 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
     ctx.finish()
 }
 
-/// Draw a shaped marker on the canvas.
+/// Draw a shaped marker on the canvas with optional border stroke.
 pub(crate) fn draw_marker(
     canvas: PixelCanvas,
     x: f32,
@@ -80,16 +80,21 @@ pub(crate) fn draw_marker(
     color: Color,
     marker: Marker,
 ) -> PixelCanvas {
+    // Derive a subtle border color: darkened variant at 50% opacity
+    let border = color.with_alpha(0.5);
+
     match marker {
         Marker::Circle => canvas
             .circle(x, y, radius)
             .fill(color)
+            .stroke(border, 1.0)
             .done(),
         Marker::Square => {
             let half = radius * 0.85;
             canvas
                 .rect(x - half, y - half, half * 2.0, half * 2.0)
                 .fill(color)
+                .stroke(border, 1.0)
                 .done()
         }
         Marker::Diamond => {
@@ -102,6 +107,7 @@ pub(crate) fn draw_marker(
                     (x - r, y),
                 ])
                 .fill(color)
+                .stroke(border, 1.0)
                 .done()
         }
         Marker::Cross => {
@@ -124,6 +130,7 @@ pub(crate) fn draw_marker(
                     (x - r * 0.866, y + r * 0.5),
                 ])
                 .fill(color)
+                .stroke(border, 1.0)
                 .done()
         }
     }

@@ -139,11 +139,13 @@ fn draw_bins_on_ctx(
             ctx.canvas = take_canvas(ctx)
                 .rect(x1, top, bw, bh)
                 .fill(fill_color)
+                .corner_radius(2.0)
                 .done();
 
             ctx.canvas = take_canvas(ctx)
                 .rect(x1, top, bw, bh)
                 .stroke(color, 1.0)
+                .corner_radius(2.0)
                 .done();
         }
     }

@@ -210,6 +210,13 @@ impl FontData {
     pub fn bytes(&self) -> &[u8] {
         &self.0
     }
+
+    /// Get the pointer identity of the underlying `Arc` allocation.
+    /// Used as a cache key for the thread-local font cache.
+    #[must_use]
+    pub fn arc_ptr(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
 }
 
 #[cfg(feature = "text")]

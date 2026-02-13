@@ -92,7 +92,7 @@ pub enum PixelCanvasError {
 /// use ratatui_pixelcanvas::prelude::*;
 /// ```
 pub mod prelude {
-    pub use crate::rasterize::{RasterCache, Rasterizer};
+    pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
     pub use crate::scene::animation::{
         AnimationState, Easing, Keyframe, Keyframes, Lerp, Transition,
     };

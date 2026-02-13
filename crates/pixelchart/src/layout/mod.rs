@@ -440,6 +440,7 @@ pub(crate) fn axis_config_from_theme(config: &ChartConfig, side: AxisSide) -> Ax
         axis_width: theme.axis_width,
         grid_width: theme.grid_width,
         show_grid: theme.show_grid,
+        grid_dash: theme.grid_dash.clone(),
         ..Default::default()
     }
 }

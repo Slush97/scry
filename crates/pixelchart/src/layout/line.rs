@@ -3,6 +3,7 @@
 use crate::chart::LineChart;
 use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
+use ratatui_pixelcanvas::style::{GradientDef, GradientKind, GradientStop, Point};
 
 use super::{resolve_x_extent, resolve_y_extent, take_canvas, RenderContext, RenderedChart, TextAlign, TextOverlay};
 
@@ -41,42 +42,53 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         let color = theme.series_color(si);
         let n = series.len().min(x_data.len());
 
-        // Fill area under curve
-        if lc.fill_area && n >= 2 {
-            let baseline_y = y_scale.to_pixel(y_scale.domain().0) as f32;
-            let mut path_points: Vec<(f32, f32)> = Vec::with_capacity(n + 2);
-            path_points.push((x_scale.to_pixel(x_data[0]) as f32, baseline_y));
-            for i in 0..n {
+        // Collect pixel coordinates for this series
+        let points: Vec<(f32, f32)> = (0..n)
+            .map(|i| {
                 let sx = x_scale.to_pixel(x_data[i]) as f32;
                 let sy = y_scale.to_pixel(series.values()[i]) as f32;
-                path_points.push((sx, sy));
-            }
-            path_points.push((x_scale.to_pixel(x_data[n - 1]) as f32, baseline_y));
+                (sx, sy)
+            })
+            .collect();
+
+        // Fill area under curve with vertical gradient
+        if lc.fill_area && points.len() >= 2 {
+            let baseline_y = y_scale.to_pixel(y_scale.domain().0) as f32;
+            let mut path_points: Vec<(f32, f32)> = Vec::with_capacity(n + 2);
+            path_points.push((points[0].0, baseline_y));
+            path_points.extend_from_slice(&points);
+            path_points.push((points[n - 1].0, baseline_y));
+
+            // Find the top of the filled region for gradient start
+            let top_y = points.iter().map(|(_, y)| *y).reduce(f32::min).unwrap_or(baseline_y);
+            let opacity = theme.fill_opacity;
 
             ctx.canvas = take_canvas(&mut ctx)
                 .polygon(path_points)
-                .fill(color.with_alpha(0.15))
+                .fill_linear_gradient(GradientDef {
+                    kind: GradientKind::Linear {
+                        start: Point::new(points[0].0, top_y),
+                        end: Point::new(points[0].0, baseline_y),
+                    },
+                    stops: vec![
+                        GradientStop { position: 0.0, color: color.with_alpha(opacity * 1.4) },
+                        GradientStop { position: 1.0, color: color.with_alpha(opacity * 0.08) },
+                    ],
+                })
                 .done();
         }
 
-        // Lines
-        for i in 1..n {
-            let x1 = x_scale.to_pixel(x_data[i - 1]) as f32;
-            let y1 = y_scale.to_pixel(series.values()[i - 1]) as f32;
-            let x2 = x_scale.to_pixel(x_data[i]) as f32;
-            let y2 = y_scale.to_pixel(series.values()[i]) as f32;
+        // Lines — single polyline instead of N individual segments
+        if points.len() >= 2 {
             ctx.canvas = take_canvas(&mut ctx)
-                .line(x1, y1, x2, y2)
-                .color(color)
-                .width(theme.line_width)
+                .polyline(points.clone())
+                .stroke(color, theme.line_width)
                 .done();
         }
 
         // Data point markers
         if lc.show_points {
-            for i in 0..n {
-                let sx = x_scale.to_pixel(x_data[i]) as f32;
-                let sy = y_scale.to_pixel(series.values()[i]) as f32;
+            for &(sx, sy) in &points {
                 ctx.canvas = take_canvas(&mut ctx)
                     .circle(sx, sy, theme.point_radius * 0.7)
                     .fill(color)

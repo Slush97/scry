@@ -685,3 +685,178 @@ fn render_line_with_annotation() {
     assert!(has_annotation, "Annotation 'Max' not found in overlays");
     insta::assert_snapshot!(summarize(&rendered));
 }
+
+// ===========================================================================
+// Phase 6: Command-level integration tests
+// ===========================================================================
+//
+// These tests validate the _types_ of draw commands emitted, not just counts.
+// They ensure that our rendering upgrades (polyline, gradients, dashed grids,
+// bar strokes, corner radii, scatter borders) are actually used.
+
+use ratatui_pixelcanvas::scene::command::DrawCommand;
+use ratatui_pixelcanvas::scene::style::FillStyle;
+
+#[test]
+fn line_chart_uses_polyline() {
+    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
+        .theme(Theme::dark())
+        .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+    let has_polyline = rendered.canvas.commands().iter().any(|cmd| {
+        matches!(cmd, DrawCommand::Polyline { closed: false, .. })
+    });
+    assert!(has_polyline, "Line chart should emit Polyline commands, not individual Line commands");
+}
+
+#[test]
+fn filled_line_uses_gradient() {
+    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+        .filled()
+        .theme(Theme::dark())
+        .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+    let has_gradient = rendered.canvas.commands().iter().any(|cmd| {
+        matches!(cmd, DrawCommand::Polyline { style, closed: true, .. }
+            if matches!(&style.fill, Some(FillStyle::LinearGradient(_))))
+    });
+    assert!(has_gradient, "Filled line chart should use LinearGradient fill, not Solid");
+}
+
+#[test]
+fn grid_lines_use_dash_pattern() {
+    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+        .theme(Theme::dark())
+        .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+    let has_dashed = rendered.canvas.commands().iter().any(|cmd| {
+        matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some())
+    });
+    assert!(has_dashed, "Grid lines should use DashPattern from theme");
+}
+
+#[test]
+fn bar_chart_has_stroke() {
+    let chart = Chart::bar(
+        vec!["A".into(), "B".into(), "C".into()],
+        &[10.0, 25.0, 15.0],
+    )
+    .theme(Theme::dark())
+    .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+
+    // Bar fill rects
+    let fill_rects = rendered.canvas.commands().iter().filter(|cmd| {
+        matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some())
+    }).count();
+
+    // Bar stroke rects
+    let stroke_rects = rendered.canvas.commands().iter().filter(|cmd| {
+        matches!(cmd, DrawCommand::Rectangle { style, .. }
+            if style.stroke.is_some() && style.fill.is_none())
+    }).count();
+
+    assert!(fill_rects >= 3, "Should have at least 3 bar fill rectangles, got {fill_rects}");
+    assert!(stroke_rects >= 3, "Should have at least 3 bar stroke rectangles (one per bar), got {stroke_rects}");
+}
+
+#[test]
+fn histogram_bins_have_corner_radius() {
+    let chart = Chart::histogram(&[1.0, 2.0, 2.5, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0])
+        .bins(5)
+        .theme(Theme::dark())
+        .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+    let has_rounded = rendered.canvas.commands().iter().any(|cmd| {
+        matches!(cmd, DrawCommand::Rectangle { corner_radius, .. } if *corner_radius > 0.0)
+    });
+    assert!(has_rounded, "Histogram bins should have corner_radius > 0");
+}
+
+#[test]
+fn scatter_markers_have_stroke() {
+    let chart = Chart::scatter(
+        &[1.0, 2.0, 3.0, 4.0, 5.0],
+        &[2.0, 4.0, 1.0, 8.0, 5.0],
+    )
+    .theme(Theme::dark())
+    .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+    let stroked_circles = rendered.canvas.commands().iter().filter(|cmd| {
+        matches!(cmd, DrawCommand::Circle { style, .. } if style.stroke.is_some())
+    }).count();
+    assert!(stroked_circles >= 5, "Each scatter marker should have a stroke border, got {stroked_circles}");
+}
+
+#[test]
+fn all_themes_produce_output() {
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light()), ("pastel", Theme::pastel())] {
+        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+            .theme(theme)
+            .build();
+
+        let rendered = layout::render_chart(&chart, 400, 300);
+        assert!(
+            !rendered.canvas.commands().is_empty(),
+            "Theme '{name}' should produce draw commands"
+        );
+        assert!(
+            !rendered.text_overlays.is_empty(),
+            "Theme '{name}' should produce text overlays"
+        );
+    }
+}
+
+#[test]
+fn full_feature_chart() {
+    // Exercise every builder option in a single chart
+    let chart = Chart::scatter(
+        &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+        &[2.0, 4.0, 1.0, 8.0, 5.0, 3.0, 7.0, 6.0],
+    )
+    .title("Full Feature Test")
+    .x_label("X Axis")
+    .y_label("Y Axis")
+    .theme(Theme::dark())
+    .marker(Marker::Diamond)
+    .connected()
+    .add_series(
+        Series::new("Extra", vec![1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]),
+        Series::new("Extra Y", vec![3.0, 5.0, 7.0, 2.0, 6.0, 4.0, 8.0, 1.0]),
+    )
+    .trend_line()
+    .annotate(4.0, 8.0, "Peak")
+    .h_line(5.0)
+    .v_line(3.0)
+    .x_range(0.0, 10.0)
+    .y_range(0.0, 10.0)
+    .build();
+
+    let rendered = layout::render_chart(&chart, 600, 400);
+
+    // Verify structural integrity
+    assert!(rendered.canvas.commands().len() > 20, "Full feature chart should have many commands");
+    assert!(rendered.text_overlays.iter().any(|o| o.text == "Full Feature Test"), "Title");
+    assert!(rendered.text_overlays.iter().any(|o| o.text == "X Axis"), "X label");
+    assert!(rendered.text_overlays.iter().any(|o| o.text == "Y Axis"), "Y label");
+    assert!(rendered.text_overlays.iter().any(|o| o.text == "Peak"), "Annotation");
+
+    // Verify draw command types
+    let has_polygon = rendered.canvas.commands().iter().any(|cmd| {
+        matches!(cmd, DrawCommand::Polyline { closed: true, .. })
+    });
+    assert!(has_polygon, "Diamond markers should emit closed Polyline (polygon) commands");
+
+    let has_dashed_grid = rendered.canvas.commands().iter().any(|cmd| {
+        matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some())
+    });
+    assert!(has_dashed_grid, "Should have dashed grid lines");
+
+    insta::assert_snapshot!(summarize(&rendered));
+}

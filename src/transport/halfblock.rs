@@ -117,12 +117,19 @@ fn pixel_at(data: &[u8], width: usize, x: usize, y: usize) -> (u8, u8, u8) {
     let idx = (y * width + x) * 4;
     if idx + 3 < data.len() {
         let (red, green, blue, alpha) = (data[idx], data[idx + 1], data[idx + 2], data[idx + 3]);
-        let alpha_f = f32::from(alpha) / 255.0;
-        (
-            (f32::from(red) * alpha_f) as u8,
-            (f32::from(green) * alpha_f) as u8,
-            (f32::from(blue) * alpha_f) as u8,
-        )
+        // Fast-path: skip float math for fully-opaque pixels (~95%+ of cases)
+        if alpha == 255 {
+            (red, green, blue)
+        } else if alpha == 0 {
+            (0, 0, 0)
+        } else {
+            let alpha_f = f32::from(alpha) / 255.0;
+            (
+                (f32::from(red) * alpha_f) as u8,
+                (f32::from(green) * alpha_f) as u8,
+                (f32::from(blue) * alpha_f) as u8,
+            )
+        }
     } else {
         (0, 0, 0)
     }

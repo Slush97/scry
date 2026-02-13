@@ -27,6 +27,7 @@ use std::io;
 /// from this object, so no base64 or pipe I/O is needed.
 ///
 /// On drop, the mapping is unmapped and the shm object is unlinked.
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) struct ShmBuffer {
     /// Name of the shared memory object (without leading `/`).
     name: String,
@@ -138,7 +139,7 @@ impl ShmBuffer {
     }
 
     /// Total capacity in bytes.
-    pub(crate) fn capacity(&self) -> usize {
+    pub(crate) const fn capacity(&self) -> usize {
         self.capacity
     }
 

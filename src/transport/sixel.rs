@@ -138,15 +138,17 @@ impl<W: Write + std::fmt::Debug> SixelBackend<W> {
 
         // Encode sixel rows (6 pixel rows per sixel row)
         let sixel_rows = h.div_ceil(6);
+        // Reusable buffer for sixel line data (avoids per-color-per-row allocation)
+        let mut sixel_line: Vec<u8> = Vec::with_capacity(w);
 
         for sr in 0..sixel_rows {
             let y_base = sr * 6;
 
             // For each color in palette, emit the sixel data for this row
             for (color_idx, _) in palette.iter().enumerate() {
-                // Build the sixel string for this color
+                // Build the sixel string for this color into the reusable buffer
                 let mut has_pixels = false;
-                let mut sixel_line: Vec<u8> = Vec::with_capacity(w);
+                sixel_line.clear();
 
                 for x in 0..w {
                     let mut bits: u8 = 0;
@@ -355,6 +357,8 @@ fn median_cut_quantize(data: &[u8], w: usize, h: usize) -> (Vec<(u8, u8, u8)>, V
         let (r, g, b, a) = (data[idx], data[idx + 1], data[idx + 2], data[idx + 3]);
         if a == 255 {
             pixels.push((r, g, b));
+        } else if a == 0 {
+            pixels.push((0, 0, 0));
         } else {
             let af = f32::from(a) / 255.0;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -367,10 +371,8 @@ fn median_cut_quantize(data: &[u8], w: usize, h: usize) -> (Vec<(u8, u8, u8)>, V
         }
     }
 
-    // Build initial bucket
-    let initial = ColorBucket {
-        pixels: pixels.clone(),
-    };
+    // Build initial bucket — move pixels, don't clone
+    let initial = ColorBucket { pixels };
     let mut buckets = vec![initial];
 
     // Iteratively split the largest bucket until we have enough colors
@@ -401,16 +403,56 @@ fn median_cut_quantize(data: &[u8], w: usize, h: usize) -> (Vec<(u8, u8, u8)>, V
     // Build palette
     let palette: Vec<(u8, u8, u8)> = buckets.iter().map(ColorBucket::average).collect();
 
-    // Map each pixel to nearest palette color
-    let indexed: Vec<u8> = pixels
-        .iter()
-        .map(|&(r, g, b)| nearest_palette_index(&palette, r, g, b))
+    // Build a 32×32×32 RGB lookup table (5 bits per channel = 32 KB)
+    // for O(1) nearest-color lookup instead of O(n × palette_size).
+    let mut lut = vec![0u8; 32 * 32 * 32];
+    for ri in 0u8..32 {
+        for gi in 0u8..32 {
+            for bi in 0u8..32 {
+                // Map 5-bit back to 8-bit (center of the bin)
+                let r = (u16::from(ri) * 255 / 31) as u8;
+                let g = (u16::from(gi) * 255 / 31) as u8;
+                let b = (u16::from(bi) * 255 / 31) as u8;
+                lut[(ri as usize) * 32 * 32 + (gi as usize) * 32 + bi as usize] =
+                    nearest_palette_index(&palette, r, g, b);
+            }
+        }
+    }
+
+    // Re-extract pixels from the original data for indexed mapping
+    // (the original pixels vec was moved into buckets and mutated by sorting)
+    let indexed: Vec<u8> = (0..total)
+        .map(|i| {
+            let idx = i * 4;
+            let (r, g, b, a) = (data[idx], data[idx + 1], data[idx + 2], data[idx + 3]);
+            let (r, g, b) = if a == 255 {
+                (r, g, b)
+            } else if a == 0 {
+                (0, 0, 0)
+            } else {
+                let af = f32::from(a) / 255.0;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                {
+                    (
+                        (f32::from(r) * af) as u8,
+                        (f32::from(g) * af) as u8,
+                        (f32::from(b) * af) as u8,
+                    )
+                }
+            };
+            // 5-bit quantized lookup
+            let ri = (r >> 3) as usize;
+            let gi = (g >> 3) as usize;
+            let bi = (b >> 3) as usize;
+            lut[ri * 32 * 32 + gi * 32 + bi]
+        })
         .collect();
 
     (palette, indexed)
 }
 
 /// Find the nearest palette entry by squared Euclidean distance in RGB.
+/// Used only during LUT construction (called 32³ = 32768 times, not per-pixel).
 #[allow(clippy::cast_possible_truncation)]
 fn nearest_palette_index(palette: &[(u8, u8, u8)], r: u8, g: u8, b: u8) -> u8 {
     let mut best = 0u8;

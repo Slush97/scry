@@ -1,9 +1,8 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 134
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 24 commands
+canvas: 400x300, 19 commands
 overlays: 11
   [0] (89, 264) Center "0"
   [1] (174, 264) Center "2"
