@@ -39,9 +39,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui_pixelcanvas::prelude::{
     PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind,
 };
-use ratatui_pixelcanvas::scene::style::{
-    Color as C, Transform,
-};
+use ratatui_pixelcanvas::scene::style::Color as C;
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::transport;
 
@@ -103,25 +101,6 @@ fn pixel_size(area: Rect, state: &PixelCanvasState) -> (u32, u32, f32, f32) {
     (w, h, w as f32, h as f32)
 }
 
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let h2 = h / 60.0;
-    let x = c * (1.0 - (h2 % 2.0 - 1.0).abs());
-    let (r1, g1, b1) = match h2 as u32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    let m = l - c / 2.0;
-    (
-        ((r1 + m) * 255.0) as u8,
-        ((g1 + m) * 255.0) as u8,
-        ((b1 + m) * 255.0) as u8,
-    )
-}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Main
@@ -216,65 +195,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn build_moire(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     let (w, h, wf, hf) = pixel_size(area, state);
-    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(5, 5, 12, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(2, 2, 8, 255));
 
     let cx = wf / 2.0;
     let cy = hf / 2.0;
     let r_max = wf.min(hf) * 0.48;
-    // Wider spacing = fewer commands, still great moiré effect
-    let spacing = 5.0;
+    let spacing = 4.0; // tight enough for rich interference
     let num_rings = (r_max / spacing) as usize;
 
-    // Oscillating offset for the second grid
-    let offset_x = (t * 0.4).sin() * 15.0;
-    let offset_y = (t * 0.3).cos() * 10.0;
-
-    // Grid 1: Cyan rings, stationary
+    // Grid 1: Stationary cyan concentric rings
     for i in 1..=num_rings {
         let r = i as f32 * spacing;
         canvas = canvas
             .circle(cx, cy, r)
-            .stroke(C::from_rgba8(0, 180, 255, 70), 1.5)
+            .stroke(C::from_rgba8(0, 200, 255, 90), 1.2)
             .done();
     }
 
-    // Grid 2: Magenta rings, offset and slowly drifting
+    // Grid 2: Magenta rings with slow circular orbit around center
+    let orbit_r = 25.0;
+    let ox = (t * 0.35).sin() * orbit_r;
+    let oy = (t * 0.35).cos() * orbit_r;
     for i in 1..=num_rings {
         let r = i as f32 * spacing;
         canvas = canvas
-            .circle(cx + offset_x, cy + offset_y, r)
-            .stroke(C::from_rgba8(255, 0, 180, 70), 1.5)
+            .circle(cx + ox, cy + oy, r)
+            .stroke(C::from_rgba8(255, 0, 200, 80), 1.2)
             .done();
     }
 
-    // Radial spokes — pre-rotate endpoints instead of using Group transforms.
-    // This eliminates 2 expensive Group commands (temp pixmap alloc each).
-    let num_spokes = 60;
-    let spoke_len = r_max;
-    let rotation1 = t * 0.15;
-    let rotation2 = -t * 0.1;
-
-    for i in 0..num_spokes {
-        let base_angle = (i as f32 / num_spokes as f32) * std::f32::consts::TAU;
-
-        // Spoke grid 1 (rotated)
-        let a1 = base_angle + rotation1;
-        let x2 = cx + a1.cos() * spoke_len;
-        let y2 = cy + a1.sin() * spoke_len;
+    // Grid 3: White/gold rings orbiting at 120° offset — triple interference
+    let ox2 = (t * 0.35 + std::f32::consts::TAU / 3.0).sin() * orbit_r * 0.7;
+    let oy2 = (t * 0.35 + std::f32::consts::TAU / 3.0).cos() * orbit_r * 0.7;
+    // Only draw every other ring to save commands while adding a third layer
+    for i in (1..=num_rings).step_by(2) {
+        let r = i as f32 * spacing;
         canvas = canvas
-            .line(cx, cy, x2, y2)
-            .color(C::from_rgba8(180, 180, 255, 35))
-            .width(1.0)
-            .done();
-
-        // Spoke grid 2 (counter-rotated)
-        let a2 = base_angle + rotation2;
-        let x2b = cx + a2.cos() * spoke_len;
-        let y2b = cy + a2.sin() * spoke_len;
-        canvas = canvas
-            .line(cx, cy, x2b, y2b)
-            .color(C::from_rgba8(255, 200, 100, 30))
-            .width(1.0)
+            .circle(cx + ox2, cy + oy2, r)
+            .stroke(C::from_rgba8(255, 220, 100, 50), 1.0)
             .done();
     }
 
@@ -463,273 +421,282 @@ fn build_lilac_chaser(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanv
 
 fn build_motion_blindness(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     let (w, h, wf, hf) = pixel_size(area, state);
-    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(5, 5, 15, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(3, 3, 12, 255));
 
     let cx = wf / 2.0;
     let cy = hf / 2.0;
-    let field_size = wf.min(hf) * 0.45;
+    let field_r = wf.min(hf) * 0.44;
 
-    // Rotating field of blue crosses
-    let cross_arm = 5.0;
-    let cross_width = 1.8;
-    let grid_spacing = 40.0; // wider spacing = fewer crosses = faster
-    let rotation = t * 0.35; // slow, steady rotation
+    // ── Rotating blue crosses ──
+    // Pre-rotate each cross position to avoid Group (temp pixmap).
+    // Research: ~5.5°/s rotation, dense grid of + shaped crosses.
+    let cross_arm = 4.5;
+    let cross_w = 1.5;
+    let spacing = 25.0;
+    let rotation = t * 0.096; // ~5.5°/s in radians
+    let (sin_r, cos_r) = rotation.sin_cos();
 
-    canvas = canvas
-        .group(Transform::rotate_at(rotation, cx, cy))
-        .canvas(|mut inner| {
-            let cols = (field_size * 2.0 / grid_spacing) as i32;
-            let rows = (field_size * 2.0 / grid_spacing) as i32;
+    let half_n = (field_r / spacing) as i32;
+    for gy in -half_n..=half_n {
+        for gx in -half_n..=half_n {
+            let lx = gx as f32 * spacing;
+            let ly = gy as f32 * spacing;
 
-            for row in -rows..=rows {
-                for col in -cols..=cols {
-                    let bx = cx + col as f32 * grid_spacing;
-                    let by = cy + row as f32 * grid_spacing;
-
-                    // Distance from center — skip if too far (circular field)
-                    let dx = bx - cx;
-                    let dy = by - cy;
-                    if dx * dx + dy * dy > field_size * field_size {
-                        continue;
-                    }
-
-                    // Diagonal cross (×)
-                    inner = inner
-                        .line(bx - cross_arm, by - cross_arm, bx + cross_arm, by + cross_arm)
-                        .color(C::from_rgba8(50, 80, 220, 200))
-                        .width(cross_width)
-                        .done();
-                    inner = inner
-                        .line(bx + cross_arm, by - cross_arm, bx - cross_arm, by + cross_arm)
-                        .color(C::from_rgba8(50, 80, 220, 200))
-                        .width(cross_width)
-                        .done();
-                }
+            // Skip if outside circular field
+            if lx * lx + ly * ly > field_r * field_r {
+                continue;
             }
-            inner
-        })
-        .done();
 
-    // Three static yellow dots — these are NOT in the rotating group.
-    // They are always visible, always drawn, yet your brain will
-    // make them disappear.
-    let dot_radius = 7.0;
-    let dot_distance = field_size * 0.55;
-    let dot_color = C::from_rgba8(255, 230, 0, 255);
+            // Rotate around center
+            let rx = cx + lx * cos_r - ly * sin_r;
+            let ry = cy + lx * sin_r + ly * cos_r;
+
+            // + shaped cross (orthogonal arms, also rotated)
+            // Horizontal arm endpoints (rotated)
+            let hx1 = rx + cross_arm * cos_r;
+            let hy1 = ry + cross_arm * sin_r;
+            let hx2 = rx - cross_arm * cos_r;
+            let hy2 = ry - cross_arm * sin_r;
+            // Vertical arm endpoints (rotated)
+            let vx1 = rx - cross_arm * sin_r;
+            let vy1 = ry + cross_arm * cos_r;
+            let vx2 = rx + cross_arm * sin_r;
+            let vy2 = ry - cross_arm * cos_r;
+
+            canvas = canvas
+                .line(hx1, hy1, hx2, hy2)
+                .color(C::from_rgba8(40, 70, 200, 220))
+                .width(cross_w)
+                .done();
+            canvas = canvas
+                .line(vx1, vy1, vx2, vy2)
+                .color(C::from_rgba8(40, 70, 200, 220))
+                .width(cross_w)
+                .done();
+        }
+    }
+
+    // ── Three static yellow target dots ──
+    // Research: targets at moderate eccentricity, arranged as equilateral triangle
+    let dot_r = 6.0;
+    let dot_dist = field_r * 0.45;
+    let dot_color = C::from_rgba8(255, 255, 0, 255);
     let pi = std::f32::consts::PI;
 
-    // Arrange in equilateral triangle
-    let dot_positions = [
-        (cx + dot_distance * (pi * 0.5).cos(), cy + dot_distance * (pi * 0.5).sin()),
-        (cx + dot_distance * (pi * 7.0 / 6.0).cos(), cy + dot_distance * (pi * 7.0 / 6.0).sin()),
-        (cx + dot_distance * (pi * 11.0 / 6.0).cos(), cy + dot_distance * (pi * 11.0 / 6.0).sin()),
+    let targets = [
+        (cx, cy - dot_dist),                                          // top
+        (cx - dot_dist * (pi / 3.0).sin(), cy + dot_dist * 0.5),    // bottom-left
+        (cx + dot_dist * (pi / 3.0).sin(), cy + dot_dist * 0.5),    // bottom-right
     ];
 
-    for &(dx, dy) in &dot_positions {
+    for &(tx, ty) in &targets {
+        // Bright dot with slight glow
         canvas = canvas
-            .circle(dx, dy, dot_radius)
+            .circle(tx, ty, dot_r + 3.0)
+            .fill(C::from_rgba8(255, 255, 0, 30))
+            .done();
+        canvas = canvas
+            .circle(tx, ty, dot_r)
             .fill(dot_color)
             .done();
     }
 
-    // Center fixation — green dot to stare at
+    // ── Center fixation point — must stare here ──
     canvas = canvas
-        .circle(cx, cy, 4.0)
+        .circle(cx, cy, 5.0)
         .fill(C::from_rgba8(0, 255, 80, 255))
+        .done();
+    canvas = canvas
+        .circle(cx, cy, 2.0)
+        .fill(C::from_rgba8(255, 255, 255, 255))
         .done();
 
     canvas
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Page 5: Penrose Impossible Triangle (Animated Assembly)
+// Page 5: Penrose Impossible Triangle
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// An impossible triangle that assembles itself — three beams slide into
-// place and connect in a geometrically impossible configuration. The beams
-// use gradient shading to enhance the 3D depth illusion.
+// The classic impossible object. Three bars connect in a cycle where
+// each bar appears to pass OVER the next — an arrangement that cannot
+// exist in 3D. The trick is in the drawing order: we draw each beam
+// so that its near end covers the far end of the previous beam,
+// creating a cyclic depth contradiction.
 //
-// Once assembled, the triangle subtly breathes (scale oscillation).
+// Slowly rotates to let people study the impossibility from all angles.
 
 fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     let (w, h, wf, hf) = pixel_size(area, state);
-    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(15, 15, 25, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(12, 12, 20, 255));
 
     let cx = wf / 2.0;
     let cy = hf / 2.0;
-    let base_size = wf.min(hf) * 0.32;
+    let scale = wf.min(hf) * 0.35;
 
-    // Assembly animation: beams slide in over 3 seconds, then hold
-    let assembly_t = (t * 0.5).min(1.0); // 0→1 over 2 seconds
-    let ease = 1.0 - (1.0 - assembly_t).powi(3); // ease-out cubic
+    // Slow rotation so viewers can study the impossibility
+    let angle = t * 0.2;
 
-    // Breathing once assembled
-    let breath = if assembly_t >= 1.0 {
-        1.0 + ((t - 2.0) * 1.2).sin() * 0.02
-    } else {
-        1.0
+    // The Penrose triangle is built from three rhombus-shaped bars.
+    // Each bar has an outer edge, inner edge, and two end-caps.
+    //
+    // We define the triangle in local coordinates, then rotate.
+    // The outer triangle vertices (equilateral, centered):
+    let s3 = 3.0_f32.sqrt();
+    let outer = [
+        (0.0_f32, -1.0_f32),                  // top
+        (-s3 / 2.0, 0.5_f32),                 // bottom-left
+        (s3 / 2.0, 0.5_f32),                  // bottom-right
+    ];
+
+    // Bar thickness as fraction of triangle size
+    let th = 0.28;
+
+    // Inner triangle vertices (offset inward)
+    let inner = [
+        (0.0, -1.0 + th * s3),
+        (-s3 / 2.0 + th * 1.5, 0.5),
+        (s3 / 2.0 - th * 1.5, 0.5),
+    ];
+
+    // Transform helper: scale and rotate a point, then translate to center
+    let xform = |p: (f32, f32)| -> (f32, f32) {
+        let (sin_a, cos_a) = angle.sin_cos();
+        let rx = p.0 * cos_a - p.1 * sin_a;
+        let ry = p.0 * sin_a + p.1 * cos_a;
+        (cx + rx * scale, cy + ry * scale)
     };
 
-    let size = base_size * breath;
-    let thickness = size * 0.18;
+    // Each beam connects outer[i]→outer[j] along the outer edge,
+    // with a parallel inner edge from inner[i]→inner[j].
+    // The "impossible" trick: beam drawing order and overlap at corners.
 
-    // Triangle vertices (equilateral, pointing up)
-    let top = (cx, cy - size * 0.6);
-    let bl = (cx - size * 0.6, cy + size * 0.4);
-    let br = (cx + size * 0.6, cy + size * 0.4);
-
-    // Colors for the 3 beams (with light/dark faces for 3D effect)
-    let beam_colors_light = [
-        C::from_rgba8(80, 170, 240, 255),
-        C::from_rgba8(240, 100, 80, 255),
-        C::from_rgba8(90, 210, 130, 255),
+    // Color palettes for 3 faces of each beam:
+    // face_a = main visible face, face_b = side face, face_c = end cap
+    let faces_a = [
+        C::from_rgba8(55, 130, 210, 255),   // blue
+        C::from_rgba8(210, 75, 55, 255),    // red
+        C::from_rgba8(55, 185, 110, 255),   // green
     ];
-    let beam_colors_dark = [
-        C::from_rgba8(40, 100, 160, 255),
-        C::from_rgba8(160, 50, 40, 255),
-        C::from_rgba8(40, 140, 70, 255),
+    let faces_b = [
+        C::from_rgba8(35, 85, 150, 255),
+        C::from_rgba8(155, 45, 35, 255),
+        C::from_rgba8(30, 130, 70, 255),
     ];
-
-    // Each beam slides in from an offset direction
-    let slide_offsets = [
-        (0.0_f32, -200.0_f32),  // top beam slides down from above
-        (-200.0, 150.0),        // left beam slides in from lower-left
-        (200.0, 150.0),         // right beam slides in from lower-right
+    let faces_c = [
+        C::from_rgba8(75, 160, 240, 255),
+        C::from_rgba8(240, 110, 80, 255),
+        C::from_rgba8(80, 215, 140, 255),
     ];
 
-    // Helper to interpolate position during assembly
-    let interp = |base: f32, offset: f32| -> f32 {
-        base + offset * (1.0 - ease)
+    let edge_color = C::from_rgba8(10, 10, 18, 255);
+    let edge_w = 1.8;
+
+    // The three beams, each defined by 4 corners:
+    // outer_start, outer_end, inner_end, inner_start
+    // We draw them in a specific order to create the cyclic overlap.
+
+    // Beam 0: Top → Bottom-Left (outer[0]→outer[1], inner[0]→inner[1])
+    // Beam 1: Bottom-Left → Bottom-Right (outer[1]→outer[2], inner[1]→inner[2])
+    // Beam 2: Bottom-Right → Top (outer[2]→outer[0], inner[2]→inner[0])
+    //
+    // Draw ORDER for impossibility: 0, 1, then 2.
+    // Beam 2's "near" end (at top) overlaps beam 0's start point.
+    // But beam 0 was already drawn as "in front" going left...
+    // That's the contradiction.
+
+    // For a convincing Penrose, each beam needs proper 3D-like shading.
+    // We'll draw each beam as a trapezoid (the main face) plus a
+    // parallelogram (the side face visible due to perspective).
+
+    // The thickness offset creates the 3D depth effect
+
+    // Beam drawing function
+    let draw_beam = |mut cv: PixelCanvas,
+                     o_start: (f32, f32), o_end: (f32, f32),
+                     i_start: (f32, f32), i_end: (f32, f32),
+                     depth_dir: (f32, f32),
+                     face_main: C, face_side: C, face_top: C| -> PixelCanvas {
+        let os = xform(o_start);
+        let oe = xform(o_end);
+        let is_ = xform(i_start);
+        let ie = xform(i_end);
+        let dd = (depth_dir.0 * scale * 0.12, depth_dir.1 * scale * 0.12);
+
+        // Main face (the big visible surface)
+        cv = cv
+            .polygon(vec![os, oe, ie, is_])
+            .fill(face_main)
+            .stroke(edge_color, edge_w)
+            .done();
+
+        // Side face (depth illusion — a parallelogram offset along depth direction)
+        cv = cv
+            .polygon(vec![
+                os,
+                (os.0 + dd.0, os.1 + dd.1),
+                (oe.0 + dd.0, oe.1 + dd.1),
+                oe,
+            ])
+            .fill(face_side)
+            .stroke(edge_color, edge_w * 0.8)
+            .done();
+
+        // Top face connecting to the depth offset
+        cv = cv
+            .polygon(vec![
+                is_,
+                (is_.0 + dd.0, is_.1 + dd.1),
+                (os.0 + dd.0, os.1 + dd.1),
+                os,
+            ])
+            .fill(face_top)
+            .stroke(edge_color, edge_w * 0.8)
+            .done();
+
+        cv
     };
 
-    // ── Beam 1: Top → Bottom-Left ──
-    {
-        let ox = slide_offsets[0].0;
-        let oy = slide_offsets[0].1;
+    // Beam 0: Top → Bottom-Left
+    canvas = draw_beam(
+        canvas,
+        outer[0], outer[1], inner[0], inner[1],
+        (th * 0.5, th * 0.3),
+        faces_a[0], faces_b[0], faces_c[0],
+    );
 
-        // Outer face (light)
-        let pts = vec![
-            (interp(top.0, ox), interp(top.1, oy)),
-            (interp(top.0 - thickness * 0.5, ox), interp(top.1 + thickness * 0.3, oy)),
-            (interp(bl.0 + thickness * 0.15, ox), interp(bl.1 + thickness * 0.15, oy)),
-            (interp(bl.0, ox), interp(bl.1, oy)),
-            (interp(bl.0 + thickness * 0.7, ox), interp(bl.1 - thickness * 0.3, oy)),
-            (interp(top.0 + thickness * 0.35, ox), interp(top.1 + thickness * 0.5, oy)),
-        ];
+    // Beam 1: Bottom-Left → Bottom-Right
+    canvas = draw_beam(
+        canvas,
+        outer[1], outer[2], inner[1], inner[2],
+        (0.0, -th * 0.6),
+        faces_a[1], faces_b[1], faces_c[1],
+    );
+
+    // Beam 2: Bottom-Right → Top
+    // THIS is the impossible beam — it connects back to the top,
+    // overlaying beam 0's starting area, creating the contradiction.
+    canvas = draw_beam(
+        canvas,
+        outer[2], outer[0], inner[2], inner[0],
+        (-th * 0.5, th * 0.3),
+        faces_a[2], faces_b[2], faces_c[2],
+    );
+
+    // Subtle pulsing glow ring
+    let glow_a = ((t * 0.8).sin() * 0.25 + 0.25).max(0.0);
+    canvas = canvas
+        .circle(cx, cy, scale * 1.15)
+        .stroke(C::from_rgba8(100, 140, 255, (glow_a * 255.0) as u8), 1.5)
+        .done();
+
+    // Corner accent dots — highlight the three vertices
+    for v in &outer {
+        let p = xform(*v);
         canvas = canvas
-            .polygon(pts)
-            .fill(beam_colors_light[0])
-            .stroke(C::from_rgba8(20, 20, 35, 200), 1.5)
+            .circle(p.0, p.1, 4.0)
+            .fill(C::from_rgba8(255, 255, 255, 120))
             .done();
-
-        // Inner face (dark) — the visible interior face
-        let inner_pts = vec![
-            (interp(top.0 + thickness * 0.35, ox), interp(top.1 + thickness * 0.5, oy)),
-            (interp(bl.0 + thickness * 0.7, ox), interp(bl.1 - thickness * 0.3, oy)),
-            (interp(bl.0 + thickness * 0.55, ox), interp(bl.1 + thickness * 0.05, oy)),
-            (interp(top.0 + thickness * 0.1, ox), interp(top.1 + thickness * 0.8, oy)),
-        ];
-        canvas = canvas
-            .polygon(inner_pts)
-            .fill(beam_colors_dark[0])
-            .stroke(C::from_rgba8(20, 20, 35, 120), 1.0)
-            .done();
-    }
-
-    // ── Beam 2: Bottom-Left → Bottom-Right ──
-    {
-        let ox = slide_offsets[1].0;
-        let oy = slide_offsets[1].1;
-
-        let pts = vec![
-            (interp(bl.0, ox), interp(bl.1, oy)),
-            (interp(bl.0 + thickness * 0.15, ox), interp(bl.1 + thickness * 0.15, oy)),
-            (interp(br.0 - thickness * 0.15, ox), interp(br.1 + thickness * 0.15, oy)),
-            (interp(br.0, ox), interp(br.1, oy)),
-            (interp(br.0 - thickness * 0.5, ox), interp(br.1 - thickness * 0.4, oy)),
-            (interp(bl.0 + thickness * 0.7, ox), interp(bl.1 - thickness * 0.3, oy)),
-        ];
-        canvas = canvas
-            .polygon(pts)
-            .fill(beam_colors_light[1])
-            .stroke(C::from_rgba8(20, 20, 35, 200), 1.5)
-            .done();
-
-        // Top face (dark)
-        let inner_pts = vec![
-            (interp(bl.0 + thickness * 0.7, ox), interp(bl.1 - thickness * 0.3, oy)),
-            (interp(br.0 - thickness * 0.5, ox), interp(br.1 - thickness * 0.4, oy)),
-            (interp(br.0 - thickness * 0.35, ox), interp(br.1 - thickness * 0.1, oy)),
-            (interp(bl.0 + thickness * 0.55, ox), interp(bl.1 + thickness * 0.05, oy)),
-        ];
-        canvas = canvas
-            .polygon(inner_pts)
-            .fill(beam_colors_dark[1])
-            .stroke(C::from_rgba8(20, 20, 35, 120), 1.0)
-            .done();
-    }
-
-    // ── Beam 3: Bottom-Right → Top ──
-    // This is the "impossible" connection — it overlaps beam 1 in a way
-    // that would be physically impossible in 3D.
-    {
-        let ox = slide_offsets[2].0;
-        let oy = slide_offsets[2].1;
-
-        let pts = vec![
-            (interp(br.0, ox), interp(br.1, oy)),
-            (interp(br.0 - thickness * 0.15, ox), interp(br.1 + thickness * 0.15, oy)),
-            (interp(top.0 + thickness * 0.4, ox), interp(top.1 + thickness * 0.1, oy)),
-            (interp(top.0, ox), interp(top.1, oy)),
-            (interp(top.0 + thickness * 0.35, ox), interp(top.1 + thickness * 0.5, oy)),
-            (interp(br.0 - thickness * 0.5, ox), interp(br.1 - thickness * 0.4, oy)),
-        ];
-        canvas = canvas
-            .polygon(pts)
-            .fill(beam_colors_light[2])
-            .stroke(C::from_rgba8(20, 20, 35, 200), 1.5)
-            .done();
-
-        // Inner face (dark)
-        let inner_pts = vec![
-            (interp(top.0 + thickness * 0.35, ox), interp(top.1 + thickness * 0.5, oy)),
-            (interp(top.0 + thickness * 0.1, ox), interp(top.1 + thickness * 0.8, oy)),
-            (interp(br.0 - thickness * 0.35, ox), interp(br.1 - thickness * 0.1, oy)),
-            (interp(br.0 - thickness * 0.5, ox), interp(br.1 - thickness * 0.4, oy)),
-        ];
-        canvas = canvas
-            .polygon(inner_pts)
-            .fill(beam_colors_dark[2])
-            .stroke(C::from_rgba8(20, 20, 35, 120), 1.0)
-            .done();
-    }
-
-    // Ambient glow around the triangle
-    if assembly_t >= 1.0 {
-        let glow_r = size * 0.9;
-        let glow_alpha = ((t * 0.8).sin() * 0.3 + 0.3).max(0.0);
-        let a = (glow_alpha * 255.0) as u8;
-        canvas = canvas
-            .circle(cx, cy, glow_r)
-            .stroke(C::from_rgba8(100, 150, 255, a), 2.0)
-            .done();
-    }
-
-    // Decorative particles orbiting the triangle once assembled
-    if assembly_t >= 1.0 {
-        let num_particles = 20;
-        let orbit_r = size * 0.75;
-        for i in 0..num_particles {
-            let angle = (i as f32 / num_particles as f32) * std::f32::consts::TAU + t * 0.4;
-            let pr = orbit_r + (angle * 3.0 + t).sin() * 15.0;
-            let px = cx + angle.cos() * pr;
-            let py = cy + angle.sin() * pr;
-            let (cr, cg, cb) = hsl_to_rgb((i as f32 * 18.0 + t * 30.0) % 360.0, 0.7, 0.65);
-            canvas = canvas
-                .circle(px, py, 2.5)
-                .fill(C::from_rgba8(cr, cg, cb, 150))
-                .done();
-        }
     }
 
     canvas
