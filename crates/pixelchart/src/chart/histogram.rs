@@ -1,12 +1,16 @@
 //! Histogram chart type.
 
-use crate::chart::{Chart, ChartConfig, ReferenceLine};
+use crate::chart::config_builder::{
+    chart_config_axis_labels, chart_config_core, chart_config_formatters, chart_config_grid,
+    chart_config_h_lines, chart_config_legend, chart_config_locale, chart_config_ranges,
+    chart_config_tick_rotation, chart_config_tick_steps, chart_config_v_lines,
+};
+use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
-use crate::theme::Theme;
-use ratatui_pixelcanvas::style::Color;
 
 /// A histogram — distribution of values shown as binned bars.
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct Histogram {
     /// Raw data to bin.
     pub(crate) data: Series,
@@ -35,29 +39,18 @@ impl Histogram {
         }
     }
 
-    /// Set the chart title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.config.title = Some(title.into());
-        self
-    }
-
-    /// Set the x-axis label.
-    pub fn x_label(mut self, label: impl Into<String>) -> Self {
-        self.config.x_label = Some(label.into());
-        self
-    }
-
-    /// Set the y-axis label.
-    pub fn y_label(mut self, label: impl Into<String>) -> Self {
-        self.config.y_label = Some(label.into());
-        self
-    }
-
-    /// Set the visual theme.
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.config.theme = theme;
-        self
-    }
+    // --- Generated common methods ---
+    chart_config_core!();
+    chart_config_axis_labels!();
+    chart_config_ranges!(xy);
+    chart_config_h_lines!();
+    chart_config_v_lines!();
+    chart_config_legend!();
+    chart_config_grid!();
+    chart_config_tick_rotation!();
+    chart_config_formatters!();
+    chart_config_locale!();
+    chart_config_tick_steps!();
 
     /// Set the number of bins (default: auto via Sturges' rule).
     pub fn bins(mut self, n: usize) -> Self {
@@ -83,28 +76,14 @@ impl Histogram {
         self
     }
 
-    /// Override the x-axis range.
-    pub fn x_range(mut self, min: f64, max: f64) -> Self {
-        self.config.x_range = Some((min, max));
-        self
-    }
-
-    /// Override the y-axis range.
-    pub fn y_range(mut self, min: f64, max: f64) -> Self {
-        self.config.y_range = Some((min, max));
-        self
-    }
-
-    /// Add a vertical reference line (e.g., for the mean).
-    pub fn v_line(mut self, value: f64) -> Self {
-        self.config.v_lines.push(ReferenceLine::new(value));
-        self
-    }
-
-    /// Add a vertical reference line with color.
-    pub fn v_line_styled(mut self, value: f64, color: Color) -> Self {
-        self.config.v_lines.push(ReferenceLine::new(value).color(color));
-        self
+    /// Validate inputs and build into a Chart enum variant.
+    ///
+    /// Returns [`ChartError`](crate::error::ChartError) if data is empty.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.data.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        Ok(self.build())
     }
 
     /// Build into a Chart enum variant.
@@ -113,6 +92,7 @@ impl Histogram {
     }
 
     /// Auto-select number of bins using Sturges' rule.
+    #[must_use]
     pub fn auto_bins(n: usize) -> usize {
         let bins = (1.0 + (n as f64).log2()).ceil() as usize;
         bins.max(5).min(50)

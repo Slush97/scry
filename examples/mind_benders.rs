@@ -36,9 +36,7 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{
-    PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind,
-};
+use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
 use ratatui_pixelcanvas::scene::style::Color as C;
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::transport;
@@ -78,9 +76,15 @@ impl Page {
     const fn hint(self) -> &'static str {
         match self {
             Self::Moire => "Watch the phantom waves between the grids",
-            Self::RotatingSnakes => "Look at the edges — the discs appear to ROTATE (image is static!)",
-            Self::LilacChaser => "Stare at the cross. A GREEN dot will appear. Then they ALL vanish.",
-            Self::MotionBlindness => "Stare at center. The yellow dots will DISAPPEAR from your mind.",
+            Self::RotatingSnakes => {
+                "Look at the edges — the discs appear to ROTATE (image is static!)"
+            }
+            Self::LilacChaser => {
+                "Stare at the cross. A GREEN dot will appear. Then they ALL vanish."
+            }
+            Self::MotionBlindness => {
+                "Stare at center. The yellow dots will DISAPPEAR from your mind."
+            }
             Self::PenroseTriangle => "This triangle cannot exist in 3D space",
         }
     }
@@ -100,7 +104,6 @@ fn pixel_size(area: Rect, state: &PixelCanvasState) -> (u32, u32, f32, f32) {
     let h = u32::from(area.height) * u32::from(font.height);
     (w, h, w as f32, h as f32)
 }
-
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Main
@@ -152,8 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 page.label(),
                 page.hint(),
             );
-            let status = Paragraph::new(status_text)
-                .block(Block::default().borders(Borders::TOP));
+            let status = Paragraph::new(status_text).block(Block::default().borders(Borders::TOP));
             frame.render_widget(status, chunks[1]);
         })?;
         state.flush()?;
@@ -259,16 +261,16 @@ fn build_rotating_snakes(area: Rect, state: &PixelCanvasState, _t: f32) -> Pixel
     // The critical color sequence for the Kitaoka illusion:
     // black → dark → white → light (repeating around each ring)
     let colors = [
-        C::from_rgba8(10, 10, 10, 255),     // black
-        C::from_rgba8(30, 50, 120, 255),     // dark blue
-        C::from_rgba8(250, 250, 250, 255),   // white
-        C::from_rgba8(240, 210, 60, 255),    // yellow
+        C::from_rgba8(10, 10, 10, 255),    // black
+        C::from_rgba8(30, 50, 120, 255),   // dark blue
+        C::from_rgba8(250, 250, 250, 255), // white
+        C::from_rgba8(240, 210, 60, 255),  // yellow
     ];
 
     // Grid of discs — cap total discs to keep arc count manageable
     let disc_size = (wf.min(hf) / 4.0).min(140.0);
-    let cols = (((wf - disc_size * 0.5) / (disc_size * 1.2)) as usize).max(1).min(6);
-    let rows = (((hf - disc_size * 0.5) / (disc_size * 1.2)) as usize).max(1).min(4);
+    let cols = (((wf - disc_size * 0.5) / (disc_size * 1.2)) as usize).clamp(1, 6);
+    let rows = (((hf - disc_size * 0.5) / (disc_size * 1.2)) as usize).clamp(1, 4);
 
     let total_w = cols as f32 * disc_size * 1.2;
     let total_h = rows as f32 * disc_size * 1.2;
@@ -484,9 +486,9 @@ fn build_motion_blindness(area: Rect, state: &PixelCanvasState, t: f32) -> Pixel
     let pi = std::f32::consts::PI;
 
     let targets = [
-        (cx, cy - dot_dist),                                          // top
-        (cx - dot_dist * (pi / 3.0).sin(), cy + dot_dist * 0.5),    // bottom-left
-        (cx + dot_dist * (pi / 3.0).sin(), cy + dot_dist * 0.5),    // bottom-right
+        (cx, cy - dot_dist),                                     // top
+        (cx - dot_dist * (pi / 3.0).sin(), cy + dot_dist * 0.5), // bottom-left
+        (cx + dot_dist * (pi / 3.0).sin(), cy + dot_dist * 0.5), // bottom-right
     ];
 
     for &(tx, ty) in &targets {
@@ -495,10 +497,7 @@ fn build_motion_blindness(area: Rect, state: &PixelCanvasState, t: f32) -> Pixel
             .circle(tx, ty, dot_r + 3.0)
             .fill(C::from_rgba8(255, 255, 0, 30))
             .done();
-        canvas = canvas
-            .circle(tx, ty, dot_r)
-            .fill(dot_color)
-            .done();
+        canvas = canvas.circle(tx, ty, dot_r).fill(dot_color).done();
     }
 
     // ── Center fixation point — must stare here ──
@@ -544,9 +543,9 @@ fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     // The outer triangle vertices (equilateral, centered):
     let s3 = 3.0_f32.sqrt();
     let outer = [
-        (0.0_f32, -1.0_f32),                  // top
-        (-s3 / 2.0, 0.5_f32),                 // bottom-left
-        (s3 / 2.0, 0.5_f32),                  // bottom-right
+        (0.0_f32, -1.0_f32),  // top
+        (-s3 / 2.0, 0.5_f32), // bottom-left
+        (s3 / 2.0, 0.5_f32),  // bottom-right
     ];
 
     // Bar thickness as fraction of triangle size
@@ -574,9 +573,9 @@ fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     // Color palettes for 3 faces of each beam:
     // face_a = main visible face, face_b = side face, face_c = end cap
     let faces_a = [
-        C::from_rgba8(55, 130, 210, 255),   // blue
-        C::from_rgba8(210, 75, 55, 255),    // red
-        C::from_rgba8(55, 185, 110, 255),   // green
+        C::from_rgba8(55, 130, 210, 255), // blue
+        C::from_rgba8(210, 75, 55, 255),  // red
+        C::from_rgba8(55, 185, 110, 255), // green
     ];
     let faces_b = [
         C::from_rgba8(35, 85, 150, 255),
@@ -613,10 +612,15 @@ fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
 
     // Beam drawing function
     let draw_beam = |mut cv: PixelCanvas,
-                     o_start: (f32, f32), o_end: (f32, f32),
-                     i_start: (f32, f32), i_end: (f32, f32),
+                     o_start: (f32, f32),
+                     o_end: (f32, f32),
+                     i_start: (f32, f32),
+                     i_end: (f32, f32),
                      depth_dir: (f32, f32),
-                     face_main: C, face_side: C, face_top: C| -> PixelCanvas {
+                     face_main: C,
+                     face_side: C,
+                     face_top: C|
+     -> PixelCanvas {
         let os = xform(o_start);
         let oe = xform(o_end);
         let is_ = xform(i_start);
@@ -660,17 +664,27 @@ fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     // Beam 0: Top → Bottom-Left
     canvas = draw_beam(
         canvas,
-        outer[0], outer[1], inner[0], inner[1],
+        outer[0],
+        outer[1],
+        inner[0],
+        inner[1],
         (th * 0.5, th * 0.3),
-        faces_a[0], faces_b[0], faces_c[0],
+        faces_a[0],
+        faces_b[0],
+        faces_c[0],
     );
 
     // Beam 1: Bottom-Left → Bottom-Right
     canvas = draw_beam(
         canvas,
-        outer[1], outer[2], inner[1], inner[2],
+        outer[1],
+        outer[2],
+        inner[1],
+        inner[2],
         (0.0, -th * 0.6),
-        faces_a[1], faces_b[1], faces_c[1],
+        faces_a[1],
+        faces_b[1],
+        faces_c[1],
     );
 
     // Beam 2: Bottom-Right → Top
@@ -678,9 +692,14 @@ fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
     // overlaying beam 0's starting area, creating the contradiction.
     canvas = draw_beam(
         canvas,
-        outer[2], outer[0], inner[2], inner[0],
+        outer[2],
+        outer[0],
+        inner[2],
+        inner[0],
         (-th * 0.5, th * 0.3),
-        faces_a[2], faces_b[2], faces_c[2],
+        faces_a[2],
+        faces_b[2],
+        faces_c[2],
     );
 
     // Subtle pulsing glow ring

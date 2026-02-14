@@ -4,6 +4,12 @@
 //! The [`PixelCanvasWidget`] implements `StatefulWidget`, and
 //! [`PixelCanvasState`] manages the image lifecycle across frames.
 
-mod widget_impl;
+pub(crate) mod widget_impl;
+
+#[cfg(feature = "svg")]
+mod svg_widget;
 
 pub use widget_impl::{PixelCanvasState, PixelCanvasWidget};
+
+#[cfg(feature = "svg")]
+pub use svg_widget::SvgWidget;

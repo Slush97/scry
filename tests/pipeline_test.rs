@@ -60,8 +60,8 @@ fn full_pipeline_kitty_raw_rgba() {
 #[cfg(feature = "kitty")]
 #[test]
 fn full_pipeline_kitty_png_format() {
-    use std::io::Cursor;
     use ratatui_pixelcanvas::transport::kitty::TransmitFormat;
+    use std::io::Cursor;
 
     let canvas = PixelCanvas::new(50, 50)
         .background(Color::BLUE)
@@ -72,8 +72,8 @@ fn full_pipeline_kitty_png_format() {
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
 
     let writer = Cursor::new(Vec::new());
-    let mut backend = KittyBackend::with_writer(writer, FontSize::default())
-        .format(TransmitFormat::Png);
+    let mut backend =
+        KittyBackend::with_writer(writer, FontSize::default()).format(TransmitFormat::Png);
     let pos = TerminalPosition::new(0, 0, 5, 5);
     backend.transmit(&pixmap, pos, 0).unwrap();
 
@@ -192,7 +192,7 @@ fn ellipse_rasterizes() {
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
     // Center pixel should be green (part of the ellipse)
     let idx = (50 * 100 + 50) * 4;
-    assert_eq!(pixmap.data()[idx], 0);       // R = 0
+    assert_eq!(pixmap.data()[idx], 0); // R = 0
     assert_eq!(pixmap.data()[idx + 1], 255); // G = 255 (full green)
     assert_eq!(pixmap.data()[idx + 3], 255); // A = fully opaque
 }
@@ -223,7 +223,10 @@ fn polyline_rasterizes() {
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
     // Should have white pixels along top edge
     let top_center_idx = (10 * 100 + 50) * 4; // y=10, x=50
-    assert!(pixmap.data()[top_center_idx] > 200, "should have white pixels on the polyline");
+    assert!(
+        pixmap.data()[top_center_idx] > 200,
+        "should have white pixels on the polyline"
+    );
 }
 
 #[test]
@@ -243,20 +246,146 @@ fn polygon_rasterizes_filled() {
 #[test]
 fn push_command_mutable_api() {
     let mut canvas = PixelCanvas::new(100, 100).background(Color::BLACK);
-    canvas.push_command(
-        ratatui_pixelcanvas::scene::command::DrawCommand::Circle {
-            cx: 50.0,
-            cy: 50.0,
-            radius: 25.0,
-            style: ratatui_pixelcanvas::scene::style::ShapeStyle {
-                fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(Color::RED)),
-                stroke: None,
-                anti_alias: true,
-            },
+    canvas.push_command(ratatui_pixelcanvas::scene::command::DrawCommand::Circle {
+        cx: 50.0,
+        cy: 50.0,
+        radius: 25.0,
+        style: ratatui_pixelcanvas::scene::style::ShapeStyle {
+            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(
+                Color::RED,
+            )),
+            stroke: None,
+            anti_alias: true,
         },
-    );
+    });
     assert_eq!(canvas.commands().len(), 1);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
     let center_idx = (50 * 100 + 50) * 4;
     assert!(pixmap.data()[center_idx] > 200, "center should be red");
+}
+
+// ---------------------------------------------------------------------------
+// Dirty-tile transmission
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dirty_tiles_detected_on_pixel_change() {
+    use ratatui_pixelcanvas::rasterize::{RasterCache, TILE_SIZE};
+
+    let mut cache = RasterCache::new();
+
+    // Frame 1: blue background
+    let canvas1 = PixelCanvas::new(128, 128).background(Color::BLUE);
+    let pixmap1 = Rasterizer::rasterize(&canvas1).unwrap();
+
+    // First call: everything is dirty (no previous frame)
+    let dirty1 = cache.compute_dirty_tiles(&pixmap1);
+    let expected_tiles = (128_usize).div_ceil(TILE_SIZE) * (128_usize).div_ceil(TILE_SIZE);
+    assert_eq!(dirty1.len(), expected_tiles, "first frame: all tiles dirty");
+
+    // Frame 2: same scene — nothing dirty
+    let dirty2 = cache.compute_dirty_tiles(&pixmap1);
+    assert!(dirty2.is_empty(), "identical frame: no dirty tiles");
+
+    // Frame 3: change one pixel in top-left tile
+    let mut canvas3 = PixelCanvas::new(128, 128).background(Color::BLUE);
+    canvas3.push_command(ratatui_pixelcanvas::scene::command::DrawCommand::Circle {
+        cx: 16.0,
+        cy: 16.0,
+        radius: 5.0,
+        style: ratatui_pixelcanvas::scene::style::ShapeStyle {
+            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(
+                Color::RED,
+            )),
+            stroke: None,
+            anti_alias: true,
+        },
+    });
+    let pixmap3 = Rasterizer::rasterize(&canvas3).unwrap();
+    let dirty3 = cache.compute_dirty_tiles(&pixmap3);
+
+    // Only the first tile (0,0) should be dirty
+    assert!(!dirty3.is_empty(), "modified frame should have dirty tiles");
+    assert!(
+        dirty3.len() < expected_tiles,
+        "should be fewer than all tiles"
+    );
+    assert_eq!(dirty3[0].x, 0);
+    assert_eq!(dirty3[0].y, 0);
+}
+
+#[cfg(feature = "kitty")]
+#[test]
+fn transmit_tiles_sends_multiple_images() {
+    use ratatui_pixelcanvas::rasterize::DirtyTile;
+    use std::io::Cursor;
+
+    let canvas = PixelCanvas::new(128, 128).background(Color::BLUE);
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+
+    let writer = Cursor::new(Vec::new());
+    let mut backend = KittyBackend::with_writer(writer, FontSize::default());
+    let pos = TerminalPosition::new(0, 0, 20, 20);
+
+    // First: full transmit to establish the image
+    let handle = backend.transmit(&pixmap, pos, -1).unwrap();
+
+    // Two dirty tiles
+    let tiles = vec![
+        DirtyTile {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 64,
+        },
+        DirtyTile {
+            x: 64,
+            y: 0,
+            width: 64,
+            height: 64,
+        },
+    ];
+
+    let _new_handle = backend
+        .transmit_tiles(&handle, &pixmap, pos, -1, &tiles)
+        .unwrap();
+
+    let output = backend.into_writer().into_inner();
+    let output_str = String::from_utf8_lossy(&output);
+
+    // Should contain multiple transmit actions (one per tile)
+    let transmit_count = output_str.matches("a=T").count();
+    assert!(
+        transmit_count >= 3,
+        "expected at least 3 transmit actions (1 full + 2 tiles), got {transmit_count}"
+    );
+
+    // Should contain synchronized update markers
+    assert!(
+        output_str.contains("\x1b[?2026h"),
+        "should begin sync update"
+    );
+    assert!(output_str.contains("\x1b[?2026l"), "should end sync update");
+}
+
+#[cfg(feature = "kitty")]
+#[test]
+fn transmit_tiles_empty_is_noop() {
+    use std::io::Cursor;
+
+    let canvas = PixelCanvas::new(64, 64).background(Color::RED);
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+
+    let writer = Cursor::new(Vec::new());
+    let mut backend = KittyBackend::with_writer(writer, FontSize::default());
+    let pos = TerminalPosition::new(0, 0, 5, 5);
+
+    let handle = backend.transmit(&pixmap, pos, -1).unwrap();
+
+    // Empty dirty tiles — should return same handle ID (no-op)
+    let new_handle = backend
+        .transmit_tiles(&handle, &pixmap, pos, -1, &[])
+        .unwrap();
+
+    assert_eq!(new_handle.id(), handle.id(), "should return same image ID");
 }

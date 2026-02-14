@@ -34,13 +34,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filled()
         .with_points()
         .h_line(5.0) // target line
-        .add_series(Series::new("Costs", vec![1.0, 3.0, 2.5, 5.0, 3.5, 4.0, 5.0, 6.0]))
+        .add_series(Series::new(
+            "Costs",
+            vec![1.0, 3.0, 2.5, 5.0, 3.5, 4.0, 5.0, 6.0],
+        ))
         .theme(Theme::dark())
         .build();
 
     // Bar chart with pastel theme
     let bar_chart = Chart::bar(
-        vec!["Rust".into(), "Python".into(), "Go".into(), "C++".into(), "JS".into()],
+        vec![
+            "Rust".into(),
+            "Python".into(),
+            "Go".into(),
+            "C++".into(),
+            "JS".into(),
+        ],
         &[85.0, 78.0, 72.0, 68.0, 65.0],
     )
     .title("Developer Satisfaction")
@@ -67,7 +76,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Scatter chart with markers
     let n = 30;
     let sx: Vec<f64> = (0..n).map(|i| i as f64 * 0.5).collect();
-    let sy: Vec<f64> = sx.iter().map(|&x| x.sqrt() * 2.0 + (x * 0.8).sin()).collect();
+    let sy: Vec<f64> = sx
+        .iter()
+        .map(|&x| x.sqrt() * 2.0 + (x * 0.8).sin())
+        .collect();
     let scatter_chart = Chart::scatter(&sx, &sy)
         .title("Growth Curve")
         .x_label("Time")
@@ -81,7 +93,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         terminal.draw(|frame| {
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50), Constraint::Length(3)])
+                .constraints([
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(50),
+                    Constraint::Length(3),
+                ])
                 .split(frame.area());
 
             let top = Layout::default()
@@ -97,7 +113,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame.render_stateful_widget(ChartWidget::new(&line_chart), top[0], &mut line_state);
             frame.render_stateful_widget(ChartWidget::new(&bar_chart), top[1], &mut bar_state);
             frame.render_stateful_widget(ChartWidget::new(&hist_chart), bottom[0], &mut hist_state);
-            frame.render_stateful_widget(ChartWidget::new(&scatter_chart), bottom[1], &mut scatter_state);
+            frame.render_stateful_widget(
+                ChartWidget::new(&scatter_chart),
+                bottom[1],
+                &mut scatter_state,
+            );
 
             let status = Paragraph::new(" pixelchart dashboard — press 'q' to quit")
                 .block(Block::default().borders(Borders::TOP));

@@ -2,19 +2,21 @@
 source: crates/pixelchart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 600x400, 48 commands
-overlays: 14
-  [0] (114, 350) Center "0"
-  [1] (231, 350) Center "5"
-  [2] (349, 350) Center "10"
-  [3] (466, 350) Center "15"
-  [4] (584, 350) Center "20"
-  [5] (94, 337) Right "0"
-  [6] (94, 262) Right "5"
-  [7] (94, 188) Right "10"
-  [8] (94, 114) Right "15"
-  [9] (94, 40) Right "20"
-  [10] (218, 203) Left "Peak"
-  [11] (343, 8) Center "Full Feature Test"
-  [12] (343, 374) Center "X Axis"
-  [13] (2, 192) Left "Y Axis"
+canvas: 600x400, 54 commands
+overlays: 16
+  [0] (97, 350) Center "0"
+  [1] (194, 350) Center "2"
+  [2] (292, 350) Center "4"
+  [3] (389, 350) Center "6"
+  [4] (487, 350) Center "8"
+  [5] (584, 350) Center "10"
+  [6] (90, 344) Right "0"
+  [7] (90, 283) Right "2"
+  [8] (90, 222) Right "4"
+  [9] (90, 162) Right "6"
+  [10] (90, 101) Right "8"
+  [11] (90, 40) Right "10"
+  [12] (302, 86) Left "Peak"
+  [13] (340, 20) Center "Full Feature Test"
+  [14] (340, 378) Center "X Axis"
+  [15] (42, 188) Center "Y Axis"

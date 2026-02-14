@@ -2,13 +2,32 @@
 source: crates/pixelchart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 2000x1200, 19 commands
-overlays: 8
-  [0] (155, 1160) Center "0"
-  [1] (762, 1160) Center "1"
-  [2] (1369, 1160) Center "2"
-  [3] (1976, 1160) Center "3"
-  [4] (86, 1118) Right "1"
-  [5] (86, 753) Right "2"
-  [6] (86, 389) Right "3"
-  [7] (86, 24) Right "4"
+canvas: 2000x1200, 58 commands
+overlays: 27
+  [0] (52, 1168) Center "0.0"
+  [1] (212, 1168) Center "0.2"
+  [2] (372, 1168) Center "0.5"
+  [3] (533, 1168) Center "0.8"
+  [4] (693, 1168) Center "1.0"
+  [5] (853, 1168) Center "1.2"
+  [6] (1014, 1168) Center "1.5"
+  [7] (1174, 1168) Center "1.8"
+  [8] (1334, 1168) Center "2.0"
+  [9] (1495, 1168) Center "2.2"
+  [10] (1655, 1168) Center "2.5"
+  [11] (1816, 1168) Center "2.8"
+  [12] (1976, 1168) Center "3.0"
+  [13] (38, 1154) Right "0.9"
+  [14] (38, 1118) Right "1.0"
+  [15] (38, 1026) Right "1.2"
+  [16] (38, 935) Right "1.5"
+  [17] (38, 844) Right "1.8"
+  [18] (38, 753) Right "2.0"
+  [19] (38, 662) Right "2.2"
+  [20] (38, 571) Right "2.5"
+  [21] (38, 480) Right "2.8"
+  [22] (38, 389) Right "3.0"
+  [23] (38, 297) Right "3.2"
+  [24] (38, 206) Right "3.5"
+  [25] (38, 115) Right "3.8"
+  [26] (38, 24) Right "4.0"

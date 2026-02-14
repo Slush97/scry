@@ -1,0 +1,71 @@
+[package]
+name = "ratatui-pixelcanvas-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tiny-skia = "0.11"
+
+[dependencies.ratatui-pixelcanvas]
+path = ".."
+features = ["kitty"]
+
+[dependencies.pixelchart]
+path = "../crates/pixelchart"
+
+# ═══════════════════════════════════════════
+# Phase 1: Core crate fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_kitty_escape"
+path = "fuzz_targets/fuzz_kitty_escape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_scene_hash"
+path = "fuzz_targets/fuzz_scene_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rasterize"
+path = "fuzz_targets/fuzz_rasterize.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 2: Pixelchart fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_scale"
+path = "fuzz_targets/fuzz_scale.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_chart_render"
+path = "fuzz_targets/fuzz_chart_render.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_chart_builder"
+path = "fuzz_targets/fuzz_chart_builder.rs"
+test = false
+doc = false
+bench = false

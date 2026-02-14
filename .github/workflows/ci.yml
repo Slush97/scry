@@ -40,12 +40,16 @@ jobs:
       - run: cargo clippy --all-features --all-targets
 
   test:
-    name: Test
+    name: Test (${{ matrix.features }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["--all-features", "--no-default-features", ""]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --all-features
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test ${{ matrix.features }}
 
   doc:
     name: Documentation
@@ -75,9 +79,50 @@ jobs:
           - ""
           - "kitty"
           - "widget"
+          - "iterm2"
           - "kitty,widget"
           - "kitty,sixel,widget"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: cargo check --no-default-features --features "${{ matrix.features }}"
+
+  publish-check:
+    name: Publish Dry Run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --dry-run
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    env:
+      # Unset RUSTFLAGS — nightly Miri has its own diagnostics,
+      # and -Dwarnings may reject new nightly lints unexpectedly.
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - name: Miri — core crate
+        run: cargo +nightly miri test --all-features -- --skip shm --skip picker --skip sixel
+      - name: Miri — pixelchart crate
+        run: cargo +nightly miri test --manifest-path crates/pixelchart/Cargo.toml
+
+  fuzz-smoke:
+    name: Fuzz Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Build all fuzz targets
+        run: cargo +nightly fuzz build

@@ -13,15 +13,15 @@
 //! sequences are written after ratatui has flushed its buffer diff, avoiding
 //! visible flicker from interleaved cursor movements.
 
-
-
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
 
 use crate::rasterize::{RasterCache, Rasterizer};
 use crate::scene::PixelCanvas;
-use crate::transport::backend::{FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
+use crate::transport::backend::{
+    FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
+};
 use crate::transport::halfblock::{HalfblockBackend, HalfblockCell};
 use crate::PixelCanvasError;
 
@@ -36,7 +36,7 @@ use crate::PixelCanvasError;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use ratatui_pixelcanvas::scene::{PixelCanvas, Color};
 /// use ratatui_pixelcanvas::widget::{PixelCanvasWidget, PixelCanvasState};
 ///
@@ -45,6 +45,9 @@ use crate::PixelCanvasError;
 ///     .fill(Color::RED)
 ///     .done();
 ///
+/// # let area = ratatui::layout::Rect::default();
+/// # let mut state: PixelCanvasState = todo!();
+/// # let frame: &mut ratatui::Frame = todo!();
 /// frame.render_stateful_widget(
 ///     PixelCanvasWidget::new(canvas),
 ///     area,
@@ -57,6 +60,7 @@ pub struct PixelCanvasWidget {
     canvas: PixelCanvas,
     z_index: i32,
     skip_cache: bool,
+    incremental: bool,
 }
 
 impl PixelCanvasWidget {
@@ -67,6 +71,7 @@ impl PixelCanvasWidget {
             canvas,
             z_index: -1, // Default: render behind text
             skip_cache: false,
+            incremental: false,
         }
     }
 
@@ -90,6 +95,20 @@ impl PixelCanvasWidget {
         self.skip_cache = true;
         self
     }
+
+    /// Enable incremental (dirty-tile) transmission.
+    ///
+    /// Only changed 64×64 pixel tiles are re-transmitted each frame,
+    /// dramatically reducing bandwidth for partially-animated scenes
+    /// like dashboards where only one chart updates at a time.
+    ///
+    /// Requires the Kitty backend. Other backends fall back to full
+    /// transmission transparently.
+    #[must_use]
+    pub const fn incremental(mut self) -> Self {
+        self.incremental = true;
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +124,7 @@ struct PendingFrame {
     position: TerminalPosition,
     z_index: i32,
     content_hash: u64,
+    incremental: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -167,13 +187,59 @@ impl PixelCanvasState {
             return Ok(());
         };
 
-        // The pixmap was rasterized into the cache during render().
-        let Some(pixmap) = self.cache.get(frame.content_hash) else {
+        // Verify the cache has a valid pixmap for this frame.
+        if !self.cache.is_valid(frame.content_hash) {
             return Ok(());
-        };
+        }
+
+        // Incremental path: compute dirty tiles and transmit only changed regions.
+        if frame.incremental {
+            // compute_dirty_tiles_cached() borrows &mut self.cache internally
+            // and returns owned Vec<DirtyTile>, breaking the borrow.
+            let dirty_tiles = self.cache.compute_dirty_tiles_cached().unwrap_or_default();
+
+            if dirty_tiles.is_empty() {
+                // Nothing changed at pixel level — skip transmission.
+                return Ok(());
+            }
+
+            if let Some(ref old_handle) = self.current_handle {
+                // Re-borrow pixmap immutably for transmission.
+                let pixmap = self
+                    .cache
+                    .get(frame.content_hash)
+                    .expect("cache validated above");
+                let result = self.backend.transmit_tiles(
+                    old_handle,
+                    pixmap,
+                    frame.position,
+                    frame.z_index,
+                    &dirty_tiles,
+                );
+                match result {
+                    Ok(handle) => {
+                        self.current_handle = Some(handle);
+                    }
+                    Err(e) => {
+                        self.current_handle = None;
+                        self.cache.clear();
+                        return Err(e);
+                    }
+                }
+                return Ok(());
+            }
+            // No existing handle — fall through to full transmit below.
+            // Tile hashes are already seeded for next frame's diff.
+        }
+
+        let pixmap = self
+            .cache
+            .get(frame.content_hash)
+            .expect("cache validated above");
 
         let result = if let Some(ref old_handle) = self.current_handle {
-            self.backend.replace(old_handle, pixmap, frame.position, frame.z_index)
+            self.backend
+                .replace(old_handle, pixmap, frame.position, frame.z_index)
         } else {
             self.backend.transmit(pixmap, frame.position, frame.z_index)
         };
@@ -198,6 +264,46 @@ impl PixelCanvasState {
     /// rasterize into the cache's pixmap directly.
     pub const fn cache_mut(&mut self) -> &mut RasterCache {
         &mut self.cache
+    }
+
+    /// The protocol kind used by this state's backend.
+    pub fn backend_kind(&self) -> ProtocolKind {
+        self.backend.protocol_kind()
+    }
+
+    /// Store a pre-rendered pixmap for deferred transmission.
+    ///
+    /// Used by widgets that produce their own pixmaps (e.g., `SvgWidget`)
+    /// rather than going through the `PixelCanvas` scene graph.
+    pub fn store_raw_pixmap(
+        &mut self,
+        pixmap: tiny_skia::Pixmap,
+        area: ratatui::layout::Rect,
+        z_index: i32,
+    ) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static RAW_SEQ: AtomicU64 = AtomicU64::new(1);
+        let hash = RAW_SEQ.fetch_add(1, Ordering::Relaxed);
+
+        // Store the pixmap in the cache
+        let (cache_pixmap, _gc) = self
+            .cache
+            .get_or_insert_with_grad_cache(pixmap.width(), pixmap.height());
+        if let Some(target) = cache_pixmap {
+            target.data_mut().copy_from_slice(pixmap.data());
+        }
+        self.cache.mark_valid(hash);
+
+        let position = TerminalPosition::new(area.x, area.y, area.width, area.height);
+        self.pending = Some(PendingFrame {
+            position,
+            z_index,
+            content_hash: hash,
+            incremental: false,
+        });
+
+        // Note: the caller is responsible for filling the buffer area with spaces
+        // for protocol backends (Kitty/Sixel).
     }
 
     /// Manually clean up the current image.
@@ -257,7 +363,13 @@ impl StatefulWidget for PixelCanvasWidget {
         if !self.skip_cache && state.cache.is_valid(content_hash) {
             if is_halfblock {
                 if let Some(pixmap) = state.cache.get(content_hash) {
-                    render_halfblock_to_buffer(buf, area, pixmap, state.font_size, &mut state.halfblock_buf);
+                    render_halfblock_to_buffer(
+                        buf,
+                        area,
+                        pixmap,
+                        state.font_size,
+                        &mut state.halfblock_buf,
+                    );
                 }
             } else if state.current_handle.is_some() {
                 fill_area_with_spaces(buf, area);
@@ -266,7 +378,9 @@ impl StatefulWidget for PixelCanvasWidget {
         }
 
         // Rasterize scene into cache's reusable pixmap (avoids per-frame allocation)
-        let (pixmap_opt, gc) = state.cache.get_or_insert_with_grad_cache(canvas.width(), canvas.height());
+        let (pixmap_opt, gc) = state
+            .cache
+            .get_or_insert_with_grad_cache(canvas.width(), canvas.height());
         let Some(pixmap) = pixmap_opt else {
             return;
         };
@@ -285,7 +399,13 @@ impl StatefulWidget for PixelCanvasWidget {
         if is_halfblock {
             // Halfblock path: render directly into the ratatui Buffer.
             if let Some(pixmap) = state.cache.get(store_hash) {
-                render_halfblock_to_buffer(buf, area, pixmap, state.font_size, &mut state.halfblock_buf);
+                render_halfblock_to_buffer(
+                    buf,
+                    area,
+                    pixmap,
+                    state.font_size,
+                    &mut state.halfblock_buf,
+                );
             }
         } else {
             // Protocol path (Kitty/Sixel): defer transmission until flush()
@@ -295,6 +415,7 @@ impl StatefulWidget for PixelCanvasWidget {
                 position,
                 z_index: self.z_index,
                 content_hash: store_hash,
+                incremental: self.incremental,
             });
 
             fill_area_with_spaces(buf, area);

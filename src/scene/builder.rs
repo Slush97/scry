@@ -21,9 +21,9 @@
 
 use std::hash::{Hash, Hasher};
 
-use crate::scene::command::{DrawCommand, ImageData, PathData};
 #[cfg(feature = "text")]
 use crate::scene::command::FontData;
+use crate::scene::command::{DrawCommand, ImageData, PathData};
 use crate::scene::style::{
     BlendMode, ClipRegion, Color, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop,
     LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
@@ -108,10 +108,18 @@ impl PixelCanvas {
     /// Add a raw draw command mutably. For conditional composition
     /// where the fluent builder pattern is inconvenient.
     ///
-    /// ```ignore
+    /// ```
+    /// use ratatui_pixelcanvas::scene::PixelCanvas;
+    /// use ratatui_pixelcanvas::scene::command::DrawCommand;
+    /// use ratatui_pixelcanvas::scene::style::{Color, ShapeStyle, FillStyle};
+    ///
     /// let mut canvas = PixelCanvas::new(200, 200);
+    /// let show_border = true;
     /// if show_border {
-    ///     canvas.push_command(border_cmd);
+    ///     canvas.push_command(DrawCommand::Circle {
+    ///         cx: 100.0, cy: 100.0, radius: 50.0,
+    ///         style: ShapeStyle { fill: Some(FillStyle::Solid(Color::RED)), stroke: None, anti_alias: true },
+    ///     });
     /// }
     /// ```
     pub fn push_command(&mut self, cmd: DrawCommand) {
@@ -198,7 +206,13 @@ impl PixelCanvas {
     /// Use `.fill()` / `.stroke()` on the returned builder.
     #[must_use]
     pub const fn polyline(self, points: Vec<(f32, f32)>) -> ShapeBuilder {
-        ShapeBuilder::new(self, ShapeKind::Polyline { points, closed: false })
+        ShapeBuilder::new(
+            self,
+            ShapeKind::Polyline {
+                points,
+                closed: false,
+            },
+        )
     }
 
     /// Begin drawing a closed polygon.
@@ -206,7 +220,13 @@ impl PixelCanvas {
     /// Like `polyline`, but the path is closed automatically.
     #[must_use]
     pub const fn polygon(self, points: Vec<(f32, f32)>) -> ShapeBuilder {
-        ShapeBuilder::new(self, ShapeKind::Polyline { points, closed: true })
+        ShapeBuilder::new(
+            self,
+            ShapeKind::Polyline {
+                points,
+                closed: true,
+            },
+        )
     }
 
     /// Begin drawing a circular arc (partial circle).
@@ -226,7 +246,13 @@ impl PixelCanvas {
     ) -> ShapeBuilder {
         ShapeBuilder::new(
             self,
-            ShapeKind::Arc { cx, cy, radius, start_angle, sweep_angle },
+            ShapeKind::Arc {
+                cx,
+                cy,
+                radius,
+                start_angle,
+                sweep_angle,
+            },
         )
     }
 
@@ -286,12 +312,34 @@ impl PixelCanvas {
 
 /// Internal enum to track what shape the builder is configuring.
 enum ShapeKind {
-    Circle { cx: f32, cy: f32, radius: f32 },
-    Rectangle { rect: Rect, corner_radius: f32 },
-    Ellipse { cx: f32, cy: f32, rx: f32, ry: f32, rotation: f32 },
+    Circle {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+    },
+    Rectangle {
+        rect: Rect,
+        corner_radius: f32,
+    },
+    Ellipse {
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+        rotation: f32,
+    },
     Path(PathData),
-    Polyline { points: Vec<(f32, f32)>, closed: bool },
-    Arc { cx: f32, cy: f32, radius: f32, start_angle: f32, sweep_angle: f32 },
+    Polyline {
+        points: Vec<(f32, f32)>,
+        closed: bool,
+    },
+    Arc {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        start_angle: f32,
+        sweep_angle: f32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -358,14 +406,18 @@ impl ShapeBuilder {
     /// Set stroke line cap.
     #[must_use]
     pub fn line_cap(mut self, cap: LineCap) -> Self {
-        self.stroke.get_or_insert_with(StrokeStyle::default).line_cap = cap;
+        self.stroke
+            .get_or_insert_with(StrokeStyle::default)
+            .line_cap = cap;
         self
     }
 
     /// Set stroke line join.
     #[must_use]
     pub fn line_join(mut self, join: LineJoin) -> Self {
-        self.stroke.get_or_insert_with(StrokeStyle::default).line_join = join;
+        self.stroke
+            .get_or_insert_with(StrokeStyle::default)
+            .line_join = join;
         self
     }
 
@@ -923,10 +975,7 @@ mod tests {
             .done();
 
         assert_eq!(canvas.commands().len(), 1);
-        assert!(matches!(
-            canvas.commands()[0],
-            DrawCommand::Gradient { .. }
-        ));
+        assert!(matches!(canvas.commands()[0], DrawCommand::Gradient { .. }));
     }
 
     #[test]

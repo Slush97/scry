@@ -89,10 +89,14 @@ impl Page {
     fn features(self) -> &'static str {
         match self {
             Page::ScatterConnected => "connected · annotate · h_line · dark theme",
-            Page::ScatterMultiSeries => "add_series · marker shapes · v_line · trend_line · pastel theme",
+            Page::ScatterMultiSeries => {
+                "add_series · marker shapes · v_line · trend_line · pastel theme"
+            }
             Page::LineAreaFill => "filled · with_points · multi-series · h_line_styled · x_values",
             Page::BarGrouped => "multi-series · y_range · h_line · dark theme",
-            Page::BarStackedHorizontal => "stacked · horizontal · corner_radius · gap · pastel theme",
+            Page::BarStackedHorizontal => {
+                "stacked · horizontal · corner_radius · gap · pastel theme"
+            }
             Page::HistogramFrequency => "bins · v_line · two-series overlay · dark theme",
             Page::HistogramDensity => "density · opacity · v_line_styled · light theme",
             Page::BoxPlotStandard => "4 groups · h_line · outliers · dark theme",
@@ -204,14 +208,8 @@ fn build_scatter_multi() -> Chart {
         .x_label("x")
         .y_label("y")
         .marker(Marker::Circle)
-        .add_series(
-            Series::new("sqrt", x.clone()),
-            Series::new("", y2),
-        )
-        .add_series(
-            Series::new("cos wave", x.clone()),
-            Series::new("", y3),
-        )
+        .add_series(Series::new("sqrt", x.clone()), Series::new("", y2))
+        .add_series(Series::new("cos wave", x.clone()), Series::new("", y3))
         .connected()
         .v_line(4.0)
         .trend_line()
@@ -383,13 +381,13 @@ fn build_heatmap_correlation() -> Chart {
         .collect();
 
     let data = vec![
-        vec![ 1.00,  0.82,  0.15,  0.30, -0.10,  0.20,  0.75],
-        vec![ 0.82,  1.00,  0.25,  0.45, -0.05,  0.35,  0.90],
-        vec![ 0.15,  0.25,  1.00,  0.55,  0.10,  0.60,  0.20],
-        vec![ 0.30,  0.45,  0.55,  1.00,  0.40,  0.50,  0.40],
-        vec![-0.10, -0.05,  0.10,  0.40,  1.00,  0.15, -0.08],
-        vec![ 0.20,  0.35,  0.60,  0.50,  0.15,  1.00,  0.30],
-        vec![ 0.75,  0.90,  0.20,  0.40, -0.08,  0.30,  1.00],
+        vec![1.00, 0.82, 0.15, 0.30, -0.10, 0.20, 0.75],
+        vec![0.82, 1.00, 0.25, 0.45, -0.05, 0.35, 0.90],
+        vec![0.15, 0.25, 1.00, 0.55, 0.10, 0.60, 0.20],
+        vec![0.30, 0.45, 0.55, 1.00, 0.40, 0.50, 0.40],
+        vec![-0.10, -0.05, 0.10, 0.40, 1.00, 0.15, -0.08],
+        vec![0.20, 0.35, 0.60, 0.50, 0.15, 1.00, 0.30],
+        vec![0.75, 0.90, 0.20, 0.40, -0.08, 0.30, 1.00],
     ];
 
     Heatmap::correlation(data, labels)
@@ -582,103 +580,56 @@ fn render_page(frame: &mut Frame, app: &mut AppState) {
     match app.page {
         Page::ScatterConnected => {
             let chart = build_scatter_connected();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::ScatterMultiSeries => {
             let chart = build_scatter_multi();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::LineAreaFill => {
             let chart = build_line_area_fill();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::BarGrouped => {
             let chart = build_bar_grouped();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::BarStackedHorizontal => {
             let chart = build_bar_stacked_horizontal();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::HistogramFrequency => {
             let chart = build_histogram_frequency();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::HistogramDensity => {
             let chart = build_histogram_density();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::BoxPlotStandard => {
             let chart = build_boxplot_standard();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::BoxPlotNotched => {
             let chart = build_boxplot_notched();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::HeatmapCorrelation => {
             let chart = build_heatmap_correlation();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::HeatmapCustom => {
             let chart = build_heatmap_custom();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::Dashboard => {
             let (c1, c2, c3, c4) = build_dashboard();
-            let rows =
-                Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(chart_area);
-            let top =
-                Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(rows[0]);
-            let bot =
-                Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(rows[1]);
+            let rows = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chart_area);
+            let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(rows[0]);
+            let bot = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(rows[1]);
 
             frame.render_stateful_widget(ChartWidget::new(&c1), top[0], &mut app.states[0]);
             frame.render_stateful_widget(ChartWidget::new(&c2), top[1], &mut app.states[1]);
@@ -689,7 +640,11 @@ fn render_page(frame: &mut Frame, app: &mut AppState) {
 
     // Status bar
     let page_num = app.page.index() + 1;
-    let auto_indicator = if app.auto_advance { "▶ AUTO" } else { "⏸ MANUAL" };
+    let auto_indicator = if app.auto_advance {
+        "▶ AUTO"
+    } else {
+        "⏸ MANUAL"
+    };
     let progress = if app.auto_advance {
         let pct = (app.ticks_on_page as f64 / 40.0 * 100.0).min(100.0) as u8;
         format!(" {pct}%")

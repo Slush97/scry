@@ -7,6 +7,8 @@ use ratatui_pixelcanvas::style::Color;
 
 /// An annotation placed at specific data coordinates on a chart.
 #[derive(Clone, Debug)]
+#[must_use]
+#[non_exhaustive]
 pub struct Annotation {
     /// X data coordinate.
     pub x: f64,
@@ -22,6 +24,7 @@ pub struct Annotation {
 
 /// Visual style for an annotation.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct AnnotationStyle {
     /// Text color.
     pub text_color: Color,

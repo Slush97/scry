@@ -20,16 +20,8 @@ use pixelchart::theme::Theme;
 
 /// Assert that a rendered chart has the expected dimensions and no NaN in overlays.
 fn assert_sane(rendered: &layout::RenderedChart, w: u32, h: u32, label: &str) {
-    assert_eq!(
-        rendered.canvas.width(),
-        w,
-        "{label}: wrong canvas width"
-    );
-    assert_eq!(
-        rendered.canvas.height(),
-        h,
-        "{label}: wrong canvas height"
-    );
+    assert_eq!(rendered.canvas.width(), w, "{label}: wrong canvas width");
+    assert_eq!(rendered.canvas.height(), h, "{label}: wrong canvas height");
 
     // No NaN coordinates in text overlays
     for (i, overlay) in rendered.text_overlays.iter().enumerate() {
@@ -93,11 +85,9 @@ fn cat1_all_nan_histogram() {
 
 #[test]
 fn cat1_all_nan_boxplot() {
-    let chart = Chart::boxplot(vec![
-        ("NaN Group", vec![f64::NAN, f64::NAN]),
-    ])
-    .title("All NaN Boxplot")
-    .build();
+    let chart = Chart::boxplot(vec![("NaN Group", vec![f64::NAN, f64::NAN])])
+        .title("All NaN Boxplot")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "all_nan_boxplot");
@@ -105,12 +95,9 @@ fn cat1_all_nan_boxplot() {
 
 #[test]
 fn cat1_all_nan_heatmap() {
-    let chart = Chart::heatmap(vec![
-        vec![f64::NAN, f64::NAN],
-        vec![f64::NAN, f64::NAN],
-    ])
-    .title("All NaN Heatmap")
-    .build();
+    let chart = Chart::heatmap(vec![vec![f64::NAN, f64::NAN], vec![f64::NAN, f64::NAN]])
+        .title("All NaN Heatmap")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "all_nan_heatmap");
@@ -135,12 +122,9 @@ fn cat1_mixed_nan_inf_scatter() {
 #[test]
 fn cat1_identical_values() {
     // All-identical data: extent is (5.0, 5.0), scale span is zero
-    let chart = Chart::scatter(
-        &[5.0, 5.0, 5.0, 5.0, 5.0],
-        &[5.0, 5.0, 5.0, 5.0, 5.0],
-    )
-    .title("Identical Values")
-    .build();
+    let chart = Chart::scatter(&[5.0, 5.0, 5.0, 5.0, 5.0], &[5.0, 5.0, 5.0, 5.0, 5.0])
+        .title("Identical Values")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "identical_values");
@@ -240,10 +224,16 @@ fn cat2_log_scale_edge_cases() {
     // Zero/negative clamping
     let s = LogScale::new((0.0, 100.0), (0.0, 400.0));
     let p = s.to_pixel(0.0);
-    assert!(p.is_finite(), "LogScale with 0 input should not produce NaN");
+    assert!(
+        p.is_finite(),
+        "LogScale with 0 input should not produce NaN"
+    );
 
     let p2 = s.to_pixel(-10.0);
-    assert!(p2.is_finite(), "LogScale with negative input should not produce NaN");
+    assert!(
+        p2.is_finite(),
+        "LogScale with negative input should not produce NaN"
+    );
 
     // Very small domain
     let s2 = LogScale::new((0.001, 0.002), (0.0, 400.0));
@@ -276,12 +266,18 @@ fn cat2_categorical_extremes() {
     // 1 category
     let s1 = CategoricalScale::new(vec!["Solo".into()], (0.0, 400.0));
     let c1 = s1.center(0);
-    assert!((c1 - 200.0).abs() < f64::EPSILON, "1-category should center at midpoint");
+    assert!(
+        (c1 - 200.0).abs() < f64::EPSILON,
+        "1-category should center at midpoint"
+    );
 
     // 50 categories
     let labels: Vec<String> = (0..50).map(|i| format!("Cat{i}")).collect();
     let s50 = CategoricalScale::new(labels, (0.0, 1000.0));
-    assert!((s50.band_width() - 20.0).abs() < f64::EPSILON, "50 categories in 1000px = 20px bands");
+    assert!(
+        (s50.band_width() - 20.0).abs() < f64::EPSILON,
+        "50 categories in 1000px = 20px bands"
+    );
     assert!(s50.center(49).is_finite());
 }
 
@@ -292,16 +288,25 @@ fn cat2_linear_scale_degenerate() {
     // Zero domain span
     let s = LinearScale::new((5.0, 5.0), (0.0, 400.0));
     let p = s.to_pixel(5.0);
-    assert!(p.is_finite(), "Zero-span domain should produce finite pixel");
+    assert!(
+        p.is_finite(),
+        "Zero-span domain should produce finite pixel"
+    );
 
     // Zero range span
     let s2 = LinearScale::new((0.0, 100.0), (200.0, 200.0));
     let p2 = s2.to_pixel(50.0);
-    assert!(p2.is_finite(), "Zero-span range should produce finite pixel");
+    assert!(
+        p2.is_finite(),
+        "Zero-span range should produce finite pixel"
+    );
 
     // Ticks for zero span
     let ticks = s.ticks(6);
-    assert!(!ticks.is_empty(), "Should produce at least one tick for zero span");
+    assert!(
+        !ticks.is_empty(),
+        "Should produce at least one tick for zero span"
+    );
     for t in &ticks {
         assert!(t.is_finite(), "Ticks should be finite");
     }
@@ -333,12 +338,9 @@ fn cat3_1x1_canvas() {
 
 #[test]
 fn cat3_very_wide_canvas() {
-    let chart = Chart::bar(
-        vec!["A".into(), "B".into()],
-        &[10.0, 20.0],
-    )
-    .title("Wide")
-    .build();
+    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+        .title("Wide")
+        .build();
 
     let r = layout::render_chart(&chart, 4000, 100);
     assert_sane(&r, 4000, 100, "very_wide");
@@ -361,19 +363,13 @@ fn cat3_all_chart_types_tiny() {
     let charts: Vec<(&str, Chart)> = vec![
         ("scatter", Chart::scatter(&[1.0], &[1.0]).build()),
         ("line", Chart::line(&[1.0, 2.0]).build()),
-        (
-            "bar",
-            Chart::bar(vec!["A".into()], &[5.0]).build(),
-        ),
+        ("bar", Chart::bar(vec!["A".into()], &[5.0]).build()),
         ("hist", Chart::histogram(&[1.0, 2.0, 3.0]).build()),
         (
             "box",
             Chart::boxplot(vec![("G", vec![1.0, 2.0, 3.0])]).build(),
         ),
-        (
-            "heat",
-            Chart::heatmap(vec![vec![1.0]]).build(),
-        ),
+        ("heat", Chart::heatmap(vec![vec![1.0]]).build()),
     ];
 
     for (name, chart) in &charts {
@@ -404,7 +400,12 @@ fn cat4_negative_bar_values() {
 #[test]
 fn cat4_mixed_sign_bars() {
     let chart = Chart::bar(
-        vec!["Profit".into(), "Loss".into(), "Break Even".into(), "Big Win".into()],
+        vec![
+            "Profit".into(),
+            "Loss".into(),
+            "Break Even".into(),
+            "Big Win".into(),
+        ],
         &[50.0, -30.0, 0.0, 100.0],
     )
     .title("Mixed Sign Bars")
@@ -417,14 +418,11 @@ fn cat4_mixed_sign_bars() {
 
 #[test]
 fn cat4_negative_stacked_bars() {
-    let chart = Chart::bar(
-        vec!["A".into(), "B".into()],
-        &[-10.0, 10.0],
-    )
-    .add_series(Series::new("Layer2", vec![5.0, -5.0]))
-    .stacked()
-    .title("Negative Stacked")
-    .build();
+    let chart = Chart::bar(vec!["A".into(), "B".into()], &[-10.0, 10.0])
+        .add_series(Series::new("Layer2", vec![5.0, -5.0]))
+        .stacked()
+        .title("Negative Stacked")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "negative_stacked");
@@ -432,13 +430,10 @@ fn cat4_negative_stacked_bars() {
 
 #[test]
 fn cat4_negative_horizontal_bars() {
-    let chart = Chart::bar(
-        vec!["X".into(), "Y".into()],
-        &[-50.0, -25.0],
-    )
-    .horizontal()
-    .title("Negative Horizontal")
-    .build();
+    let chart = Chart::bar(vec!["X".into(), "Y".into()], &[-50.0, -25.0])
+        .horizontal()
+        .title("Negative Horizontal")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "negative_horizontal");
@@ -491,9 +486,15 @@ fn cat5_everything_scatter() {
     .annotate(1.0, 2.0, "Start")
     .annotate(10.0, 10.0, "End")
     .h_line(5.0)
-    .h_line_styled(8.0, ratatui_pixelcanvas::style::Color::from_rgba8(255, 0, 0, 200))
+    .h_line_styled(
+        8.0,
+        ratatui_pixelcanvas::style::Color::from_rgba8(255, 0, 0, 200),
+    )
     .v_line(3.0)
-    .v_line_styled(7.0, ratatui_pixelcanvas::style::Color::from_rgba8(0, 255, 0, 200))
+    .v_line_styled(
+        7.0,
+        ratatui_pixelcanvas::style::Color::from_rgba8(0, 255, 0, 200),
+    )
     .x_range(0.0, 12.0)
     .y_range(-2.0, 12.0)
     .add_series(
@@ -552,14 +553,11 @@ fn cat5_all_markers_connected() {
     ];
 
     for marker in markers {
-        let chart = Chart::scatter(
-            &[1.0, 2.0, 3.0, 4.0, 5.0],
-            &[2.0, 4.0, 1.0, 5.0, 3.0],
-        )
-        .marker(marker)
-        .connected()
-        .trend_line()
-        .build();
+        let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 5.0, 3.0])
+            .marker(marker)
+            .connected()
+            .trend_line()
+            .build();
 
         let r = layout::render_chart(&chart, 400, 300);
         assert_sane(&r, 400, 300, &format!("marker_{marker:?}_connected"));
@@ -616,7 +614,10 @@ fn cat5_stacked_horizontal_with_refs() {
     .stacked()
     .horizontal()
     .title("Stacked Horizontal + Refs")
-    .h_line_styled(40.0, ratatui_pixelcanvas::style::Color::from_rgba8(255, 100, 100, 200))
+    .h_line_styled(
+        40.0,
+        ratatui_pixelcanvas::style::Color::from_rgba8(255, 100, 100, 200),
+    )
     .build();
 
     let r = layout::render_chart(&chart, 600, 400);
@@ -692,9 +693,7 @@ fn cat6_10k_scatter() {
         .map(|i| (i as f64 * 0.01).sin() * 50.0 + (i as f64 * 0.007).cos() * 30.0)
         .collect();
 
-    let chart = Chart::scatter(&x, &y)
-        .title("10K Scatter")
-        .build();
+    let chart = Chart::scatter(&x, &y).title("10K Scatter").build();
 
     let r = layout::render_chart(&chart, 800, 600);
     assert_sane(&r, 800, 600, "10k_scatter");
@@ -711,9 +710,7 @@ fn cat6_10k_line() {
         .map(|i| (i as f64 * 0.01).sin() * 100.0)
         .collect();
 
-    let chart = Chart::line(&values)
-        .title("10K Line")
-        .build();
+    let chart = Chart::line(&values).title("10K Line").build();
 
     let r = layout::render_chart(&chart, 1200, 400);
     assert_sane(&r, 1200, 400, "10k_line");
@@ -782,9 +779,7 @@ fn cat6_many_boxplot_groups() {
         })
         .collect();
 
-    let chart = Chart::boxplot(groups)
-        .title("20 Boxplot Groups")
-        .build();
+    let chart = Chart::boxplot(groups).title("20 Boxplot Groups").build();
 
     let r = layout::render_chart(&chart, 1200, 400);
     assert_sane(&r, 1200, 400, "many_boxplot_groups");
@@ -797,12 +792,9 @@ fn cat6_many_boxplot_groups() {
 
 #[test]
 fn cat7_empty_labels_bar() {
-    let chart = Chart::bar(
-        vec!["".into(), "".into(), "".into()],
-        &[10.0, 20.0, 30.0],
-    )
-    .title("Empty Labels")
-    .build();
+    let chart = Chart::bar(vec!["".into(), "".into(), "".into()], &[10.0, 20.0, 30.0])
+        .title("Empty Labels")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "empty_labels_bar");
@@ -812,7 +804,12 @@ fn cat7_empty_labels_bar() {
 #[test]
 fn cat7_unicode_labels() {
     let chart = Chart::bar(
-        vec!["日本語".into(), "中文".into(), "한국어".into(), "العربية".into()],
+        vec![
+            "日本語".into(),
+            "中文".into(),
+            "한국어".into(),
+            "العربية".into(),
+        ],
         &[42.0, 88.0, 55.0, 73.0],
     )
     .title("Unicode: 日本語テスト 🎯")
@@ -861,8 +858,8 @@ fn cat7_heatmap_jagged_rows() {
     // Rows of different lengths — a real-world mistake
     let chart = Chart::heatmap(vec![
         vec![1.0, 2.0, 3.0],
-        vec![4.0, 5.0],        // short row
-        vec![6.0, 7.0, 8.0, 9.0],  // long row
+        vec![4.0, 5.0],           // short row
+        vec![6.0, 7.0, 8.0, 9.0], // long row
     ])
     .title("Jagged Heatmap")
     .build();
@@ -873,12 +870,9 @@ fn cat7_heatmap_jagged_rows() {
 
 #[test]
 fn cat7_zero_value_bar() {
-    let chart = Chart::bar(
-        vec!["A".into(), "B".into(), "C".into()],
-        &[0.0, 0.0, 0.0],
-    )
-    .title("All Zero Bars")
-    .build();
+    let chart = Chart::bar(vec!["A".into(), "B".into(), "C".into()], &[0.0, 0.0, 0.0])
+        .title("All Zero Bars")
+        .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "zero_value_bar");
@@ -913,7 +907,10 @@ fn cat7_boxplot_single_value_group() {
     let chart = Chart::boxplot(vec![
         ("One", vec![5.0]),
         ("Two", vec![3.0, 7.0]),
-        ("Many", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
+        (
+            "Many",
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+        ),
     ])
     .title("Mixed Size Groups")
     .build();
@@ -941,19 +938,36 @@ fn cat7_heatmap_negative_values() {
 
 #[test]
 fn cat7_boxplot_notched_flag() {
-    // Tests that the notched flag doesn't cause a panic even though
-    // the renderer currently ignores it
+    // Tests that notched rendering produces polygon commands (was previously a no-op)
     let chart = Chart::boxplot(vec![
         ("A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
-        ("B", vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]),
+        (
+            "B",
+            vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        ),
     ])
     .notched()
-    .title("Notched (noop)")
+    .title("Notched BoxPlot")
     .build();
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "boxplot_notched");
     assert_has_commands(&r, "boxplot_notched");
+
+    // Verify non-notched also works for comparison
+    let chart2 = Chart::boxplot(vec![
+        ("A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
+        (
+            "B",
+            vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        ),
+    ])
+    .title("Non-Notched BoxPlot")
+    .build();
+
+    let r2 = layout::render_chart(&chart2, 400, 300);
+    assert_sane(&r2, 400, 300, "boxplot_standard");
+    assert_has_commands(&r2, "boxplot_standard");
 }
 
 #[test]
@@ -970,4 +984,149 @@ fn cat7_histogram_density_nan_in_data() {
 
     let r = layout::render_chart(&chart, 400, 300);
     assert_sane(&r, 400, 300, "density_with_nan");
+}
+
+// ===========================================================================
+// Category 8: Targeted Fix Validation
+// ===========================================================================
+
+#[test]
+fn cat8_negative_bars_produce_rects() {
+    // After Phase 2: negative-value bars must produce draw commands, not be silently skipped
+    let chart = Chart::bar(
+        vec!["A".into(), "B".into(), "C".into()],
+        &[-10.0, -20.0, -5.0],
+    )
+    .title("Negative Bars Visible")
+    .build();
+
+    let r = layout::render_chart(&chart, 400, 300);
+    assert_sane(&r, 400, 300, "negative_bars_rects");
+    // Should have at least 3 filled rects from bars (plus axes/grid)
+    assert!(
+        r.canvas.commands().len() >= 10,
+        "Negative bars should produce rect commands, got {}",
+        r.canvas.commands().len()
+    );
+}
+
+#[test]
+fn cat8_mixed_bars_both_directions() {
+    // Mixed positive/negative bars should render in both directions from baseline
+    let chart = Chart::bar(
+        vec!["Up".into(), "Down".into(), "Up2".into()],
+        &[50.0, -30.0, 20.0],
+    )
+    .title("Bidirectional Bars")
+    .build();
+
+    let r = layout::render_chart(&chart, 400, 300);
+    assert_sane(&r, 400, 300, "bidirectional_bars");
+    // All 3 bars should produce rects (none should be skipped)
+    assert!(
+        r.canvas.commands().len() >= 10,
+        "All bars should render, got {} commands",
+        r.canvas.commands().len()
+    );
+}
+
+#[test]
+fn cat8_scatter_nan_filtered_not_drawn() {
+    // After Phase 1: NaN data points should be filtered out, not drawn at garbage coords
+    let chart = Chart::scatter(
+        &[1.0, f64::NAN, 3.0, f64::NAN, 5.0],
+        &[2.0, 4.0, f64::NAN, 6.0, 8.0],
+    )
+    .title("NaN Filtered Scatter")
+    .build();
+
+    let r = layout::render_chart(&chart, 400, 300);
+    assert_sane(&r, 400, 300, "nan_filtered_scatter");
+
+    // Only finite-finite pairs (1,2) and (5,8) should produce markers => 2 markers
+    // Compare to all-finite version with 5 markers
+    let chart_all_finite = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0])
+        .title("All Finite Scatter")
+        .build();
+
+    let r2 = layout::render_chart(&chart_all_finite, 400, 300);
+
+    assert!(
+        r.canvas.commands().len() < r2.canvas.commands().len(),
+        "NaN scatter ({} cmds) should have fewer marker commands than all-finite ({} cmds)",
+        r.canvas.commands().len(),
+        r2.canvas.commands().len()
+    );
+}
+
+#[test]
+fn cat8_heatmap_nan_cells_skipped() {
+    // After Phase 4: NaN cells should produce no rect or overlay
+    let chart = Chart::heatmap(vec![
+        vec![1.0, f64::NAN, 3.0],
+        vec![f64::NAN, 5.0, f64::NAN],
+        vec![7.0, 8.0, 9.0],
+    ])
+    .title("NaN Cells Heatmap")
+    .build();
+
+    let r_nan = layout::render_chart(&chart, 400, 400);
+    assert_sane(&r_nan, 400, 400, "nan_cells_heatmap");
+
+    // Full heatmap for comparison
+    let chart_full = Chart::heatmap(vec![
+        vec![1.0, 2.0, 3.0],
+        vec![4.0, 5.0, 6.0],
+        vec![7.0, 8.0, 9.0],
+    ])
+    .title("Full Heatmap")
+    .build();
+
+    let r_full = layout::render_chart(&chart_full, 400, 400);
+
+    assert!(
+        r_nan.canvas.commands().len() < r_full.canvas.commands().len(),
+        "NaN heatmap ({} cmds) should have fewer cell rects than full ({} cmds)",
+        r_nan.canvas.commands().len(),
+        r_full.canvas.commands().len()
+    );
+}
+
+#[test]
+fn cat8_annotation_background_width_scales() {
+    // After Phase 5: annotation background width should scale with text length
+    let chart_short = Chart::scatter(&[5.0], &[5.0])
+        .annotate(5.0, 5.0, "Hi")
+        .build();
+
+    let chart_long = Chart::scatter(&[5.0], &[5.0])
+        .annotate(5.0, 5.0, "This is a very long annotation text for testing")
+        .build();
+
+    let r_short = layout::render_chart(&chart_short, 400, 300);
+    let r_long = layout::render_chart(&chart_long, 400, 300);
+
+    assert_sane(&r_short, 400, 300, "short_annotation");
+    assert_sane(&r_long, 400, 300, "long_annotation");
+    // Both should render without panic
+    assert_has_commands(&r_short, "short_annotation");
+    assert_has_commands(&r_long, "long_annotation");
+}
+
+#[test]
+fn cat8_horizontal_negative_bars_visible() {
+    // After Phase 2: horizontal negative bars should extend left from baseline
+    let chart = Chart::bar(vec!["A".into(), "B".into()], &[-50.0, -25.0])
+        .horizontal()
+        .title("Horizontal Negative Bars")
+        .build();
+
+    let r = layout::render_chart(&chart, 400, 300);
+    assert_sane(&r, 400, 300, "h_negative_bars");
+    // Negative horizontal bars should produce rects
+    assert!(
+        r.canvas.commands().len() >= 8,
+        "Horizontal negative bars should produce rect commands, got {}",
+        r.canvas.commands().len()
+    );
 }

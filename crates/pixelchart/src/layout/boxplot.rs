@@ -3,13 +3,11 @@
 use crate::chart::boxplot::{BoxPlot, BoxStats};
 use crate::scale::{CategoricalScale, LinearScale, Scale};
 
-use super::{resolve_y_extent, take_canvas, RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{resolve_y_extent, RenderContext, RenderedChart};
 
 pub(crate) fn render_boxplot(bp: &BoxPlot, w: u32, h: u32) -> RenderedChart {
     let config = &bp.config;
     let theme = &config.theme;
-    let mut ctx = RenderContext::new(config, w, h);
-    let (px, py, pw, ph) = ctx.plot;
 
     // Compute stats for each group
     let stats: Vec<Option<BoxStats>> = bp
@@ -18,7 +16,7 @@ pub(crate) fn render_boxplot(bp: &BoxPlot, w: u32, h: u32) -> RenderedChart {
         .map(|g| BoxStats::from_data(g.data.values()))
         .collect();
 
-    // Y extent from all groups
+    // Pre-compute Y extent for measurement-based layout
     let data_y_lo = stats
         .iter()
         .filter_map(|s| s.as_ref().map(|s| s.min))
@@ -30,6 +28,10 @@ pub(crate) fn render_boxplot(bp: &BoxPlot, w: u32, h: u32) -> RenderedChart {
         .reduce(f64::max)
         .unwrap_or(1.0);
     let y_extent = resolve_y_extent(config, (data_y_lo, data_y_hi));
+
+    let mut ctx = RenderContext::new(config, w, h, Some(y_extent));
+    let (px, py, pw, ph) = ctx.plot;
+
     let y_scale = LinearScale::nice(y_extent, ((py + ph) as f64, py as f64));
 
     let labels: Vec<String> = bp.groups.iter().map(|g| g.label.clone()).collect();
@@ -37,7 +39,7 @@ pub(crate) fn render_boxplot(bp: &BoxPlot, w: u32, h: u32) -> RenderedChart {
 
     // Y axis
     let y_ticks = ctx.draw_y_axis(config, &y_scale);
-    ctx.add_y_tick_overlays(&y_ticks, theme.text_color);
+    ctx.add_y_tick_overlays(&y_ticks, theme.text_color());
 
     // X axis line
     ctx.draw_x_axis_line(config);
@@ -69,73 +71,72 @@ pub(crate) fn render_boxplot(bp: &BoxPlot, w: u32, h: u32) -> RenderedChart {
         // IQR box (filled with translucent color)
         let box_top = y_q3.min(y_q1);
         let box_h = (y_q1 - y_q3).abs();
-        ctx.canvas = take_canvas(&mut ctx)
-            .rect(box_left, box_top, box_w, box_h)
-            .fill(color.with_alpha(0.3))
-            .corner_radius(2.0)
-            .done();
+        let fill_color = color.with_alpha(0.3);
+        ctx.draw(|c| {
+            c.rect(box_left, box_top, box_w, box_h)
+                .fill(fill_color)
+                .corner_radius(2.0)
+                .done()
+        });
 
         // IQR box outline
-        ctx.canvas = take_canvas(&mut ctx)
-            .rect(box_left, box_top, box_w, box_h)
-            .stroke(color, 1.5)
-            .corner_radius(2.0)
-            .done();
+        ctx.draw(|c| {
+            c.rect(box_left, box_top, box_w, box_h)
+                .stroke(color, 1.5)
+                .corner_radius(2.0)
+                .done()
+        });
 
         // Median line (thicker)
-        ctx.canvas = take_canvas(&mut ctx)
-            .line(box_left, y_med, box_left + box_w, y_med)
-            .color(color)
-            .width(2.5)
-            .done();
+        ctx.draw(|c| {
+            c.line(box_left, y_med, box_left + box_w, y_med)
+                .color(color)
+                .width(2.5)
+                .done()
+        });
 
         // Whisker lines (vertical)
-        ctx.canvas = take_canvas(&mut ctx)
-            .line(center_x, y_q3, center_x, y_whi)
-            .color(color)
-            .width(1.0)
-            .done();
-        ctx.canvas = take_canvas(&mut ctx)
-            .line(center_x, y_q1, center_x, y_wlo)
-            .color(color)
-            .width(1.0)
-            .done();
+        ctx.draw(|c| {
+            c.line(center_x, y_q3, center_x, y_whi)
+                .color(color)
+                .width(1.0)
+                .done()
+        });
+        ctx.draw(|c| {
+            c.line(center_x, y_q1, center_x, y_wlo)
+                .color(color)
+                .width(1.0)
+                .done()
+        });
 
         // Whisker caps (horizontal)
         let cap_w = box_w * 0.3;
-        ctx.canvas = take_canvas(&mut ctx)
-            .line(center_x - cap_w, y_whi, center_x + cap_w, y_whi)
-            .color(color)
-            .width(1.5)
-            .done();
-        ctx.canvas = take_canvas(&mut ctx)
-            .line(center_x - cap_w, y_wlo, center_x + cap_w, y_wlo)
-            .color(color)
-            .width(1.5)
-            .done();
+        ctx.draw(|c| {
+            c.line(center_x - cap_w, y_whi, center_x + cap_w, y_whi)
+                .color(color)
+                .width(1.5)
+                .done()
+        });
+        ctx.draw(|c| {
+            c.line(center_x - cap_w, y_wlo, center_x + cap_w, y_wlo)
+                .color(color)
+                .width(1.5)
+                .done()
+        });
 
         // Outlier points
         if bp.show_outliers {
+            let or = theme.point_radius() * 0.6;
+            let oc = color.with_alpha(0.7);
             for &val in &stat.outliers {
                 let oy = y_scale.to_pixel(val) as f32;
-                ctx.canvas = take_canvas(&mut ctx)
-                    .circle(center_x, oy, theme.point_radius * 0.6)
-                    .fill(color.with_alpha(0.7))
-                    .done();
+                ctx.draw(|c| c.circle(center_x, oy, or).fill(oc).done());
             }
         }
     }
 
     // Category label overlays
-    for (ci, label) in labels.iter().enumerate() {
-        ctx.overlays.push(TextOverlay {
-            x_px: cat_scale.center(ci) as f32,
-            y_px: py + ph + 8.0,
-            text: label.clone(),
-            color: theme.text_color,
-            align: TextAlign::Center,
-        });
-    }
+    ctx.draw_categorical_x_labels(config, &cat_scale, &labels);
 
     ctx.add_common_overlays(config);
     ctx.finish()

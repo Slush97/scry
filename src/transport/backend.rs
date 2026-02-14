@@ -14,6 +14,7 @@ use crate::PixelCanvasError;
 
 /// Where to place an image in terminal cell coordinates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct TerminalPosition {
     /// Column (0-indexed).
     pub col: u16,
@@ -75,6 +76,7 @@ impl ImageHandle {
 
 /// Enumeration of supported graphics protocols.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ProtocolKind {
     /// Kitty graphics protocol.
     Kitty,
@@ -103,6 +105,7 @@ impl std::fmt::Display for ProtocolKind {
 
 /// Terminal font size in pixels per character cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct FontSize {
     /// Width of a single character cell in pixels.
     pub width: u16,
@@ -175,6 +178,26 @@ pub trait ProtocolBackend: std::fmt::Debug + Send {
     ) -> Result<ImageHandle, PixelCanvasError> {
         self.remove(handle)?;
         self.transmit(pixmap, position, z_index)
+    }
+
+    /// Transmit only the changed tiles of a pixmap.
+    ///
+    /// Each [`DirtyTile`](crate::rasterize::DirtyTile) specifies a sub-region of the pixmap that has
+    /// changed since the last frame. The backend transmits only those
+    /// regions, dramatically reducing bandwidth for partially-animated
+    /// scenes (e.g. dashboards where one chart updates at a time).
+    ///
+    /// The default implementation ignores tiles and falls back to a full
+    /// [`replace()`](Self::replace).
+    fn transmit_tiles(
+        &mut self,
+        handle: &ImageHandle,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+        _dirty_tiles: &[crate::rasterize::DirtyTile],
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        self.replace(handle, pixmap, position, z_index)
     }
 
     /// Whether this backend supports alpha transparency.

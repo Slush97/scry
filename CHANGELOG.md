@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
+### Added — `pixelchart` (new crate)
+
+- **10 chart types** — line, line XY, scatter, bar, histogram, box plot,
+  heatmap, pie, radar, and candlestick/OHLC.
+- **Formatter system** — `AutoFormatter`, `SiFormatter`, `FixedFormatter`,
+  `PercentFormatter`, `CurrencyFormatter`, `ThousandsFormatter`,
+  `DateTimeFormatter` with batch formatting for uniform precision.
+- **Locale support** — US, European, Swiss, and Indian number formatting
+  conventions (decimal/thousands separators).
+- **Interactive features** — zoom, pan, crosshair cursor, and tooltips via
+  `ChartState`.
+- **Legends** — configurable position (inside/outside), orientation
+  (horizontal/vertical), multi-column layout, and titles.
+- **Annotations** — data point labels, trend lines, reference lines
+  (horizontal/vertical) with custom colors.
+- **Tick rotation** — horizontal, diagonal (45°), vertical (90°), and custom
+  angle rotation for X-axis tick labels.
+- **Export** — PNG (`save_png`) and SVG (`render_to_svg` / `save_svg`) output.
+- **Themes** — `dark`, `light`, `ocean`, `forest`, `pastel` built-in themes
+  with full customization via `Theme` builder.
+- **Builder API** — fluent builder pattern for all chart types with
+  `#[must_use]` annotations.
+- **Scales** — `LinearScale`, `LogScale`, `CategoricalScale`, `TimeScale`
+  with nice domain rounding and adaptive tick generation.
+
+### Added — `pixelchart-cli` (new crate)
+
+- **`render` command** — generate charts from JSON (stdin or `--data`).
+- **`plot` command** — generate charts from CSV with column selection,
+  delimiter config, header detection, axis bounds, sorting, and binning.
+- **`example` command** — render built-in example charts inline or to file.
+- **`show` command** — display existing PNG images inline in the terminal.
+- **`info` command** — print terminal capabilities and supported chart types.
+
+### Added — `ratatui-pixelcanvas`
 
 - **Ellipse primitive** (`ellipse(cx, cy, rx, ry)`) with optional rotation.
 - **Polyline primitive** (`polyline(points)`) for connected open line segments.

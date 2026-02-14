@@ -239,4 +239,3 @@ extern "C" {
     #[link_name = "ioctl"]
     fn libc_ioctl(fd: std::ffi::c_int, request: std::ffi::c_ulong, ...) -> std::ffi::c_int;
 }
-

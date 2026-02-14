@@ -1,6 +1,6 @@
 //! Comprehensive feature showcase for pixelchart.
 //!
-//! Cycle through pages with ← → arrows or 1-8 number keys.
+//! Cycle through pages with ← → arrows or number keys (1-9, 0, -, =).
 //! Press 'q' to quit.
 //!
 //! Run with: `cargo run -p pixelchart --example showcase`
@@ -15,6 +15,8 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
+use pixelchart::chart::OhlcEntry;
+use pixelchart::formatter::{BinarySiFormatter, CurrencyFormatter, EngineeringFormatter};
 use pixelchart::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -30,11 +32,15 @@ enum Page {
     Histogram,
     BoxPlot,
     Heatmap,
+    PieChart,
+    RadarChart,
+    Candlestick,
     MultiPanel,
+    Formatters,
 }
 
 impl Page {
-    const ALL: [Page; 8] = [
+    const ALL: [Page; 12] = [
         Page::ScatterBasic,
         Page::ScatterAdvanced,
         Page::LineChart,
@@ -42,7 +48,11 @@ impl Page {
         Page::Histogram,
         Page::BoxPlot,
         Page::Heatmap,
+        Page::PieChart,
+        Page::RadarChart,
+        Page::Candlestick,
         Page::MultiPanel,
+        Page::Formatters,
     ];
 
     fn index(self) -> usize {
@@ -51,14 +61,18 @@ impl Page {
 
     fn title(self) -> &'static str {
         match self {
-            Page::ScatterBasic => "1: Scatter — Basic",
-            Page::ScatterAdvanced => "2: Scatter — Multi-Series + Markers",
-            Page::LineChart => "3: Line — Fill + Reference Lines",
-            Page::BarChart => "4: Bar — Grouped vs Stacked",
-            Page::Histogram => "5: Histogram — Bins + Density",
-            Page::BoxPlot => "6: Box Plot — Distributions",
-            Page::Heatmap => "7: Heatmap — Correlation Matrix",
-            Page::MultiPanel => "8: Multi-Panel Dashboard",
+            Page::ScatterBasic => " 1: Scatter — Basic",
+            Page::ScatterAdvanced => " 2: Scatter — Multi-Series + Markers",
+            Page::LineChart => " 3: Line — Fill + Reference Lines",
+            Page::BarChart => " 4: Bar — Grouped vs Stacked",
+            Page::Histogram => " 5: Histogram — Bins + Density",
+            Page::BoxPlot => " 6: Box Plot — Distributions",
+            Page::Heatmap => " 7: Heatmap — Correlation Matrix",
+            Page::PieChart => " 8: Pie — Proportional Slices",
+            Page::RadarChart => " 9: Radar — Multi-Axis Comparison",
+            Page::Candlestick => "10: Candlestick — OHLC Financial",
+            Page::MultiPanel => "11: Multi-Panel Dashboard",
+            Page::Formatters => "12: Formatters — Locale + Notation",
         }
     }
 
@@ -111,7 +125,9 @@ impl AppState {
 // ---------------------------------------------------------------------------
 
 fn linspace(lo: f64, hi: f64, n: usize) -> Vec<f64> {
-    (0..n).map(|i| lo + (hi - lo) * i as f64 / (n - 1).max(1) as f64).collect()
+    (0..n)
+        .map(|i| lo + (hi - lo) * i as f64 / (n - 1).max(1) as f64)
+        .collect()
 }
 
 fn noisy_sin(x: &[f64], freq: f64, amp: f64, seed: u64) -> Vec<f64> {
@@ -167,10 +183,7 @@ fn build_scatter_advanced() -> (Chart, Chart) {
         .x_label("x")
         .y_label("y")
         .marker(Marker::Diamond)
-        .add_series(
-            Series::new("sqrt", x.clone()),
-            Series::new("", y3),
-        )
+        .add_series(Series::new("sqrt", x.clone()), Series::new("", y3))
         .y_range(-3.0, 5.0)
         .v_line(4.0)
         .theme(Theme::dark())
@@ -183,10 +196,7 @@ fn build_scatter_advanced() -> (Chart, Chart) {
 
     let scatter2 = Chart::scatter(&x2, &y_circle)
         .title("Multi-Series + Connected")
-        .add_series(
-            Series::new("cos", x2.clone()),
-            Series::new("", y_square),
-        )
+        .add_series(Series::new("cos", x2.clone()), Series::new("", y_square))
         .connected()
         .marker(Marker::Circle)
         .theme(Theme::pastel())
@@ -197,7 +207,10 @@ fn build_scatter_advanced() -> (Chart, Chart) {
 
 fn build_line_chart() -> Chart {
     let x = linspace(0.0, 12.0, 60);
-    let revenue: Vec<f64> = x.iter().map(|&v| 3.0 + v * 0.8 + (v * 0.5).sin() * 2.0).collect();
+    let revenue: Vec<f64> = x
+        .iter()
+        .map(|&v| 3.0 + v * 0.8 + (v * 0.5).sin() * 2.0)
+        .collect();
     let costs: Vec<f64> = x.iter().map(|&v| 2.0 + v * 0.4 + (v * 0.3).cos()).collect();
     let profit: Vec<f64> = revenue.iter().zip(&costs).map(|(r, c)| r - c).collect();
 
@@ -217,12 +230,10 @@ fn build_line_chart() -> Chart {
 }
 
 fn build_bar_charts() -> (Chart, Chart) {
-    let labels: Vec<String> = vec![
-        "Rust", "Python", "Go", "C++", "TypeScript",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect();
+    let labels: Vec<String> = vec!["Rust", "Python", "Go", "C++", "TypeScript"]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
     let perf = vec![95.0, 45.0, 80.0, 92.0, 30.0];
     let safety = vec![98.0, 60.0, 75.0, 40.0, 70.0];
@@ -326,6 +337,61 @@ fn build_heatmap() -> Chart {
         .build()
 }
 
+fn build_pie() -> (Chart, Chart) {
+    let labels: Vec<String> = vec!["Rust", "Python", "Go", "TypeScript", "C++", "Other"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let values = vec![35.0, 25.0, 15.0, 12.0, 8.0, 5.0];
+
+    let pie = Chart::pie(labels.clone(), &values)
+        .title("Language Popularity — Pie")
+        .theme(Theme::dark())
+        .build();
+
+    let donut = Chart::pie(labels, &values)
+        .title("Language Popularity — Donut")
+        .donut(0.5)
+        .theme(Theme::pastel())
+        .build();
+
+    (pie, donut)
+}
+
+fn build_radar() -> Chart {
+    Chart::radar(vec![
+        "Speed", "Power", "Defense", "Magic", "Stamina", "Luck",
+    ])
+    .add_series("Warrior", &[9.0, 8.0, 7.0, 2.0, 8.0, 4.0])
+    .add_series("Mage", &[3.0, 4.0, 3.0, 10.0, 5.0, 6.0])
+    .add_series("Rogue", &[8.0, 5.0, 4.0, 3.0, 6.0, 9.0])
+    .title("Character Stats — Radar")
+    .theme(Theme::ocean())
+    .build()
+}
+
+fn build_candlestick() -> Chart {
+    let data = vec![
+        OhlcEntry::new(1.0, 100.0, 110.0, 95.0, 108.0),
+        OhlcEntry::new(2.0, 108.0, 115.0, 102.0, 104.0),
+        OhlcEntry::new(3.0, 104.0, 112.0, 100.0, 110.0),
+        OhlcEntry::new(4.0, 110.0, 118.0, 106.0, 107.0),
+        OhlcEntry::new(5.0, 107.0, 120.0, 105.0, 118.0),
+        OhlcEntry::new(6.0, 118.0, 125.0, 112.0, 122.0),
+        OhlcEntry::new(7.0, 122.0, 130.0, 118.0, 119.0),
+        OhlcEntry::new(8.0, 119.0, 128.0, 116.0, 126.0),
+        OhlcEntry::new(9.0, 126.0, 135.0, 122.0, 132.0),
+        OhlcEntry::new(10.0, 132.0, 138.0, 128.0, 130.0),
+    ];
+
+    Chart::candlestick(data)
+        .title("AAPL — Daily Candlestick")
+        .x_label("Trading Day")
+        .y_label("Price ($)")
+        .theme(Theme::dark())
+        .build()
+}
+
 fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
     let x = linspace(0.0, 6.0, 30);
     let line = Chart::line(&noisy_sin(&x, 1.2, 4.0, 10))
@@ -351,16 +417,81 @@ fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
         .theme(Theme::dark())
         .build();
 
-    let bp = Chart::boxplot(vec![
-        ("A", random_normal(40, 5.0, 1.0, 11)),
-        ("B", random_normal(40, 7.0, 2.0, 22)),
-        ("C", random_normal(40, 4.0, 1.5, 33)),
+    let hm = Chart::heatmap(vec![
+        vec![1.0, 0.8, -0.3, 0.5],
+        vec![0.8, 1.0, 0.1, -0.2],
+        vec![-0.3, 0.1, 1.0, 0.6],
+        vec![0.5, -0.2, 0.6, 1.0],
     ])
-    .title("Groups")
-    .theme(Theme::dark())
+    .row_labels(vec!["α".into(), "β".into(), "γ".into(), "δ".into()])
+    .col_labels(vec!["α".into(), "β".into(), "γ".into(), "δ".into()])
+    .title("Correlation")
     .build();
 
-    (line, bar, hist, bp)
+    (line, bar, hist, hm)
+}
+
+fn build_formatters() -> (Chart, Chart, Chart, Chart) {
+    // Panel 1: European locale (comma decimals, period grouping)
+    let x = linspace(0.0, 5.0, 30);
+    let revenue: Vec<f64> = x
+        .iter()
+        .map(|&v| 1200.0 + v * 800.0 + (v * 2.0).sin() * 400.0)
+        .collect();
+    let locale_chart = Chart::line(&revenue)
+        .title("European Locale — Revenue (€)")
+        .x_label("Quarter")
+        .y_label("Revenue")
+        .x_values(x)
+        .european_locale()
+        .theme(Theme::dark())
+        .build();
+
+    // Panel 2: Engineering notation
+    let x2 = linspace(0.0, 6.0, 25);
+    let power: Vec<f64> = x2.iter().map(|&v| 10_f64.powf(v * 1.5)).collect();
+    let eng_chart = Chart::line(&power)
+        .title("Engineering — Power Levels")
+        .x_label("Stage")
+        .y_label("Watts")
+        .x_values(x2)
+        .y_formatter(EngineeringFormatter::default())
+        .theme(Theme::pastel())
+        .build();
+
+    // Panel 3: Binary SI (file sizes)
+    let x3 = linspace(0.0, 10.0, 20);
+    let sizes: Vec<f64> = x3.iter().map(|&v| 1024.0_f64.powf(1.0 + v * 0.3)).collect();
+    let binary_chart = Chart::line(&sizes)
+        .title("Binary SI — File Sizes")
+        .x_label("Build #")
+        .y_label("Size")
+        .x_values(x3)
+        .y_formatter(BinarySiFormatter::default())
+        .x_ticks_diagonal()
+        .theme(Theme::dark())
+        .build();
+
+    // Panel 4: Accounting currency with 30° tick labels
+    let labels: Vec<String> = vec!["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let values = vec![
+        42_000.0, -15_000.0, 78_000.0, -8_000.0, 120_000.0, -32_000.0,
+    ];
+    let acct_chart = Chart::bar(labels, &values)
+        .title("Accounting — P&L")
+        .y_label("USD")
+        .y_formatter(CurrencyFormatter {
+            accounting: true,
+            ..CurrencyFormatter::default()
+        })
+        .x_tick_angle(30.0)
+        .theme(Theme::pastel())
+        .build();
+
+    (locale_chart, eng_chart, binary_chart, acct_chart)
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +527,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     KeyCode::Char('5') => app.page = Page::Histogram,
                     KeyCode::Char('6') => app.page = Page::BoxPlot,
                     KeyCode::Char('7') => app.page = Page::Heatmap,
-                    KeyCode::Char('8') => app.page = Page::MultiPanel,
+                    KeyCode::Char('8') => app.page = Page::PieChart,
+                    KeyCode::Char('9') => app.page = Page::RadarChart,
+                    KeyCode::Char('0') => app.page = Page::Candlestick,
+                    KeyCode::Char('-') => app.page = Page::MultiPanel,
+                    KeyCode::Char('=') => app.page = Page::Formatters,
                     _ => {}
                 }
 
@@ -431,11 +566,7 @@ fn render_page(frame: &mut Frame, app: &mut AppState) {
     match app.page {
         Page::ScatterBasic => {
             let chart = build_scatter_basic();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::ScatterAdvanced => {
             let (left_chart, right_chart) = build_scatter_advanced();
@@ -454,60 +585,61 @@ fn render_page(frame: &mut Frame, app: &mut AppState) {
         }
         Page::LineChart => {
             let chart = build_line_chart();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::BarChart => {
             let (grouped, stacked) = build_bar_charts();
             let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(chart_area);
-            frame.render_stateful_widget(
-                ChartWidget::new(&grouped),
-                cols[0],
-                &mut app.states[0],
-            );
-            frame.render_stateful_widget(
-                ChartWidget::new(&stacked),
-                cols[1],
-                &mut app.states[1],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&grouped), cols[0], &mut app.states[0]);
+            frame.render_stateful_widget(ChartWidget::new(&stacked), cols[1], &mut app.states[1]);
         }
         Page::Histogram => {
             let (hist1, hist2) = build_histogram();
             let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(chart_area);
-            frame.render_stateful_widget(
-                ChartWidget::new(&hist1),
-                cols[0],
-                &mut app.states[0],
-            );
-            frame.render_stateful_widget(
-                ChartWidget::new(&hist2),
-                cols[1],
-                &mut app.states[1],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&hist1), cols[0], &mut app.states[0]);
+            frame.render_stateful_widget(ChartWidget::new(&hist2), cols[1], &mut app.states[1]);
         }
         Page::BoxPlot => {
             let chart = build_boxplot();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::Heatmap => {
             let chart = build_heatmap();
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chart_area,
-                &mut app.states[0],
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
+        }
+        Page::PieChart => {
+            let (pie, donut) = build_pie();
+            let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chart_area);
+            frame.render_stateful_widget(ChartWidget::new(&pie), cols[0], &mut app.states[0]);
+            frame.render_stateful_widget(ChartWidget::new(&donut), cols[1], &mut app.states[1]);
+        }
+        Page::RadarChart => {
+            let chart = build_radar();
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
+        }
+        Page::Candlestick => {
+            let chart = build_candlestick();
+            frame.render_stateful_widget(ChartWidget::new(&chart), chart_area, &mut app.states[0]);
         }
         Page::MultiPanel => {
             let (c1, c2, c3, c4) = build_dashboard();
+            let rows = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chart_area);
+            let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(rows[0]);
+            let bot = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(rows[1]);
+
+            frame.render_stateful_widget(ChartWidget::new(&c1), top[0], &mut app.states[0]);
+            frame.render_stateful_widget(ChartWidget::new(&c2), top[1], &mut app.states[1]);
+            frame.render_stateful_widget(ChartWidget::new(&c3), bot[0], &mut app.states[2]);
+            frame.render_stateful_widget(ChartWidget::new(&c4), bot[1], &mut app.states[3]);
+        }
+        Page::Formatters => {
+            let (c1, c2, c3, c4) = build_formatters();
             let rows = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(chart_area);
             let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -525,7 +657,7 @@ fn render_page(frame: &mut Frame, app: &mut AppState) {
     // Status bar
     let page_num = app.page.index() + 1;
     let status_text = format!(
-        " {} │ ← → navigate │ 1-8 jump │ q quit │ page {}/{}",
+        " {} │ ← → navigate │ 1-9,0,-,= jump │ q quit │ page {}/{}",
         app.page.title(),
         page_num,
         Page::ALL.len()

@@ -2,15 +2,15 @@
 source: crates/pixelchart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 28 commands
+canvas: 400x300, 29 commands
 overlays: 10
-  [0] (52, 263) Right "0"
-  [1] (52, 204) Right "5"
-  [2] (52, 146) Right "10"
-  [3] (52, 88) Right "15"
-  [4] (52, 30) Right "20"
-  [5] (101, 281) Center "Q1"
-  [6] (183, 281) Center "Q2"
-  [7] (265, 281) Center "Q3"
-  [8] (347, 281) Center "Q4"
-  [9] (224, 6) Center "Grouped Bars"
+  [0] (31, 273) Right "0"
+  [1] (31, 212) Right "5"
+  [2] (31, 152) Right "10"
+  [3] (31, 91) Right "15"
+  [4] (31, 30) Right "20"
+  [5] (80, 278) Center "Q1"
+  [6] (168, 278) Center "Q2"
+  [7] (256, 278) Center "Q3"
+  [8] (344, 278) Center "Q4"
+  [9] (212, 16) Center "Grouped Bars"

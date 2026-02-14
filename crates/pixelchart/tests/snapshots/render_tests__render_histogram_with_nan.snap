@@ -1,14 +1,14 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 645
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 24 commands
-overlays: 7
-  [0] (136, 279) Center "2"
-  [1] (262, 279) Center "4"
-  [2] (388, 279) Center "6"
-  [3] (52, 265) Right "0"
-  [4] (52, 180) Right "1"
-  [5] (52, 96) Right "2"
-  [6] (52, 12) Right "3"
+canvas: 400x300, 27 commands
+overlays: 8
+  [0] (40, 278) Center "0.8"
+  [1] (120, 278) Center "2.0"
+  [2] (254, 278) Center "4.0"
+  [3] (388, 278) Center "6.0"
+  [4] (35, 273) Right "0"
+  [5] (35, 186) Right "1"
+  [6] (35, 99) Right "2"
+  [7] (35, 12) Right "3"

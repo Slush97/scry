@@ -1,17 +1,17 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 472
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 23 commands
-overlays: 10
-  [0] (71, 279) Center "1"
-  [1] (176, 279) Center "2"
-  [2] (282, 279) Center "3"
-  [3] (388, 279) Center "4"
-  [4] (52, 273) Right "3"
-  [5] (52, 212) Right "4"
-  [6] (52, 152) Right "5"
-  [7] (52, 91) Right "6"
-  [8] (52, 30) Right "7"
-  [9] (224, 6) Center "Pastel Theme"
+canvas: 400x300, 25 commands
+overlays: 11
+  [0] (40, 278) Center "0.9"
+  [1] (51, 278) Center "1.0"
+  [2] (163, 278) Center "2.0"
+  [3] (276, 278) Center "3.0"
+  [4] (388, 278) Center "4.0"
+  [5] (35, 273) Right "3"
+  [6] (35, 212) Right "4"
+  [7] (35, 152) Right "5"
+  [8] (35, 91) Right "6"
+  [9] (35, 30) Right "7"
+  [10] (214, 16) Center "Pastel Theme"

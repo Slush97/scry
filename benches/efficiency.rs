@@ -3,7 +3,9 @@
 //!
 //! Run with: `cargo bench --bench efficiency`
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+#![allow(missing_docs)]
+
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::time::Duration as StdDuration;
 use std::time::Duration;
 
@@ -11,7 +13,7 @@ use ratatui_pixelcanvas::rasterize::Rasterizer;
 use ratatui_pixelcanvas::scene::animation::{
     AnimationState, Easing, Keyframe, Keyframes, Lerp, Transition,
 };
-use ratatui_pixelcanvas::scene::command::{PathData, ImageData};
+use ratatui_pixelcanvas::scene::command::{ImageData, PathData};
 use ratatui_pixelcanvas::scene::style::{Color, Point, Transform};
 use ratatui_pixelcanvas::scene::PixelCanvas;
 
@@ -33,22 +35,40 @@ fn bench_easing_curves(c: &mut Criterion) {
     ];
 
     for (name, easing) in &curves {
-        group.bench_with_input(BenchmarkId::new("single_eval", name), easing, |b, easing| {
-            b.iter(|| black_box(easing.ease(black_box(0.5))));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("single_eval", name),
+            easing,
+            |b, easing| {
+                b.iter(|| black_box(easing.ease(black_box(0.5))));
+            },
+        );
     }
 
     // Evaluate all curves across 1000 samples — simulates a full animation
     group.bench_function("all_curves_1000_samples", |b| {
         let all: Vec<Easing> = vec![
             Easing::Linear,
-            Easing::EaseInQuad, Easing::EaseOutQuad, Easing::EaseInOutQuad,
-            Easing::EaseInCubic, Easing::EaseOutCubic, Easing::EaseInOutCubic,
-            Easing::EaseInSine, Easing::EaseOutSine, Easing::EaseInOutSine,
-            Easing::EaseInExpo, Easing::EaseOutExpo, Easing::EaseInOutExpo,
-            Easing::EaseInCirc, Easing::EaseOutCirc, Easing::EaseInOutCirc,
-            Easing::Bounce, Easing::Elastic, Easing::BACK,
-            Easing::CSS_EASE, Easing::CSS_EASE_IN, Easing::CSS_EASE_OUT,
+            Easing::EaseInQuad,
+            Easing::EaseOutQuad,
+            Easing::EaseInOutQuad,
+            Easing::EaseInCubic,
+            Easing::EaseOutCubic,
+            Easing::EaseInOutCubic,
+            Easing::EaseInSine,
+            Easing::EaseOutSine,
+            Easing::EaseInOutSine,
+            Easing::EaseInExpo,
+            Easing::EaseOutExpo,
+            Easing::EaseInOutExpo,
+            Easing::EaseInCirc,
+            Easing::EaseOutCirc,
+            Easing::EaseInOutCirc,
+            Easing::Bounce,
+            Easing::Elastic,
+            Easing::BACK,
+            Easing::CSS_EASE,
+            Easing::CSS_EASE_IN,
+            Easing::CSS_EASE_OUT,
         ];
         b.iter(|| {
             for easing in &all {
@@ -125,8 +145,8 @@ fn bench_transition(c: &mut Criterion) {
     group.bench_function("advance_color", |b| {
         let from = Color::from_rgba8(255, 0, 0, 255);
         let to = Color::from_rgba8(0, 0, 255, 255);
-        let mut t = Transition::new(from, to, Duration::from_secs(1))
-            .easing(Easing::EaseInOutCubic);
+        let mut t =
+            Transition::new(from, to, Duration::from_secs(1)).easing(Easing::EaseInOutCubic);
         let dt = Duration::from_millis(16);
         b.iter(|| {
             t.advance(black_box(dt));
@@ -137,8 +157,7 @@ fn bench_transition(c: &mut Criterion) {
     group.bench_function("advance_point_elastic", |b| {
         let from = Point::new(0.0, 0.0);
         let to = Point::new(800.0, 600.0);
-        let mut t = Transition::new(from, to, Duration::from_secs(2))
-            .easing(Easing::Elastic);
+        let mut t = Transition::new(from, to, Duration::from_secs(2)).easing(Easing::Elastic);
         let dt = Duration::from_millis(16);
         b.iter(|| {
             t.advance(black_box(dt));
@@ -158,9 +177,21 @@ fn bench_keyframes(c: &mut Criterion) {
 
     // Simple 3-stop
     let kf3 = Keyframes::new(vec![
-        Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::Linear },
-        Keyframe { position: 0.5, value: 100.0, easing: Easing::EaseOutCubic },
-        Keyframe { position: 1.0, value: 50.0, easing: Easing::Linear },
+        Keyframe {
+            position: 0.0,
+            value: 0.0_f32,
+            easing: Easing::Linear,
+        },
+        Keyframe {
+            position: 0.5,
+            value: 100.0,
+            easing: Easing::EaseOutCubic,
+        },
+        Keyframe {
+            position: 1.0,
+            value: 50.0,
+            easing: Easing::Linear,
+        },
     ]);
 
     group.bench_function("3_stops_single_eval", |b| {
@@ -168,22 +199,30 @@ fn bench_keyframes(c: &mut Criterion) {
     });
 
     // Complex 10-stop
-    let kf10 = Keyframes::new((0..10).map(|i| Keyframe {
-        position: i as f32 / 9.0,
-        value: Color::from_hsl(360.0 * i as f32 / 9.0, 0.8, 0.5),
-        easing: Easing::EaseInOutCubic,
-    }).collect());
+    let kf10 = Keyframes::new(
+        (0..10)
+            .map(|i| Keyframe {
+                position: i as f32 / 9.0,
+                value: Color::from_hsl(360.0 * i as f32 / 9.0, 0.8, 0.5),
+                easing: Easing::EaseInOutCubic,
+            })
+            .collect(),
+    );
 
     group.bench_function("10_stops_color_single_eval", |b| {
         b.iter(|| black_box(kf10.value_at(black_box(0.35))));
     });
 
     // Dense 50-stop, evaluated 1000 times
-    let kf50 = Keyframes::new((0..50).map(|i| Keyframe {
-        position: i as f32 / 49.0,
-        value: i as f32 * 10.0,
-        easing: Easing::EaseOutCubic,
-    }).collect());
+    let kf50 = Keyframes::new(
+        (0..50)
+            .map(|i| Keyframe {
+                position: i as f32 / 49.0,
+                value: i as f32 * 10.0,
+                easing: Easing::EaseOutCubic,
+            })
+            .collect(),
+    );
 
     group.bench_function("50_stops_1000_evals", |b| {
         b.iter(|| {
@@ -210,12 +249,28 @@ fn bench_animation_state(c: &mut Criterion) {
             // Reset 5 animations each iteration to keep them alive
             if state.is_idle() {
                 state.start("a", 0.0_f32, 1.0, Duration::from_secs(1), Easing::Linear);
-                state.start("b", 0.0_f32, 1.0, Duration::from_secs(2), Easing::EaseOutCubic);
+                state.start(
+                    "b",
+                    0.0_f32,
+                    1.0,
+                    Duration::from_secs(2),
+                    Easing::EaseOutCubic,
+                );
                 state.start("c", 0.0_f32, 1.0, Duration::from_secs(3), Easing::Bounce);
-                state.start("d", Point::new(0.0, 0.0), Point::new(100.0, 100.0),
-                    Duration::from_secs(2), Easing::Elastic);
-                state.start("e", Color::RED, Color::BLUE,
-                    Duration::from_secs(1), Easing::CSS_EASE);
+                state.start(
+                    "d",
+                    Point::new(0.0, 0.0),
+                    Point::new(100.0, 100.0),
+                    Duration::from_secs(2),
+                    Easing::Elastic,
+                );
+                state.start(
+                    "e",
+                    Color::RED,
+                    Color::BLUE,
+                    Duration::from_secs(1),
+                    Easing::CSS_EASE,
+                );
             }
             state.tick(black_box(dt));
             black_box(state.get::<f32>("a"));
@@ -232,12 +287,16 @@ fn bench_animation_state(c: &mut Criterion) {
             if state.is_idle() {
                 for i in 0..20 {
                     let names: [&str; 20] = [
-                        "a0","a1","a2","a3","a4","a5","a6","a7","a8","a9",
-                        "b0","b1","b2","b3","b4","b5","b6","b7","b8","b9",
+                        "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "b0", "b1",
+                        "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9",
                     ];
-                    state.start(names[i], 0.0_f32, 1.0,
+                    state.start(
+                        names[i],
+                        0.0_f32,
+                        1.0,
                         Duration::from_millis(500 + i as u64 * 200),
-                        Easing::EaseOutCubic);
+                        Easing::EaseOutCubic,
+                    );
                 }
             }
             state.tick(black_box(dt));
@@ -252,8 +311,8 @@ fn bench_animation_state(c: &mut Criterion) {
 // ─────────────────────────────────────────────────────────────────
 
 fn bench_hashing(c: &mut Criterion) {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
     let mut group = c.benchmark_group("content_hashing");
 
@@ -293,21 +352,30 @@ fn bench_hashing(c: &mut Criterion) {
         let data: Vec<u8> = (0..pixels * 4).map(|i| (i % 256) as u8).collect();
         let img = ImageData::new(size, size, data);
 
-        group.bench_function(BenchmarkId::new("image_data_hash", format!("{size}x{size}")), |b| {
-            b.iter(|| {
-                let mut h = DefaultHasher::new();
-                img.hash(&mut h);
-                black_box(h.finish())
-            });
-        });
+        group.bench_function(
+            BenchmarkId::new("image_data_hash", format!("{size}x{size}")),
+            |b| {
+                b.iter(|| {
+                    let mut h = DefaultHasher::new();
+                    img.hash(&mut h);
+                    black_box(h.finish())
+                });
+            },
+        );
     }
 
     // Full scene content_hash
     let canvas = PixelCanvas::new(800, 600)
         .background(Color::BLACK)
-        .circle(400.0, 300.0, 200.0).fill(Color::RED).done()
-        .rect(100.0, 100.0, 200.0, 150.0).fill(Color::BLUE).done()
-        .ellipse(600.0, 400.0, 100.0, 50.0).fill(Color::GREEN).done();
+        .circle(400.0, 300.0, 200.0)
+        .fill(Color::RED)
+        .done()
+        .rect(100.0, 100.0, 200.0, 150.0)
+        .fill(Color::BLUE)
+        .done()
+        .ellipse(600.0, 400.0, 100.0, 50.0)
+        .fill(Color::GREEN)
+        .done();
 
     group.bench_function("scene_content_hash_5_cmds", |b| {
         b.iter(|| black_box(canvas.content_hash()));

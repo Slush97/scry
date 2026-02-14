@@ -2,10 +2,12 @@
 //!
 //! Run with: `cargo bench`
 
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+#![allow(missing_docs)]
+
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::scene::style::{Color, Point};
+use ratatui_pixelcanvas::scene::PixelCanvas;
 
 fn simple_circle(c: &mut Criterion) {
     let canvas = PixelCanvas::new(400, 400)
@@ -56,15 +58,16 @@ fn complex_scene(c: &mut Criterion) {
         .done()
         // Polyline
         .polyline(vec![
-            (50.0, 500.0), (150.0, 350.0), (250.0, 500.0),
-            (350.0, 350.0), (450.0, 500.0),
+            (50.0, 500.0),
+            (150.0, 350.0),
+            (250.0, 500.0),
+            (350.0, 350.0),
+            (450.0, 500.0),
         ])
         .stroke(Color::from_rgba8(0, 255, 255, 255), 2.5)
         .done()
         // Polygon
-        .polygon(vec![
-            (550.0, 350.0), (500.0, 550.0), (700.0, 550.0),
-        ])
+        .polygon(vec![(550.0, 350.0), (500.0, 550.0), (700.0, 550.0)])
         .fill(Color::from_rgba8(255, 99, 71, 200))
         .done()
         // Gradient

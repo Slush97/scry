@@ -1,0 +1,9 @@
+sensor,temperature,humidity,pressure
+Living Room,22.5,45.2,1013.2
+Kitchen,24.1,52.8,1013.1
+Bedroom,20.8,40.1,1013.3
+Bathroom,26.3,78.5,1012.9
+Garage,18.2,35.6,1013.5
+Office,21.9,42.3,1013.2
+Basement,17.5,55.1,1013.8
+Attic,28.7,30.2,1012.7

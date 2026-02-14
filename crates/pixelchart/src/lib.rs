@@ -1,6 +1,6 @@
 //! # pixelchart
 //!
-//! Pixel-perfect TUI charts built on [`ratatui-pixelcanvas`].
+//! Pixel-perfect TUI charts built on [`ratatui-pixelcanvas`](https://docs.rs/ratatui-pixelcanvas).
 //!
 //! Draw anti-aliased scatter plots, line charts, bar charts, and histograms
 //! directly in the terminal — rendered as actual pixels via Kitty/Sixel,
@@ -36,23 +36,32 @@ pub mod chart;
 pub mod cursor;
 pub mod data;
 pub mod error;
+pub mod export;
+pub mod formatter;
 pub mod layout;
 pub mod legend;
 pub mod scale;
+pub mod svg_export;
 pub mod theme;
+pub mod time_scale;
 pub mod widget;
 pub mod zoom;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {
     pub use crate::annotation::Annotation;
+    pub use crate::axis::LabelRotation;
     pub use crate::chart::scatter::Marker;
     pub use crate::chart::{
-        BarChart, BoxPlot, Chart, Heatmap, Histogram, LineChart, ReferenceLine, ScatterChart,
+        BarChart, BoxPlot, CandlestickChart, Chart, Heatmap, Histogram, LineChart, OhlcEntry,
+        PieChart, RadarChart, ReferenceLine, ScatterChart,
     };
     pub use crate::cursor::{CursorState, DataPoint};
     pub use crate::data::Series;
     pub use crate::error::ChartError;
+    pub use crate::export::{render_to_png, save_png};
+    pub use crate::legend::{LegendConfig, LegendOrientation, LegendPosition};
+    pub use crate::svg_export::{render_to_svg, save_svg};
     pub use crate::theme::Theme;
     pub use crate::widget::{ChartState, ChartWidget};
     pub use crate::zoom::ZoomState;

@@ -30,12 +30,8 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{
-    PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind,
-};
-use ratatui_pixelcanvas::scene::style::{
-    BlendMode, Color as C, Rect as PxRect, Transform,
-};
+use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use ratatui_pixelcanvas::scene::style::{BlendMode, Color as C, Rect as PxRect, Transform};
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::transport;
 
@@ -69,10 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut state,
             );
 
-            let status = Paragraph::new(
-                " ✦ Optical Illusions Gallery  |  'q' quit",
-            )
-            .block(Block::default().borders(Borders::TOP));
+            let status = Paragraph::new(" ✦ Optical Illusions Gallery  |  'q' quit")
+                .block(Block::default().borders(Borders::TOP));
             frame.render_widget(status, chunks[1]);
         })?;
         state.flush()?;
@@ -182,10 +176,7 @@ fn build_illusions(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas 
             canvas = canvas.circle(c.cx, c.cy, r).fill(color).done();
         }
         // Central dot
-        canvas = canvas
-            .circle(c.cx, c.cy, 4.0)
-            .fill(C::WHITE)
-            .done();
+        canvas = canvas.circle(c.cx, c.cy, 4.0).fill(C::WHITE).done();
     }
 
     // ── (2,0) Overlapping Translucent Circles (RGB blend) ────────────────

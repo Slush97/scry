@@ -38,10 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .y_label("amplitude")
         .connected()
         .h_line(0.0) // zero line
-        .add_series(
-            Series::new("cos", x_data.clone()),
-            Series::new("", y2_data),
-        )
+        .add_series(Series::new("cos", x_data.clone()), Series::new("", y2_data))
         .theme(Theme::dark())
         .build();
 
@@ -52,14 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .constraints([Constraint::Min(1), Constraint::Length(3)])
                 .split(frame.area());
 
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chunks[0],
-                &mut state,
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chunks[0], &mut state);
 
-            let status = Paragraph::new(" Press 'q' to quit")
-                .block(Block::default().borders(Borders::TOP));
+            let status =
+                Paragraph::new(" Press 'q' to quit").block(Block::default().borders(Borders::TOP));
             frame.render_widget(status, chunks[1]);
         })?;
         state.flush()?;

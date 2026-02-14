@@ -103,7 +103,11 @@ impl Rasterizer {
     }
 
     /// Internal: clear and render into a pixmap (shared by both public methods).
-    fn rasterize_into_pixmap(canvas: &PixelCanvas, pixmap: &mut Pixmap, grad_cache: &mut GradientCache) {
+    fn rasterize_into_pixmap(
+        canvas: &PixelCanvas,
+        pixmap: &mut Pixmap,
+        grad_cache: &mut GradientCache,
+    ) {
         // Fill background in a single pass (avoids double-write).
         let bg = canvas.background_color();
         if bg == Color::TRANSPARENT {
@@ -126,7 +130,13 @@ impl Rasterizer {
         for op in &batched {
             match op {
                 crate::rasterize::batch::BatchedOp::Single(cmd) => {
-                    Self::render_command(pixmap, cmd, SkiaTransform::identity(), &mut pool, grad_cache);
+                    Self::render_command(
+                        pixmap,
+                        cmd,
+                        SkiaTransform::identity(),
+                        &mut pool,
+                        grad_cache,
+                    );
                 }
                 crate::rasterize::batch::BatchedOp::Compound { path, style } => {
                     Self::render_shape(pixmap, path, style, SkiaTransform::identity());
@@ -166,12 +176,15 @@ impl Rasterizer {
                 corner_radius,
                 style,
             } => {
-                let skia_rect =
-                    tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height);
+                let skia_rect = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height);
                 if let Some(r) = skia_rect {
                     if *corner_radius > 0.0 {
                         if let Some(path) = Self::build_round_rect(
-                            rect.x, rect.y, rect.width, rect.height, *corner_radius,
+                            rect.x,
+                            rect.y,
+                            rect.width,
+                            rect.height,
+                            *corner_radius,
                         ) {
                             Self::render_shape(pixmap, &path, style, parent_transform);
                         }
@@ -216,17 +229,13 @@ impl Rasterizer {
                 // Build ellipse as a transformed circle path.
                 // tiny-skia has PathBuilder::from_circle, so we scale from
                 // a unit circle approach using oval rect.
-                let oval = tiny_skia::Rect::from_xywh(
-                    cx - rx,
-                    cy - ry,
-                    rx * 2.0,
-                    ry * 2.0,
-                );
+                let oval = tiny_skia::Rect::from_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0);
                 if let Some(r) = oval {
                     if let Some(path) = PathBuilder::from_oval(r) {
                         if rotation.abs() > f32::EPSILON {
                             // Apply rotation transform around center
-                            let rot = SkiaTransform::from_rotate_at(rotation.to_degrees(), *cx, *cy);
+                            let rot =
+                                SkiaTransform::from_rotate_at(rotation.to_degrees(), *cx, *cy);
                             let combined = parent_transform.post_concat(rot);
                             Self::render_shape(pixmap, &path, style, combined);
                         } else {
@@ -299,9 +308,8 @@ impl Rasterizer {
                     // Cache miss: render gradient into a temp pixmap, cache it,
                     // then blit to the destination.
                     if let Some(mut tile) = Pixmap::new(tw, th) {
-                        let origin_rect = crate::scene::style::Rect::new(
-                            0.0, 0.0, rect.width, rect.height,
-                        );
+                        let origin_rect =
+                            crate::scene::style::Rect::new(0.0, 0.0, rect.width, rect.height);
                         let tile_skia_rect =
                             tiny_skia::Rect::from_xywh(0.0, 0.0, rect.width, rect.height);
                         if let Some(tr) = tile_skia_rect {
@@ -339,7 +347,9 @@ impl Rasterizer {
                 sweep_angle,
                 style,
             } => {
-                if let Some(path) = Self::build_arc_path(*cx, *cy, *radius, *start_angle, *sweep_angle) {
+                if let Some(path) =
+                    Self::build_arc_path(*cx, *cy, *radius, *start_angle, *sweep_angle)
+                {
                     Self::render_shape(pixmap, &path, style, parent_transform);
                 }
             }
@@ -350,11 +360,9 @@ impl Rasterizer {
                 y,
                 opacity,
             } => {
-                if let Some(src) = tiny_skia::PixmapRef::from_bytes(
-                    image.data(),
-                    image.width(),
-                    image.height(),
-                ) {
+                if let Some(src) =
+                    tiny_skia::PixmapRef::from_bytes(image.data(), image.width(), image.height())
+                {
                     let paint = tiny_skia::PixmapPaint {
                         opacity: *opacity,
                         blend_mode: tiny_skia::BlendMode::SourceOver,
@@ -375,7 +383,16 @@ impl Rasterizer {
                 color,
                 font_data,
             } => {
-                Self::render_text(pixmap, text, *x, *y, *font_size, color, font_data, parent_transform);
+                Self::render_text(
+                    pixmap,
+                    text,
+                    *x,
+                    *y,
+                    *font_size,
+                    color,
+                    font_data,
+                    parent_transform,
+                );
             }
 
             DrawCommand::Group {
@@ -386,7 +403,9 @@ impl Rasterizer {
                 blend_mode,
             } => {
                 let combined = parent_transform.post_concat(transform.to_tiny_skia());
-                let needs_temp = *opacity < 1.0 || clip.is_some() || *blend_mode != crate::scene::style::BlendMode::SrcOver;
+                let needs_temp = *opacity < 1.0
+                    || clip.is_some()
+                    || *blend_mode != crate::scene::style::BlendMode::SrcOver;
 
                 if needs_temp {
                     // Determine temp pixmap size: use clip rect bounds when
@@ -395,7 +414,7 @@ impl Rasterizer {
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
-                        clippy::cast_precision_loss,
+                        clippy::cast_precision_loss
                     )]
                     let (tw, th, origin_col, origin_row) = match clip {
                         Some(crate::scene::style::ClipRegion::Rect(r)) => {
@@ -406,19 +425,15 @@ impl Rasterizer {
                         _ => {
                             // Estimate bounding box from child commands to avoid
                             // allocating a full-canvas temp pixmap.
-                            Self::estimate_group_bounds(
-                                commands,
-                                pixmap.width(),
-                                pixmap.height(),
-                            )
+                            Self::estimate_group_bounds(commands, pixmap.width(), pixmap.height())
                         }
                     };
 
                     // Reuse a temp pixmap from the pool if it's appropriately sized.
                     let needed_area = (tw as usize) * (th as usize);
-                    let mut temp = pool.pop().unwrap_or_else(|| {
-                        Pixmap::new(tw, th).expect("temp pixmap for group")
-                    });
+                    let mut temp = pool
+                        .pop()
+                        .unwrap_or_else(|| Pixmap::new(tw, th).expect("temp pixmap for group"));
 
                     // Right-size: if pooled pixmap is too small OR >4× the
                     // needed area, recreate. Prevents oversized buffers from
@@ -444,7 +459,9 @@ impl Rasterizer {
                         for row in 0..(th as usize) {
                             let start = row * row_stride;
                             let end = (start + row_clear).min(data.len());
-                            if start >= data.len() { break; }
+                            if start >= data.len() {
+                                break;
+                            }
                             data[start..end].fill(0);
                         }
                     }
@@ -477,10 +494,8 @@ impl Rasterizer {
                                 None
                             }
                             crate::scene::style::ClipRegion::Path(path_data) => {
-                                let mut mask = tiny_skia::Mask::new(
-                                    pixmap.width(),
-                                    pixmap.height(),
-                                )?;
+                                let mut mask =
+                                    tiny_skia::Mask::new(pixmap.width(), pixmap.height())?;
                                 mask.fill_path(
                                     path_data.path(),
                                     FillRule::Winding,
@@ -526,7 +541,7 @@ impl Rasterizer {
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_precision_loss,
+        clippy::cast_precision_loss
     )]
     pub(crate) fn estimate_group_bounds(
         commands: &[DrawCommand],
@@ -540,10 +555,18 @@ impl Rasterizer {
 
         for cmd in commands {
             let (x0, y0, x1, y1) = Self::estimate_command_bounds(cmd);
-            if x0 < min_x { min_x = x0; }
-            if y0 < min_y { min_y = y0; }
-            if x1 > max_x { max_x = x1; }
-            if y1 > max_y { max_y = y1; }
+            if x0 < min_x {
+                min_x = x0;
+            }
+            if y0 < min_y {
+                min_y = y0;
+            }
+            if x1 > max_x {
+                max_x = x1;
+            }
+            if y1 > max_y {
+                max_y = y1;
+            }
         }
 
         // If no commands or no bounds, fall back to full canvas
@@ -571,7 +594,12 @@ impl Rasterizer {
     #[allow(clippy::cast_precision_loss)]
     fn estimate_command_bounds(cmd: &DrawCommand) -> (f32, f32, f32, f32) {
         match cmd {
-            DrawCommand::Circle { cx, cy, radius, style } => {
+            DrawCommand::Circle {
+                cx,
+                cy,
+                radius,
+                style,
+            } => {
                 let sw = style.stroke.as_ref().map_or(0.0, |s| s.width);
                 let r = radius + sw;
                 (cx - r, cy - r, cx + r, cy + r)
@@ -585,12 +613,26 @@ impl Rasterizer {
                     rect.y + rect.height + sw,
                 )
             }
-            DrawCommand::Ellipse { cx, cy, rx, ry, style, .. } => {
+            DrawCommand::Ellipse {
+                cx,
+                cy,
+                rx,
+                ry,
+                style,
+                ..
+            } => {
                 let sw = style.stroke.as_ref().map_or(0.0, |s| s.width);
                 let r = rx.max(*ry) + sw;
                 (cx - r, cy - r, cx + r, cy + r)
             }
-            DrawCommand::Line { x1, y1, x2, y2, stroke, .. } => {
+            DrawCommand::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                ..
+            } => {
                 let sw = stroke.width;
                 (
                     x1.min(*x2) - sw,
@@ -599,7 +641,13 @@ impl Rasterizer {
                     y1.max(*y2) + sw,
                 )
             }
-            DrawCommand::Arc { cx, cy, radius, style, .. } => {
+            DrawCommand::Arc {
+                cx,
+                cy,
+                radius,
+                style,
+                ..
+            } => {
                 let sw = style.stroke.as_ref().map_or(0.0, |s| s.width);
                 let r = radius + sw;
                 (cx - r, cy - r, cx + r, cy + r)
@@ -609,10 +657,18 @@ impl Rasterizer {
                 let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
                 let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
                 for &(x, y) in points {
-                    if x < min_x { min_x = x; }
-                    if y < min_y { min_y = y; }
-                    if x > max_x { max_x = x; }
-                    if y > max_y { max_y = y; }
+                    if x < min_x {
+                        min_x = x;
+                    }
+                    if y < min_y {
+                        min_y = y;
+                    }
+                    if x > max_x {
+                        max_x = x;
+                    }
+                    if y > max_y {
+                        max_y = y;
+                    }
                 }
                 (min_x - sw, min_y - sw, max_x + sw, max_y + sw)
             }
@@ -628,13 +684,23 @@ impl Rasterizer {
                 (*x, *y, x + image.width() as f32, y + image.height() as f32)
             }
             #[cfg(feature = "text")]
-            DrawCommand::Text { x, y, font_size, text, .. } => {
+            DrawCommand::Text {
+                x,
+                y,
+                font_size,
+                text,
+                ..
+            } => {
                 // Rough estimate: each character ~0.6 × font_size wide
                 let est_w = text.len() as f32 * font_size * 0.6;
                 (*x, y - font_size, x + est_w, *y + font_size * 0.3)
             }
             DrawCommand::Clear { .. } => (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
-            DrawCommand::Group { commands: children, clip, .. } => {
+            DrawCommand::Group {
+                commands: children,
+                clip,
+                ..
+            } => {
                 if let Some(crate::scene::style::ClipRegion::Rect(r)) = clip {
                     (r.x, r.y, r.x + r.width, r.y + r.height)
                 } else {
@@ -645,10 +711,18 @@ impl Rasterizer {
                     let mut max_y = f32::MIN;
                     for child in children {
                         let (x0, y0, x1, y1) = Self::estimate_command_bounds(child);
-                        if x0 < min_x { min_x = x0; }
-                        if y0 < min_y { min_y = y0; }
-                        if x1 > max_x { max_x = x1; }
-                        if y1 > max_y { max_y = y1; }
+                        if x0 < min_x {
+                            min_x = x0;
+                        }
+                        if y0 < min_y {
+                            min_y = y0;
+                        }
+                        if x1 > max_x {
+                            max_x = x1;
+                        }
+                        if y1 > max_y {
+                            max_y = y1;
+                        }
                     }
                     (min_x, min_y, max_x, max_y)
                 }
@@ -711,10 +785,18 @@ impl Rasterizer {
             LineJoin::Round => SkiaLineJoin::Round,
             LineJoin::Bevel => SkiaLineJoin::Bevel,
         };
+
+        // Convert our DashPattern to tiny_skia's StrokeDash.
+        let dash = style
+            .dash
+            .as_ref()
+            .and_then(|dp| tiny_skia::StrokeDash::new(dp.intervals.clone(), dp.offset));
+
         SkiaStroke {
             width: style.width,
             line_cap,
             line_join,
+            dash,
             ..SkiaStroke::default()
         }
     }
@@ -741,7 +823,9 @@ impl Rasterizer {
         let mut stops = arrayvec::ArrayVec::<tiny_skia::GradientStop, 8>::new();
         for s in &gradient.stops {
             if let Some(c) = s.color.to_tiny_skia() {
-                if stops.is_full() { break; }
+                if stops.is_full() {
+                    break;
+                }
                 stops.push(tiny_skia::GradientStop::new(s.position, c));
             }
         }
@@ -825,7 +909,14 @@ impl Rasterizer {
     ///
     /// Splits the arc into segments of ≤90° and uses the standard
     /// `4/3 * tan(θ/4)` control-point formula for each segment.
-    #[allow(clippy::many_single_char_names, clippy::similar_names, clippy::suboptimal_flops, clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::many_single_char_names,
+        clippy::similar_names,
+        clippy::suboptimal_flops,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss
+    )]
     fn build_arc_path(
         cx: f32,
         cy: f32,
@@ -885,7 +976,14 @@ impl Rasterizer {
     /// Font objects are cached per-thread by `FontData` pointer identity
     /// to avoid re-parsing TTF/OTF files on every text command.
     #[cfg(feature = "text")]
-    #[allow(clippy::too_many_arguments, clippy::many_single_char_names, clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_lossless)]
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::many_single_char_names,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_lossless
+    )]
     fn render_text(
         pixmap: &mut Pixmap,
         text: &str,
@@ -911,12 +1009,12 @@ impl Rasterizer {
 
         let font_ok = FONT_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
-            if !cache.contains_key(&font_key) {
-                match fontdue::Font::from_bytes(
-                    font_data.bytes(),
-                    fontdue::FontSettings::default(),
-                ) {
-                    Ok(font) => { cache.insert(font_key, font); }
+            if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(font_key) {
+                match fontdue::Font::from_bytes(font_data.bytes(), fontdue::FontSettings::default())
+                {
+                    Ok(font) => {
+                        e.insert(font);
+                    }
                     Err(_) => return false,
                 }
             }
@@ -954,7 +1052,7 @@ impl Rasterizer {
                             let ca = ((a as u16) * (coverage as u16) / 255) as u8;
                             let idx = i * 4;
                             // Premultiplied RGBA (tiny-skia expects this)
-                            glyph_data[idx]     = ((r as u16 * ca as u16) / 255) as u8;
+                            glyph_data[idx] = ((r as u16 * ca as u16) / 255) as u8;
                             glyph_data[idx + 1] = ((g as u16 * ca as u16) / 255) as u8;
                             glyph_data[idx + 2] = ((b as u16 * ca as u16) / 255) as u8;
                             glyph_data[idx + 3] = ca;

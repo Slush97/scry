@@ -1,13 +1,17 @@
 //! Line chart type.
 
-use crate::annotation::Annotation;
-use crate::chart::{Chart, ChartConfig, ReferenceLine};
+use crate::chart::config_builder::{
+    chart_config_annotations, chart_config_axis_labels, chart_config_core, chart_config_formatters,
+    chart_config_grid, chart_config_h_lines, chart_config_legend, chart_config_locale,
+    chart_config_ranges, chart_config_tick_rotation, chart_config_tick_steps, chart_config_v_lines,
+};
+use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
-use crate::theme::Theme;
-use ratatui_pixelcanvas::style::Color;
 
 /// A line chart — one or more data series plotted as continuous lines.
 #[derive(Clone, Debug)]
+#[must_use]
+#[allow(clippy::struct_excessive_bools)]
 pub struct LineChart {
     /// Data series (each becomes a separate line).
     pub(crate) series: Vec<Series>,
@@ -19,6 +23,18 @@ pub struct LineChart {
     pub(crate) fill_area: bool,
     /// Whether to draw data points on the line.
     pub(crate) show_points: bool,
+    /// Whether to use Catmull-Rom spline interpolation.
+    pub(crate) smooth: bool,
+    /// Whether to render as a step (stairstep) line.
+    pub(crate) step: bool,
+    /// Whether to stack series (cumulative y-values).
+    pub(crate) stacked: bool,
+    /// Whether to apply distinct dash patterns per series.
+    pub(crate) dash_lines: bool,
+    /// Whether to show data value labels on points.
+    pub(crate) show_values: bool,
+    /// Override line width (uses theme default if `None`).
+    pub(crate) line_width: Option<f32>,
 }
 
 impl LineChart {
@@ -30,8 +46,28 @@ impl LineChart {
             config: ChartConfig::default(),
             fill_area: false,
             show_points: false,
+            smooth: false,
+            step: false,
+            stacked: false,
+            dash_lines: false,
+            show_values: false,
+            line_width: None,
         }
     }
+
+    // --- Generated common methods ---
+    chart_config_core!();
+    chart_config_axis_labels!();
+    chart_config_ranges!(xy);
+    chart_config_h_lines!();
+    chart_config_v_lines!();
+    chart_config_legend!();
+    chart_config_annotations!();
+    chart_config_grid!();
+    chart_config_tick_rotation!();
+    chart_config_formatters!();
+    chart_config_locale!();
+    chart_config_tick_steps!();
 
     /// Set explicit x values (otherwise 0, 1, 2, …).
     pub fn x_values(mut self, x: Vec<f64>) -> Self {
@@ -39,33 +75,18 @@ impl LineChart {
         self
     }
 
-    /// Set the chart title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.config.title = Some(title.into());
-        self
-    }
-
-    /// Set the x-axis label.
-    pub fn x_label(mut self, label: impl Into<String>) -> Self {
-        self.config.x_label = Some(label.into());
-        self
-    }
-
-    /// Set the y-axis label.
-    pub fn y_label(mut self, label: impl Into<String>) -> Self {
-        self.config.y_label = Some(label.into());
-        self
-    }
-
-    /// Set the visual theme.
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.config.theme = theme;
-        self
-    }
-
     /// Add another data series.
     pub fn add_series(mut self, s: Series) -> Self {
         self.series.push(s);
+        self
+    }
+
+    /// Add a named data series from raw values.
+    ///
+    /// This is a convenience method that creates a [`Series`] with a label.
+    /// The label is used in legend rendering.
+    pub fn add_named_series(mut self, label: impl Into<String>, values: &[f64]) -> Self {
+        self.series.push(Series::new(label, values.to_vec()));
         self
     }
 
@@ -81,52 +102,67 @@ impl LineChart {
         self
     }
 
-    /// Override the x-axis range.
-    pub fn x_range(mut self, min: f64, max: f64) -> Self {
-        self.config.x_range = Some((min, max));
+    /// Enable Catmull-Rom spline interpolation for smooth curves.
+    ///
+    /// This produces aesthetically pleasing curves that pass through each
+    /// data point. Mutually exclusive with [`step()`](Self::step) — the last
+    /// one set wins.
+    pub fn smooth(mut self) -> Self {
+        self.smooth = true;
+        self.step = false;
         self
     }
 
-    /// Override the y-axis range.
-    pub fn y_range(mut self, min: f64, max: f64) -> Self {
-        self.config.y_range = Some((min, max));
+    /// Render as a step (stairstep) line.
+    ///
+    /// Each segment transitions horizontally first, then vertically.
+    /// Mutually exclusive with [`smooth()`](Self::smooth) — the last one set
+    /// wins.
+    pub fn step(mut self) -> Self {
+        self.step = true;
+        self.smooth = false;
         self
     }
 
-    /// Add a horizontal reference line.
-    pub fn h_line(mut self, value: f64) -> Self {
-        self.config.h_lines.push(ReferenceLine::new(value));
+    /// Override the line width for this chart.
+    ///
+    /// If not set, uses the theme's default `series.line_width`.
+    pub fn line_width(mut self, width: f32) -> Self {
+        self.line_width = Some(width);
         self
     }
 
-    /// Add a horizontal reference line with color.
-    pub fn h_line_styled(mut self, value: f64, color: Color) -> Self {
-        self.config.h_lines.push(ReferenceLine::new(value).color(color));
+    /// Stack series — each series' y-values accumulate on top of previous.
+    ///
+    /// Best combined with [`.filled()`](Self::filled) for stacked area charts.
+    pub fn stacked(mut self) -> Self {
+        self.stacked = true;
         self
     }
 
-    /// Add a vertical reference line.
-    pub fn v_line(mut self, value: f64) -> Self {
-        self.config.v_lines.push(ReferenceLine::new(value));
+    /// Apply distinct dash patterns to each series for accessibility.
+    ///
+    /// Series 0 is solid, subsequent series cycle through dashed, dotted,
+    /// dash-dot, and long-dash patterns.
+    pub fn dash_lines(mut self) -> Self {
+        self.dash_lines = true;
         self
     }
 
-    /// Hide the legend.
-    pub fn no_legend(mut self) -> Self {
-        self.config.show_legend = false;
+    /// Show data value labels above each data point.
+    pub fn show_values(mut self) -> Self {
+        self.show_values = true;
         self
     }
 
-    /// Add an annotation at the given data coordinates.
-    pub fn annotate(mut self, x: f64, y: f64, text: impl Into<String>) -> Self {
-        self.config.annotations.push(Annotation::new(x, y, text));
-        self
-    }
-
-    /// Show a linear regression trend line.
-    pub fn trend_line(mut self) -> Self {
-        self.config.show_trend = true;
-        self
+    /// Validate inputs and build into a Chart enum variant.
+    ///
+    /// Returns [`ChartError`](crate::error::ChartError) if no series are provided.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.series.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        Ok(self.build())
     }
 
     /// Build into a Chart enum variant.

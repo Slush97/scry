@@ -2,11 +2,11 @@
 source: crates/pixelchart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 14 commands
+canvas: 400x300, 15 commands
 overlays: 6
-  [0] (52, 267) Right "0"
-  [1] (52, 203) Right "50"
-  [2] (52, 139) Right "100"
-  [3] (52, 76) Right "150"
-  [4] (52, 12) Right "200"
-  [5] (224, 281) Center "Only"
+  [0] (35, 273) Right "0"
+  [1] (35, 208) Right "50"
+  [2] (35, 142) Right "100"
+  [3] (35, 77) Right "150"
+  [4] (35, 12) Right "200"
+  [5] (214, 278) Center "Only"

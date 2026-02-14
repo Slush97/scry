@@ -18,6 +18,7 @@ pub struct ZoomState {
 
 impl ZoomState {
     /// Create a new zoom state from the original data extent.
+    #[must_use]
     pub fn new(x_min: f64, x_max: f64, y_min: f64, y_max: f64) -> Self {
         Self {
             original: (x_min, x_max, y_min, y_max),
@@ -28,11 +29,13 @@ impl ZoomState {
     }
 
     /// Get the current X range.
+    #[must_use]
     pub fn x_range(&self) -> (f64, f64) {
         (self.viewport.0, self.viewport.1)
     }
 
     /// Get the current Y range.
+    #[must_use]
     pub fn y_range(&self) -> (f64, f64) {
         (self.viewport.2, self.viewport.3)
     }
@@ -57,8 +60,16 @@ impl ZoomState {
         let cy = center_y.clamp(y0, y1);
 
         // Fraction of viewport where center falls
-        let fx = if (x1 - x0).abs() > f64::EPSILON { (cx - x0) / (x1 - x0) } else { 0.5 };
-        let fy = if (y1 - y0).abs() > f64::EPSILON { (cy - y0) / (y1 - y0) } else { 0.5 };
+        let fx = if (x1 - x0).abs() > f64::EPSILON {
+            (cx - x0) / (x1 - x0)
+        } else {
+            0.5
+        };
+        let fy = if (y1 - y0).abs() > f64::EPSILON {
+            (cy - y0) / (y1 - y0)
+        } else {
+            0.5
+        };
 
         self.viewport = (
             cx - xw * fx,
@@ -113,6 +124,7 @@ impl ZoomState {
     }
 
     /// Check if the viewport differs from the original.
+    #[must_use]
     pub fn is_zoomed(&self) -> bool {
         let (ox0, ox1, oy0, oy1) = self.original;
         let (vx0, vx1, vy0, vy1) = self.viewport;

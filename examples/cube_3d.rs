@@ -14,7 +14,7 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind};
+use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::style::Color as PxColor;
 use ratatui_pixelcanvas::transport;
@@ -64,24 +64,65 @@ fn project(p: Vec3, cx: f32, cy: f32, fov: f32) -> (f32, f32) {
 
 /// Unit cube vertices centered at origin.
 const VERTICES: [Vec3; 8] = [
-    Vec3 { x: -1.0, y: -1.0, z: -1.0 },
-    Vec3 { x:  1.0, y: -1.0, z: -1.0 },
-    Vec3 { x:  1.0, y:  1.0, z: -1.0 },
-    Vec3 { x: -1.0, y:  1.0, z: -1.0 },
-    Vec3 { x: -1.0, y: -1.0, z:  1.0 },
-    Vec3 { x:  1.0, y: -1.0, z:  1.0 },
-    Vec3 { x:  1.0, y:  1.0, z:  1.0 },
-    Vec3 { x: -1.0, y:  1.0, z:  1.0 },
+    Vec3 {
+        x: -1.0,
+        y: -1.0,
+        z: -1.0,
+    },
+    Vec3 {
+        x: 1.0,
+        y: -1.0,
+        z: -1.0,
+    },
+    Vec3 {
+        x: 1.0,
+        y: 1.0,
+        z: -1.0,
+    },
+    Vec3 {
+        x: -1.0,
+        y: 1.0,
+        z: -1.0,
+    },
+    Vec3 {
+        x: -1.0,
+        y: -1.0,
+        z: 1.0,
+    },
+    Vec3 {
+        x: 1.0,
+        y: -1.0,
+        z: 1.0,
+    },
+    Vec3 {
+        x: 1.0,
+        y: 1.0,
+        z: 1.0,
+    },
+    Vec3 {
+        x: -1.0,
+        y: 1.0,
+        z: 1.0,
+    },
 ];
 
 /// The 12 edges of a cube, as pairs of vertex indices.
 const EDGES: [(usize, usize); 12] = [
     // Front face
-    (0, 1), (1, 2), (2, 3), (3, 0),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 0),
     // Back face
-    (4, 5), (5, 6), (6, 7), (7, 4),
+    (4, 5),
+    (5, 6),
+    (6, 7),
+    (7, 4),
     // Connecting edges
-    (0, 4), (1, 5), (2, 6), (3, 7),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
 ];
 
 // ───────────────────────────────────────────────────────────────────
@@ -119,10 +160,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut state,
             );
 
-            let status = Paragraph::new(
-                " ← → rotate Y  |  ↑ ↓ rotate X  |  q quit"
-            )
-            .block(Block::default().borders(Borders::TOP));
+            let status = Paragraph::new(" ← → rotate Y  |  ↑ ↓ rotate X  |  q quit")
+                .block(Block::default().borders(Borders::TOP));
             frame.render_widget(status, chunks[1]);
         })?;
         state.flush()?;
@@ -181,8 +220,7 @@ fn build_cube_scene(
         .collect();
 
     // 2. Build the scene
-    let mut canvas = PixelCanvas::new(w, h)
-        .background(PxColor::from_rgba8(10, 10, 20, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(PxColor::from_rgba8(10, 10, 20, 255));
 
     // Edge colors: front=cyan, back=dim blue, connecting=purple
     let front_color = PxColor::from_rgba8(0, 220, 240, 255);
@@ -201,19 +239,12 @@ fn build_cube_scene(
             connect_color
         };
 
-        canvas = canvas
-            .line(x1, y1, x2, y2)
-            .color(color)
-            .width(2.5)
-            .done();
+        canvas = canvas.line(x1, y1, x2, y2).color(color).width(2.5).done();
     }
 
     // Draw vertices as small circles
     for &(x, y) in &projected {
-        canvas = canvas
-            .circle(x, y, 4.0)
-            .fill(PxColor::WHITE)
-            .done();
+        canvas = canvas.circle(x, y, 4.0).fill(PxColor::WHITE).done();
     }
 
     canvas

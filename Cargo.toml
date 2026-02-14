@@ -1,5 +1,6 @@
 [workspace]
-members = [".", "crates/pixelchart"]
+members = [".", "crates/pixelchart", "crates/pixelchart-cli"]
+exclude = ["fuzz"]
 resolver = "2"
 
 [package]
@@ -11,9 +12,11 @@ authors = ["esoc"]
 description = "Pixel-perfect vector graphics for Ratatui via Kitty, Sixel, and Unicode fallbacks"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Slush97/ratatui-pixelcanvas"
+documentation = "https://docs.rs/ratatui-pixelcanvas"
 keywords = ["ratatui", "tui", "kitty", "graphics", "vector"]
 categories = ["command-line-interface", "graphics", "rendering"]
 readme = "README.md"
+exclude = ["examples/", "benches/", "tests/", ".github/"]
 
 [features]
 default = ["kitty", "widget"]
@@ -23,6 +26,7 @@ iterm2 = []
 widget = ["dep:ratatui"]
 text = ["dep:fontdue"]
 shm = ["dep:libc"]
+svg = ["dep:resvg"]
 
 [dependencies]
 tiny-skia = "0.11"
@@ -37,13 +41,21 @@ ratatui = { version = "0.29", optional = true }
 fontdue = { version = "0.9", optional = true }
 # Optional: POSIX shared memory for zero-copy Kitty transmission
 libc = { version = "0.2", optional = true }
+# Optional: SVG rendering via resvg (uses tiny-skia internally)
+resvg = { version = "0.44", optional = true, default-features = false }
 
 [dev-dependencies]
 ratatui = { version = "0.29", features = ["crossterm"] }
 crossterm = "0.28"
+fastrand = "2"
 insta = { version = "1", features = ["glob"] }
 pretty_assertions = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1"
+
+[[example]]
+name = "line_drawing"
+required-features = ["svg", "widget"]
 
 [[bench]]
 name = "rasterize"
@@ -69,3 +81,31 @@ must_use_candidate = "allow"
 return_self_not_must_use = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+
+# Cast lints — pixel graphics math inherently converts between f32, u32, usize, i32.
+# Allowing crate-wide is cleaner than 38+ scattered #[allow] annotations.
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+
+# Math style — `a + b * c` is more readable than `b.mul_add(c, a)` for 2D coordinate math.
+suboptimal_flops = "allow"
+missing_const_for_fn = "allow"
+
+# Style lints — intentional patterns in this crate
+similar_names = "allow"           # pixel math vars: tile_w_cells / tile_h_cells, etc.
+option_if_let_else = "allow"      # if-let chains are clearer than map_or_else for this code
+should_implement_trait = "allow"   # custom from_str with custom error types
+many_single_char_names = "allow"   # math-heavy code: x, y, w, h, t, r, g, b
+too_many_lines = "allow"           # complex rendering functions
+needless_pass_by_value = "allow"   # widget API ergonomics
+while_float = "allow"             # animation loops with float progress
+unreadable_literal = "allow"       # magic numbers in procedural generation (0.171573, etc.)
+float_cmp = "allow"                # exact f32 comparisons in tests with known literals
+field_reassign_with_default = "allow" # builder-like config structs
+items_after_statements = "allow"   # inline closures/constants in example code
+branches_sharing_code = "allow"    # false positives on if/else with shared setup
+match_same_arms = "allow"          # readability: explicit arms over catch-all
+double_parens = "allow"            # macro-generated code
+needless_range_loop = "allow"      # sometimes index-based loops are clearer

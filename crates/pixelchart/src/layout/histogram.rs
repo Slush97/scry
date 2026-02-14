@@ -4,20 +4,19 @@ use crate::chart::histogram::Histogram;
 use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
 
-use super::{resolve_x_extent, resolve_y_extent, take_canvas, RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{
+    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay,
+};
 
 pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart {
     let config = &hc.config;
     let theme = &config.theme;
-    let mut ctx = RenderContext::new(config, w, h);
-    let (px, py, pw, ph) = ctx.plot;
 
     // Compute shared x extent across all series
     let primary_extent = hc.data.extent().unwrap_or((0.0, 1.0));
     let x_extent = if hc.extra.is_empty() {
         resolve_x_extent(config, primary_extent)
     } else {
-        // Expand extent to cover all series
         let mut lo = primary_extent.0;
         let mut hi = primary_extent.1;
         for extra in &hc.extra {
@@ -29,7 +28,9 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
         resolve_x_extent(config, (lo, hi))
     };
 
-    let n_bins = hc.bins.unwrap_or_else(|| Histogram::auto_bins(hc.data.len()));
+    let n_bins = hc
+        .bins
+        .unwrap_or_else(|| Histogram::auto_bins(hc.data.len()));
 
     // Compute bins for all series
     let primary_bins = compute_bins(hc.data.values(), x_extent, n_bins, hc.density);
@@ -39,17 +40,39 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
         .map(|s| compute_bins(s.values(), x_extent, n_bins, hc.density))
         .collect();
 
-    // Y axis max across all series
-    let mut y_max = primary_bins.iter().map(|b| b.count).reduce(f64::max).unwrap_or(1.0);
+    // Y axis max across all series — needed for layout
+    let mut y_max = primary_bins
+        .iter()
+        .map(|b| b.count)
+        .reduce(f64::max)
+        .unwrap_or(1.0);
     for bins in &extra_bins {
         if let Some(m) = bins.iter().map(|b| b.count).reduce(f64::max) {
             y_max = y_max.max(m);
         }
     }
-
-    let x_scale = LinearScale::nice(x_extent, (px as f64, (px + pw) as f64));
     let y_extent = resolve_y_extent(config, (0.0, y_max));
-    let y_scale = LinearScale::nice(y_extent, ((py + ph) as f64, py as f64));
+
+    // Now create context with measured Y-axis width
+    let mut ctx = RenderContext::new(config, w, h, Some(y_extent));
+    let (px, py, pw, ph) = ctx.plot;
+
+    let x_exact = config
+        .x_range
+        .map_or(false, |(a, b)| a.is_finite() && b.is_finite());
+    let y_exact = config
+        .y_range
+        .map_or(false, |(a, b)| a.is_finite() && b.is_finite());
+    let x_scale = if x_exact {
+        LinearScale::new(x_extent, (px as f64, (px + pw) as f64))
+    } else {
+        LinearScale::nice(x_extent, (px as f64, (px + pw) as f64))
+    };
+    let y_scale = if y_exact {
+        LinearScale::new(y_extent, ((py + ph) as f64, py as f64))
+    } else {
+        LinearScale::nice_zero(y_extent, ((py + ph) as f64, py as f64))
+    };
 
     ctx.draw_axes(config, &x_scale, &y_scale);
     ctx.draw_reference_lines(config, &x_scale, &y_scale);
@@ -59,7 +82,15 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
     // Draw primary histogram
     let n_total_series = 1 + hc.extra.len();
     let primary_opacity = if n_total_series > 1 { 0.6 } else { hc.opacity };
-    draw_bins_on_ctx(&mut ctx, &primary_bins, &x_scale, &y_scale, baseline_y, theme.series_color(0), primary_opacity);
+    draw_bins_on_ctx(
+        &mut ctx,
+        &primary_bins,
+        &x_scale,
+        &y_scale,
+        baseline_y,
+        theme.series_color(0),
+        primary_opacity,
+    );
 
     // Draw extra series with translucent overlay
     for (si, bins) in extra_bins.iter().enumerate() {
@@ -69,16 +100,14 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
 
     // Legend for multi-series
     if n_total_series > 1 {
-        let mut entries = vec![
-            LegendEntry {
-                label: if hc.data.label().is_empty() {
-                    "Series 1".to_string()
-                } else {
-                    hc.data.label().to_string()
-                },
-                color: theme.series_color(0),
-            }
-        ];
+        let mut entries = vec![LegendEntry {
+            label: if hc.data.label().is_empty() {
+                "Series 1".to_string()
+            } else {
+                hc.data.label().to_string()
+            },
+            color: theme.series_color(0),
+        }];
         for (si, extra) in hc.extra.iter().enumerate() {
             entries.push(LegendEntry {
                 label: if extra.label().is_empty() {
@@ -90,24 +119,22 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
             });
         }
 
-        let (canvas, legend_text) = legend::draw_legend_swatches(
-            take_canvas(&mut ctx),
-            &entries,
-            px + pw - 80.0,
-            py + 8.0,
-            10.0,
-            4.0,
-        );
-        ctx.canvas = canvas;
+        let plot = ctx.plot;
+        let legend_text = ctx.draw_with(|c| {
+            legend::draw_positioned_legend(c, &entries, plot, &config.legend, 10.0, 4.0, None)
+        });
 
-        // Add legend text overlays (was previously discarded!)
+        // Add legend text overlays
         for (lx, ly, label) in legend_text {
             ctx.overlays.push(TextOverlay {
                 x_px: lx,
                 y_px: ly,
                 text: label,
-                color: theme.text_color,
+                color: theme.text_color(),
                 align: TextAlign::Left,
+                font_size: 11.0,
+                bold: false,
+                rotation_deg: 0.0,
             });
         }
     }
@@ -136,17 +163,18 @@ fn draw_bins_on_ctx(
         let bh = baseline_y - top;
 
         if bh > 0.0 {
-            ctx.canvas = take_canvas(ctx)
-                .rect(x1, top, bw, bh)
-                .fill(fill_color)
-                .corner_radius(2.0)
-                .done();
-
-            ctx.canvas = take_canvas(ctx)
-                .rect(x1, top, bw, bh)
-                .stroke(color, 1.0)
-                .corner_radius(2.0)
-                .done();
+            ctx.draw(|c| {
+                c.rect(x1, top, bw, bh)
+                    .fill(fill_color)
+                    .corner_radius(0.0)
+                    .done()
+            });
+            ctx.draw(|c| {
+                c.rect(x1, top, bw, bh)
+                    .stroke(color, 1.0)
+                    .corner_radius(0.0)
+                    .done()
+            });
         }
     }
 }
@@ -161,7 +189,12 @@ pub(crate) struct Bin {
     pub count: f64,
 }
 
-pub(crate) fn compute_bins(data: &[f64], extent: (f64, f64), n_bins: usize, density: bool) -> Vec<Bin> {
+pub(crate) fn compute_bins(
+    data: &[f64],
+    extent: (f64, f64),
+    n_bins: usize,
+    density: bool,
+) -> Vec<Bin> {
     let (lo, hi) = extent;
     let span = hi - lo;
     if span.abs() < f64::EPSILON || n_bins == 0 {
@@ -188,7 +221,11 @@ pub(crate) fn compute_bins(data: &[f64], extent: (f64, f64), n_bins: usize, dens
             let bin_lo = lo + i as f64 * bin_width;
             let bin_hi = bin_lo + bin_width;
             let count = if density {
-                c as f64 / (n * bin_width)
+                if n == 0.0 || bin_width == 0.0 {
+                    0.0
+                } else {
+                    c as f64 / (n * bin_width)
+                }
             } else {
                 c as f64
             };

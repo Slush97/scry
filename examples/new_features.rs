@@ -2,8 +2,8 @@
 //! graphics-primitives expansion.
 //!
 //! **Features covered:** Arc primitive, Group clipping (rect & path),
-//! Group opacity, BlendMode (Multiply, Screen, Overlay), Transform
-//! helpers (rotate, scale_xy, skew, concat).
+//! Group opacity, `BlendMode` (Multiply, Screen, Overlay), Transform
+//! helpers (rotate, `scale_xy`, skew, concat).
 //!
 //! The screen is divided into a 3×2 grid, each cell highlighting one
 //! new capability.
@@ -32,12 +32,8 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{
-    PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind,
-};
-use ratatui_pixelcanvas::scene::style::{
-    BlendMode, Color as C, Point, Rect as PxRect, Transform,
-};
+use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use ratatui_pixelcanvas::scene::style::{BlendMode, Color as C, Point, Rect as PxRect, Transform};
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::transport;
 
@@ -71,10 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut state,
             );
 
-            let status = Paragraph::new(
-                " ★ New Features Showcase  |  'q' quit",
-            )
-            .block(Block::default().borders(Borders::TOP));
+            let status = Paragraph::new(" ★ New Features Showcase  |  'q' quit")
+                .block(Block::default().borders(Borders::TOP));
             frame.render_widget(status, chunks[1]);
         })?;
         state.flush()?;
@@ -283,10 +277,7 @@ fn build_scene(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
             // Base shape (destination)
             canvas = canvas
                 .gradient(x, y_top, third, rect_h)
-                .linear(
-                    Point::new(x, y_top),
-                    Point::new(x, y_top + rect_h),
-                )
+                .linear(Point::new(x, y_top), Point::new(x, y_top + rect_h))
                 .stop(0.0, C::from_rgba8(200, 50, 50, 255))
                 .stop(0.5, C::from_rgba8(50, 200, 50, 255))
                 .stop(1.0, C::from_rgba8(50, 50, 200, 255))
@@ -326,8 +317,8 @@ fn build_scene(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
             let tx = c.cx + dist * angle.cos();
             let ty = c.cy + dist * angle.sin();
 
-            let transform = Transform::rotate_at(angle * 2.0, tx, ty)
-                .concat(Transform::scale_xy(scale, scale));
+            let transform =
+                Transform::rotate_at(angle * 2.0, tx, ty).concat(Transform::scale_xy(scale, scale));
 
             let hue = (i as f32 * 30.0 + t * 40.0) % 360.0;
             let (r, g, b) = hsl_to_rgb(hue, 0.85, 0.6);
@@ -336,7 +327,12 @@ fn build_scene(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
                 .group(transform)
                 .canvas(|inner| {
                     inner
-                        .rect(tx - half_size, ty - half_size, half_size * 2.0, half_size * 2.0)
+                        .rect(
+                            tx - half_size,
+                            ty - half_size,
+                            half_size * 2.0,
+                            half_size * 2.0,
+                        )
                         .fill(C::from_rgba8(r, g, b, 180))
                         .corner_radius(4.0)
                         .stroke(C::from_rgba8(255, 255, 255, 100), 1.0)
@@ -454,9 +450,7 @@ fn draw_glyph(canvas: &mut PixelCanvas, x: f32, y: f32, bits: &[u8], color: C) {
                         rect: PxRect::new(x + col as f32, y + row as f32, 1.0, 1.0),
                         corner_radius: 0.0,
                         style: ratatui_pixelcanvas::scene::style::ShapeStyle {
-                            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(
-                                color,
-                            )),
+                            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(color)),
                             stroke: None,
                             anti_alias: false,
                         },
@@ -469,36 +463,186 @@ fn draw_glyph(canvas: &mut PixelCanvas, x: f32, y: f32, bits: &[u8], color: C) {
 
 // Tiny 5×7 pixel font for labels (subset)
 const PIXEL_FONT: [(&str, &[u8]); 30] = [
-    ("A", &[0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
-    ("B", &[0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110]),
-    ("C", &[0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110]),
-    ("D", &[0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100]),
-    ("E", &[0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111]),
-    ("F", &[0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000]),
-    ("G", &[0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110]),
-    ("H", &[0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
-    ("I", &[0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
-    ("K", &[0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001]),
-    ("L", &[0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111]),
-    ("M", &[0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001]),
-    ("N", &[0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001]),
-    ("O", &[0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
-    ("P", &[0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000]),
-    ("R", &[0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001]),
-    ("S", &[0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110]),
-    ("T", &[0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100]),
-    ("U", &[0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
-    ("V", &[0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b01010, 0b00100]),
-    ("W", &[0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001]),
-    ("X", &[0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001]),
-    ("Y", &[0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100]),
-    (" ", &[0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000]),
-    ("0", &[0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110]),
-    ("1", &[0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
-    (":", &[0b00000, 0b00100, 0b00100, 0b00000, 0b00100, 0b00100, 0b00000]),
-    (".", &[0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00100, 0b00100]),
-    ("J", &[0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100]),
-    ("Q", &[0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101]),
+    (
+        "A",
+        &[
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "B",
+        &[
+            0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+    ),
+    (
+        "C",
+        &[
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "D",
+        &[
+            0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100,
+        ],
+    ),
+    (
+        "E",
+        &[
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+    ),
+    (
+        "F",
+        &[
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+    ),
+    (
+        "G",
+        &[
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "H",
+        &[
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "I",
+        &[
+            0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+    ),
+    (
+        "K",
+        &[
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+    ),
+    (
+        "L",
+        &[
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+    ),
+    (
+        "M",
+        &[
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "N",
+        &[
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "O",
+        &[
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "P",
+        &[
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+    ),
+    (
+        "R",
+        &[
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+    ),
+    (
+        "S",
+        &[
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+    ),
+    (
+        "T",
+        &[
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+    ),
+    (
+        "U",
+        &[
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "V",
+        &[
+            0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b01010, 0b00100,
+        ],
+    ),
+    (
+        "W",
+        &[
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001,
+        ],
+    ),
+    (
+        "X",
+        &[
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "Y",
+        &[
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+    ),
+    (
+        " ",
+        &[
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000,
+        ],
+    ),
+    (
+        "0",
+        &[
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "1",
+        &[
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+    ),
+    (
+        ":",
+        &[
+            0b00000, 0b00100, 0b00100, 0b00000, 0b00100, 0b00100, 0b00000,
+        ],
+    ),
+    (
+        ".",
+        &[
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00100, 0b00100,
+        ],
+    ),
+    (
+        "J",
+        &[
+            0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100,
+        ],
+    ),
+    (
+        "Q",
+        &[
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+    ),
 ];
 
 // ─── HSL to RGB ───────────────────────────────────────────────────────────────

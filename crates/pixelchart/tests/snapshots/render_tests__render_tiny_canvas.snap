@@ -2,13 +2,9 @@
 source: crates/pixelchart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 40x30, 19 commands
-overlays: 8
-  [0] (34, 20) Center "0"
-  [1] (35, 20) Center "1"
-  [2] (35, 20) Center "2"
-  [3] (36, 20) Center "3"
-  [4] (26, 14) Right "1"
-  [5] (26, 10) Right "2"
-  [6] (26, 7) Right "3"
-  [7] (26, 4) Right "4"
+canvas: 40x30, 12 commands
+overlays: 4
+  [0] (28, 18) Center "0"
+  [1] (36, 18) Center "3"
+  [2] (24, 14) Right "0.9"
+  [3] (24, 4) Right "4.0"

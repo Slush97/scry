@@ -1,13 +1,16 @@
 //! Scatter plot chart type.
 
-use crate::annotation::Annotation;
-use crate::chart::{Chart, ChartConfig, ReferenceLine};
+use crate::chart::config_builder::{
+    chart_config_annotations, chart_config_axis_labels, chart_config_core, chart_config_formatters,
+    chart_config_grid, chart_config_h_lines, chart_config_legend, chart_config_locale,
+    chart_config_ranges, chart_config_tick_rotation, chart_config_tick_steps, chart_config_v_lines,
+};
+use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
-use crate::theme::Theme;
-use ratatui_pixelcanvas::style::Color;
 
 /// A scatter plot — individual data points plotted on x/y axes.
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct ScatterChart {
     /// X-axis data.
     pub(crate) x: Series,
@@ -21,10 +24,15 @@ pub struct ScatterChart {
     pub(crate) connect: bool,
     /// Marker shape.
     pub(crate) marker: Marker,
+    /// Override marker radius (uses theme default if `None`).
+    pub(crate) marker_size: Option<f32>,
+    /// Whether to show data value labels on points.
+    pub(crate) show_values: bool,
 }
 
 /// Shape of data point markers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Marker {
     /// Filled circle (default).
     Circle,
@@ -48,36 +56,40 @@ impl ScatterChart {
             config: ChartConfig::default(),
             connect: false,
             marker: Marker::Circle,
+            marker_size: None,
+            show_values: false,
         }
     }
 
-    /// Set the chart title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.config.title = Some(title.into());
-        self
-    }
-
-    /// Set the x-axis label.
-    pub fn x_label(mut self, label: impl Into<String>) -> Self {
-        self.config.x_label = Some(label.into());
-        self
-    }
-
-    /// Set the y-axis label.
-    pub fn y_label(mut self, label: impl Into<String>) -> Self {
-        self.config.y_label = Some(label.into());
-        self
-    }
-
-    /// Set the visual theme.
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.config.theme = theme;
-        self
-    }
+    // --- Generated common methods ---
+    chart_config_core!();
+    chart_config_axis_labels!();
+    chart_config_ranges!(xy);
+    chart_config_h_lines!();
+    chart_config_v_lines!();
+    chart_config_legend!();
+    chart_config_annotations!();
+    chart_config_grid!();
+    chart_config_tick_rotation!();
+    chart_config_formatters!();
+    chart_config_locale!();
+    chart_config_tick_steps!();
 
     /// Add an additional data series.
     pub fn add_series(mut self, x: Series, y: Series) -> Self {
         self.extra_series.push((x, y));
+        self
+    }
+
+    /// Add a named data series from raw x/y arrays.
+    ///
+    /// Creates [`Series`] with labels; the y-series label is used in legend rendering.
+    pub fn add_named_series(mut self, label: impl Into<String>, x: &[f64], y: &[f64]) -> Self {
+        let lbl: String = label.into();
+        self.extra_series.push((
+            Series::new(format!("{lbl}_x"), x.to_vec()),
+            Series::new(lbl, y.to_vec()),
+        ));
         self
     }
 
@@ -93,58 +105,43 @@ impl ScatterChart {
         self
     }
 
-    /// Override the x-axis range.
-    pub fn x_range(mut self, min: f64, max: f64) -> Self {
-        self.config.x_range = Some((min, max));
+    /// Set the marker radius in pixels.
+    ///
+    /// If not set, uses the theme's default `series.point_radius`.
+    pub fn size(mut self, radius: f32) -> Self {
+        self.marker_size = Some(radius);
         self
     }
 
-    /// Override the y-axis range.
-    pub fn y_range(mut self, min: f64, max: f64) -> Self {
-        self.config.y_range = Some((min, max));
+    /// Show data value labels on each point.
+    pub fn show_values(mut self) -> Self {
+        self.show_values = true;
         self
     }
 
-    /// Add a horizontal reference line.
-    pub fn h_line(mut self, value: f64) -> Self {
-        self.config.h_lines.push(ReferenceLine::new(value));
-        self
-    }
-
-    /// Add a horizontal reference line with color.
-    pub fn h_line_styled(mut self, value: f64, color: Color) -> Self {
-        self.config.h_lines.push(ReferenceLine::new(value).color(color));
-        self
-    }
-
-    /// Add a vertical reference line.
-    pub fn v_line(mut self, value: f64) -> Self {
-        self.config.v_lines.push(ReferenceLine::new(value));
-        self
-    }
-
-    /// Add a vertical reference line with color.
-    pub fn v_line_styled(mut self, value: f64, color: Color) -> Self {
-        self.config.v_lines.push(ReferenceLine::new(value).color(color));
-        self
-    }
-
-    /// Hide the legend.
-    pub fn no_legend(mut self) -> Self {
-        self.config.show_legend = false;
-        self
-    }
-
-    /// Add an annotation at the given data coordinates.
-    pub fn annotate(mut self, x: f64, y: f64, text: impl Into<String>) -> Self {
-        self.config.annotations.push(Annotation::new(x, y, text));
-        self
-    }
-
-    /// Show a linear regression trend line.
-    pub fn trend_line(mut self) -> Self {
-        self.config.show_trend = true;
-        self
+    /// Validate inputs and build into a Chart enum variant.
+    ///
+    /// Returns [`ChartError`](crate::error::ChartError) if data is empty, all non-finite, or x/y lengths mismatch.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.x.is_empty() && self.extra_series.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        if self.x.len() != self.y.len() {
+            return Err(crate::error::ChartError::MismatchedLengths {
+                x_len: self.x.len(),
+                y_len: self.y.len(),
+            });
+        }
+        if self
+            .x
+            .values()
+            .iter()
+            .chain(self.y.values().iter())
+            .all(|v| !v.is_finite())
+        {
+            return Err(crate::error::ChartError::AllNonFinite);
+        }
+        Ok(self.build())
     }
 
     /// Build into a Chart enum variant.

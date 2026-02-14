@@ -5,10 +5,10 @@
 //! | Page | Features |
 //! |------|----------|
 //! | 1 — Advanced Shapes | Ellipse rotation, Polyline (star/spiral), custom Bézier paths, anti-alias toggle |
-//! | 2 — Color & Style | Color.with_lightness(), mix_rgb(), gradient fills on shapes, Transform.skew() |
+//! | 2 — Color & Style | `Color.with_lightness()`, `mix_rgb()`, gradient fills on shapes, `Transform.skew()` |
 //! | 3 — Clip Paths | Path-based clipping (not just rect), nested clips |
-//! | 4 — Image Blitting | Procedural ImageData generation + opacity layering |
-//! | 5 — Transition Lifecycle | reverse(), reset(), remaining(), progress accessors, is_active()/cancel_all() |
+//! | 4 — Image Blitting | Procedural `ImageData` generation + opacity layering |
+//! | 5 — Transition Lifecycle | `reverse()`, `reset()`, `remaining()`, progress accessors, `is_active()/cancel_all()` |
 //!
 //! Navigate: ←→ or h/l to switch pages, q to quit.
 //!
@@ -21,23 +21,20 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen,
-    disable_raw_mode, enable_raw_mode,
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use ratatui_pixelcanvas::prelude::{
-    AnimationState, Easing, Keyframe, Keyframes,
-    PixelCanvasState, PixelCanvasWidget, Picker,
+    AnimationState, Easing, Keyframe, Keyframes, Picker, PixelCanvasState, PixelCanvasWidget,
     ProfileHistory, ProfiledRasterizer, ProtocolKind,
 };
 use ratatui_pixelcanvas::scene::animation::Transition;
 use ratatui_pixelcanvas::scene::command::ImageData;
 use ratatui_pixelcanvas::scene::style::{
-    Color as C, GradientDef, GradientKind, GradientStop,
-    Point, Rect as PxRect, Transform,
+    Color as C, GradientDef, GradientKind, GradientStop, Point, Rect as PxRect, Transform,
 };
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::transport;
@@ -64,7 +61,7 @@ impl Page {
         Self::TransitionLifecycle,
     ];
 
-    fn label(self) -> &'static str {
+    const fn label(self) -> &'static str {
         match self {
             Self::AdvancedShapes => "1: Advanced Shapes",
             Self::ColorAndStyle => "2: Color & Style",
@@ -112,6 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut fps: f64 = 0.0;
     let mut draw_ms: f64 = 0.0;
     let mut flush_ms: f64 = 0.0;
+    #[allow(unused_assignments)]
     let mut cmd_count: usize = 0;
 
     // Profiling (toggle with 'p')
@@ -121,8 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Animation state for Page 5 (Transition Lifecycle)
     let mut anim = AnimationState::new();
-    let mut bounce_transition = Transition::new(0.0_f32, 1.0_f32, Duration::from_secs(2))
-        .easing(Easing::EaseInOutCubic);
+    let mut bounce_transition =
+        Transition::new(0.0_f32, 1.0_f32, Duration::from_secs(2)).easing(Easing::EaseInOutCubic);
     let mut reverse_count: u32 = 0;
 
     loop {
@@ -134,7 +132,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // FPS tracking (rolling window of 60 frames)
         frame_times.push(dt);
-        if frame_times.len() > 60 { frame_times.remove(0); }
+        if frame_times.len() > 60 {
+            frame_times.remove(0);
+        }
         if !frame_times.is_empty() {
             let total: Duration = frame_times.iter().sum();
             fps = frame_times.len() as f64 / total.as_secs_f64();
@@ -151,9 +151,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Start animations on page 5 if idle
         if page == Page::TransitionLifecycle && anim.is_idle() {
-            anim.start("pulse", 0.3_f32, 1.0_f32, Duration::from_secs(2), Easing::EaseInOutSine);
-            anim.start("slide", 0.0_f32, 300.0_f32, Duration::from_secs(3), Easing::EaseOutExpo);
-            anim.start("spin", 0.0_f32, std::f32::consts::TAU, Duration::from_secs(4), Easing::Linear);
+            anim.start(
+                "pulse",
+                0.3_f32,
+                1.0_f32,
+                Duration::from_secs(2),
+                Easing::EaseInOutSine,
+            );
+            anim.start(
+                "slide",
+                0.0_f32,
+                300.0_f32,
+                Duration::from_secs(3),
+                Easing::EaseOutExpo,
+            );
+            anim.start(
+                "spin",
+                0.0_f32,
+                std::f32::consts::TAU,
+                Duration::from_secs(4),
+                Easing::Linear,
+            );
         }
 
         let draw_start = Instant::now();
@@ -175,7 +193,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Page::ClipPaths => build_clip_paths(canvas_area, &state, elapsed),
             Page::ImageBlitting => build_image_blitting(canvas_area, &state),
             Page::TransitionLifecycle => build_transition_lifecycle(
-                canvas_area, &state, &bounce_transition, reverse_count, &anim,
+                canvas_area,
+                &state,
+                &bounce_transition,
+                reverse_count,
+                &anim,
             ),
         };
         let scene_build_us = scene_start.elapsed().as_micros() as u64;
@@ -183,12 +205,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // When profiling, rasterize manually with per-command timing
         if profiling {
-            let (pixmap_entry, gc) = state.cache_mut()
+            let (pixmap_entry, gc) = state
+                .cache_mut()
                 .get_or_insert_with_grad_cache(canvas.width(), canvas.height());
             if let Some(pixmap) = pixmap_entry {
-                let rp = ProfiledRasterizer::rasterize_into_profiled_cached(
-                    &canvas, pixmap, gc,
-                );
+                let rp = ProfiledRasterizer::rasterize_into_profiled_cached(&canvas, pixmap, gc);
                 profile_history.push(rp);
                 let smoothed = profile_history.summary();
                 last_profile_str = format!(
@@ -199,7 +220,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             use std::sync::atomic::{AtomicU64, Ordering};
             static FRAME_SEQ: AtomicU64 = AtomicU64::new(1);
-            state.cache_mut().mark_valid(FRAME_SEQ.fetch_add(1, Ordering::Relaxed));
+            state
+                .cache_mut()
+                .mark_valid(FRAME_SEQ.fetch_add(1, Ordering::Relaxed));
         }
 
         let profile_line = last_profile_str.clone();
@@ -278,7 +301,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Demonstrates: Ellipse with rotation, Polyline (star + spiral),
-/// custom Bézier Path, anti_alias(false) comparison.
+/// custom Bézier Path, `anti_alias(false)` comparison.
 #[allow(clippy::cast_precision_loss)]
 fn build_advanced_shapes(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -> PixelCanvas {
     let (w, h, wf, hf) = pixel_size(area, pxstate);
@@ -290,7 +313,7 @@ fn build_advanced_shapes(area: Rect, pxstate: &PixelCanvasState, elapsed: Durati
     let cx = wf * 0.2;
     let cy = hf * 0.3;
     for i in 0..6 {
-        let angle = t * 0.5 + (i as f32) * std::f32::consts::FRAC_PI_6;
+        let angle = t.mul_add(0.5, (i as f32) * std::f32::consts::FRAC_PI_6);
         let hue = (i as f32) / 6.0 * 360.0;
         let color = C::from_hsla(hue, 0.8, 0.6, 0.7);
         canvas = canvas
@@ -309,11 +332,16 @@ fn build_advanced_shapes(area: Rect, pxstate: &PixelCanvasState, elapsed: Durati
     let pi_5 = std::f32::consts::PI / 5.0;
     let star_points: Vec<(f32, f32)> = (0..10)
         .map(|i| {
-            let angle = (i as f32) * pi_5
-                - std::f32::consts::FRAC_PI_2
-                + t * 0.3;
-            let r = if i % 2 == 0 { star_r_outer } else { star_r_inner };
-            (angle.cos() * r + star_cx, angle.sin() * r + star_cy)
+            let angle = t.mul_add(0.3, (i as f32).mul_add(pi_5, -std::f32::consts::FRAC_PI_2));
+            let r = if i % 2 == 0 {
+                star_r_outer
+            } else {
+                star_r_inner
+            };
+            (
+                angle.cos().mul_add(r, star_cx),
+                angle.sin().mul_add(r, star_cy),
+            )
         })
         .collect();
     canvas = canvas
@@ -327,9 +355,12 @@ fn build_advanced_shapes(area: Rect, pxstate: &PixelCanvasState, elapsed: Durati
     let spiral_cy = hf * 0.75;
     let spiral_points: Vec<(f32, f32)> = (0..120)
         .map(|i| {
-            let angle = (i as f32) * 0.15 + t;
-            let r = 3.0 + (i as f32) * 0.7;
-            (angle.cos() * r + spiral_cx, angle.sin() * r + spiral_cy)
+            let angle = (i as f32).mul_add(0.15, t);
+            let r = (i as f32).mul_add(0.7, 3.0);
+            (
+                angle.cos().mul_add(r, spiral_cx),
+                angle.sin().mul_add(r, spiral_cy),
+            )
         })
         .collect();
     canvas = canvas
@@ -342,9 +373,23 @@ fn build_advanced_shapes(area: Rect, pxstate: &PixelCanvasState, elapsed: Durati
     let path_y = hf * 0.65;
     let mut pb = tiny_skia::PathBuilder::new();
     pb.move_to(path_x, path_y + 20.0);
-    pb.cubic_to(path_x - 50.0, path_y - 30.0, path_x - 90.0, path_y + 30.0, path_x, path_y + 80.0);
+    pb.cubic_to(
+        path_x - 50.0,
+        path_y - 30.0,
+        path_x - 90.0,
+        path_y + 30.0,
+        path_x,
+        path_y + 80.0,
+    );
     pb.move_to(path_x, path_y + 20.0);
-    pb.cubic_to(path_x + 50.0, path_y - 30.0, path_x + 90.0, path_y + 30.0, path_x, path_y + 80.0);
+    pb.cubic_to(
+        path_x + 50.0,
+        path_y - 30.0,
+        path_x + 90.0,
+        path_y + 30.0,
+        path_x,
+        path_y + 80.0,
+    );
     if let Some(path) = pb.finish() {
         canvas = canvas
             .path(path)
@@ -376,9 +421,9 @@ fn build_advanced_shapes(area: Rect, pxstate: &PixelCanvasState, elapsed: Durati
 // Page 2: Color & Style
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Demonstrates: Color.with_lightness(), Color.mix_rgb() vs mix(),
-/// gradient fills on shapes (fill_linear_gradient, fill_radial_gradient),
-/// Transform.skew(), Rect.intersects(), Rect.union().
+/// Demonstrates: `Color.with_lightness()`, `Color.mix_rgb()` vs `mix()`,
+/// gradient fills on shapes (`fill_linear_gradient`, `fill_radial_gradient`),
+/// `Transform.skew()`, `Rect.intersects()`, `Rect.union()`.
 #[allow(clippy::cast_precision_loss)]
 fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -> PixelCanvas {
     let (w, h, wf, hf) = pixel_size(area, pxstate);
@@ -389,9 +434,9 @@ fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
     // --- Row 1: Color.with_lightness() gradient ---
     let base = C::from_rgba8(50, 120, 220, 255);
     for i in 0..12 {
-        let factor = 0.2 + (i as f32) * 0.15;
+        let factor = (i as f32).mul_add(0.15, 0.2);
         let color = base.with_lightness(factor);
-        let x = wf * 0.05 + (i as f32) * (wf * 0.075);
+        let x = wf.mul_add(0.05, (i as f32) * (wf * 0.075));
         canvas = canvas
             .rect(x, hf * 0.05, wf * 0.065, hf * 0.1)
             .fill(color)
@@ -404,7 +449,7 @@ fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
     let c2 = C::from_rgba8(0, 255, 0, 255);
     for i in 0..16 {
         let t_mix = (i as f32) / 15.0;
-        let x = wf * 0.05 + (i as f32) * (wf * 0.055);
+        let x = wf.mul_add(0.05, (i as f32) * (wf * 0.055));
 
         // Top row: mix_rgb (linear) — goes through muddy brown
         let rgb_blend = c1.mix_rgb(c2, t_mix);
@@ -429,8 +474,14 @@ fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
             end: Point::new(100.0, 100.0),
         },
         stops: vec![
-            GradientStop { position: 0.0, color: C::from_rgba8(255, 100, 200, 255) },
-            GradientStop { position: 1.0, color: C::from_rgba8(100, 200, 255, 255) },
+            GradientStop {
+                position: 0.0,
+                color: C::from_rgba8(255, 100, 200, 255),
+            },
+            GradientStop {
+                position: 1.0,
+                color: C::from_rgba8(100, 200, 255, 255),
+            },
         ],
     };
     canvas = canvas
@@ -446,9 +497,18 @@ fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
             radius: 60.0,
         },
         stops: vec![
-            GradientStop { position: 0.0, color: C::from_rgba8(255, 255, 100, 255) },
-            GradientStop { position: 0.5, color: C::from_rgba8(255, 100, 50, 255) },
-            GradientStop { position: 1.0, color: C::from_rgba8(50, 0, 100, 255) },
+            GradientStop {
+                position: 0.0,
+                color: C::from_rgba8(255, 255, 100, 255),
+            },
+            GradientStop {
+                position: 0.5,
+                color: C::from_rgba8(255, 100, 50, 255),
+            },
+            GradientStop {
+                position: 1.0,
+                color: C::from_rgba8(50, 0, 100, 255),
+            },
         ],
     };
     canvas = canvas
@@ -477,14 +537,19 @@ fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
 
     // --- Row 4: Rect.intersects() and Rect.union() visualization ---
     let r1 = PxRect::new(wf * 0.15, hf * 0.78, 120.0, 60.0);
-    let r2_x = wf * 0.15 + 60.0 + (t * 0.7).sin() * 40.0;
-    let r2 = PxRect::new(r2_x, hf * 0.78 + 20.0, 100.0, 50.0);
+    let r2_x = (t * 0.7).sin().mul_add(40.0, wf.mul_add(0.15, 60.0));
+    let r2 = PxRect::new(r2_x, hf.mul_add(0.78, 20.0), 100.0, 50.0);
     let intersects = r1.intersects(&r2);
     let union_rect = r1.union(&r2);
 
     // Union bounding box (dim outline)
     canvas = canvas
-        .rect(union_rect.x, union_rect.y, union_rect.width, union_rect.height)
+        .rect(
+            union_rect.x,
+            union_rect.y,
+            union_rect.width,
+            union_rect.height,
+        )
         .stroke(C::from_rgba8(80, 80, 80, 255), 1.0)
         .done();
     // Rect 1
@@ -517,7 +582,7 @@ fn build_color_style(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
 // Page 3: Clip Paths
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Demonstrates: ClipRegion::Path (path-based clipping), nested groups with
+/// Demonstrates: `ClipRegion::Path` (path-based clipping), nested groups with
 /// different clip regions.
 #[allow(clippy::cast_precision_loss)]
 fn build_clip_paths(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -> PixelCanvas {
@@ -543,17 +608,14 @@ fn build_clip_paths(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
                     let hue = ((y - clip_cy + clip_r) / (2.0 * clip_r)) * 120.0;
                     inner = inner
                         .rect(clip_cx - clip_r, y, clip_r * 2.0, step * 0.8)
-                        .fill(C::from_hsla(hue + t * 30.0, 0.8, 0.5, 1.0))
+                        .fill(C::from_hsla(t.mul_add(30.0, hue), 0.8, 0.5, 1.0))
                         .done();
                     y += step;
                 }
                 // Animated circle bouncing inside the clip
-                let ball_x = clip_cx + (t * 2.0).sin() * 50.0;
-                let ball_y = clip_cy + (t * 1.5).cos() * 50.0;
-                inner
-                    .circle(ball_x, ball_y, 20.0)
-                    .fill(C::WHITE)
-                    .done()
+                let ball_x = (t * 2.0).sin().mul_add(50.0, clip_cx);
+                let ball_y = (t * 1.5).cos().mul_add(50.0, clip_cy);
+                inner.circle(ball_x, ball_y, 20.0).fill(C::WHITE).done()
             })
             .done();
 
@@ -570,10 +632,10 @@ fn build_clip_paths(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
     let pi_5 = std::f32::consts::PI / 5.0;
     let mut pb = tiny_skia::PathBuilder::new();
     for i in 0..10 {
-        let angle = (i as f32) * pi_5 - std::f32::consts::FRAC_PI_2;
+        let angle = (i as f32).mul_add(pi_5, -std::f32::consts::FRAC_PI_2);
         let r = if i % 2 == 0 { 90.0 } else { 40.0 };
-        let px = angle.cos() * r + star_cx;
-        let py = angle.sin() * r + star_cy;
+        let px = angle.cos().mul_add(r, star_cx);
+        let py = angle.sin().mul_add(r, star_cy);
         if i == 0 {
             pb.move_to(px, py);
         } else {
@@ -595,8 +657,10 @@ fn build_clip_paths(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
                     .done()
                     // Animated lines
                     .line(
-                        star_cx - 80.0, star_cy + (t * 3.0).sin() * 60.0,
-                        star_cx + 80.0, star_cy + (t * 2.5).cos() * 60.0,
+                        star_cx - 80.0,
+                        (t * 3.0).sin().mul_add(60.0, star_cy),
+                        star_cx + 80.0,
+                        (t * 2.5).cos().mul_add(60.0, star_cy),
                     )
                     .stroke(C::WHITE, 3.0)
                     .done()
@@ -613,12 +677,13 @@ fn build_clip_paths(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
             .clip_path(outer_clip)
             .opacity(0.9)
             .canvas(|c| {
-                let mut inner = c.rect(nest_x - 60.0, nest_y - 60.0, 120.0, 120.0)
+                let mut inner = c
+                    .rect(nest_x - 60.0, nest_y - 60.0, 120.0, 120.0)
                     .fill(C::from_rgba8(60, 30, 80, 255))
                     .done();
                 // Rotating rectangles inside
                 for i in 0..6 {
-                    let angle = (i as f32) * std::f32::consts::FRAC_PI_3 + t;
+                    let angle = (i as f32).mul_add(std::f32::consts::FRAC_PI_3, t);
                     let dx = angle.cos() * 30.0;
                     let dy = angle.sin() * 30.0;
                     inner = inner
@@ -639,9 +704,13 @@ fn build_clip_paths(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
 // Page 4: Image Blitting
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Demonstrates: ImageData procedural generation, .image() builder,
-/// .opacity() on images, multiple image compositing.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+/// Demonstrates: `ImageData` procedural generation, .`image()` builder,
+/// .`opacity()` on images, multiple image compositing.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn build_image_blitting(area: Rect, pxstate: &PixelCanvasState) -> PixelCanvas {
     let (w, h, wf, hf) = pixel_size(area, pxstate);
 
@@ -655,7 +724,11 @@ fn build_image_blitting(area: Rect, pxstate: &PixelCanvasState) -> PixelCanvas {
         for x in 0..img_w {
             let idx = ((y * img_w + x) * 4) as usize;
             let is_dark = ((x / 8) + (y / 8)) % 2 == 0;
-            let (r, g, b) = if is_dark { (40, 40, 60) } else { (200, 180, 220) };
+            let (r, g, b) = if is_dark {
+                (40, 40, 60)
+            } else {
+                (200, 180, 220)
+            };
             checker_data[idx] = r;
             checker_data[idx + 1] = g;
             checker_data[idx + 2] = b;
@@ -691,9 +764,7 @@ fn build_image_blitting(area: Rect, pxstate: &PixelCanvasState) -> PixelCanvas {
         }
     }
     let grad_img = ImageData::new(grad_w, grad_h, grad_data);
-    canvas = canvas
-        .image(grad_img, wf * 0.1, hf * 0.45)
-        .done();
+    canvas = canvas.image(grad_img, wf * 0.1, hf * 0.45).done();
 
     // --- Procedural plasma pattern ---
     let plasma_w: u32 = 96;
@@ -705,19 +776,17 @@ fn build_image_blitting(area: Rect, pxstate: &PixelCanvasState) -> PixelCanvas {
             let fx = x as f32 / plasma_w as f32;
             let fy = y as f32 / plasma_h as f32;
             let v1 = (fx * 10.0).sin();
-            let v2 = (fy * 8.0 + fx * 6.0).sin();
-            let v3 = ((fx * 5.0).powi(2) + (fy * 5.0).powi(2)).sqrt().sin();
-            let v = (v1 + v2 + v3) / 3.0 * 0.5 + 0.5;
+            let v2 = fy.mul_add(8.0, fx * 6.0).sin();
+            let v3 = (fx * 5.0).hypot(fy * 5.0).sin();
+            let v = ((v1 + v2 + v3) / 3.0).mul_add(0.5, 0.5);
             plasma_data[idx] = (v * 200.0 + 55.0) as u8;
-            plasma_data[idx + 1] = ((1.0 - v) * 150.0 + 50.0) as u8;
-            plasma_data[idx + 2] = ((v * 2.0).sin().abs() * 200.0 + 55.0) as u8;
+            plasma_data[idx + 1] = (1.0 - v).mul_add(150.0, 50.0) as u8;
+            plasma_data[idx + 2] = (v * 2.0).sin().abs().mul_add(200.0, 55.0) as u8;
             plasma_data[idx + 3] = 255;
         }
     }
     let plasma_img = ImageData::new(plasma_w, plasma_h, plasma_data);
-    canvas = canvas
-        .image(plasma_img, wf * 0.55, hf * 0.35)
-        .done();
+    canvas = canvas.image(plasma_img, wf * 0.55, hf * 0.35).done();
 
     // Overlay: tiled checkerboard at 30% opacity on top of plasma
     canvas = canvas
@@ -728,9 +797,9 @@ fn build_image_blitting(area: Rect, pxstate: &PixelCanvasState) -> PixelCanvas {
     // --- Ring of images with decreasing opacity ---
     for i in 0..8 {
         let angle = (i as f32) * std::f32::consts::FRAC_PI_4;
-        let ix = wf * 0.5 + angle.cos() * 100.0;
-        let iy = hf * 0.75 + angle.sin() * 60.0;
-        let alpha = 1.0 - (i as f32) * 0.1;
+        let ix = wf.mul_add(0.5, angle.cos() * 100.0);
+        let iy = hf.mul_add(0.75, angle.sin() * 60.0);
+        let alpha = (i as f32).mul_add(-0.1, 1.0);
         canvas = canvas
             .image(checker.clone(), ix - 16.0, iy - 16.0)
             .opacity(alpha)
@@ -744,9 +813,9 @@ fn build_image_blitting(area: Rect, pxstate: &PixelCanvasState) -> PixelCanvas {
 // Page 5: Transition Lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Demonstrates: Transition.reverse(), .remaining(),
-/// .linear_progress(), .eased_progress(), AnimationState.is_active(),
-/// .active_count().
+/// Demonstrates: `Transition.reverse()`, .`remaining()`,
+/// .`linear_progress()`, .`eased_progress()`, `AnimationState.is_active()`,
+/// .`active_count()`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 fn build_transition_lifecycle(
     area: Rect,
@@ -761,7 +830,7 @@ fn build_transition_lifecycle(
 
     // --- Section 1: Bounce transition with reverse() ---
     let bounce_val = bounce.value();
-    let bounce_x = wf * 0.1 + bounce_val * (wf * 0.35);
+    let bounce_x = wf.mul_add(0.1, bounce_val * (wf * 0.35));
     canvas = canvas
         .circle(bounce_x, hf * 0.12, 20.0)
         .fill(C::from_hsla(bounce_val * 120.0, 0.9, 0.6, 1.0))
@@ -793,7 +862,11 @@ fn build_transition_lifecycle(
     // Remaining time visualization
     let remaining_ms = bounce.remaining().as_millis() as f32;
     let total_ms = bounce.duration().as_millis() as f32;
-    let remaining_frac = if total_ms > 0.0 { remaining_ms / total_ms } else { 0.0 };
+    let remaining_frac = if total_ms > 0.0 {
+        remaining_ms / total_ms
+    } else {
+        0.0
+    };
     canvas = canvas
         .rect(bar_x, hf * 0.16, bar_w, 10.0)
         .fill(C::from_rgba8(40, 40, 60, 255))
@@ -814,7 +887,7 @@ fn build_transition_lifecycle(
     // Slide rect
     let slide_val: f32 = anim.get("slide").unwrap_or(0.0);
     canvas = canvas
-        .rect(wf * 0.1 + slide_val * 0.5, hf * 0.52, 40.0, 25.0)
+        .rect(wf.mul_add(0.1, slide_val * 0.5), hf * 0.52, 40.0, 25.0)
         .fill(C::from_rgba8(255, 100, 200, 255))
         .corner_radius(6.0)
         .done();
@@ -844,21 +917,33 @@ fn build_transition_lifecycle(
             C::from_rgba8(100, 50, 50, 255)
         };
         canvas = canvas
-            .circle(
-                wf * 0.35 + (i as f32) * 30.0,
-                hf * 0.62,
-                8.0,
-            )
+            .circle(wf.mul_add(0.35, (i as f32) * 30.0), hf * 0.62, 8.0)
             .fill(dot_color)
             .done();
     }
 
     // --- Section 3: Keyframes with value_at() curve visualization ---
     let kf = Keyframes::new(vec![
-        Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::Linear },
-        Keyframe { position: 0.3, value: hf * 0.15, easing: Easing::Bounce },
-        Keyframe { position: 0.6, value: hf * 0.05, easing: Easing::EaseInOutCubic },
-        Keyframe { position: 1.0, value: hf * 0.12, easing: Easing::EaseOutExpo },
+        Keyframe {
+            position: 0.0,
+            value: 0.0_f32,
+            easing: Easing::Linear,
+        },
+        Keyframe {
+            position: 0.3,
+            value: hf * 0.15,
+            easing: Easing::Bounce,
+        },
+        Keyframe {
+            position: 0.6,
+            value: hf * 0.05,
+            easing: Easing::EaseInOutCubic,
+        },
+        Keyframe {
+            position: 1.0,
+            value: hf * 0.12,
+            easing: Easing::EaseOutExpo,
+        },
     ]);
 
     // Visualize the full keyframe curve as a dot trail

@@ -34,6 +34,7 @@ use crate::layout::{self, TextAlign, TextOverlay};
 ///     &mut chart_state,
 /// );
 /// ```
+#[must_use]
 pub struct ChartWidget<'a> {
     chart: &'a Chart,
     z_index: i32,
@@ -42,10 +43,7 @@ pub struct ChartWidget<'a> {
 impl<'a> ChartWidget<'a> {
     /// Create a new chart widget referencing a chart specification.
     pub fn new(chart: &'a Chart) -> Self {
-        Self {
-            chart,
-            z_index: -1,
-        }
+        Self { chart, z_index: -1 }
     }
 
     /// Set the z-index for Kitty layering.
@@ -81,6 +79,7 @@ pub struct ChartState {
 
 impl ChartState {
     /// Create a new chart state from a pixel canvas state.
+    #[must_use]
     pub fn new(pixel_state: PixelCanvasState) -> Self {
         Self {
             pixel_state,
@@ -98,6 +97,7 @@ impl ChartState {
     /// ```ignore
     /// let mut state = ChartState::auto();
     /// ```
+    #[must_use]
     pub fn auto() -> Self {
         use ratatui_pixelcanvas::prelude::{Picker, ProtocolKind};
 
@@ -112,6 +112,7 @@ impl ChartState {
     }
 
     /// Enable interactivity (crosshair, tooltip, zoom/pan).
+    #[must_use]
     pub fn with_interactivity(mut self) -> Self {
         self.interactive = true;
         self.cursor.show_crosshair = true;
@@ -125,6 +126,7 @@ impl ChartState {
     }
 
     /// Get the font size for cell ↔ pixel calculations.
+    #[must_use]
     pub fn font_size(&self) -> FontSize {
         self.pixel_state.font_size()
     }
@@ -133,7 +135,9 @@ impl ChartState {
     ///
     /// `col` and `row` are terminal cell coordinates from the mouse event.
     pub fn handle_mouse_move(&mut self, col: u16, row: u16) {
-        if !self.interactive { return; }
+        if !self.interactive {
+            return;
+        }
 
         let Some(area) = self.last_area else { return };
         let Some(_plot) = self.last_plot else { return };
@@ -161,11 +165,13 @@ impl ChartState {
     }
 
     /// Get the cursor's current data-coordinate position.
+    #[must_use]
     pub fn cursor_data_position(&self) -> Option<(f64, f64)> {
         self.cursor.data_pos
     }
 
     /// Get the nearest data point to the cursor.
+    #[must_use]
     pub fn nearest_point(&self) -> Option<&crate::cursor::DataPoint> {
         self.cursor.nearest_point.as_ref()
     }
@@ -214,8 +220,42 @@ impl StatefulWidget for ChartWidget<'_> {
         // Store area for event handlers
         state.last_area = Some(area);
 
-        // Render the chart into a PixelCanvas
-        let rendered = layout::render_chart(self.chart, pixel_w, pixel_h);
+        // Render the chart into a PixelCanvas.
+        // If zoom is active, pass the viewport to avoid inlining clone logic here.
+        let viewport = state.zoom.as_ref().filter(|z| z.is_zoomed()).map(|z| {
+            let (x0, x1) = z.x_range();
+            let (y0, y1) = z.y_range();
+            (x0, x1, y0, y1)
+        });
+        let mut rendered =
+            layout::render_chart_with_viewport(self.chart, pixel_w, pixel_h, viewport);
+
+        // Store plot area for cursor calculations
+        state.last_plot = rendered.plot_area;
+
+        // Update cursor state with scales and series data if interactive
+        if state.interactive {
+            if let (Some(plot), Some(ref x_scale), Some(ref y_scale)) =
+                (rendered.plot_area, &rendered.x_scale, &rendered.y_scale)
+            {
+                // If cursor has a pixel position, update data coordinates and nearest point
+                if let Some((px, py)) = state.cursor.pixel_pos {
+                    state
+                        .cursor
+                        .update(px, py, plot, x_scale, y_scale, &rendered.series_points);
+                }
+
+                // Draw cursor overlay (crosshair, tooltip, highlight)
+                let crosshair_color =
+                    ratatui_pixelcanvas::style::Color::from_rgba8(200, 200, 220, 160);
+                let (canvas, cursor_overlays) =
+                    state
+                        .cursor
+                        .draw_overlay(rendered.canvas, plot, crosshair_color);
+                rendered.canvas = canvas;
+                rendered.text_overlays.extend(cursor_overlays);
+            }
+        }
 
         // Render the pixel canvas via the underlying widget
         let pcw = PixelCanvasWidget::new(rendered.canvas).z_index(self.z_index);
@@ -231,12 +271,7 @@ impl StatefulWidget for ChartWidget<'_> {
 // ---------------------------------------------------------------------------
 
 /// Render text overlays on top of the chart using the ratatui buffer.
-fn render_text_overlays(
-    buf: &mut Buffer,
-    area: Rect,
-    overlays: &[TextOverlay],
-    font: FontSize,
-) {
+fn render_text_overlays(buf: &mut Buffer, area: Rect, overlays: &[TextOverlay], font: FontSize) {
     for overlay in overlays {
         // Convert pixel position to cell position
         let cell_x = (overlay.x_px / f32::from(font.width)) as u16;
@@ -256,24 +291,47 @@ fn render_text_overlays(
         let b = (overlay.color.b * 255.0) as u8;
         let style = Style::default().fg(ratatui::style::Color::Rgb(r, g, b));
 
-        // Adjust x based on alignment
-        let text_len = text.len() as u16;
-        let draw_x = match overlay.align {
-            TextAlign::Left => abs_x,
-            TextAlign::Center => abs_x.saturating_sub(text_len / 2),
-            TextAlign::Right => abs_x.saturating_sub(text_len),
-        };
+        if overlay.rotation_deg > 0.0 {
+            // Rotated text: stack characters vertically.
+            // For 90°, each character goes straight down one row.
+            // For 45°, each character goes down one row AND right one column (diagonal).
+            let is_diagonal = overlay.rotation_deg < 60.0;
 
-        // Write characters into the buffer
-        for (i, ch) in text.chars().enumerate() {
-            let cx = draw_x + i as u16;
-            if cx >= area.x + area.width {
-                break;
+            // For rotated labels, anchor at the tick position
+            // (right-aligned overlays: start from the anchor point going down)
+            for (i, ch) in text.chars().enumerate() {
+                let cy = abs_y + i as u16;
+                let cx = if is_diagonal { abs_x + i as u16 } else { abs_x };
+
+                if cy >= area.y + area.height || cx >= area.x + area.width {
+                    break;
+                }
+                if cx >= area.x && cy >= area.y {
+                    if let Some(cell) = buf.cell_mut(Position::new(cx, cy)) {
+                        cell.set_char(ch);
+                        cell.set_style(style);
+                    }
+                }
             }
-            if cx >= area.x && abs_y >= area.y {
-                if let Some(cell) = buf.cell_mut(Position::new(cx, abs_y)) {
-                    cell.set_char(ch);
-                    cell.set_style(style);
+        } else {
+            // Horizontal text (original logic)
+            let text_len = text.chars().count() as u16;
+            let draw_x = match overlay.align {
+                TextAlign::Left => abs_x,
+                TextAlign::Center => abs_x.saturating_sub(text_len / 2),
+                TextAlign::Right => abs_x.saturating_sub(text_len),
+            };
+
+            for (i, ch) in text.chars().enumerate() {
+                let cx = draw_x + i as u16;
+                if cx >= area.x + area.width {
+                    break;
+                }
+                if cx >= area.x && abs_y >= area.y {
+                    if let Some(cell) = buf.cell_mut(Position::new(cx, abs_y)) {
+                        cell.set_char(ch);
+                        cell.set_style(style);
+                    }
                 }
             }
         }

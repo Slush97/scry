@@ -5,3 +5,10 @@
 *~
 .DS_Store
 Cargo.lock
+
+# Generated output directories
+chart_output/
+feature_showcase_output/
+
+# Internal tracking (not for publication)
+FORMATTING_PROGRESS.md

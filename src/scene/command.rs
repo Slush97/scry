@@ -6,10 +6,11 @@
 
 use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
-#[cfg(feature = "text")]
 use std::sync::Arc;
 
-use crate::scene::style::{BlendMode, ClipRegion, Color, GradientDef, Rect, ShapeStyle, StrokeStyle, Transform};
+use crate::scene::style::{
+    BlendMode, ClipRegion, Color, GradientDef, Rect, ShapeStyle, StrokeStyle, Transform,
+};
 
 // ---------------------------------------------------------------------------
 // Serialized path (for hashing)
@@ -36,6 +37,21 @@ impl PathData {
     /// computed lazily on first call to `Hash::hash()`.
     #[must_use]
     pub const fn new(path: tiny_skia::Path) -> Self {
+        Self {
+            path,
+            cached_hash: OnceCell::new(),
+        }
+    }
+
+    /// Create a `PathData` from a shared `Arc<tiny_skia::Path>`.
+    ///
+    /// If the `Arc` has a single strong reference, the path is unwrapped
+    /// in-place (zero-cost move). Otherwise, it falls back to a deep clone.
+    /// This is the preferred constructor in animation hot loops where paths
+    /// are stored as `Arc` for reuse across frames.
+    #[must_use]
+    pub fn from_shared(arc: Arc<tiny_skia::Path>) -> Self {
+        let path = Arc::try_unwrap(arc).unwrap_or_else(|arc| (*arc).clone());
         Self {
             path,
             cached_hash: OnceCell::new(),
@@ -142,9 +158,7 @@ impl ImageData {
 
 impl PartialEq for ImageData {
     fn eq(&self, other: &Self) -> bool {
-        self.width == other.width
-            && self.height == other.height
-            && self.data == other.data
+        self.width == other.width && self.height == other.height && self.data == other.data
     }
 }
 

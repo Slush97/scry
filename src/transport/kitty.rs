@@ -100,6 +100,11 @@ pub struct KittyBackend<W: Write + std::fmt::Debug = std::io::Stdout> {
     /// The Kitty protocol replaces a placement atomically when the
     /// same (`image_id`, `placement_id`) pair is reused.
     placement_id: u32,
+    /// Reusable buffer for extracting tile pixel data (avoids per-tile allocation).
+    tile_buf: Vec<u8>,
+    /// Per-tile Kitty image IDs for incremental updates.
+    /// Indexed by `tile_row * tiles_per_row + tile_col`.
+    tile_ids: Vec<u32>,
     /// Shared memory buffer for zero-copy transmission.
     #[cfg(feature = "shm")]
     shm_buf: Option<crate::transport::shm::ShmBuffer>,
@@ -118,6 +123,8 @@ impl KittyBackend<std::io::Stdout> {
             compress_buf: Vec::new(),
             send_buf: Vec::with_capacity(128 * 1024),
             placement_id: 1,
+            tile_buf: Vec::new(),
+            tile_ids: Vec::new(),
             #[cfg(feature = "shm")]
             shm_buf: None,
         }
@@ -140,6 +147,8 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             compress_buf: Vec::new(),
             send_buf: Vec::with_capacity(128 * 1024),
             placement_id: 1,
+            tile_buf: Vec::new(),
+            tile_ids: Vec::new(),
             #[cfg(feature = "shm")]
             shm_buf: None,
         }
@@ -204,10 +213,14 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         self.send_buf.clear();
 
         // Begin synchronized update
-        write!(self.send_buf, "\x1b[?2026h")
-            .map_err(PixelCanvasError::Transmission)?;
-        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
+        write!(
+            self.send_buf,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
 
         for i in 0..n_chunks {
             let start = i * CHUNK_SIZE;
@@ -228,12 +241,13 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         }
 
         // End synchronized update
-        write!(self.send_buf, "\x1b[?2026l")
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
 
-        self.writer.write_all(&self.send_buf)
+        self.writer
+            .write_all(&self.send_buf)
             .map_err(PixelCanvasError::Transmission)?;
-        self.writer.flush()
+        self.writer
+            .flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
@@ -276,10 +290,14 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
 
         self.send_buf.clear();
 
-        write!(self.send_buf, "\x1b[?2026h")
-            .map_err(PixelCanvasError::Transmission)?;
-        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
+        write!(
+            self.send_buf,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
 
         for i in 0..n_chunks {
             let start = i * CHUNK_SIZE;
@@ -299,12 +317,13 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             }
         }
 
-        write!(self.send_buf, "\x1b[?2026l")
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
 
-        self.writer.write_all(&self.send_buf)
+        self.writer
+            .write_all(&self.send_buf)
             .map_err(PixelCanvasError::Transmission)?;
-        self.writer.flush()
+        self.writer
+            .flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
@@ -334,9 +353,9 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         self.compress_buf.clear();
         {
             let mut encoder = ZlibEncoder::new(&mut self.compress_buf, Compression::fast());
-            encoder
-                .write_all(raw_data)
-                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib compress failed: {e}")))?;
+            encoder.write_all(raw_data).map_err(|e| {
+                PixelCanvasError::Rasterization(format!("zlib compress failed: {e}"))
+            })?;
             encoder
                 .finish()
                 .map_err(|e| PixelCanvasError::Rasterization(format!("zlib finish failed: {e}")))?;
@@ -352,10 +371,14 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
 
         self.send_buf.clear();
 
-        write!(self.send_buf, "\x1b[?2026h")
-            .map_err(PixelCanvasError::Transmission)?;
-        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
+        write!(
+            self.send_buf,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
 
         for i in 0..n_chunks {
             let start = i * CHUNK_SIZE;
@@ -375,12 +398,13 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             }
         }
 
-        write!(self.send_buf, "\x1b[?2026l")
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
 
-        self.writer.write_all(&self.send_buf)
+        self.writer
+            .write_all(&self.send_buf)
             .map_err(PixelCanvasError::Transmission)?;
-        self.writer.flush()
+        self.writer
+            .flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         Ok(())
@@ -409,14 +433,16 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         let shm_name = format!("pixelcanvas-{}", std::process::id());
         let buf = if let Some(ref mut buf) = self.shm_buf {
             if buf.capacity() < data_size {
-                buf.resize(data_size)
-                    .map_err(|e| PixelCanvasError::Rasterization(format!("shm resize failed: {e}")))?;
+                buf.resize(data_size).map_err(|e| {
+                    PixelCanvasError::Rasterization(format!("shm resize failed: {e}"))
+                })?;
             }
             buf
         } else {
             self.shm_buf = Some(
-                crate::transport::shm::ShmBuffer::new(&shm_name, data_size)
-                    .map_err(|e| PixelCanvasError::Rasterization(format!("shm_open failed: {e}")))?,
+                crate::transport::shm::ShmBuffer::new(&shm_name, data_size).map_err(|e| {
+                    PixelCanvasError::Rasterization(format!("shm_open failed: {e}"))
+                })?,
             );
             self.shm_buf.as_mut().expect("just created")
         };
@@ -426,8 +452,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         let name = buf.name().to_string();
 
         // Begin synchronized update
-        write!(self.writer, "\x1b[?2026h")
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.writer, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
 
         // Move cursor to target position
         write!(
@@ -449,8 +474,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         .map_err(PixelCanvasError::Transmission)?;
 
         // End synchronized update
-        write!(self.writer, "\x1b[?2026l")
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.writer, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
 
         self.writer
             .flush()
@@ -461,7 +485,8 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
     /// Send zlib-compressed RGBA with per-stage profiling.
     ///
     /// Returns a `TransportProfile` breaking down compress, encode, and I/O time.
-    #[allow(clippy::cast_precision_loss)]
+    /// Profiled rasterization goes through [`ProfiledRasterizer`](crate::rasterize::ProfiledRasterizer).
+    #[allow(dead_code, clippy::cast_precision_loss)]
     pub(crate) fn send_zlib_rgba_profiled(
         &mut self,
         image_id: u32,
@@ -487,9 +512,9 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         self.compress_buf.clear();
         {
             let mut encoder = ZlibEncoder::new(&mut self.compress_buf, Compression::fast());
-            encoder
-                .write_all(raw_data)
-                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib compress failed: {e}")))?;
+            encoder.write_all(raw_data).map_err(|e| {
+                PixelCanvasError::Rasterization(format!("zlib compress failed: {e}"))
+            })?;
             encoder
                 .finish()
                 .map_err(|e| PixelCanvasError::Rasterization(format!("zlib finish failed: {e}")))?;
@@ -512,10 +537,14 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
 
         self.send_buf.clear();
 
-        write!(self.send_buf, "\x1b[?2026h")
-            .map_err(PixelCanvasError::Transmission)?;
-        write!(self.send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
+        write!(
+            self.send_buf,
+            "\x1b[{};{}H",
+            position.row + 1,
+            position.col + 1
+        )
+        .map_err(PixelCanvasError::Transmission)?;
 
         for i in 0..n_chunks {
             let start = i * CHUNK_SIZE;
@@ -535,18 +564,171 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             }
         }
 
-        write!(self.send_buf, "\x1b[?2026l")
-            .map_err(PixelCanvasError::Transmission)?;
+        write!(self.send_buf, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
 
-        self.writer.write_all(&self.send_buf)
+        self.writer
+            .write_all(&self.send_buf)
             .map_err(PixelCanvasError::Transmission)?;
-        self.writer.flush()
+        self.writer
+            .flush()
             .map_err(PixelCanvasError::Transmission)?;
 
         tp.io_us = io_start.elapsed().as_micros() as u64;
         tp.total_us = total_start.elapsed().as_micros() as u64;
 
         Ok(tp)
+    }
+
+    /// Send only the changed tiles via zlib-compressed RGBA.
+    ///
+    /// For each dirty tile:
+    /// 1. Extract tile pixels from the full pixmap into `tile_buf`
+    /// 2. Zlib-compress + base64-encode
+    /// 3. Emit a Kitty escape sequence with the tile's pixel offset
+    ///
+    /// All tiles are wrapped in a single synchronized update for atomic display.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn send_tiles_zlib_rgba(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+        dirty_tiles: &[crate::rasterize::DirtyTile],
+    ) -> Result<(), PixelCanvasError> {
+        use base64::Engine;
+
+        let pixmap_w = pixmap.width() as usize;
+        let data = pixmap.data();
+        let font_w = self.font_size.width.max(1);
+        let font_h = self.font_size.height.max(1);
+
+        // Ensure tile_ids is large enough for the tile grid.
+        // We compute the grid dimensions from the pixmap size.
+        let tiles_x = pixmap_w.div_ceil(crate::rasterize::TILE_SIZE);
+        let tiles_y = (pixmap.height() as usize).div_ceil(crate::rasterize::TILE_SIZE);
+        let total_tiles = tiles_x * tiles_y;
+        if self.tile_ids.len() != total_tiles {
+            // Grid changed: delete old tile images and reset
+            let ids_to_delete: Vec<u32> = self
+                .tile_ids
+                .iter()
+                .copied()
+                .filter(|&tid| tid != 0)
+                .collect();
+            for tid in ids_to_delete {
+                let _ = self.send_delete(tid);
+            }
+            self.tile_ids.clear();
+            self.tile_ids.resize(total_tiles, 0);
+        }
+
+        self.send_buf.clear();
+
+        // Begin synchronized update
+        write!(self.send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
+
+        for tile in dirty_tiles {
+            let tw = tile.width;
+            let th = tile.height;
+            if tw == 0 || th == 0 {
+                continue;
+            }
+
+            // Extract tile pixels into tile_buf
+            let tile_bytes = tw * th * 4;
+            self.tile_buf.clear();
+            self.tile_buf.reserve(tile_bytes);
+            for row in tile.y..(tile.y + th) {
+                let start = (row * pixmap_w + tile.x) * 4;
+                let end = start + tw * 4;
+                self.tile_buf.extend_from_slice(&data[start..end]);
+            }
+
+            // Zlib compress
+            self.compress_buf.clear();
+            {
+                let mut encoder = ZlibEncoder::new(&mut self.compress_buf, Compression::fast());
+                encoder.write_all(&self.tile_buf).map_err(|e| {
+                    PixelCanvasError::Rasterization(format!("tile zlib failed: {e}"))
+                })?;
+                encoder.finish().map_err(|e| {
+                    PixelCanvasError::Rasterization(format!("tile zlib finish: {e}"))
+                })?;
+            }
+
+            // Base64 encode
+            self.encode_buf.clear();
+            base64::engine::general_purpose::STANDARD
+                .encode_string(&self.compress_buf, &mut self.encode_buf);
+
+            // Tile grid index
+            let tile_col = tile.x / crate::rasterize::TILE_SIZE;
+            let tile_row = tile.y / crate::rasterize::TILE_SIZE;
+            let tile_idx = tile_row * tiles_x + tile_col;
+
+            // Get or allocate a Kitty image ID for this tile
+            let image_id = if self.tile_ids[tile_idx] != 0 {
+                self.tile_ids[tile_idx]
+            } else {
+                let id = Self::next_id();
+                self.tile_ids[tile_idx] = id;
+                self.active_ids.push(id);
+                id
+            };
+
+            // Compute terminal cell position for this tile.
+            // The tile's pixel offset within the canvas is (tile.x, tile.y).
+            // Convert to cell offset from the widget's base position.
+            let cell_col_offset = (tile.x as u16) / font_w;
+            let cell_row_offset = (tile.y as u16) / font_h;
+            let tile_cell_col = position.col + cell_col_offset;
+            let tile_cell_row = position.row + cell_row_offset;
+            let tile_w_cells = (tw as u16).div_ceil(font_w);
+            let tile_h_cells = (th as u16).div_ceil(font_h);
+
+            // Cursor position
+            write!(
+                self.send_buf,
+                "\x1b[{};{}H",
+                tile_cell_row + 1,
+                tile_cell_col + 1
+            )
+            .map_err(PixelCanvasError::Transmission)?;
+
+            // Chunked transmission for this tile
+            let total = self.encode_buf.len();
+            let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
+            let placement_id = self.placement_id;
+
+            for i in 0..n_chunks {
+                let start = i * CHUNK_SIZE;
+                let end = (start + CHUNK_SIZE).min(total);
+                let chunk = &self.encode_buf[start..end];
+                let more = i32::from(i != n_chunks - 1);
+
+                if i == 0 {
+                    write!(
+                        self.send_buf,
+                        "\x1b_Ga=T,q=2,f=32,o=z,s={tw},v={th},i={image_id},p={placement_id},z={z_index},c={tile_w_cells},r={tile_h_cells},m={more};{chunk}\x1b\\",
+                    ).map_err(PixelCanvasError::Transmission)?;
+                } else {
+                    write!(self.send_buf, "\x1b_Gm={more};{chunk}\x1b\\")
+                        .map_err(PixelCanvasError::Transmission)?;
+                }
+            }
+        }
+
+        // End synchronized update
+        write!(self.send_buf, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
+
+        self.writer
+            .write_all(&self.send_buf)
+            .map_err(PixelCanvasError::Transmission)?;
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        Ok(())
     }
 }
 
@@ -632,6 +814,30 @@ impl<W: Write + std::fmt::Debug + Send> ProtocolBackend for KittyBackend<W> {
         })
     }
 
+    fn transmit_tiles(
+        &mut self,
+        handle: &ImageHandle,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+        dirty_tiles: &[crate::rasterize::DirtyTile],
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        if dirty_tiles.is_empty() {
+            // Nothing changed — return existing handle
+            return Ok(ImageHandle {
+                id: handle.id,
+                protocol: ProtocolKind::Kitty,
+            });
+        }
+
+        self.send_tiles_zlib_rgba(pixmap, position, z_index, dirty_tiles)?;
+
+        Ok(ImageHandle {
+            id: handle.id,
+            protocol: ProtocolKind::Kitty,
+        })
+    }
+
     fn supports_alpha(&self) -> bool {
         true
     }
@@ -668,11 +874,20 @@ mod tests {
         assert!(output.contains("\x1b\\"));
         assert!(output.contains("a=T"));
         assert!(output.contains("f=32")); // RGBA pixel format
-        assert!(output.contains("o=z"), "default format should use zlib compression");
+        assert!(
+            output.contains("o=z"),
+            "default format should use zlib compression"
+        );
         assert!(output.contains("p=1"), "should include placement ID");
         // Synchronized output wrapping
-        assert!(output.contains("\x1b[?2026h"), "should begin synchronized update");
-        assert!(output.contains("\x1b[?2026l"), "should end synchronized update");
+        assert!(
+            output.contains("\x1b[?2026h"),
+            "should begin synchronized update"
+        );
+        assert!(
+            output.contains("\x1b[?2026l"),
+            "should end synchronized update"
+        );
     }
 
     #[test]
@@ -731,9 +946,18 @@ mod tests {
 
         // Must NOT contain a delete command
         let output = String::from_utf8_lossy(&backend.writer);
-        assert!(!output.contains("a=d"), "replace should not emit a delete command");
-        assert!(output.contains("a=T"), "replace should emit a transmit command");
+        assert!(
+            !output.contains("a=d"),
+            "replace should not emit a delete command"
+        );
+        assert!(
+            output.contains("a=T"),
+            "replace should emit a transmit command"
+        );
         assert!(output.contains(&format!("i={original_id}")));
-        assert!(output.contains("p=1"), "replace should include placement id for atomic swap");
+        assert!(
+            output.contains("p=1"),
+            "replace should include placement id for atomic swap"
+        );
     }
 }

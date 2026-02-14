@@ -236,7 +236,7 @@ fn encode_pixmap_to_png(pixmap: &Pixmap, out: &mut Vec<u8>) {
 
     for row in 0..height as usize {
         raw.push(0); // filter: None
-        // Convert from premultiplied alpha to straight alpha
+                     // Convert from premultiplied alpha to straight alpha
         for col in 0..width as usize {
             let idx = (row * width as usize + col) * 4;
             let (red, grn, blu, alpha) = (data[idx], data[idx + 1], data[idx + 2], data[idx + 3]);
@@ -314,10 +314,16 @@ mod tests {
 
     #[test]
     fn iterm2_output_structure() {
-        let pm = make_pixmap(2, 2, &[
-            (255, 0, 0, 255), (0, 255, 0, 255),
-            (0, 0, 255, 255), (255, 255, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (255, 0, 0, 255),
+                (0, 255, 0, 255),
+                (0, 0, 255, 255),
+                (255, 255, 0, 255),
+            ],
+        );
 
         let writer = io::Cursor::new(Vec::new());
         let mut backend = Iterm2Backend::with_writer(writer);
@@ -329,7 +335,7 @@ mod tests {
 
         assert!(output_str.contains("\x1b]1337;"), "should contain OSC 1337");
         assert!(output_str.contains("inline=1"), "should set inline=1");
-        assert!(output_str.contains("\x07"), "should end with BEL");
+        assert!(output_str.contains('\x07'), "should end with BEL");
         assert_eq!(handle.protocol(), ProtocolKind::Iterm2);
     }
 
@@ -343,10 +349,16 @@ mod tests {
     #[test]
     fn iterm2_remove_is_noop() {
         let mut backend = Iterm2Backend::with_writer(io::Cursor::new(Vec::new()));
-        let pm = make_pixmap(2, 2, &[
-            (0, 0, 0, 255), (0, 0, 0, 255),
-            (0, 0, 0, 255), (0, 0, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (0, 0, 0, 255),
+                (0, 0, 0, 255),
+                (0, 0, 0, 255),
+                (0, 0, 0, 255),
+            ],
+        );
         let pos = TerminalPosition::new(0, 0, 2, 1);
         let handle = backend.transmit(&pm, pos, 0).unwrap();
         assert!(backend.remove(&handle).is_ok());

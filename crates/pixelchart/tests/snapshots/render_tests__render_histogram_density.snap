@@ -1,18 +1,16 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 248
 expression: summarize(&rendered)
 ---
 canvas: 400x300, 40 commands
-overlays: 11
-  [0] (68, 279) Center "0"
-  [1] (148, 279) Center "50"
-  [2] (228, 279) Center "100"
-  [3] (308, 279) Center "150"
-  [4] (388, 279) Center "200"
-  [5] (52, 266) Right "0"
-  [6] (52, 207) Right "0.005"
-  [7] (52, 148) Right "0.010"
-  [8] (52, 89) Right "0.015"
-  [9] (52, 30) Right "0.020"
-  [10] (224, 6) Center "Density"
+overlays: 10
+  [0] (52, 278) Center "0"
+  [1] (136, 278) Center "50"
+  [2] (220, 278) Center "100"
+  [3] (304, 278) Center "150"
+  [4] (388, 278) Center "200"
+  [5] (48, 273) Right "0.000"
+  [6] (48, 176) Right "0.005"
+  [7] (48, 79) Right "0.010"
+  [8] (48, 30) Right "0.013"
+  [9] (220, 16) Center "Density"

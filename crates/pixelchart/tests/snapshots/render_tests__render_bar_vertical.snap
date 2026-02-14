@@ -2,16 +2,16 @@
 source: crates/pixelchart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 20 commands
+canvas: 400x300, 21 commands
 overlays: 11
-  [0] (64, 258) Right "0"
-  [1] (64, 182) Right "10"
-  [2] (64, 106) Right "20"
-  [3] (64, 30) Right "30"
-  [4] (104, 281) Center "Mon"
-  [5] (167, 281) Center "Tue"
-  [6] (230, 281) Center "Wed"
-  [7] (293, 281) Center "Thu"
-  [8] (356, 281) Center "Fri"
-  [9] (230, 6) Center "Weekly Sales"
-  [10] (2, 152) Left "Units"
+  [0] (81, 273) Right "0"
+  [1] (81, 192) Right "10"
+  [2] (81, 111) Right "20"
+  [3] (81, 30) Right "30"
+  [4] (116, 278) Center "Mon"
+  [5] (176, 278) Center "Tue"
+  [6] (237, 278) Center "Wed"
+  [7] (297, 278) Center "Thu"
+  [8] (358, 278) Center "Fri"
+  [9] (237, 16) Center "Weekly Sales"
+  [10] (34, 148) Center "Units"

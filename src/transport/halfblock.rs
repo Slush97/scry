@@ -82,11 +82,14 @@ impl HalfblockBackend {
         let data = pixmap.data();
 
         // Resize without shrinking — reuses existing allocation.
-        buf.resize(total, HalfblockCell {
-            char: '▀',
-            fg: (0, 0, 0),
-            bg: (0, 0, 0),
-        });
+        buf.resize(
+            total,
+            HalfblockCell {
+                char: '▀',
+                fg: (0, 0, 0),
+                bg: (0, 0, 0),
+            },
+        );
 
         for row in 0..rows {
             for col in 0..w {
@@ -208,10 +211,16 @@ mod tests {
     #[test]
     fn render_2x2_solid_pixels() {
         // 2×2 pixmap: top row = red, bottom row = blue
-        let pm = make_pixmap(2, 2, &[
-            (255, 0, 0, 255), (255, 0, 0, 255), // row 0: red
-            (0, 0, 255, 255), (0, 0, 255, 255), // row 1: blue
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (255, 0, 0, 255),
+                (255, 0, 0, 255), // row 0: red
+                (0, 0, 255, 255),
+                (0, 0, 255, 255), // row 1: blue
+            ],
+        );
         let cells = HalfblockBackend::render_to_cells(&pm);
 
         // Should produce 1 row of 2 cells (2 pixel rows → 1 halfblock row)
@@ -227,11 +236,15 @@ mod tests {
     #[test]
     fn render_odd_height_pads_bottom() {
         // 1×3 pixmap: 3 rows → 2 halfblock rows, bottom of 2nd is black
-        let pm = make_pixmap(1, 3, &[
-            (255, 0, 0, 255),   // row 0
-            (0, 255, 0, 255),   // row 1
-            (0, 0, 255, 255),   // row 2
-        ]);
+        let pm = make_pixmap(
+            1,
+            3,
+            &[
+                (255, 0, 0, 255), // row 0
+                (0, 255, 0, 255), // row 1
+                (0, 0, 255, 255), // row 2
+            ],
+        );
         let cells = HalfblockBackend::render_to_cells(&pm);
 
         assert_eq!(cells.len(), 2); // ceil(3/2) = 2 rows
@@ -244,10 +257,14 @@ mod tests {
     #[test]
     fn alpha_compositing_against_black() {
         // 50% alpha white → should composite to ~127
-        let pm = make_pixmap(1, 2, &[
-            (255, 255, 255, 128), // ~50% alpha white
-            (255, 0, 0, 0),       // fully transparent red → black
-        ]);
+        let pm = make_pixmap(
+            1,
+            2,
+            &[
+                (255, 255, 255, 128), // ~50% alpha white
+                (255, 0, 0, 0),       // fully transparent red → black
+            ],
+        );
         let cells = HalfblockBackend::render_to_cells(&pm);
 
         // Top pixel: 255 * (128/255) ≈ 128
@@ -289,10 +306,16 @@ mod tests {
 
     #[test]
     fn flat_rendering_matches_2d() {
-        let pm = make_pixmap(2, 2, &[
-            (255, 0, 0, 255), (0, 255, 0, 255),
-            (0, 0, 255, 255), (255, 255, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (255, 0, 0, 255),
+                (0, 255, 0, 255),
+                (0, 0, 255, 255),
+                (255, 255, 0, 255),
+            ],
+        );
         let cells_2d = HalfblockBackend::render_to_cells(&pm);
         let mut flat = Vec::new();
         let (rows, cols) = HalfblockBackend::render_to_cells_flat(&pm, &mut flat);
@@ -309,10 +332,16 @@ mod tests {
 
     #[test]
     fn flat_rendering_reuses_buffer() {
-        let pm = make_pixmap(2, 2, &[
-            (255, 0, 0, 255), (0, 255, 0, 255),
-            (0, 0, 255, 255), (255, 255, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (255, 0, 0, 255),
+                (0, 255, 0, 255),
+                (0, 0, 255, 255),
+                (255, 255, 0, 255),
+            ],
+        );
         let mut buf = Vec::new();
         HalfblockBackend::render_to_cells_flat(&pm, &mut buf);
         let ptr1 = buf.as_ptr();
@@ -322,4 +351,3 @@ mod tests {
         assert_eq!(ptr1, ptr2, "flat buffer should reuse allocation");
     }
 }
-

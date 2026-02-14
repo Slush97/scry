@@ -16,9 +16,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 // Use our crate's Color type (not ratatui's)
-use ratatui_pixelcanvas::prelude::{
-    PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind,
-};
+use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
 use ratatui_pixelcanvas::scene::style::Point;
 use ratatui_pixelcanvas::scene::PixelCanvas;
 use ratatui_pixelcanvas::style::Color as PxColor;
@@ -67,8 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Status bar
-            let status = Paragraph::new(" Press 'q' to quit")
-                .block(Block::default().borders(Borders::TOP));
+            let status =
+                Paragraph::new(" Press 'q' to quit").block(Block::default().borders(Borders::TOP));
             frame.render_widget(status, chunks[1]);
         })?;
         state.flush()?;

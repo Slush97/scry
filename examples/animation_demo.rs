@@ -18,8 +18,8 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use ratatui_pixelcanvas::prelude::{
-    AnimationState, Easing, Keyframe, Keyframes, Lerp, PixelCanvasState, PixelCanvasWidget,
-    Picker, ProtocolKind,
+    AnimationState, Easing, Keyframe, Keyframes, Lerp, Picker, PixelCanvasState, PixelCanvasWidget,
+    ProtocolKind,
 };
 use ratatui_pixelcanvas::scene::style::Point;
 use ratatui_pixelcanvas::scene::PixelCanvas;
@@ -46,7 +46,7 @@ impl Page {
         Self::ColorTransitions,
     ];
 
-    fn label(self) -> &'static str {
+    const fn label(self) -> &'static str {
         match self {
             Self::EasingShowcase => "Easing Showcase",
             Self::KeyframeTimeline => "Keyframe Timeline",
@@ -223,8 +223,7 @@ fn build_easing_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
     let row_height = h_f / (easings.len() as f32 + 1.0);
     let radius = (row_height * 0.3).min(12.0);
 
-    let mut canvas =
-        PixelCanvas::new(w, h).background(PxColor::from_rgba8(12, 12, 24, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(PxColor::from_rgba8(12, 12, 24, 255));
 
     // Track lines and animated circles
     for (i, (_, easing)) in easings.iter().enumerate() {
@@ -253,10 +252,7 @@ fn build_easing_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
         }
 
         // Animated circle
-        canvas = canvas
-            .circle(x, y, radius)
-            .fill(color)
-            .done();
+        canvas = canvas.circle(x, y, radius).fill(color).done();
     }
 
     canvas
@@ -330,11 +326,31 @@ fn build_keyframe_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration
 
     // Size keyframes: breathe effect
     let size_kf = Keyframes::new(vec![
-        Keyframe { position: 0.0, value: 15.0_f32, easing: Easing::EaseInOutSine },
-        Keyframe { position: 0.25, value: 30.0, easing: Easing::EaseInOutSine },
-        Keyframe { position: 0.5, value: 15.0, easing: Easing::EaseInOutSine },
-        Keyframe { position: 0.75, value: 40.0, easing: Easing::EaseInOutSine },
-        Keyframe { position: 1.0, value: 15.0, easing: Easing::Linear },
+        Keyframe {
+            position: 0.0,
+            value: 15.0_f32,
+            easing: Easing::EaseInOutSine,
+        },
+        Keyframe {
+            position: 0.25,
+            value: 30.0,
+            easing: Easing::EaseInOutSine,
+        },
+        Keyframe {
+            position: 0.5,
+            value: 15.0,
+            easing: Easing::EaseInOutSine,
+        },
+        Keyframe {
+            position: 0.75,
+            value: 40.0,
+            easing: Easing::EaseInOutSine,
+        },
+        Keyframe {
+            position: 1.0,
+            value: 15.0,
+            easing: Easing::Linear,
+        },
     ]);
 
     let period = 4.0_f32;
@@ -344,8 +360,7 @@ fn build_keyframe_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration
     let color = color_kf.value_at(t);
     let size = size_kf.value_at(t);
 
-    let mut canvas =
-        PixelCanvas::new(w, h).background(PxColor::from_rgba8(8, 8, 18, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(PxColor::from_rgba8(8, 8, 18, 255));
 
     // Draw path preview (diamond outline)
     let diamond = [
@@ -370,7 +385,7 @@ fn build_keyframe_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration
     // Trail: draw 20 ghost positions behind
     let trail_count = 20;
     for i in 0..trail_count {
-        let trail_t = (t - (i as f32 * 0.01)).rem_euclid(1.0);
+        let trail_t = (i as f32).mul_add(-0.01, t).rem_euclid(1.0);
         let trail_pos = pos_kf.value_at(trail_t);
         let trail_color = color_kf.value_at(trail_t);
         let alpha = 0.3 * (1.0 - i as f32 / trail_count as f32);
@@ -408,11 +423,41 @@ fn build_keyframe_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration
 
 fn setup_orchestrator_anims(anim: &mut AnimationState) {
     anim.cancel_all();
-    anim.start("x", 0.0_f32, 1.0_f32, Duration::from_secs(2), Easing::EaseInOutCubic);
-    anim.start("y", 0.0_f32, 1.0_f32, Duration::from_millis(3000), Easing::Bounce);
-    anim.start("scale", 0.3_f32, 1.5_f32, Duration::from_millis(2500), Easing::EaseInOutQuart);
-    anim.start("hue", 0.0_f32, 360.0_f32, Duration::from_secs(4), Easing::Linear);
-    anim.start("opacity", 0.2_f32, 1.0_f32, Duration::from_millis(1500), Easing::EaseOutExpo);
+    anim.start(
+        "x",
+        0.0_f32,
+        1.0_f32,
+        Duration::from_secs(2),
+        Easing::EaseInOutCubic,
+    );
+    anim.start(
+        "y",
+        0.0_f32,
+        1.0_f32,
+        Duration::from_millis(3000),
+        Easing::Bounce,
+    );
+    anim.start(
+        "scale",
+        0.3_f32,
+        1.5_f32,
+        Duration::from_millis(2500),
+        Easing::EaseInOutQuart,
+    );
+    anim.start(
+        "hue",
+        0.0_f32,
+        360.0_f32,
+        Duration::from_secs(4),
+        Easing::Linear,
+    );
+    anim.start(
+        "opacity",
+        0.2_f32,
+        1.0_f32,
+        Duration::from_millis(1500),
+        Easing::EaseOutExpo,
+    );
 }
 
 /// Shows `AnimationState` managing 5 independent named transitions.
@@ -435,20 +480,19 @@ fn build_orchestrator_page(
     let opacity = anim.get::<f32>("opacity").unwrap_or(1.0);
 
     let margin = 60.0;
-    let cx = margin + (w_f - 2.0 * margin) * x_norm;
-    let cy = margin + (h_f - 2.0 * margin) * y_norm;
+    let cx = 2.0f32.mul_add(-margin, w_f).mul_add(x_norm, margin);
+    let cy = 2.0f32.mul_add(-margin, h_f).mul_add(y_norm, margin);
     let radius = 25.0 * scale;
 
     let color = PxColor::from_hsla(hue, 0.85, 0.55, opacity);
 
-    let mut canvas =
-        PixelCanvas::new(w, h).background(PxColor::from_rgba8(10, 10, 22, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(PxColor::from_rgba8(10, 10, 22, 255));
 
     // Grid lines for reference
     for i in 0..=10 {
         let frac = i as f32 / 10.0;
-        let gx = margin + (w_f - 2.0 * margin) * frac;
-        let gy = margin + (h_f - 2.0 * margin) * frac;
+        let gx = 2.0f32.mul_add(-margin, w_f).mul_add(frac, margin);
+        let gy = 2.0f32.mul_add(-margin, h_f).mul_add(frac, margin);
         canvas = canvas
             .line(gx, margin, gx, h_f - margin)
             .color(PxColor::from_rgba8(25, 25, 40, 255))
@@ -528,8 +572,7 @@ fn build_color_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
     let w_f = w as f32;
     let h_f = h as f32;
 
-    let mut canvas =
-        PixelCanvas::new(w, h).background(PxColor::from_rgba8(8, 8, 16, 255));
+    let mut canvas = PixelCanvas::new(w, h).background(PxColor::from_rgba8(8, 8, 16, 255));
 
     // Section 1: HSL color wheel (top half)
     let center_x = w_f * 0.3;
@@ -547,18 +590,19 @@ fn build_color_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
         let y = center_y + ring_radius * angle.sin();
         let color = PxColor::from_hsl(hue, 0.9, 0.6);
 
-        canvas = canvas
-            .circle(x, y, dot_radius)
-            .fill(color)
-            .done();
+        canvas = canvas.circle(x, y, dot_radius).fill(color).done();
     }
 
     // Inner breathing circle using HSL
-    let breath_t = (elapsed.as_secs_f32() * 0.5).sin() * 0.5 + 0.5; // 0..1
+    let breath_t = (elapsed.as_secs_f32() * 0.5).sin().mul_add(0.5, 0.5); // 0..1
     let inner_hue = elapsed.as_secs_f32() * 60.0 % 360.0;
-    let inner_color = PxColor::from_hsla(inner_hue, 0.8, 0.3 + 0.4 * breath_t, 0.7);
+    let inner_color = PxColor::from_hsla(inner_hue, 0.8, 0.4f32.mul_add(breath_t, 0.3), 0.7);
     canvas = canvas
-        .circle(center_x, center_y, ring_radius * 0.5 * (0.6 + 0.4 * breath_t))
+        .circle(
+            center_x,
+            center_y,
+            ring_radius * 0.5 * 0.4f32.mul_add(breath_t, 0.6),
+        )
         .fill(inner_color)
         .done();
 
@@ -569,8 +613,16 @@ fn build_color_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
     let strip_gap = h_f * 0.02;
 
     let color_pairs: Vec<(PxColor, PxColor, &str)> = vec![
-        (PxColor::from_hsl(0.0, 0.9, 0.5), PxColor::from_hsl(240.0, 0.9, 0.5), "Red→Blue"),
-        (PxColor::from_hsl(120.0, 0.9, 0.5), PxColor::from_hsl(60.0, 0.9, 0.9), "Green→Yellow"),
+        (
+            PxColor::from_hsl(0.0, 0.9, 0.5),
+            PxColor::from_hsl(240.0, 0.9, 0.5),
+            "Red→Blue",
+        ),
+        (
+            PxColor::from_hsl(120.0, 0.9, 0.5),
+            PxColor::from_hsl(60.0, 0.9, 0.9),
+            "Green→Yellow",
+        ),
         (PxColor::BLACK, PxColor::WHITE, "Black→White"),
         (
             PxColor::from_hsl(280.0, 0.9, 0.4),
@@ -583,7 +635,7 @@ fn build_color_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -
     let seg_width = gradient_w / n_segments as f32;
 
     for (row, (from, to, _label)) in color_pairs.iter().enumerate() {
-        let y = h_f * 0.1 + (strip_h + strip_gap) * row as f32;
+        let y = h_f.mul_add(0.1, (strip_h + strip_gap) * row as f32);
 
         for seg in 0..n_segments {
             let t = seg as f32 / (n_segments - 1) as f32;

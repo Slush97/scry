@@ -38,12 +38,14 @@ pub mod command;
 pub mod style;
 
 // Re-export the main types at the module level for convenience.
-pub use builder::{GradientBuilder, GroupBuilder, ImageBuilder, LineBuilder, PixelCanvas, ShapeBuilder};
-pub use command::{DrawCommand, ImageData, PathData};
 #[cfg(feature = "text")]
 pub use builder::TextBuilder;
+pub use builder::{
+    GradientBuilder, GroupBuilder, ImageBuilder, LineBuilder, PixelCanvas, ShapeBuilder,
+};
 #[cfg(feature = "text")]
 pub use command::FontData;
+pub use command::{DrawCommand, ImageData, PathData};
 pub use style::{
     BlendMode, ClipRegion, Color, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop,
     LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,

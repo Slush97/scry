@@ -32,9 +32,7 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{
-    PixelCanvasState, PixelCanvasWidget, Picker, ProtocolKind,
-};
+use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
 use ratatui_pixelcanvas::scene::style::{
     Color as C, DashPattern, GradientDef, GradientKind, GradientStop, LineCap, LineJoin, Point,
     Transform,
@@ -203,7 +201,12 @@ fn build_showcase(area: Rect, state: &PixelCanvasState) -> PixelCanvas {
             .done();
         // Second dashed line with square cap below
         canvas = canvas
-            .line(c.x + pad, c.cy + pad * 2.0, c.x + c.w - pad, c.cy + pad * 2.0)
+            .line(
+                c.x + pad,
+                c.cy + pad * 2.0,
+                c.x + c.w - pad,
+                c.cy + pad * 2.0,
+            )
             .stroke(C::from_rgba8(255, 150, 50, 255), 3.0)
             .line_cap(LineCap::Square)
             .dash(DashPattern::new(vec![8.0, 4.0], 0.0))

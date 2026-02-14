@@ -1,16 +1,15 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 269
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 34 commands
+canvas: 400x300, 35 commands
 overlays: 9
-  [0] (64, 269) Right "0"
-  [1] (64, 189) Right "10"
-  [2] (64, 110) Right "20"
-  [3] (64, 30) Right "30"
-  [4] (125, 281) Center "Group A"
-  [5] (230, 281) Center "Group B"
-  [6] (335, 281) Center "Group C"
-  [7] (230, 6) Center "Box Plot Test"
-  [8] (2, 152) Left "Score"
+  [0] (91, 273) Right "0"
+  [1] (91, 192) Right "10"
+  [2] (91, 111) Right "20"
+  [3] (91, 30) Right "30"
+  [4] (144, 278) Center "Group A"
+  [5] (242, 278) Center "Group B"
+  [6] (339, 278) Center "Group C"
+  [7] (242, 16) Center "Box Plot Test"
+  [8] (34, 148) Center "Score"

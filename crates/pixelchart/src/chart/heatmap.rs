@@ -1,13 +1,14 @@
 //! Heatmap chart type.
 
+use crate::chart::config_builder::chart_config_core;
 use crate::chart::{Chart, ChartConfig};
-use crate::theme::Theme;
 use ratatui_pixelcanvas::style::Color;
 
 /// A heatmap — 2D grid of values mapped to colors.
 ///
 /// Great for correlation matrices, confusion matrices, or any 2D data.
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct Heatmap {
     /// 2D data grid (row-major: `data[row][col]`).
     pub(crate) data: Vec<Vec<f64>>,
@@ -42,8 +43,8 @@ impl Heatmap {
             row_labels: (0..n_rows).map(|i| i.to_string()).collect(),
             col_labels: (0..n_cols).map(|i| i.to_string()).collect(),
             config: ChartConfig::default(),
-            color_lo: Color::from_rgba8(15, 20, 50, 255),  // dark blue
-            color_hi: Color::from_rgba8(255, 90, 80, 255),  // warm red
+            color_lo: Color::from_rgba8(15, 20, 50, 255), // dark blue
+            color_hi: Color::from_rgba8(255, 90, 80, 255), // warm red
             show_values: true,
             value_range: None,
             cell_radius: 2.0,
@@ -57,16 +58,13 @@ impl Heatmap {
         hm.row_labels.clone_from(&labels);
         hm.col_labels = labels;
         hm.color_lo = Color::from_rgba8(60, 100, 220, 255); // blue = negative
-        hm.color_hi = Color::from_rgba8(220, 60, 60, 255);  // red = positive
+        hm.color_hi = Color::from_rgba8(220, 60, 60, 255); // red = positive
         hm.value_range = Some((-1.0, 1.0));
         hm
     }
 
-    /// Set the chart title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.config.title = Some(title.into());
-        self
-    }
+    // --- Generated common methods ---
+    chart_config_core!();
 
     /// Set row labels.
     pub fn row_labels(mut self, labels: Vec<String>) -> Self {
@@ -77,12 +75,6 @@ impl Heatmap {
     /// Set column labels.
     pub fn col_labels(mut self, labels: Vec<String>) -> Self {
         self.col_labels = labels;
-        self
-    }
-
-    /// Set the visual theme.
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.config.theme = theme;
         self
     }
 
@@ -117,12 +109,28 @@ impl Heatmap {
         self
     }
 
+    /// Validate inputs and build into a Chart enum variant.
+    ///
+    /// Returns [`ChartError`](crate::error::ChartError) if no data rows are provided or rows have
+    /// inconsistent lengths.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.data.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        let expected_cols = self.data[0].len();
+        if self.data.iter().any(|row| row.len() != expected_cols) {
+            return Err(crate::error::ChartError::JaggedGrid);
+        }
+        Ok(self.build())
+    }
+
     /// Build into a Chart enum variant.
     pub fn build(self) -> Chart {
         Chart::Heatmap(self)
     }
 
     /// Get the data extent across all cells.
+    #[must_use]
     pub fn data_extent(&self) -> (f64, f64) {
         let mut lo = f64::INFINITY;
         let mut hi = f64::NEG_INFINITY;

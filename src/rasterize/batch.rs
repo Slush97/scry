@@ -152,7 +152,11 @@ fn append_command(pb: &mut PathBuilder, cmd: &DrawCommand) -> bool {
             append_circle(pb, *cx, *cy, *radius);
             true
         }
-        DrawCommand::Rectangle { rect, corner_radius, .. } => {
+        DrawCommand::Rectangle {
+            rect,
+            corner_radius,
+            ..
+        } => {
             if *corner_radius > 0.0 {
                 append_round_rect(pb, rect.x, rect.y, rect.width, rect.height, *corner_radius);
             } else {
@@ -160,7 +164,14 @@ fn append_command(pb: &mut PathBuilder, cmd: &DrawCommand) -> bool {
             }
             true
         }
-        DrawCommand::Ellipse { cx, cy, rx, ry, rotation, .. } => {
+        DrawCommand::Ellipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            rotation,
+            ..
+        } => {
             // Only batch non-rotated ellipses; rotated ones need per-command transforms
             if rotation.abs() <= f32::EPSILON {
                 // Use kappa approximation for ellipse (same approach as circle)
@@ -178,7 +189,14 @@ fn append_command(pb: &mut PathBuilder, cmd: &DrawCommand) -> bool {
                 false // Rotated ellipses can't be batched
             }
         }
-        DrawCommand::Arc { cx, cy, radius, start_angle, sweep_angle, .. } => {
+        DrawCommand::Arc {
+            cx,
+            cy,
+            radius,
+            start_angle,
+            sweep_angle,
+            ..
+        } => {
             append_arc(pb, *cx, *cy, *radius, *start_angle, *sweep_angle);
             true
         }
@@ -300,7 +318,7 @@ pub(crate) fn batch_commands(commands: &[DrawCommand]) -> Vec<BatchedOp<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::style::{Color, FillStyle, ShapeStyle, Rect};
+    use crate::scene::style::{Color, FillStyle, Rect, ShapeStyle};
 
     fn red_fill() -> ShapeStyle {
         ShapeStyle {
@@ -320,9 +338,12 @@ mod tests {
 
     #[test]
     fn single_commands_not_batched() {
-        let commands = vec![
-            DrawCommand::Circle { cx: 10.0, cy: 10.0, radius: 5.0, style: red_fill() },
-        ];
+        let commands = vec![DrawCommand::Circle {
+            cx: 10.0,
+            cy: 10.0,
+            radius: 5.0,
+            style: red_fill(),
+        }];
         let batched = batch_commands(&commands);
         assert_eq!(batched.len(), 1);
         assert!(matches!(batched[0], BatchedOp::Single(_)));
@@ -331,9 +352,24 @@ mod tests {
     #[test]
     fn consecutive_same_style_batched() {
         let commands = vec![
-            DrawCommand::Circle { cx: 10.0, cy: 10.0, radius: 5.0, style: red_fill() },
-            DrawCommand::Circle { cx: 20.0, cy: 20.0, radius: 5.0, style: red_fill() },
-            DrawCommand::Circle { cx: 30.0, cy: 30.0, radius: 5.0, style: red_fill() },
+            DrawCommand::Circle {
+                cx: 10.0,
+                cy: 10.0,
+                radius: 5.0,
+                style: red_fill(),
+            },
+            DrawCommand::Circle {
+                cx: 20.0,
+                cy: 20.0,
+                radius: 5.0,
+                style: red_fill(),
+            },
+            DrawCommand::Circle {
+                cx: 30.0,
+                cy: 30.0,
+                radius: 5.0,
+                style: red_fill(),
+            },
         ];
         let batched = batch_commands(&commands);
         assert_eq!(batched.len(), 1);
@@ -343,8 +379,18 @@ mod tests {
     #[test]
     fn different_styles_not_batched() {
         let commands = vec![
-            DrawCommand::Circle { cx: 10.0, cy: 10.0, radius: 5.0, style: red_fill() },
-            DrawCommand::Circle { cx: 20.0, cy: 20.0, radius: 5.0, style: blue_fill() },
+            DrawCommand::Circle {
+                cx: 10.0,
+                cy: 10.0,
+                radius: 5.0,
+                style: red_fill(),
+            },
+            DrawCommand::Circle {
+                cx: 20.0,
+                cy: 20.0,
+                radius: 5.0,
+                style: blue_fill(),
+            },
         ];
         let batched = batch_commands(&commands);
         assert_eq!(batched.len(), 2);
@@ -356,10 +402,27 @@ mod tests {
     fn mixed_batchable_and_unbatchable() {
         let style = red_fill();
         let commands = vec![
-            DrawCommand::Circle { cx: 10.0, cy: 10.0, radius: 5.0, style: style.clone() },
-            DrawCommand::Circle { cx: 20.0, cy: 20.0, radius: 5.0, style: style.clone() },
-            DrawCommand::Clear { color: Color::BLACK },
-            DrawCommand::Circle { cx: 30.0, cy: 30.0, radius: 5.0, style: style.clone() },
+            DrawCommand::Circle {
+                cx: 10.0,
+                cy: 10.0,
+                radius: 5.0,
+                style: style.clone(),
+            },
+            DrawCommand::Circle {
+                cx: 20.0,
+                cy: 20.0,
+                radius: 5.0,
+                style: style.clone(),
+            },
+            DrawCommand::Clear {
+                color: Color::BLACK,
+            },
+            DrawCommand::Circle {
+                cx: 30.0,
+                cy: 30.0,
+                radius: 5.0,
+                style,
+            },
         ];
         let batched = batch_commands(&commands);
         assert_eq!(batched.len(), 3); // Compound(2 circles), Single(clear), Single(1 circle)
@@ -372,16 +435,24 @@ mod tests {
     fn mixed_shape_types_same_style_batched() {
         let style = red_fill();
         let commands = vec![
-            DrawCommand::Circle { cx: 10.0, cy: 10.0, radius: 5.0, style: style.clone() },
+            DrawCommand::Circle {
+                cx: 10.0,
+                cy: 10.0,
+                radius: 5.0,
+                style: style.clone(),
+            },
             DrawCommand::Rectangle {
                 rect: Rect::new(0.0, 0.0, 20.0, 20.0),
                 corner_radius: 0.0,
                 style: style.clone(),
             },
             DrawCommand::Arc {
-                cx: 50.0, cy: 50.0, radius: 20.0,
-                start_angle: 0.0, sweep_angle: std::f32::consts::PI,
-                style: style.clone(),
+                cx: 50.0,
+                cy: 50.0,
+                radius: 20.0,
+                start_angle: 0.0,
+                sweep_angle: std::f32::consts::PI,
+                style,
             },
         ];
         let batched = batch_commands(&commands);

@@ -46,7 +46,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use ratatui_pixelcanvas::prelude::{
-    AnimationState, Easing, Keyframe, Keyframes, PixelCanvasState, PixelCanvasWidget, Picker,
+    AnimationState, Easing, Keyframe, Keyframes, Picker, PixelCanvasState, PixelCanvasWidget,
     ProfileHistory, ProfiledRasterizer, ProtocolKind,
 };
 
@@ -76,7 +76,14 @@ fn cell(col: usize, row: usize, total_w: f32, total_h: f32) -> Cell {
     let h = total_h / 2.0;
     let x = col as f32 * w;
     let y = row as f32 * h;
-    Cell { x, y, w, h, cx: x + w / 2.0, cy: y + h / 2.0 }
+    Cell {
+        x,
+        y,
+        w,
+        h,
+        cx: x + w / 2.0,
+        cy: y + h / 2.0,
+    }
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -101,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut fps: f64 = 0.0;
     let mut draw_ms: f64 = 0.0;
     let mut flush_ms: f64 = 0.0;
+    #[allow(unused_assignments)]
     let mut cmd_count: usize = 0;
     let mut profiling = false;
     let mut profile_history = ProfileHistory::default();
@@ -117,14 +125,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let t = elapsed.as_secs_f32();
 
         frame_times.push(dt);
-        if frame_times.len() > 60 { frame_times.remove(0); }
+        if frame_times.len() > 60 {
+            frame_times.remove(0);
+        }
         if !frame_times.is_empty() {
             let total: Duration = frame_times.iter().sum();
             fps = frame_times.len() as f64 / total.as_secs_f64();
         }
 
         anim.tick(dt);
-        if anim.is_idle() { setup_orchestrator(&mut anim); }
+        if anim.is_idle() {
+            setup_orchestrator(&mut anim);
+        }
 
         let draw_start = Instant::now();
 
@@ -147,7 +159,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // data to the widget. When not profiling, use the normal widget path.
         if profiling {
             // Profiled rasterization
-            let (pixmap_entry, gc) = state.cache_mut().get_or_insert_with_grad_cache(canvas.width(), canvas.height());
+            let (pixmap_entry, gc) = state
+                .cache_mut()
+                .get_or_insert_with_grad_cache(canvas.width(), canvas.height());
             if let Some(pixmap) = pixmap_entry {
                 let rp = ProfiledRasterizer::rasterize_into_profiled_cached(&canvas, pixmap, gc);
                 profile_history.push(rp);
@@ -161,7 +175,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Use a unique frame seq for cache
             use std::sync::atomic::{AtomicU64, Ordering};
             static FRAME_SEQ: AtomicU64 = AtomicU64::new(1);
-            state.cache_mut().mark_valid(FRAME_SEQ.fetch_add(1, Ordering::Relaxed));
+            state
+                .cache_mut()
+                .mark_valid(FRAME_SEQ.fetch_add(1, Ordering::Relaxed));
         }
 
         // Capture status strings for the closure
@@ -247,9 +263,18 @@ fn build_scene(
     // Panel dividers
     let div = C::from_rgba8(30, 35, 50, 255);
     canvas = canvas
-        .line(wf / 3.0, 0.0, wf / 3.0, hf).color(div).width(1.0).done()
-        .line(wf * 2.0 / 3.0, 0.0, wf * 2.0 / 3.0, hf).color(div).width(1.0).done()
-        .line(0.0, hf / 2.0, wf, hf / 2.0).color(div).width(1.0).done();
+        .line(wf / 3.0, 0.0, wf / 3.0, hf)
+        .color(div)
+        .width(1.0)
+        .done()
+        .line(wf * 2.0 / 3.0, 0.0, wf * 2.0 / 3.0, hf)
+        .color(div)
+        .width(1.0)
+        .done()
+        .line(0.0, hf / 2.0, wf, hf / 2.0)
+        .color(div)
+        .width(1.0)
+        .done();
 
     canvas = panel_particle_storm(canvas, wf, hf, t);
     canvas = panel_gradient_aurora(canvas, wf, hf, t);
@@ -268,11 +293,21 @@ fn panel_particle_storm(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -> Pi
     let pad = 8.0;
 
     let easings = [
-        Easing::Linear, Easing::EaseInQuad, Easing::EaseOutCubic,
-        Easing::EaseInOutQuart, Easing::EaseInSine, Easing::EaseOutExpo,
-        Easing::EaseInOutCirc, Easing::BACK, Easing::Bounce,
-        Easing::Elastic, Easing::CSS_EASE, Easing::EaseOutQuad,
-        Easing::EaseInCubic, Easing::EaseInOutSine, Easing::EaseOutCirc,
+        Easing::Linear,
+        Easing::EaseInQuad,
+        Easing::EaseOutCubic,
+        Easing::EaseInOutQuart,
+        Easing::EaseInSine,
+        Easing::EaseOutExpo,
+        Easing::EaseInOutCirc,
+        Easing::BACK,
+        Easing::Bounce,
+        Easing::Elastic,
+        Easing::CSS_EASE,
+        Easing::EaseOutQuad,
+        Easing::EaseInCubic,
+        Easing::EaseInOutSine,
+        Easing::EaseOutCirc,
     ];
 
     let ring_r = (c.w.min(c.h) * 0.36) - pad;
@@ -295,20 +330,48 @@ fn panel_particle_storm(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -> Pi
         let size = 3.0 + 6.0 * eased;
 
         canvas = canvas
-            .circle(px, py, size * 2.0).fill(color.with_alpha(0.08)).done()
-            .circle(px, py, size).fill(color).done();
+            .circle(px, py, size * 2.0)
+            .fill(color.with_alpha(0.08))
+            .done()
+            .circle(px, py, size)
+            .fill(color)
+            .done();
     }
 
     // Inner pulsing keyframed circle
     let size_kf = Keyframes::new(vec![
-        Keyframe { position: 0.0, value: 8.0_f32, easing: Easing::EaseInOutSine },
-        Keyframe { position: 0.5, value: 20.0, easing: Easing::EaseInOutSine },
-        Keyframe { position: 1.0, value: 8.0, easing: Easing::Linear },
+        Keyframe {
+            position: 0.0,
+            value: 8.0_f32,
+            easing: Easing::EaseInOutSine,
+        },
+        Keyframe {
+            position: 0.5,
+            value: 20.0,
+            easing: Easing::EaseInOutSine,
+        },
+        Keyframe {
+            position: 1.0,
+            value: 8.0,
+            easing: Easing::Linear,
+        },
     ]);
     let color_kf = Keyframes::new(vec![
-        Keyframe { position: 0.0, value: C::from_hsl(0.0, 0.9, 0.6), easing: Easing::Linear },
-        Keyframe { position: 0.5, value: C::from_hsl(180.0, 0.9, 0.6), easing: Easing::Linear },
-        Keyframe { position: 1.0, value: C::from_hsl(360.0, 0.9, 0.6), easing: Easing::Linear },
+        Keyframe {
+            position: 0.0,
+            value: C::from_hsl(0.0, 0.9, 0.6),
+            easing: Easing::Linear,
+        },
+        Keyframe {
+            position: 0.5,
+            value: C::from_hsl(180.0, 0.9, 0.6),
+            easing: Easing::Linear,
+        },
+        Keyframe {
+            position: 1.0,
+            value: C::from_hsl(360.0, 0.9, 0.6),
+            easing: Easing::Linear,
+        },
     ]);
     let kf_t = (t % 2.0) / 2.0;
     canvas = canvas
@@ -354,8 +417,13 @@ fn panel_gradient_aurora(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -> P
 
         canvas = canvas
             .gradient(c.x + pad, y, c.w - pad * 2.0, band_h - 2.0)
-            .linear(Point::new(c.x + pad, y), Point::new(c.x + c.w - pad, y + band_h))
-            .stop(0.0, ca).stop(0.5, mid).stop(1.0, cb)
+            .linear(
+                Point::new(c.x + pad, y),
+                Point::new(c.x + c.w - pad, y + band_h),
+            )
+            .stop(0.0, ca)
+            .stop(0.5, mid)
+            .stop(1.0, cb)
             .done();
     }
 
@@ -377,10 +445,19 @@ fn panel_gradient_aurora(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -> P
     let ell_x = c.x + c.w * 0.2;
     let ell_y = c.y + c.h * 0.8;
     let grad = GradientDef {
-        kind: GradientKind::Radial { center: Point::new(ell_x, ell_y), radius: ell_r },
+        kind: GradientKind::Radial {
+            center: Point::new(ell_x, ell_y),
+            radius: ell_r,
+        },
         stops: vec![
-            GradientStop { position: 0.0, color: C::from_hsla((t * 70.0) % 360.0, 1.0, 0.8, 0.9) },
-            GradientStop { position: 1.0, color: C::from_hsla((t * 70.0 + 180.0) % 360.0, 0.8, 0.3, 0.6) },
+            GradientStop {
+                position: 0.0,
+                color: C::from_hsla((t * 70.0) % 360.0, 1.0, 0.8, 0.9),
+            },
+            GradientStop {
+                position: 1.0,
+                color: C::from_hsla((t * 70.0 + 180.0) % 360.0, 0.8, 0.3, 0.6),
+            },
         ],
     };
     canvas = canvas
@@ -401,8 +478,14 @@ fn panel_gradient_aurora(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -> P
             end: Point::new(rg_x + rg_w, rg_y + rg_h),
         },
         stops: vec![
-            GradientStop { position: 0.0, color: C::from_hsl((t * 40.0) % 360.0, 0.9, 0.5) },
-            GradientStop { position: 1.0, color: C::from_hsl((t * 40.0 + 120.0) % 360.0, 0.9, 0.5) },
+            GradientStop {
+                position: 0.0,
+                color: C::from_hsl((t * 40.0) % 360.0, 0.9, 0.5),
+            },
+            GradientStop {
+                position: 1.0,
+                color: C::from_hsl((t * 40.0 + 120.0) % 360.0, 0.9, 0.5),
+            },
         ],
     };
     canvas = canvas
@@ -432,8 +515,8 @@ fn panel_transform_carousel(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -
         let sy = c.cy + orbit_r * angle.sin();
         let scale = 0.6 + (t * 2.0 + i as f32 * 0.5).sin() * 0.4;
 
-        let transform = Transform::rotate_at(angle * 2.5, sx, sy)
-            .concat(Transform::scale_xy(scale, scale));
+        let transform =
+            Transform::rotate_at(angle * 2.5, sx, sy).concat(Transform::scale_xy(scale, scale));
 
         let hue = (i as f32 * 36.0 + t * 50.0) % 360.0;
         let color = C::from_hsla(hue, 0.85, 0.55, 0.85);
@@ -488,9 +571,7 @@ fn panel_transform_carousel(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) -
         canvas = canvas
             .group(Transform::identity())
             .blend_mode(mode)
-            .canvas(move |inner| {
-                inner.circle(bx, by, blend_r * 0.6).fill(col).done()
-            })
+            .canvas(move |inner| inner.circle(bx, by, blend_r * 0.6).fill(col).done())
             .done();
     }
 
@@ -572,10 +653,12 @@ fn panel_precision_strokes(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32) ->
     canvas = canvas
         .line(lx, ly, lx + c.w * 0.15, ly + c.h * 0.15)
         .stroke(C::from_rgba8(255, 215, 0, 255), 3.0)
-        .line_cap(LineCap::Round).done()
+        .line_cap(LineCap::Round)
+        .done()
         .line(lx + c.w * 0.15, ly + c.h * 0.15, lx + c.w * 0.3, ly)
         .stroke(C::from_rgba8(255, 100, 100, 255), 3.0)
-        .line_cap(LineCap::Square).done();
+        .line_cap(LineCap::Square)
+        .done();
 
     draw_label(&mut canvas, c.x + pad, c.y + pad, "PRECISION STROKES");
     canvas
@@ -602,7 +685,11 @@ fn panel_clipped_kaleidoscope(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32)
         .done();
 
     canvas = canvas
-        .group(Transform::rotate_at(t * 0.4, clip_x + clip_w / 2.0, clip_y + clip_h / 2.0))
+        .group(Transform::rotate_at(
+            t * 0.4,
+            clip_x + clip_w / 2.0,
+            clip_y + clip_h / 2.0,
+        ))
         .clip_rect(clip_rect)
         .canvas(move |mut inner| {
             let stripe_w = clip_w * 0.3;
@@ -617,7 +704,8 @@ fn panel_clipped_kaleidoscope(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32)
                 let sx = clip_x - clip_w + i as f32 * stripe_w;
                 inner = inner
                     .rect(sx, clip_y - clip_h, stripe_w - 2.0, clip_h * 3.0)
-                    .fill(color).done();
+                    .fill(color)
+                    .done();
             }
             inner
         })
@@ -634,8 +722,10 @@ fn panel_clipped_kaleidoscope(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32)
         .done();
 
     let circle_clip = PxRect::new(
-        circle_cx - circle_r, circle_cy - circle_r,
-        circle_r * 2.0, circle_r * 2.0,
+        circle_cx - circle_r,
+        circle_cy - circle_r,
+        circle_r * 2.0,
+        circle_r * 2.0,
     );
 
     canvas = canvas
@@ -651,10 +741,13 @@ fn panel_clipped_kaleidoscope(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32)
                 inner = inner
                     .rect(circle_cx + dx - 12.0, circle_cy + dy - 12.0, 24.0, 24.0)
                     .fill(C::from_hsla(hue, 0.9, 0.55, 0.8))
-                    .corner_radius(4.0).done();
+                    .corner_radius(4.0)
+                    .done();
             }
-            inner.circle(circle_cx, circle_cy, circle_r * 0.25)
-                .fill(C::WHITE.with_alpha(0.7)).done()
+            inner
+                .circle(circle_cx, circle_cy, circle_r * 0.25)
+                .fill(C::WHITE.with_alpha(0.7))
+                .done()
         })
         .done();
 
@@ -666,18 +759,69 @@ fn panel_clipped_kaleidoscope(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f32)
 
 fn setup_orchestrator(anim: &mut AnimationState) {
     anim.cancel_all();
-    anim.start("x", 0.0_f32, 1.0_f32, Duration::from_millis(2500), Easing::EaseInOutCubic);
-    anim.start("y", 0.0_f32, 1.0_f32, Duration::from_millis(3000), Easing::Bounce);
-    anim.start("scale", 0.3_f32, 2.0_f32, Duration::from_millis(2000), Easing::EaseInOutQuart);
-    anim.start("hue", 0.0_f32, 360.0_f32, Duration::from_secs(4), Easing::Linear);
-    anim.start("opacity", 0.2_f32, 1.0_f32, Duration::from_millis(1500), Easing::EaseOutExpo);
-    anim.start("rotation", 0.0_f32, std::f32::consts::TAU, Duration::from_secs(3), Easing::EaseInOutSine);
-    anim.start("skew", -0.3_f32, 0.3_f32, Duration::from_millis(2800), Easing::CSS_EASE);
-    anim.start("corner", 0.0_f32, 20.0_f32, Duration::from_millis(2200), Easing::Elastic);
+    anim.start(
+        "x",
+        0.0_f32,
+        1.0_f32,
+        Duration::from_millis(2500),
+        Easing::EaseInOutCubic,
+    );
+    anim.start(
+        "y",
+        0.0_f32,
+        1.0_f32,
+        Duration::from_millis(3000),
+        Easing::Bounce,
+    );
+    anim.start(
+        "scale",
+        0.3_f32,
+        2.0_f32,
+        Duration::from_millis(2000),
+        Easing::EaseInOutQuart,
+    );
+    anim.start(
+        "hue",
+        0.0_f32,
+        360.0_f32,
+        Duration::from_secs(4),
+        Easing::Linear,
+    );
+    anim.start(
+        "opacity",
+        0.2_f32,
+        1.0_f32,
+        Duration::from_millis(1500),
+        Easing::EaseOutExpo,
+    );
+    anim.start(
+        "rotation",
+        0.0_f32,
+        std::f32::consts::TAU,
+        Duration::from_secs(3),
+        Easing::EaseInOutSine,
+    );
+    anim.start(
+        "skew",
+        -0.3_f32,
+        0.3_f32,
+        Duration::from_millis(2800),
+        Easing::CSS_EASE,
+    );
+    anim.start(
+        "corner",
+        0.0_f32,
+        20.0_f32,
+        Duration::from_millis(2200),
+        Easing::Elastic,
+    );
 }
 
 fn panel_orchestrated_scene(
-    mut canvas: PixelCanvas, wf: f32, hf: f32, anim: &AnimationState,
+    mut canvas: PixelCanvas,
+    wf: f32,
+    hf: f32,
+    anim: &AnimationState,
 ) -> PixelCanvas {
     let c = cell(2, 1, wf, hf);
     let pad = 10.0;
@@ -704,19 +848,26 @@ fn panel_orchestrated_scene(
         let gy = c.y + margin + (c.h - margin * 2.0 - 30.0) * frac;
         canvas = canvas
             .line(gx, c.y + margin, gx, c.y + c.h - margin - 30.0)
-            .color(C::from_rgba8(20, 22, 35, 255)).width(0.5).done()
+            .color(C::from_rgba8(20, 22, 35, 255))
+            .width(0.5)
+            .done()
             .line(c.x + margin, gy, c.x + c.w - margin, gy)
-            .color(C::from_rgba8(20, 22, 35, 255)).width(0.5).done();
+            .color(C::from_rgba8(20, 22, 35, 255))
+            .width(0.5)
+            .done();
     }
 
     // Glow
     canvas = canvas
-        .circle(cx, cy, sz * 2.0).fill(color.with_alpha(0.06)).done()
-        .circle(cx, cy, sz * 1.4).fill(color.with_alpha(0.12)).done();
+        .circle(cx, cy, sz * 2.0)
+        .fill(color.with_alpha(0.06))
+        .done()
+        .circle(cx, cy, sz * 1.4)
+        .fill(color.with_alpha(0.12))
+        .done();
 
     // Main animated shape with transform group
-    let transform = Transform::rotate_at(rotation, cx, cy)
-        .concat(Transform::skew(skew, 0.0));
+    let transform = Transform::rotate_at(rotation, cx, cy).concat(Transform::skew(skew, 0.0));
 
     canvas = canvas
         .group(transform)
@@ -736,8 +887,22 @@ fn panel_orchestrated_scene(
     let hs = 10.0;
     let mut pb = tiny_skia::PathBuilder::new();
     pb.move_to(heart_x, heart_y + hs * 0.7);
-    pb.cubic_to(heart_x - hs, heart_y - hs * 0.1, heart_x - hs * 0.3, heart_y - hs * 0.6, heart_x, heart_y + hs * 0.1);
-    pb.cubic_to(heart_x + hs * 0.3, heart_y - hs * 0.6, heart_x + hs, heart_y - hs * 0.1, heart_x, heart_y + hs * 0.7);
+    pb.cubic_to(
+        heart_x - hs,
+        heart_y - hs * 0.1,
+        heart_x - hs * 0.3,
+        heart_y - hs * 0.6,
+        heart_x,
+        heart_y + hs * 0.1,
+    );
+    pb.cubic_to(
+        heart_x + hs * 0.3,
+        heart_y - hs * 0.6,
+        heart_x + hs,
+        heart_y - hs * 0.1,
+        heart_x,
+        heart_y + hs * 0.7,
+    );
     pb.close();
 
     if let Some(path) = pb.finish() {
@@ -759,8 +924,14 @@ fn panel_orchestrated_scene(
 
     // Progress bars for 8 animation channels
     let values = [
-        x_norm, y_norm, (scale - 0.3) / 1.7, hue / 360.0,
-        opacity, rotation / std::f32::consts::TAU, (skew + 0.3) / 0.6, corner / 20.0,
+        x_norm,
+        y_norm,
+        (scale - 0.3) / 1.7,
+        hue / 360.0,
+        opacity,
+        rotation / std::f32::consts::TAU,
+        (skew + 0.3) / 0.6,
+        corner / 20.0,
     ];
     let bar_y = c.y + c.h - 25.0;
     let bar_total = c.w - margin * 2.0;
@@ -775,9 +946,13 @@ fn panel_orchestrated_scene(
 
         canvas = canvas
             .rect(bx, bar_y, bw, bh)
-            .fill(C::from_rgba8(25, 28, 45, 255)).corner_radius(2.0).done()
+            .fill(C::from_rgba8(25, 28, 45, 255))
+            .corner_radius(2.0)
+            .done()
             .rect(bx, bar_y, bw * fill_frac, bh)
-            .fill(bar_color).corner_radius(2.0).done();
+            .fill(bar_color)
+            .corner_radius(2.0)
+            .done();
     }
 
     draw_label(&mut canvas, c.x + pad, c.y + pad, "ORCHESTRATOR");
@@ -798,7 +973,10 @@ fn draw_label(canvas: &mut PixelCanvas, x: f32, y: f32, text: &str) {
                 for col in 0..5 {
                     if byte & (1 << (4 - col)) != 0 {
                         if let Some(r) = tiny_skia::Rect::from_xywh(
-                            cursor + col as f32, y + row as f32, 1.0, 1.0,
+                            cursor + col as f32,
+                            y + row as f32,
+                            1.0,
+                            1.0,
                         ) {
                             pb.push_rect(r);
                         }
@@ -824,37 +1002,180 @@ fn draw_label(canvas: &mut PixelCanvas, x: f32, y: f32, text: &str) {
 }
 
 const PIXEL_FONT: [(&str, &[u8]); 33] = [
-    ("A", &[0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
-    ("B", &[0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110]),
-    ("C", &[0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110]),
-    ("D", &[0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100]),
-    ("E", &[0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111]),
-    ("F", &[0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000]),
-    ("G", &[0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110]),
-    ("H", &[0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
-    ("I", &[0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
-    ("K", &[0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001]),
-    ("L", &[0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111]),
-    ("M", &[0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001]),
-    ("N", &[0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001]),
-    ("O", &[0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
-    ("P", &[0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000]),
-    ("R", &[0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001]),
-    ("S", &[0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110]),
-    ("T", &[0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100]),
-    ("U", &[0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
-    ("V", &[0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b01010, 0b00100]),
-    ("W", &[0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001]),
-    ("X", &[0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001]),
-    ("Y", &[0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100]),
+    (
+        "A",
+        &[
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "B",
+        &[
+            0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+    ),
+    (
+        "C",
+        &[
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "D",
+        &[
+            0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100,
+        ],
+    ),
+    (
+        "E",
+        &[
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+    ),
+    (
+        "F",
+        &[
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+    ),
+    (
+        "G",
+        &[
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "H",
+        &[
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "I",
+        &[
+            0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+    ),
+    (
+        "K",
+        &[
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+    ),
+    (
+        "L",
+        &[
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+    ),
+    (
+        "M",
+        &[
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "N",
+        &[
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "O",
+        &[
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "P",
+        &[
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+    ),
+    (
+        "R",
+        &[
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+    ),
+    (
+        "S",
+        &[
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+    ),
+    (
+        "T",
+        &[
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+    ),
+    (
+        "U",
+        &[
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "V",
+        &[
+            0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b01010, 0b00100,
+        ],
+    ),
+    (
+        "W",
+        &[
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001,
+        ],
+    ),
+    (
+        "X",
+        &[
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+    ),
+    (
+        "Y",
+        &[
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+    ),
     (" ", &[0, 0, 0, 0, 0, 0, 0]),
-    ("0", &[0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110]),
-    ("1", &[0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
+    (
+        "0",
+        &[
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+    ),
+    (
+        "1",
+        &[
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+    ),
     (":", &[0, 0b00100, 0b00100, 0, 0b00100, 0b00100, 0]),
     (".", &[0, 0, 0, 0, 0, 0b00100, 0b00100]),
-    ("J", &[0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100]),
-    ("Q", &[0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101]),
-    ("Z", &[0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111]),
+    (
+        "J",
+        &[
+            0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100,
+        ],
+    ),
+    (
+        "Q",
+        &[
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+    ),
+    (
+        "Z",
+        &[
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+    ),
     ("-", &[0, 0, 0, 0b01110, 0, 0, 0]),
-    ("!", &[0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0, 0b00100]),
+    (
+        "!",
+        &[0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0, 0b00100],
+    ),
 ];

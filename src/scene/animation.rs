@@ -168,9 +168,7 @@ impl Easing {
     };
 
     /// Spring with the standard CSS-like overshoot (back ease).
-    pub const BACK: Self = Self::Spring {
-        overshoot: 1.70158,
-    };
+    pub const BACK: Self = Self::Spring { overshoot: 1.70158 };
 
     /// Evaluate the easing function at progress `t ∈ [0,1]`.
     ///
@@ -242,15 +240,9 @@ impl Easing {
             }
 
             // Sinusoidal
-            Self::EaseInSine => {
-                1.0 - (t * std::f32::consts::FRAC_PI_2).cos()
-            }
-            Self::EaseOutSine => {
-                (t * std::f32::consts::FRAC_PI_2).sin()
-            }
-            Self::EaseInOutSine => {
-                0.5 * (1.0 - (std::f32::consts::PI * t).cos())
-            }
+            Self::EaseInSine => 1.0 - (t * std::f32::consts::FRAC_PI_2).cos(),
+            Self::EaseOutSine => (t * std::f32::consts::FRAC_PI_2).sin(),
+            Self::EaseInOutSine => 0.5 * (1.0 - (std::f32::consts::PI * t).cos()),
 
             // Exponential
             Self::EaseInExpo => {
@@ -282,9 +274,7 @@ impl Easing {
             }
 
             // Circular
-            Self::EaseInCirc => {
-                1.0 - (1.0 - t * t).sqrt()
-            }
+            Self::EaseInCirc => 1.0 - (1.0 - t * t).sqrt(),
             Self::EaseOutCirc => {
                 let u = t - 1.0;
                 (1.0 - u * u).sqrt()
@@ -319,15 +309,11 @@ impl Easing {
                 let p = 0.3_f32;
                 let s = p / 4.0;
                 let u = t - 1.0;
-                -((2.0_f32).powf(10.0 * u)
-                    * ((u - s) * std::f32::consts::TAU / p).sin())
-                    + 1.0
+                -((2.0_f32).powf(10.0 * u) * ((u - s) * std::f32::consts::TAU / p).sin()) + 1.0
             }
 
             // Cubic Bézier
-            Self::CubicBezier { x1, y1, x2, y2 } => {
-                cubic_bezier_ease(*x1, *y1, *x2, *y2, t)
-            }
+            Self::CubicBezier { x1, y1, x2, y2 } => cubic_bezier_ease(*x1, *y1, *x2, *y2, t),
         }
     }
 }
@@ -412,7 +398,9 @@ fn sample_curve_y(y1: f32, y2: f32, t: f32) -> f32 {
 
 #[inline]
 fn sample_curve_dx(x1: f32, x2: f32, t: f32) -> f32 {
-    (3.0 * (1.0 - 3.0 * x2 + 3.0 * x1)).mul_add(t, 2.0 * (3.0 * x2 - 6.0 * x1)).mul_add(t, 3.0 * x1)
+    (3.0 * (1.0 - 3.0 * x2 + 3.0 * x1))
+        .mul_add(t, 2.0 * (3.0 * x2 - 6.0 * x1))
+        .mul_add(t, 3.0 * x1)
 }
 
 // ---------------------------------------------------------------------------
@@ -699,7 +687,11 @@ impl<T: Lerp> Keyframes<T> {
             frames.len() >= 2,
             "keyframe timeline requires at least 2 keyframes"
         );
-        frames.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap_or(std::cmp::Ordering::Equal));
+        frames.sort_by(|a, b| {
+            a.position
+                .partial_cmp(&b.position)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Self { frames }
     }
 
@@ -921,7 +913,6 @@ impl<T: Lerp + 'static> AnyTransition for TypedTransition<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::PI;
 
     // ---- Easing tests ----
 
@@ -1006,10 +997,7 @@ mod tests {
         for i in 0..=10 {
             let t = i as f32 / 10.0;
             let v = e.ease(t);
-            assert!(
-                (v - t).abs() < 0.05,
-                "cubic-bezier linear at {t}: got {v}"
-            );
+            assert!((v - t).abs() < 0.05, "cubic-bezier linear at {t}: got {v}");
         }
     }
 
@@ -1063,18 +1051,43 @@ mod tests {
         // In Oklab, L=0.5 maps to sRGB ~0.39 (not 0.5 as in linear RGB).
         assert!((mid.r - mid.g).abs() < 0.01, "mid-gray should be neutral");
         assert!((mid.g - mid.b).abs() < 0.01, "mid-gray should be neutral");
-        assert!(mid.r > 0.3 && mid.r < 0.5, "mid-gray R={} should be ~0.39", mid.r);
+        assert!(
+            mid.r > 0.3 && mid.r < 0.5,
+            "mid-gray R={} should be ~0.39",
+            mid.r
+        );
     }
 
     #[test]
     fn oklab_round_trip() {
-        let colors = [Color::RED, Color::GREEN, Color::BLUE, Color::WHITE, Color::BLACK];
+        let colors = [
+            Color::RED,
+            Color::GREEN,
+            Color::BLUE,
+            Color::WHITE,
+            Color::BLACK,
+        ];
         for color in colors {
             let (l, a, b) = color.to_oklab();
             let restored = Color::from_oklab(l, a, b, color.a);
-            assert!((color.r - restored.r).abs() < 0.01, "R: {:.4} vs {:.4}", color.r, restored.r);
-            assert!((color.g - restored.g).abs() < 0.01, "G: {:.4} vs {:.4}", color.g, restored.g);
-            assert!((color.b - restored.b).abs() < 0.01, "B: {:.4} vs {:.4}", color.b, restored.b);
+            assert!(
+                (color.r - restored.r).abs() < 0.01,
+                "R: {:.4} vs {:.4}",
+                color.r,
+                restored.r
+            );
+            assert!(
+                (color.g - restored.g).abs() < 0.01,
+                "G: {:.4} vs {:.4}",
+                color.g,
+                restored.g
+            );
+            assert!(
+                (color.b - restored.b).abs() < 0.01,
+                "B: {:.4} vs {:.4}",
+                color.b,
+                restored.b
+            );
         }
     }
 
@@ -1169,8 +1182,16 @@ mod tests {
     #[test]
     fn keyframes_two_stops() {
         let kf = Keyframes::new(vec![
-            Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::Linear },
-            Keyframe { position: 1.0, value: 100.0, easing: Easing::Linear },
+            Keyframe {
+                position: 0.0,
+                value: 0.0_f32,
+                easing: Easing::Linear,
+            },
+            Keyframe {
+                position: 1.0,
+                value: 100.0,
+                easing: Easing::Linear,
+            },
         ]);
         assert!((kf.value_at(0.0)).abs() < f32::EPSILON);
         assert!((kf.value_at(0.5) - 50.0).abs() < f32::EPSILON);
@@ -1180,9 +1201,21 @@ mod tests {
     #[test]
     fn keyframes_three_stops() {
         let kf = Keyframes::new(vec![
-            Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::Linear },
-            Keyframe { position: 0.5, value: 100.0, easing: Easing::Linear },
-            Keyframe { position: 1.0, value: 50.0, easing: Easing::Linear },
+            Keyframe {
+                position: 0.0,
+                value: 0.0_f32,
+                easing: Easing::Linear,
+            },
+            Keyframe {
+                position: 0.5,
+                value: 100.0,
+                easing: Easing::Linear,
+            },
+            Keyframe {
+                position: 1.0,
+                value: 50.0,
+                easing: Easing::Linear,
+            },
         ]);
         assert!((kf.value_at(0.25) - 50.0).abs() < f32::EPSILON); // 0→100 at 50%
         assert!((kf.value_at(0.75) - 75.0).abs() < f32::EPSILON); // 100→50 at 50%
@@ -1191,8 +1224,16 @@ mod tests {
     #[test]
     fn keyframes_clamps_edges() {
         let kf = Keyframes::new(vec![
-            Keyframe { position: 0.2, value: 10.0_f32, easing: Easing::Linear },
-            Keyframe { position: 0.8, value: 90.0, easing: Easing::Linear },
+            Keyframe {
+                position: 0.2,
+                value: 10.0_f32,
+                easing: Easing::Linear,
+            },
+            Keyframe {
+                position: 0.8,
+                value: 90.0,
+                easing: Easing::Linear,
+            },
         ]);
         assert!((kf.value_at(0.0) - 10.0).abs() < f32::EPSILON);
         assert!((kf.value_at(1.0) - 90.0).abs() < f32::EPSILON);
@@ -1201,8 +1242,16 @@ mod tests {
     #[test]
     fn keyframes_per_segment_easing() {
         let kf = Keyframes::new(vec![
-            Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::EaseInQuad },
-            Keyframe { position: 1.0, value: 100.0, easing: Easing::Linear },
+            Keyframe {
+                position: 0.0,
+                value: 0.0_f32,
+                easing: Easing::EaseInQuad,
+            },
+            Keyframe {
+                position: 1.0,
+                value: 100.0,
+                easing: Easing::Linear,
+            },
         ]);
         // EaseInQuad at 50%: 0.5^2 = 0.25 → value = 25
         let val = kf.value_at(0.5);
@@ -1212,9 +1261,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "at least 2 keyframes")]
     fn keyframes_too_few_panics() {
-        let _ = Keyframes::new(vec![
-            Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::Linear },
-        ]);
+        let _ = Keyframes::new(vec![Keyframe {
+            position: 0.0,
+            value: 0.0_f32,
+            easing: Easing::Linear,
+        }]);
     }
 
     // ---- AnimationState tests ----
@@ -1224,7 +1275,13 @@ mod tests {
         let mut state = AnimationState::new();
         assert!(state.is_idle());
 
-        state.start("opacity", 0.0_f32, 1.0_f32, Duration::from_millis(500), Easing::Linear);
+        state.start(
+            "opacity",
+            0.0_f32,
+            1.0_f32,
+            Duration::from_millis(500),
+            Easing::Linear,
+        );
         assert!(!state.is_idle());
         assert_eq!(state.active_count(), 1);
 
@@ -1242,8 +1299,20 @@ mod tests {
     #[test]
     fn animation_state_multiple() {
         let mut state = AnimationState::new();
-        state.start("a", 0.0_f32, 10.0, Duration::from_millis(100), Easing::Linear);
-        state.start("b", 0.0_f32, 20.0, Duration::from_millis(200), Easing::Linear);
+        state.start(
+            "a",
+            0.0_f32,
+            10.0,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+        state.start(
+            "b",
+            0.0_f32,
+            20.0,
+            Duration::from_millis(200),
+            Easing::Linear,
+        );
         assert_eq!(state.active_count(), 2);
 
         state.tick(Duration::from_millis(100));

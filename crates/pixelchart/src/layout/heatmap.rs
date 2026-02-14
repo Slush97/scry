@@ -5,7 +5,9 @@ use ratatui_pixelcanvas::style::Color;
 
 use crate::chart::heatmap::{self, Heatmap};
 
-use super::{RenderedChart, TextAlign, TextOverlay, proportional_margin, proportional_title_height};
+use super::{
+    proportional_margin, proportional_title_height, RenderedChart, TextAlign, TextOverlay,
+};
 
 pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
     let config = &hm.config;
@@ -13,9 +15,23 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
 
     // Heatmap has a special layout: more left margin for row labels
     let margin = proportional_margin(w, h);
-    let title_h = if config.title.is_some() { proportional_title_height(h) } else { 0.0 };
+    let title_h = if config.title.is_some() {
+        proportional_title_height(h)
+    } else {
+        0.0
+    };
     let col_label_h = 20.0_f32;
-    let row_label_w = 55.0_f32;
+    let row_label_w = {
+        let max_chars = hm
+            .row_labels
+            .iter()
+            .map(|l| l.chars().count())
+            .max()
+            .unwrap_or(0);
+        ((max_chars as f32) * 7.0 + 12.0)
+            .min(w as f32 * 0.3)
+            .max(20.0)
+    };
 
     let grid_x = margin + row_label_w;
     let grid_y = margin + title_h + col_label_h;
@@ -29,6 +45,10 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
         return RenderedChart {
             canvas: PixelCanvas::new(w, h).background(theme.background),
             text_overlays: Vec::new(),
+            plot_area: None,
+            x_scale: None,
+            y_scale: None,
+            series_points: Vec::new(),
         };
     }
 
@@ -36,7 +56,11 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
     let cell_h = (grid_h - hm.cell_gap * (n_rows as f32 - 1.0).max(0.0)) / n_rows as f32;
 
     let (v_lo, v_hi) = hm.value_range.unwrap_or_else(|| hm.data_extent());
-    let v_span = if (v_hi - v_lo).abs() < f64::EPSILON { 1.0 } else { v_hi - v_lo };
+    let v_span = if (v_hi - v_lo).abs() < f64::EPSILON {
+        1.0
+    } else {
+        v_hi - v_lo
+    };
 
     let mut canvas = PixelCanvas::new(w, h).background(theme.background);
     let mut overlays: Vec<TextOverlay> = Vec::new();
@@ -46,6 +70,9 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
         let cy = grid_y + ri as f32 * (cell_h + hm.cell_gap);
 
         for (ci, &val) in row.iter().enumerate() {
+            if !val.is_finite() {
+                continue;
+            }
             let cx = grid_x + ci as f32 * (cell_w + hm.cell_gap);
             let t = (val - v_lo) / v_span;
             let cell_color = heatmap::lerp_color(hm.color_lo, hm.color_hi, t);
@@ -73,6 +100,9 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
                         Color::from_rgba8(200, 200, 200, 220)
                     },
                     align: TextAlign::Center,
+                    font_size: 10.0,
+                    bold: false,
+                    rotation_deg: 0.0,
                 });
             }
         }
@@ -85,8 +115,11 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
             x_px: grid_x - 6.0,
             y_px: cy,
             text: label.clone(),
-            color: theme.text_color,
+            color: theme.text_color(),
             align: TextAlign::Right,
+            font_size: 11.0,
+            bold: false,
+            rotation_deg: 0.0,
         });
     }
 
@@ -97,8 +130,11 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
             x_px: cx,
             y_px: grid_y - 6.0,
             text: label.clone(),
-            color: theme.text_color,
+            color: theme.text_color(),
             align: TextAlign::Center,
+            font_size: 11.0,
+            bold: false,
+            rotation_deg: 0.0,
         });
     }
 
@@ -108,13 +144,20 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
             x_px: grid_x + grid_w / 2.0,
             y_px: margin / 2.0,
             text: title.clone(),
-            color: theme.text_color,
+            color: theme.title_style.color,
             align: TextAlign::Center,
+            font_size: 18.0,
+            bold: true,
+            rotation_deg: 0.0,
         });
     }
 
     RenderedChart {
         canvas,
         text_overlays: overlays,
+        plot_area: Some((grid_x, grid_y, grid_w, grid_h)),
+        x_scale: None,
+        y_scale: None,
+        series_points: Vec::new(),
     }
 }

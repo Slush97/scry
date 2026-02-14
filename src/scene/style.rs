@@ -211,7 +211,7 @@ impl Color {
 
     /// Convert sRGB to Oklab perceptual color space.
     ///
-    /// Returns `(L, a, b)` where L is lightness [0,1], a is green-red, b is blue-yellow.
+    /// Returns `(L, a, b)` where L is lightness `[0,1]`, a is green-red, b is blue-yellow.
     /// Reference: Björn Ottosson, "A perceptual color space for image processing" (2020).
     #[must_use]
     pub fn to_oklab(self) -> (f32, f32, f32) {
@@ -252,9 +252,16 @@ impl Color {
         let s_lin = s_ * s_ * s_;
 
         // LMS → linear RGB
-        let rl = 4.076_741_7_f32.mul_add(l_lin, (-3.307_711_6_f32).mul_add(m_lin, 0.230_969_94 * s_lin));
-        let gl = (-1.268_438_f32).mul_add(l_lin, 2.609_757_4_f32.mul_add(m_lin, -0.341_319_38 * s_lin));
-        let bl = (-0.004_196_086_3_f32).mul_add(l_lin, (-0.703_418_6_f32).mul_add(m_lin, 1.707_614_7 * s_lin));
+        let rl = 4.076_741_7_f32.mul_add(
+            l_lin,
+            (-3.307_711_6_f32).mul_add(m_lin, 0.230_969_94 * s_lin),
+        );
+        let gl =
+            (-1.268_438_f32).mul_add(l_lin, 2.609_757_4_f32.mul_add(m_lin, -0.341_319_38 * s_lin));
+        let bl = (-0.004_196_086_3_f32).mul_add(
+            l_lin,
+            (-0.703_418_6_f32).mul_add(m_lin, 1.707_614_7 * s_lin),
+        );
 
         Self {
             r: linear_to_srgb(rl),
@@ -414,6 +421,27 @@ impl DashPattern {
     #[must_use]
     pub const fn new(intervals: Vec<f32>, offset: f32) -> Self {
         Self { intervals, offset }
+    }
+
+    /// Create a 2-element dash pattern (dash, gap) — the most common case
+    /// for line-drawing animation.
+    #[must_use]
+    pub fn pair(dash: f32, gap: f32) -> Self {
+        Self {
+            intervals: vec![dash, gap],
+            offset: 0.0,
+        }
+    }
+
+    /// Create a 4-element dash pattern with a custom offset.
+    ///
+    /// Used by trailing ghost effects: `[skip, trail_start, trail_len, hide]`.
+    #[must_use]
+    pub fn quad(a: f32, b: f32, c: f32, d: f32, offset: f32) -> Self {
+        Self {
+            intervals: vec![a, b, c, d],
+            offset,
+        }
     }
 }
 
@@ -892,7 +920,14 @@ impl Transform {
     /// Construct a transform from all six matrix components directly.
     #[must_use]
     pub const fn from_matrix(sx: f32, kx: f32, ky: f32, sy: f32, tx: f32, ty: f32) -> Self {
-        Self { sx, kx, ky, sy, tx, ty }
+        Self {
+            sx,
+            kx,
+            ky,
+            sy,
+            tx,
+            ty,
+        }
     }
 
     /// Concatenate (multiply) this transform with another.
@@ -905,8 +940,12 @@ impl Transform {
             kx: self.sx.mul_add(other.kx, self.kx * other.sy),
             ky: self.ky.mul_add(other.sx, self.sy * other.ky),
             sy: self.ky.mul_add(other.kx, self.sy * other.sy),
-            tx: self.tx.mul_add(other.sx, self.ty.mul_add(other.ky, other.tx)),
-            ty: self.tx.mul_add(other.kx, self.ty.mul_add(other.sy, other.ty)),
+            tx: self
+                .tx
+                .mul_add(other.sx, self.ty.mul_add(other.ky, other.tx)),
+            ty: self
+                .tx
+                .mul_add(other.kx, self.ty.mul_add(other.sy, other.ty)),
         }
     }
 
@@ -1030,8 +1069,8 @@ mod tests {
         let t = Transform::rotate_at(FRAC_PI_2, 50.0, 50.0);
         // Rotating (50, 0) around (50, 50) by 90° should give (100, 50)
         // Apply: x' = sx*x + ky*y + tx, y' = kx*x + sy*y + ty
-        let x = t.sx * 50.0 + t.ky * 0.0 + t.tx;
-        let y = t.kx * 50.0 + t.sy * 0.0 + t.ty;
+        let x = t.sx.mul_add(50.0, t.ky * 0.0) + t.tx;
+        let y = t.kx.mul_add(50.0, t.sy * 0.0) + t.ty;
         assert!(approx_eq(x, 100.0));
         assert!(approx_eq(y, 50.0));
     }

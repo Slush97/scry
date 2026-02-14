@@ -19,7 +19,7 @@
 //!
 //! ## Quick Start
 //!
-//! ```ignore
+//! ```no_run
 //! use ratatui_pixelcanvas::prelude::*;
 //!
 //! let canvas = PixelCanvas::new(200, 200)
@@ -27,6 +27,9 @@
 //!         .fill(Color::RED)
 //!         .done();
 //!
+//! # let area = ratatui::layout::Rect::default();
+//! # let mut pixel_canvas_state = todo!();
+//! # let frame: &mut ratatui::Frame = todo!();
 //! frame.render_stateful_widget(
 //!     PixelCanvasWidget::new(canvas),
 //!     area,
@@ -36,11 +39,15 @@
 //!
 //! ## Feature Flags
 //!
-//! | Flag      | Default | Description                          |
-//! |-----------|---------|--------------------------------------|
-//! | `kitty`   | ✅      | Kitty graphics protocol backend      |
-//! | `sixel`   | ❌      | Sixel graphics protocol backend      |
-//! | `widget`  | ✅      | Ratatui `StatefulWidget` integration  |
+//! | Flag      | Default | Description                                      |
+//! |-----------|---------|--------------------------------------------------|
+//! | `kitty`   | ✅      | Kitty graphics protocol backend                  |
+//! | `sixel`   | ❌      | Sixel graphics protocol backend                  |
+//! | `iterm2`  | ❌      | iTerm2 inline image protocol backend              |
+//! | `widget`  | ✅      | Ratatui `StatefulWidget` integration              |
+//! | `text`    | ❌      | Text rendering via `fontdue`                      |
+//! | `shm`     | ❌      | Zero-copy Kitty transmission via POSIX shared mem |
+//! | `svg`     | ❌      | SVG rendering via `resvg`                         |
 
 // Strict lints for production quality
 #![warn(missing_docs)]
@@ -54,12 +61,16 @@ pub mod transport;
 #[cfg(feature = "widget")]
 pub mod widget;
 
+#[cfg(feature = "svg")]
+pub mod svg;
+
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
 
 /// Errors that can occur in `ratatui-pixelcanvas`.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PixelCanvasError {
     /// Failed to create a pixel buffer.
     #[error("failed to create pixmap: {0}")]
@@ -103,6 +114,17 @@ pub mod prelude {
 
     #[cfg(feature = "widget")]
     pub use crate::widget::{PixelCanvasState, PixelCanvasWidget};
+
+    #[cfg(all(feature = "widget", feature = "svg"))]
+    pub use crate::widget::SvgWidget;
+
+    #[cfg(feature = "svg")]
+    pub use crate::svg::{SvgError, SvgImage};
+
+    #[cfg(feature = "svg")]
+    pub use crate::svg::line_drawing::{
+        DrawMode, PenPressure, PenTip, SvgLineDrawing, SvgPathSegment, Trail,
+    };
 }
 
 // ---------------------------------------------------------------------------

@@ -89,7 +89,11 @@ impl<W: Write + std::fmt::Debug> SixelBackend<W> {
     }
 
     /// Encode a pixmap into Sixel format and write it.
-    fn write_sixel(&mut self, pixmap: &Pixmap, position: TerminalPosition) -> Result<(), PixelCanvasError> {
+    fn write_sixel(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+    ) -> Result<(), PixelCanvasError> {
         let w = pixmap.width() as usize;
         let h = pixmap.height() as usize;
         if w == 0 || h == 0 {
@@ -123,8 +127,7 @@ impl<W: Write + std::fmt::Debug> SixelBackend<W> {
         self.encode_buf.extend_from_slice(b"0;1;0q");
 
         // Set raster attributes: "pixel-width;pixel-height
-        write!(self.encode_buf, "\"1;1;{w};{h}")
-            .expect("Vec<u8> write cannot fail");
+        write!(self.encode_buf, "\"1;1;{w};{h}").expect("Vec<u8> write cannot fail");
 
         // Define palette registers
         for (i, &(r, g, b)) in palette.iter().enumerate() {
@@ -132,8 +135,7 @@ impl<W: Write + std::fmt::Debug> SixelBackend<W> {
             let rp = u32::from(r) * 100 / 255;
             let gp = u32::from(g) * 100 / 255;
             let bp = u32::from(b) * 100 / 255;
-            write!(self.encode_buf, "#{i};2;{rp};{gp};{bp}")
-                .expect("Vec<u8> write cannot fail");
+            write!(self.encode_buf, "#{i};2;{rp};{gp};{bp}").expect("Vec<u8> write cannot fail");
         }
 
         // Encode sixel rows (6 pixel rows per sixel row)
@@ -169,8 +171,7 @@ impl<W: Write + std::fmt::Debug> SixelBackend<W> {
                 }
 
                 // Apply run-length encoding
-                write!(self.encode_buf, "#{color_idx}")
-                    .expect("Vec<u8> write cannot fail");
+                write!(self.encode_buf, "#{color_idx}").expect("Vec<u8> write cannot fail");
                 rle_encode(&sixel_line, &mut self.encode_buf);
 
                 // '$' = carriage return (stay on same sixel row)
@@ -187,8 +188,7 @@ impl<W: Write + std::fmt::Debug> SixelBackend<W> {
         self.encode_buf.extend_from_slice(DCS_END);
 
         // Write everything at once
-        self.writer
-            .write_all(&self.encode_buf)?;
+        self.writer.write_all(&self.encode_buf)?;
         self.writer.flush()?;
 
         Ok(())
@@ -246,10 +246,7 @@ fn rle_encode(data: &[u8], out: &mut Vec<u8>) {
     }
 
     // Trim trailing '?' (0x3F = all-zero bits) — they add no visual data
-    let len = data
-        .iter()
-        .rposition(|&b| b != 0x3F)
-        .map_or(0, |i| i + 1);
+    let len = data.iter().rposition(|&b| b != 0x3F).map_or(0, |i| i + 1);
 
     if len == 0 {
         return;
@@ -498,10 +495,16 @@ mod tests {
     #[test]
     fn sixel_basic_output_structure() {
         // 2×2 pixmap, solid red
-        let pm = make_pixmap(2, 2, &[
-            (255, 0, 0, 255), (255, 0, 0, 255),
-            (255, 0, 0, 255), (255, 0, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (255, 0, 0, 255),
+                (255, 0, 0, 255),
+                (255, 0, 0, 255),
+                (255, 0, 0, 255),
+            ],
+        );
 
         let writer = io::Cursor::new(Vec::new());
         let mut backend = SixelBackend::with_writer(writer);
@@ -524,10 +527,16 @@ mod tests {
     #[test]
     fn sixel_color_registers() {
         // 2×2 pixmap with 2 distinct colors
-        let pm = make_pixmap(2, 2, &[
-            (255, 0, 0, 255), (0, 255, 0, 255),
-            (255, 0, 0, 255), (0, 255, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (255, 0, 0, 255),
+                (0, 255, 0, 255),
+                (255, 0, 0, 255),
+                (0, 255, 0, 255),
+            ],
+        );
 
         let writer = io::Cursor::new(Vec::new());
         let mut backend = SixelBackend::with_writer(writer);
@@ -539,7 +548,10 @@ mod tests {
 
         // Should have at least 2 color register definitions
         let register_count = output_str.matches(";2;").count();
-        assert!(register_count >= 2, "need at least 2 color registers, got {register_count}");
+        assert!(
+            register_count >= 2,
+            "need at least 2 color registers, got {register_count}"
+        );
     }
 
     #[test]
@@ -552,10 +564,16 @@ mod tests {
     #[test]
     fn sixel_remove_is_noop() {
         let mut backend = SixelBackend::with_writer(io::Cursor::new(Vec::new()));
-        let pm = make_pixmap(2, 2, &[
-            (0, 0, 0, 255), (0, 0, 0, 255),
-            (0, 0, 0, 255), (0, 0, 0, 255),
-        ]);
+        let pm = make_pixmap(
+            2,
+            2,
+            &[
+                (0, 0, 0, 255),
+                (0, 0, 0, 255),
+                (0, 0, 0, 255),
+                (0, 0, 0, 255),
+            ],
+        );
         let pos = TerminalPosition::new(0, 0, 2, 1);
         let handle = backend.transmit(&pm, pos, 0).unwrap();
         assert!(backend.remove(&handle).is_ok());
@@ -592,7 +610,11 @@ mod tests {
         }
         let pm = make_pixmap(512, 1, &data);
         let (palette, indexed) = median_cut_quantize(pm.data(), 512, 1);
-        assert!(palette.len() <= MAX_COLORS, "palette should be ≤256, got {}", palette.len());
+        assert!(
+            palette.len() <= MAX_COLORS,
+            "palette should be ≤256, got {}",
+            palette.len()
+        );
         assert_eq!(indexed.len(), 512);
     }
 

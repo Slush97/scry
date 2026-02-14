@@ -31,9 +31,14 @@ fn summarize(rendered: &layout::RenderedChart) -> String {
     lines.push(format!("overlays: {}", rendered.text_overlays.len()));
 
     for (i, overlay) in rendered.text_overlays.iter().enumerate() {
+        let rot_str = if overlay.rotation_deg.abs() > 0.01 {
+            format!(" rot={:.0}°", overlay.rotation_deg)
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "  [{i}] ({:.0}, {:.0}) {:?} \"{}\"",
-            overlay.x_px, overlay.y_px, overlay.align, overlay.text,
+            "  [{i}] ({:.0}, {:.0}) {:?}{} \"{}\"",
+            overlay.x_px, overlay.y_px, overlay.align, rot_str, overlay.text,
         ));
     }
 
@@ -46,25 +51,31 @@ fn summarize(rendered: &layout::RenderedChart) -> String {
 
 #[test]
 fn render_scatter_basic() {
-    let chart = Chart::scatter(
-        &[1.0, 2.0, 3.0, 4.0, 5.0],
-        &[2.0, 4.0, 1.0, 8.0, 5.0],
-    )
-    .title("Scatter Test")
-    .x_label("X")
-    .y_label("Y")
-    .theme(Theme::dark())
-    .build();
+    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
+        .title("Scatter Test")
+        .x_label("X")
+        .y_label("Y")
+        .theme(Theme::dark())
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
 
     // Structural assertions
-    assert!(rendered.canvas.commands().len() > 0, "should have draw commands");
-    assert!(rendered.text_overlays.len() > 0, "should have text overlays");
+    assert!(
+        rendered.canvas.commands().len() > 0,
+        "should have draw commands"
+    );
+    assert!(
+        rendered.text_overlays.len() > 0,
+        "should have text overlays"
+    );
 
     // Title overlay should exist
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Scatter Test"),
+        rendered
+            .text_overlays
+            .iter()
+            .any(|o| o.text == "Scatter Test"),
         "should have title overlay"
     );
 
@@ -83,34 +94,34 @@ fn render_scatter_basic() {
 
 #[test]
 fn render_scatter_multi_series() {
-    let chart = Chart::scatter(
-        &[1.0, 2.0, 3.0],
-        &[1.0, 4.0, 9.0],
-    )
-    .add_series(
-        Series::new("Extra", vec![1.5, 2.5, 3.5]),
-        Series::new("Extra Y", vec![3.0, 5.0, 7.0]),
-    )
-    .title("Multi-Series Scatter")
-    .build();
+    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
+        .add_series(
+            Series::new("Extra", vec![1.5, 2.5, 3.5]),
+            Series::new("Extra Y", vec![3.0, 5.0, 7.0]),
+        )
+        .title("Multi-Series Scatter")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    assert!(rendered.canvas.commands().len() > 5, "multi-series should have more commands");
+    assert!(
+        rendered.canvas.commands().len() > 5,
+        "multi-series should have more commands"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_scatter_connected() {
-    let chart = Chart::scatter(
-        &[1.0, 2.0, 3.0, 4.0],
-        &[1.0, 3.0, 2.0, 4.0],
-    )
-    .connected()
-    .build();
+    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0], &[1.0, 3.0, 2.0, 4.0])
+        .connected()
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     // Connected scatter should have line commands in addition to circles
-    assert!(rendered.canvas.commands().len() > 4, "connected should have line commands");
+    assert!(
+        rendered.canvas.commands().len() > 4,
+        "connected should have line commands"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -167,7 +178,13 @@ fn render_line_multi_series() {
 #[test]
 fn render_bar_vertical() {
     let chart = Chart::bar(
-        vec!["Mon".into(), "Tue".into(), "Wed".into(), "Thu".into(), "Fri".into()],
+        vec![
+            "Mon".into(),
+            "Tue".into(),
+            "Wed".into(),
+            "Thu".into(),
+            "Fri".into(),
+        ],
         &[12.0, 19.0, 8.0, 15.0, 22.0],
     )
     .title("Weekly Sales")
@@ -176,7 +193,10 @@ fn render_bar_vertical() {
     .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    assert!(rendered.canvas.commands().len() >= 5, "should have bar rects");
+    assert!(
+        rendered.canvas.commands().len() >= 5,
+        "should have bar rects"
+    );
 
     // Category labels should appear in overlays
     assert!(
@@ -220,7 +240,9 @@ fn render_bar_stacked() {
 
 #[test]
 fn render_histogram_basic() {
-    let data: Vec<f64> = (0..100).map(|i| (i as f64 * 0.1).sin() * 50.0 + 50.0).collect();
+    let data: Vec<f64> = (0..100)
+        .map(|i| (i as f64 * 0.1).sin() * 50.0 + 50.0)
+        .collect();
     let chart = Chart::histogram(&data)
         .title("Distribution")
         .x_label("Value")
@@ -230,19 +252,17 @@ fn render_histogram_basic() {
 
     let rendered = layout::render_chart(&chart, 400, 300);
     assert!(rendered.canvas.commands().len() > 0);
-    assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Distribution"),
-    );
+    assert!(rendered
+        .text_overlays
+        .iter()
+        .any(|o| o.text == "Distribution"),);
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_histogram_density() {
     let data: Vec<f64> = (0..200).map(|i| (i as f64 / 200.0) * 100.0).collect();
-    let chart = Chart::histogram(&data)
-        .density()
-        .title("Density")
-        .build();
+    let chart = Chart::histogram(&data).density().title("Density").build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
@@ -251,9 +271,18 @@ fn render_histogram_density() {
 #[test]
 fn render_boxplot_basic() {
     let chart = Chart::boxplot(vec![
-        ("Group A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
-        ("Group B", vec![3.0, 4.0, 5.0, 6.0, 6.0, 7.0, 7.0, 8.0, 12.0, 15.0]),
-        ("Group C", vec![0.5, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 20.0]),
+        (
+            "Group A",
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+        ),
+        (
+            "Group B",
+            vec![3.0, 4.0, 5.0, 6.0, 6.0, 7.0, 7.0, 8.0, 12.0, 15.0],
+        ),
+        (
+            "Group C",
+            vec![0.5, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 20.0],
+        ),
     ])
     .title("Box Plot Test")
     .y_label("Score")
@@ -271,11 +300,9 @@ fn render_boxplot_basic() {
 
 #[test]
 fn render_boxplot_no_outliers() {
-    let chart = Chart::boxplot(vec![
-        ("X", vec![1.0, 2.0, 3.0, 4.0, 5.0]),
-    ])
-    .no_outliers()
-    .build();
+    let chart = Chart::boxplot(vec![("X", vec![1.0, 2.0, 3.0, 4.0, 5.0])])
+        .no_outliers()
+        .build();
 
     let rendered = layout::render_chart(&chart, 300, 250);
     insta::assert_snapshot!(summarize(&rendered));
@@ -306,12 +333,9 @@ fn render_heatmap_basic() {
 
 #[test]
 fn render_heatmap_no_values() {
-    let chart = Chart::heatmap(vec![
-        vec![1.0, 2.0],
-        vec![3.0, 4.0],
-    ])
-    .values(false)
-    .build();
+    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+        .values(false)
+        .build();
 
     let rendered = layout::render_chart(&chart, 300, 250);
     // With values hidden, should have fewer overlays (no cell values)
@@ -338,13 +362,10 @@ fn render_with_reference_lines() {
 
 #[test]
 fn render_with_custom_axis_range() {
-    let chart = Chart::scatter(
-        &[1.0, 2.0, 3.0],
-        &[1.0, 4.0, 9.0],
-    )
-    .x_range(0.0, 10.0)
-    .y_range(0.0, 20.0)
-    .build();
+    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
+        .x_range(0.0, 10.0)
+        .y_range(0.0, 20.0)
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
@@ -436,10 +457,7 @@ fn render_large_canvas() {
 #[test]
 fn render_mismatched_xy_scatter() {
     // X has 5 values, Y has 3 — should truncate to min without panic
-    let chart = Chart::scatter(
-        &[1.0, 2.0, 3.0, 4.0, 5.0],
-        &[10.0, 20.0, 30.0],
-    ).build();
+    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[10.0, 20.0, 30.0]).build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     // Should render 3 points (truncated to shorter series)
@@ -526,20 +544,20 @@ fn render_bar_horizontal() {
     );
 
     // Should have bar rects
-    assert!(rendered.canvas.commands().len() >= 3, "should have bar rects");
+    assert!(
+        rendered.canvas.commands().len() >= 3,
+        "should have bar rects"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_bar_horizontal_grouped() {
-    let chart = Chart::bar(
-        vec!["Q1".into(), "Q2".into()],
-        &[10.0, 15.0],
-    )
-    .add_series(Series::new("Product B", vec![8.0, 12.0]))
-    .horizontal()
-    .title("Horizontal Grouped")
-    .build();
+    let chart = Chart::bar(vec!["Q1".into(), "Q2".into()], &[10.0, 15.0])
+        .add_series(Series::new("Product B", vec![8.0, 12.0]))
+        .horizontal()
+        .title("Horizontal Grouped")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     // 2 categories × 2 series = 4 bar rects
@@ -549,15 +567,12 @@ fn render_bar_horizontal_grouped() {
 
 #[test]
 fn render_bar_horizontal_stacked() {
-    let chart = Chart::bar(
-        vec!["A".into(), "B".into()],
-        &[10.0, 20.0],
-    )
-    .add_series(Series::new("Layer 2", vec![5.0, 8.0]))
-    .stacked()
-    .horizontal()
-    .title("Horizontal Stacked")
-    .build();
+    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+        .add_series(Series::new("Layer 2", vec![5.0, 8.0]))
+        .stacked()
+        .horizontal()
+        .title("Horizontal Stacked")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
@@ -565,8 +580,12 @@ fn render_bar_horizontal_stacked() {
 
 #[test]
 fn render_histogram_multi_series() {
-    let data1: Vec<f64> = (0..80).map(|i| (i as f64 * 0.08).sin() * 30.0 + 40.0).collect();
-    let data2: Vec<f64> = (0..80).map(|i| (i as f64 * 0.1).cos() * 25.0 + 60.0).collect();
+    let data1: Vec<f64> = (0..80)
+        .map(|i| (i as f64 * 0.08).sin() * 30.0 + 40.0)
+        .collect();
+    let data2: Vec<f64> = (0..80)
+        .map(|i| (i as f64 * 0.1).cos() * 25.0 + 60.0)
+        .collect();
 
     let chart = Chart::histogram(&data1)
         .add_series(Series::new("Series B", data2))
@@ -578,7 +597,10 @@ fn render_histogram_multi_series() {
 
     // Multi-series should render legend with text overlays
     let has_legend_text = rendered.text_overlays.iter().any(|o| o.text == "Series B");
-    assert!(has_legend_text, "should render legend text for extra series");
+    assert!(
+        has_legend_text,
+        "should render legend text for extra series"
+    );
 
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -598,8 +620,14 @@ fn render_line_legend_text_rendered() {
     // Legend text overlays should be present
     let has_temp = rendered.text_overlays.iter().any(|o| o.text == "Temp");
     let has_humidity = rendered.text_overlays.iter().any(|o| o.text == "Humidity");
-    assert!(has_temp, "legend text 'Temp' should be rendered, not discarded");
-    assert!(has_humidity, "legend text 'Humidity' should be rendered, not discarded");
+    assert!(
+        has_temp,
+        "legend text 'Temp' should be rendered, not discarded"
+    );
+    assert!(
+        has_humidity,
+        "legend text 'Humidity' should be rendered, not discarded"
+    );
 
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -611,15 +639,15 @@ fn render_line_legend_text_rendered() {
 #[test]
 fn render_scatter_with_nan() {
     // Should handle NaN gracefully without panicking
-    let chart = Chart::scatter(
-        &[1.0, f64::NAN, 3.0, 4.0],
-        &[2.0, 5.0, f64::NAN, 8.0],
-    )
-    .title("NaN Data")
-    .build();
+    let chart = Chart::scatter(&[1.0, f64::NAN, 3.0, 4.0], &[2.0, 5.0, f64::NAN, 8.0])
+        .title("NaN Data")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    assert!(rendered.canvas.commands().len() > 0, "should still render axes");
+    assert!(
+        rendered.canvas.commands().len() > 0,
+        "should still render axes"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -670,7 +698,10 @@ fn render_scatter_with_trend_line() {
 
     let rendered = layout::render_chart(&chart, 400, 300);
     // Trend line should add drawing commands beyond the basic scatter
-    assert!(rendered.canvas.commands().len() > 5, "Expected trend line commands");
+    assert!(
+        rendered.canvas.commands().len() > 5,
+        "Expected trend line commands"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -704,10 +735,15 @@ fn line_chart_uses_polyline() {
         .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    let has_polyline = rendered.canvas.commands().iter().any(|cmd| {
-        matches!(cmd, DrawCommand::Polyline { closed: false, .. })
-    });
-    assert!(has_polyline, "Line chart should emit Polyline commands, not individual Line commands");
+    let has_polyline = rendered
+        .canvas
+        .commands()
+        .iter()
+        .any(|cmd| matches!(cmd, DrawCommand::Polyline { closed: false, .. }));
+    assert!(
+        has_polyline,
+        "Line chart should emit Polyline commands, not individual Line commands"
+    );
 }
 
 #[test]
@@ -722,7 +758,10 @@ fn filled_line_uses_gradient() {
         matches!(cmd, DrawCommand::Polyline { style, closed: true, .. }
             if matches!(&style.fill, Some(FillStyle::LinearGradient(_))))
     });
-    assert!(has_gradient, "Filled line chart should use LinearGradient fill, not Solid");
+    assert!(
+        has_gradient,
+        "Filled line chart should use LinearGradient fill, not Solid"
+    );
 }
 
 #[test]
@@ -732,9 +771,11 @@ fn grid_lines_use_dash_pattern() {
         .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    let has_dashed = rendered.canvas.commands().iter().any(|cmd| {
-        matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some())
-    });
+    let has_dashed = rendered
+        .canvas
+        .commands()
+        .iter()
+        .any(|cmd| matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some()));
     assert!(has_dashed, "Grid lines should use DashPattern from theme");
 }
 
@@ -750,56 +791,79 @@ fn bar_chart_has_stroke() {
     let rendered = layout::render_chart(&chart, 400, 300);
 
     // Bar fill rects
-    let fill_rects = rendered.canvas.commands().iter().filter(|cmd| {
-        matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some())
-    }).count();
+    let fill_rects = rendered
+        .canvas
+        .commands()
+        .iter()
+        .filter(|cmd| matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some()))
+        .count();
 
     // Bar stroke rects
-    let stroke_rects = rendered.canvas.commands().iter().filter(|cmd| {
-        matches!(cmd, DrawCommand::Rectangle { style, .. }
+    let stroke_rects = rendered
+        .canvas
+        .commands()
+        .iter()
+        .filter(|cmd| {
+            matches!(cmd, DrawCommand::Rectangle { style, .. }
             if style.stroke.is_some() && style.fill.is_none())
-    }).count();
+        })
+        .count();
 
-    assert!(fill_rects >= 3, "Should have at least 3 bar fill rectangles, got {fill_rects}");
-    assert!(stroke_rects >= 3, "Should have at least 3 bar stroke rectangles (one per bar), got {stroke_rects}");
+    assert!(
+        fill_rects >= 3,
+        "Should have at least 3 bar fill rectangles, got {fill_rects}"
+    );
+    assert!(
+        stroke_rects >= 3,
+        "Should have at least 3 bar stroke rectangles (one per bar), got {stroke_rects}"
+    );
 }
 
 #[test]
-fn histogram_bins_have_corner_radius() {
+fn histogram_bins_flush_on_axis() {
     let chart = Chart::histogram(&[1.0, 2.0, 2.5, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0])
         .bins(5)
         .theme(Theme::dark())
         .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    let has_rounded = rendered.canvas.commands().iter().any(|cmd| {
-        matches!(cmd, DrawCommand::Rectangle { corner_radius, .. } if *corner_radius > 0.0)
-    });
-    assert!(has_rounded, "Histogram bins should have corner_radius > 0");
+    // Histogram bins should NOT have corner_radius — they must sit flush on the x-axis
+    let has_rounded = rendered.canvas.commands().iter().any(
+        |cmd| matches!(cmd, DrawCommand::Rectangle { corner_radius, .. } if *corner_radius > 0.0),
+    );
+    assert!(
+        !has_rounded,
+        "Histogram bins should have no corner_radius to sit flush on x-axis"
+    );
 }
 
 #[test]
 fn scatter_markers_have_stroke() {
-    let chart = Chart::scatter(
-        &[1.0, 2.0, 3.0, 4.0, 5.0],
-        &[2.0, 4.0, 1.0, 8.0, 5.0],
-    )
-    .theme(Theme::dark())
-    .build();
+    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
+        .theme(Theme::dark())
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    let stroked_circles = rendered.canvas.commands().iter().filter(|cmd| {
-        matches!(cmd, DrawCommand::Circle { style, .. } if style.stroke.is_some())
-    }).count();
-    assert!(stroked_circles >= 5, "Each scatter marker should have a stroke border, got {stroked_circles}");
+    let stroked_circles = rendered
+        .canvas
+        .commands()
+        .iter()
+        .filter(|cmd| matches!(cmd, DrawCommand::Circle { style, .. } if style.stroke.is_some()))
+        .count();
+    assert!(
+        stroked_circles >= 5,
+        "Each scatter marker should have a stroke border, got {stroked_circles}"
+    );
 }
 
 #[test]
 fn all_themes_produce_output() {
-    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light()), ("pastel", Theme::pastel())] {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
-            .theme(theme)
-            .build();
+    for (name, theme) in [
+        ("dark", Theme::dark()),
+        ("light", Theme::light()),
+        ("pastel", Theme::pastel()),
+    ] {
+        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0]).theme(theme).build();
 
         let rendered = layout::render_chart(&chart, 400, 300);
         assert!(
@@ -841,22 +905,113 @@ fn full_feature_chart() {
     let rendered = layout::render_chart(&chart, 600, 400);
 
     // Verify structural integrity
-    assert!(rendered.canvas.commands().len() > 20, "Full feature chart should have many commands");
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Full Feature Test"), "Title");
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "X Axis"), "X label");
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Y Axis"), "Y label");
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Peak"), "Annotation");
+    assert!(
+        rendered.canvas.commands().len() > 20,
+        "Full feature chart should have many commands"
+    );
+    assert!(
+        rendered
+            .text_overlays
+            .iter()
+            .any(|o| o.text == "Full Feature Test"),
+        "Title"
+    );
+    assert!(
+        rendered.text_overlays.iter().any(|o| o.text == "X Axis"),
+        "X label"
+    );
+    assert!(
+        rendered.text_overlays.iter().any(|o| o.text == "Y Axis"),
+        "Y label"
+    );
+    assert!(
+        rendered.text_overlays.iter().any(|o| o.text == "Peak"),
+        "Annotation"
+    );
 
     // Verify draw command types
-    let has_polygon = rendered.canvas.commands().iter().any(|cmd| {
-        matches!(cmd, DrawCommand::Polyline { closed: true, .. })
-    });
-    assert!(has_polygon, "Diamond markers should emit closed Polyline (polygon) commands");
+    let has_polygon = rendered
+        .canvas
+        .commands()
+        .iter()
+        .any(|cmd| matches!(cmd, DrawCommand::Polyline { closed: true, .. }));
+    assert!(
+        has_polygon,
+        "Diamond markers should emit closed Polyline (polygon) commands"
+    );
 
-    let has_dashed_grid = rendered.canvas.commands().iter().any(|cmd| {
-        matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some())
-    });
+    let has_dashed_grid = rendered
+        .canvas
+        .commands()
+        .iter()
+        .any(|cmd| matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some()));
     assert!(has_dashed_grid, "Should have dashed grid lines");
+
+    insta::assert_snapshot!(summarize(&rendered));
+}
+
+// ===========================================================================
+// Tick label rotation tests
+// ===========================================================================
+
+#[test]
+fn render_line_diagonal_ticks() {
+    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0])
+        .title("Diagonal Ticks")
+        .x_ticks_diagonal()
+        .build();
+    let rendered = layout::render_chart(&chart, 400, 300);
+
+    // Verify that X-axis tick overlays have rotation_deg == 45.0
+    let rotated: Vec<_> = rendered
+        .text_overlays
+        .iter()
+        .filter(|o| (o.rotation_deg - 45.0).abs() < 0.1)
+        .collect();
+    assert!(
+        !rotated.is_empty(),
+        "Should have diagonal (45°) tick overlays"
+    );
+
+    // Right-aligned for rotated labels
+    for o in &rotated {
+        assert_eq!(
+            o.align,
+            pixelchart::layout::TextAlign::Right,
+            "Rotated tick labels should be right-aligned"
+        );
+    }
+
+    insta::assert_snapshot!(summarize(&rendered));
+}
+
+#[test]
+fn render_bar_vertical_ticks() {
+    let chart = Chart::bar(
+        vec![
+            "Alpha".into(),
+            "Beta".into(),
+            "Gamma".into(),
+            "Delta".into(),
+        ],
+        &[10.0, 25.0, 15.0, 30.0],
+    )
+    .title("Vertical Labels")
+    .x_ticks_vertical()
+    .build();
+    let rendered = layout::render_chart(&chart, 400, 300);
+
+    // Verify that category label overlays have rotation_deg == 90.0
+    let rotated: Vec<_> = rendered
+        .text_overlays
+        .iter()
+        .filter(|o| (o.rotation_deg - 90.0).abs() < 0.1)
+        .collect();
+    assert!(
+        !rotated.is_empty(),
+        "Should have vertical (90°) category label overlays"
+    );
+    assert_eq!(rotated.len(), 4, "Should have 4 rotated category labels");
 
     insta::assert_snapshot!(summarize(&rendered));
 }

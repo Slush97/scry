@@ -3,7 +3,7 @@
 use crate::chart::BarChart;
 use crate::scale::{CategoricalScale, LinearScale, Scale};
 
-use super::{resolve_y_extent, take_canvas, RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay};
 
 pub(crate) fn render_bar(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     if bc.horizontal {
@@ -16,18 +16,21 @@ pub(crate) fn render_bar(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     let config = &bc.config;
     let theme = &config.theme;
-    let mut ctx = RenderContext::new(config, w, h);
+
+    // Pre-compute Y extent for measurement-based layout
+    let (y_lo, y_hi) = compute_value_extent(bc);
+    let y_extent = resolve_y_extent(config, (y_lo, y_hi));
+
+    let mut ctx = RenderContext::new(config, w, h, Some(y_extent));
     let (px, py, pw, ph) = ctx.plot;
 
-    let y_max = compute_value_max(bc);
-    let y_extent = resolve_y_extent(config, (0.0, y_max));
-    let y_scale = LinearScale::nice(y_extent, ((py + ph) as f64, py as f64));
+    let y_scale = LinearScale::nice_zero(y_extent, ((py + ph) as f64, py as f64));
 
     let cat_scale = CategoricalScale::new(bc.labels.clone(), (px as f64, (px + pw) as f64));
 
     // Y axis
     let y_ticks = ctx.draw_y_axis(config, &y_scale);
-    ctx.add_y_tick_overlays(&y_ticks, theme.text_color);
+    ctx.add_y_tick_overlays(&y_ticks, theme.text_color());
 
     // X axis line
     ctx.draw_x_axis_line(config);
@@ -40,7 +43,8 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     let n_series = bc.series.len();
     let band = cat_scale.band_width() as f32;
     let inner_band = band * (1.0 - bc.bar_gap);
-    let baseline_y = y_scale.to_pixel(0.0) as f32;
+    let corner_r = bc.corner_radius.unwrap_or(theme.series.bar_corner_radius);
+    let stroke_w = theme.bar_stroke_width();
 
     for (ci, _label) in bc.labels.iter().enumerate() {
         let center = cat_scale.center(ci) as f32;
@@ -55,23 +59,34 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     continue;
                 }
                 let value = series.values()[ci];
+                if !value.is_finite() {
+                    continue;
+                }
                 let bottom_y = y_scale.to_pixel(cumulative) as f32;
                 let top_y = y_scale.to_pixel(cumulative + value) as f32;
-                let bar_h = bottom_y - top_y;
+                let (rect_y, bar_h) = if top_y <= bottom_y {
+                    (top_y, bottom_y - top_y)
+                } else {
+                    (bottom_y, top_y - bottom_y)
+                };
 
-                if bar_h > 0.0 {
+                if bar_h > 0.5 {
                     let color = theme.series_color(si);
-                    ctx.canvas = take_canvas(&mut ctx)
-                        .rect(bar_x, top_y, bar_width, bar_h)
-                        .fill(color)
-                        .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
-                        .done();
-                    if theme.bar_stroke_width > 0.0 {
-                        ctx.canvas = take_canvas(&mut ctx)
-                            .rect(bar_x, top_y, bar_width, bar_h)
-                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
-                            .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
-                            .done();
+                    let cr = if si == n_series - 1 { corner_r } else { 0.0 };
+                    ctx.draw(|c| {
+                        c.rect(bar_x, rect_y, bar_width, bar_h)
+                            .fill(color)
+                            .corner_radius(cr)
+                            .done()
+                    });
+                    if stroke_w > 0.0 {
+                        let sc = color.with_alpha(0.5);
+                        ctx.draw(|c| {
+                            c.rect(bar_x, rect_y, bar_width, bar_h)
+                                .stroke(sc, stroke_w)
+                                .corner_radius(cr)
+                                .done()
+                        });
                     }
                 }
                 cumulative += value;
@@ -89,23 +104,34 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     continue;
                 }
                 let value = series.values()[ci];
+                if !value.is_finite() {
+                    continue;
+                }
+                let baseline_y = y_scale.to_pixel(0.0) as f32;
                 let top_y = y_scale.to_pixel(value) as f32;
                 let bar_x = group_left + si as f32 * bar_width;
-                let bar_h = baseline_y - top_y;
+                let (rect_y, bar_h) = if value >= 0.0 {
+                    (top_y, baseline_y - top_y)
+                } else {
+                    (baseline_y, top_y - baseline_y)
+                };
 
-                if bar_h > 0.0 {
+                if bar_h > 0.5 {
                     let color = theme.series_color(si);
-                    ctx.canvas = take_canvas(&mut ctx)
-                        .rect(bar_x, top_y, bar_width, bar_h)
-                        .fill(color)
-                        .corner_radius(bc.corner_radius)
-                        .done();
-                    if theme.bar_stroke_width > 0.0 {
-                        ctx.canvas = take_canvas(&mut ctx)
-                            .rect(bar_x, top_y, bar_width, bar_h)
-                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
-                            .corner_radius(bc.corner_radius)
-                            .done();
+                    ctx.draw(|c| {
+                        c.rect(bar_x, rect_y, bar_width, bar_h)
+                            .fill(color)
+                            .corner_radius(corner_r)
+                            .done()
+                    });
+                    if stroke_w > 0.0 {
+                        let sc = color.with_alpha(0.5);
+                        ctx.draw(|c| {
+                            c.rect(bar_x, rect_y, bar_width, bar_h)
+                                .stroke(sc, stroke_w)
+                                .corner_radius(corner_r)
+                                .done()
+                        });
                     }
                 }
             }
@@ -113,15 +139,7 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     }
 
     // Category label overlays
-    for (ci, label) in bc.labels.iter().enumerate() {
-        ctx.overlays.push(TextOverlay {
-            x_px: cat_scale.center(ci) as f32,
-            y_px: py + ph + 8.0,
-            text: label.clone(),
-            color: theme.text_color,
-            align: TextAlign::Center,
-        });
-    }
+    ctx.draw_categorical_x_labels(config, &cat_scale, &bc.labels);
 
     ctx.add_common_overlays(config);
     ctx.finish()
@@ -130,56 +148,36 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     let config = &bc.config;
     let theme = &config.theme;
-    let mut ctx = RenderContext::new(config, w, h);
+    let mut ctx = RenderContext::new(config, w, h, None);
     let (px, py, pw, ph) = ctx.plot;
 
-    let x_max = compute_value_max(bc);
-    let x_extent = (0.0, x_max);
-    let x_scale = LinearScale::nice(x_extent, (px as f64, (px + pw) as f64));
+    let (x_lo, x_hi) = compute_value_extent(bc);
+    let x_extent = (x_lo, x_hi);
+    let x_scale = LinearScale::nice_zero(x_extent, (px as f64, (px + pw) as f64));
 
     // Categorical axis is on the left (Y), value axis on bottom (X)
     let cat_scale = CategoricalScale::new(bc.labels.clone(), (py as f64, (py + ph) as f64));
 
-    // Draw X axis (value axis on bottom)
-    ctx.draw_x_axis_line(config);
-
-    // X axis tick labels
-    let ticks = x_scale.ticks(6);
-    for t in &ticks {
-        let x_pos = x_scale.to_pixel(*t) as f32;
-        ctx.overlays.push(TextOverlay {
-            x_px: x_pos,
-            y_px: py + ph + 8.0,
-            text: x_scale.format_tick(*t),
-            color: theme.text_color,
-            align: TextAlign::Center,
-        });
-
-        // Grid line
-        if theme.show_grid {
-            let mut grid = take_canvas(&mut ctx)
-                .line(x_pos, py, x_pos, py + ph)
-                .color(theme.grid_color)
-                .width(theme.grid_width);
-            if let Some(ref dash) = theme.grid_dash {
-                grid = grid.dash(dash.clone());
-            }
-            ctx.canvas = grid.done();
-        }
-    }
+    // X value-axis (bottom) — shared infrastructure with ticks, gridlines, labels
+    ctx.draw_x_value_axis(config, &x_scale);
 
     // Y axis line (left side)
-    ctx.canvas = take_canvas(&mut ctx)
-        .line(px, py, px, py + ph)
-        .color(theme.axis_color)
-        .width(theme.axis_width)
-        .done();
+    let axis_color = theme.axis_color();
+    let axis_width = theme.axis_width();
+    ctx.draw(|c| {
+        c.line(px, py, px, py + ph)
+            .color(axis_color)
+            .width(axis_width)
+            .done()
+    });
 
     // Draw bars (growing rightward from left axis)
     let n_series = bc.series.len();
     let band = cat_scale.band_width() as f32;
     let inner_band = band * (1.0 - bc.bar_gap);
     let baseline_x = x_scale.to_pixel(0.0) as f32;
+    let corner_r = bc.corner_radius.unwrap_or(theme.series.bar_corner_radius);
+    let stroke_w = theme.bar_stroke_width();
 
     for (ci, _label) in bc.labels.iter().enumerate() {
         let center = cat_scale.center(ci) as f32;
@@ -194,23 +192,34 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     continue;
                 }
                 let value = series.values()[ci];
+                if !value.is_finite() {
+                    continue;
+                }
                 let left_x = x_scale.to_pixel(cumulative) as f32;
                 let right_x = x_scale.to_pixel(cumulative + value) as f32;
-                let bar_w = right_x - left_x;
+                let (rect_x, bar_w) = if right_x >= left_x {
+                    (left_x, right_x - left_x)
+                } else {
+                    (right_x, left_x - right_x)
+                };
 
-                if bar_w > 0.0 {
+                if bar_w > 0.5 {
                     let color = theme.series_color(si);
-                    ctx.canvas = take_canvas(&mut ctx)
-                        .rect(left_x, bar_y, bar_w, bar_height)
-                        .fill(color)
-                        .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
-                        .done();
-                    if theme.bar_stroke_width > 0.0 {
-                        ctx.canvas = take_canvas(&mut ctx)
-                            .rect(left_x, bar_y, bar_w, bar_height)
-                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
-                            .corner_radius(if si == n_series - 1 { bc.corner_radius } else { 0.0 })
-                            .done();
+                    let cr = if si == n_series - 1 { corner_r } else { 0.0 };
+                    ctx.draw(|c| {
+                        c.rect(rect_x, bar_y, bar_w, bar_height)
+                            .fill(color)
+                            .corner_radius(cr)
+                            .done()
+                    });
+                    if stroke_w > 0.0 {
+                        let sc = color.with_alpha(0.5);
+                        ctx.draw(|c| {
+                            c.rect(rect_x, bar_y, bar_w, bar_height)
+                                .stroke(sc, stroke_w)
+                                .corner_radius(cr)
+                                .done()
+                        });
                     }
                 }
                 cumulative += value;
@@ -228,23 +237,33 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     continue;
                 }
                 let value = series.values()[ci];
+                if !value.is_finite() {
+                    continue;
+                }
                 let right_x = x_scale.to_pixel(value) as f32;
                 let bar_y = group_top + si as f32 * bar_height;
-                let bar_w = right_x - baseline_x;
+                let (rect_x, bar_w) = if value >= 0.0 {
+                    (baseline_x, right_x - baseline_x)
+                } else {
+                    (right_x, baseline_x - right_x)
+                };
 
-                if bar_w > 0.0 {
+                if bar_w > 0.5 {
                     let color = theme.series_color(si);
-                    ctx.canvas = take_canvas(&mut ctx)
-                        .rect(baseline_x, bar_y, bar_w, bar_height)
-                        .fill(color)
-                        .corner_radius(bc.corner_radius)
-                        .done();
-                    if theme.bar_stroke_width > 0.0 {
-                        ctx.canvas = take_canvas(&mut ctx)
-                            .rect(baseline_x, bar_y, bar_w, bar_height)
-                            .stroke(color.with_alpha(0.5), theme.bar_stroke_width)
-                            .corner_radius(bc.corner_radius)
-                            .done();
+                    ctx.draw(|c| {
+                        c.rect(rect_x, bar_y, bar_w, bar_height)
+                            .fill(color)
+                            .corner_radius(corner_r)
+                            .done()
+                    });
+                    if stroke_w > 0.0 {
+                        let sc = color.with_alpha(0.5);
+                        ctx.draw(|c| {
+                            c.rect(rect_x, bar_y, bar_w, bar_height)
+                                .stroke(sc, stroke_w)
+                                .corner_radius(corner_r)
+                                .done()
+                        });
                     }
                 }
             }
@@ -254,11 +273,14 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     // Category label overlays (on the left side)
     for (ci, label) in bc.labels.iter().enumerate() {
         ctx.overlays.push(TextOverlay {
-            x_px: px - 8.0,
+            x_px: px - super::y_tick_label_offset(w),
             y_px: cat_scale.center(ci) as f32,
             text: label.clone(),
-            color: theme.text_color,
+            color: theme.text_color(),
             align: TextAlign::Right,
+            font_size: 11.0,
+            bold: false,
+            rotation_deg: 0.0,
         });
     }
 
@@ -266,23 +288,57 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     ctx.finish()
 }
 
-/// Compute the maximum value across all series/categories.
-fn compute_value_max(bc: &BarChart) -> f64 {
+/// Compute the (min, max) extent across all series/categories.
+/// Always includes 0.0 so the baseline is visible.
+fn compute_value_extent(bc: &BarChart) -> (f64, f64) {
     if bc.stacked {
-        (0..bc.labels.len())
+        let sums: Vec<f64> = (0..bc.labels.len())
             .map(|ci| {
                 bc.series
                     .iter()
-                    .map(|s| if ci < s.len() { s.values()[ci] } else { 0.0 })
+                    .map(|s| {
+                        if ci < s.len() {
+                            let v = s.values()[ci];
+                            if v.is_finite() {
+                                v
+                            } else {
+                                0.0
+                            }
+                        } else {
+                            0.0
+                        }
+                    })
                     .sum::<f64>()
             })
+            .collect();
+        let lo = sums
+            .iter()
+            .copied()
+            .reduce(f64::min)
+            .unwrap_or(0.0)
+            .min(0.0);
+        let hi = sums
+            .iter()
+            .copied()
             .reduce(f64::max)
             .unwrap_or(1.0)
+            .max(0.0);
+        (lo, hi)
     } else {
-        bc.series
+        let lo = bc
+            .series
+            .iter()
+            .filter_map(|s| s.min())
+            .reduce(f64::min)
+            .unwrap_or(0.0)
+            .min(0.0);
+        let hi = bc
+            .series
             .iter()
             .filter_map(|s| s.max())
             .reduce(f64::max)
             .unwrap_or(1.0)
+            .max(0.0);
+        (lo, hi)
     }
 }

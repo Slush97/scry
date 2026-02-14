@@ -1,11 +1,10 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 319
 expression: summarize(&rendered)
 ---
 canvas: 300x250, 4 commands
 overlays: 4
-  [0] (59, 82) Right "0"
-  [1] (59, 188) Right "1"
-  [2] (121, 24) Center "0"
-  [3] (234, 24) Center "1"
+  [0] (24, 82) Right "0"
+  [1] (24, 188) Right "1"
+  [2] (94, 24) Center "0"
+  [3] (226, 24) Center "1"

@@ -60,18 +60,12 @@ impl ShmBuffer {
     /// The `name` should be a unique identifier (e.g. `pixelcanvas-12345`).
     /// It will be prefixed with `/` for the POSIX `shm_open` call.
     pub(crate) fn new(name: &str, capacity: usize) -> io::Result<Self> {
-        let c_name =
-            CString::new(format!("/{name}")).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let c_name = CString::new(format!("/{name}"))
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
         // SAFETY: shm_open creates or opens a POSIX shared memory object.
         // O_CREAT | O_RDWR, mode 0o600 (owner read/write only).
-        let fd = unsafe {
-            libc::shm_open(
-                c_name.as_ptr(),
-                libc::O_CREAT | libc::O_RDWR,
-                0o600,
-            )
-        };
+        let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -121,12 +115,18 @@ impl ShmBuffer {
     /// Panics if `data.len() > self.capacity`.
     pub(crate) fn write(&self, data: &[u8]) {
         assert!(
+            !self.ptr.is_null(),
+            "ShmBuffer::write: buffer has been invalidated (null pointer)",
+        );
+        assert!(
             data.len() <= self.capacity,
             "ShmBuffer::write: data ({}) exceeds capacity ({})",
             data.len(),
             self.capacity,
         );
-        // SAFETY: ptr is valid and exclusively owned, data fits.
+        // SAFETY: ptr is non-null (checked above), valid, and exclusively
+        // owned. data.len() <= capacity (checked above), so the write is
+        // within bounds.
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), self.ptr, data.len());
         }
@@ -155,14 +155,13 @@ impl ShmBuffer {
         // SAFETY: ptr and capacity are valid from our mmap.
         unsafe { libc::munmap(self.ptr.cast(), self.capacity) };
 
+        // Immediately invalidate so that if re-mmap fails and the caller
+        // drops us, we won't munmap a stale/dangling pointer.
+        self.ptr = std::ptr::null_mut();
+        self.capacity = 0;
+
         // Reopen, resize, remap
-        let fd = unsafe {
-            libc::shm_open(
-                self.c_name.as_ptr(),
-                libc::O_RDWR,
-                0o600,
-            )
-        };
+        let fd = unsafe { libc::shm_open(self.c_name.as_ptr(), libc::O_RDWR, 0o600) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -199,9 +198,12 @@ impl ShmBuffer {
 
 impl Drop for ShmBuffer {
     fn drop(&mut self) {
-        // SAFETY: Unmap the region and unlink the shm object.
+        // SAFETY: Only munmap if we still hold a valid mapping.
+        // ptr can be null if a resize() failed between munmap and re-mmap.
         unsafe {
-            libc::munmap(self.ptr.cast(), self.capacity);
+            if !self.ptr.is_null() {
+                libc::munmap(self.ptr.cast(), self.capacity);
+            }
             libc::shm_unlink(self.c_name.as_ptr());
         }
     }

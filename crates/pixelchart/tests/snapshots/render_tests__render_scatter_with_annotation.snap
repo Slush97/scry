@@ -1,18 +1,17 @@
 ---
 source: crates/pixelchart/tests/render_tests.rs
-assertion_line: 662
 expression: summarize(&rendered)
 ---
 canvas: 400x300, 26 commands
 overlays: 11
-  [0] (76, 279) Center "1"
-  [1] (154, 279) Center "2"
-  [2] (232, 279) Center "3"
-  [3] (310, 279) Center "4"
-  [4] (388, 279) Center "5"
-  [5] (52, 261) Right "10"
-  [6] (52, 198) Right "15"
-  [7] (52, 136) Right "20"
-  [8] (52, 74) Right "25"
-  [9] (52, 12) Right "30"
-  [10] (242, 183) Left "Peak"
+  [0] (36, 278) Center "0.8"
+  [1] (53, 278) Center "1.0"
+  [2] (137, 278) Center "2.0"
+  [3] (220, 278) Center "3.0"
+  [4] (304, 278) Center "4.0"
+  [5] (388, 278) Center "5.0"
+  [6] (31, 273) Right "9"
+  [7] (31, 261) Right "10"
+  [8] (31, 136) Right "20"
+  [9] (31, 12) Right "30"
+  [10] (230, 183) Left "Peak"

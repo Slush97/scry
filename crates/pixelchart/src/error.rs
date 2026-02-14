@@ -4,6 +4,7 @@ use std::fmt;
 
 /// Errors that can occur during chart construction or validation.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ChartError {
     /// X and Y series have different lengths.
     MismatchedLengths {
@@ -19,15 +20,26 @@ pub enum ChartError {
     /// No data was provided to the chart.
     EmptyData,
 
-    /// A required configuration parameter is missing.
-    MissingConfig(String),
+    /// Heatmap rows have inconsistent lengths.
+    JaggedGrid,
+
+    /// Value range is invalid (min >= max or non-finite bounds).
+    InvalidRange {
+        /// The minimum bound that was provided.
+        min: f64,
+        /// The maximum bound that was provided.
+        max: f64,
+    },
 }
 
 impl fmt::Display for ChartError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ChartError::MismatchedLengths { x_len, y_len } => {
-                write!(f, "X series ({x_len}) and Y series ({y_len}) have different lengths")
+                write!(
+                    f,
+                    "X series ({x_len}) and Y series ({y_len}) have different lengths"
+                )
             }
             ChartError::AllNonFinite => {
                 write!(f, "all data values are NaN or Infinity")
@@ -35,8 +47,11 @@ impl fmt::Display for ChartError {
             ChartError::EmptyData => {
                 write!(f, "no data provided")
             }
-            ChartError::MissingConfig(param) => {
-                write!(f, "missing required configuration: {param}")
+            ChartError::JaggedGrid => {
+                write!(f, "heatmap rows have inconsistent lengths")
+            }
+            ChartError::InvalidRange { min, max } => {
+                write!(f, "invalid range: min={min}, max={max}")
             }
         }
     }

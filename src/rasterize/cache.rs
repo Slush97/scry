@@ -10,8 +10,6 @@
 //! against the previous frame's pixel data to identify [`TILE_SIZE`]×[`TILE_SIZE`]
 //! tiles that changed. Only dirty tiles need to be re-transmitted.
 
-
-
 use tiny_skia::Pixmap;
 
 use crate::rasterize::skia::GradientCache;
@@ -94,7 +92,7 @@ impl RasterCache {
 
     /// Get a mutable reference to the cached pixmap, if the content hash matches.
     ///
-    /// This enables in-place re-rasterization via [`Rasterizer::rasterize_into`]
+    /// This enables in-place re-rasterization via [`Rasterizer::rasterize_into`](super::Rasterizer::rasterize_into)
     /// without allocating a new pixmap.
     #[must_use]
     pub fn get_mut(&mut self, content_hash: u64) -> Option<&mut Pixmap> {
@@ -134,7 +132,7 @@ impl RasterCache {
 
     /// Mark the cache as valid for the given content hash without replacing the pixmap.
     ///
-    /// Used after [`Rasterizer::rasterize_into`] writes directly into the
+    /// Used after [`Rasterizer::rasterize_into`](super::Rasterizer::rasterize_into) writes directly into the
     /// pixmap returned by [`get_or_insert`](Self::get_or_insert).
     pub const fn mark_valid(&mut self, content_hash: u64) {
         self.hash = Some(content_hash);
@@ -196,8 +194,39 @@ impl RasterCache {
     ///
     /// Returns an empty vec if the entire frame is unchanged.
     pub fn compute_dirty_tiles(&mut self, pixmap: &Pixmap) -> Vec<DirtyTile> {
+        self.compute_dirty_tiles_from_data(
+            pixmap.data(),
+            pixmap.width() as usize,
+            pixmap.height() as usize,
+        )
+    }
+
+    /// Compute dirty tiles using the internally cached pixmap.
+    ///
+    /// This avoids the self-referential borrow problem that occurs when
+    /// calling [`compute_dirty_tiles`](Self::compute_dirty_tiles) with a
+    /// pixmap obtained from [`get()`](Self::get) on the same cache.
+    ///
+    /// Returns `None` if no pixmap is currently cached.
+    pub fn compute_dirty_tiles_cached(&mut self) -> Option<Vec<DirtyTile>> {
+        let pixmap = self.pixmap.as_ref()?;
+        let data = pixmap.data().to_vec(); // Copy data to break borrow
         let w = pixmap.width() as usize;
         let h = pixmap.height() as usize;
+        Some(self.compute_dirty_tiles_from_data(&data, w, h))
+    }
+
+    /// Compute dirty tiles from raw RGBA pixel data.
+    ///
+    /// This variant avoids the self-referential borrow problem when the
+    /// pixmap lives inside the same `RasterCache` (e.g. in `flush()`).
+    /// Pass `pixmap.data()`, `width`, and `height` separately.
+    pub fn compute_dirty_tiles_from_data(
+        &mut self,
+        data: &[u8],
+        w: usize,
+        h: usize,
+    ) -> Vec<DirtyTile> {
         let tx = w.div_ceil(TILE_SIZE);
         let ty = h.div_ceil(TILE_SIZE);
         let total = tx * ty;
@@ -206,7 +235,6 @@ impl RasterCache {
         // for computing the current frame's hashes (avoids allocation).
         let prev_hashes = std::mem::take(&mut self.prev_tile_hashes);
         let mut current_hashes = Vec::with_capacity(total.max(prev_hashes.len()));
-        let data = pixmap.data();
 
         for ty_idx in 0..ty {
             for tx_idx in 0..tx {
@@ -244,11 +272,7 @@ impl RasterCache {
                 }
             }
         } else {
-            for (i, (&prev, &curr)) in prev_hashes
-                .iter()
-                .zip(current_hashes.iter())
-                .enumerate()
-            {
+            for (i, (&prev, &curr)) in prev_hashes.iter().zip(current_hashes.iter()).enumerate() {
                 if prev != curr {
                     let col_idx = i % tx;
                     let row_idx = i / tx;
@@ -333,7 +357,10 @@ mod tests {
         let pm = Pixmap::new(128, 128).unwrap();
         cache.compute_dirty_tiles(&pm); // first frame
         let dirty = cache.compute_dirty_tiles(&pm); // same pixmap
-        assert!(dirty.is_empty(), "identical frame should have 0 dirty tiles");
+        assert!(
+            dirty.is_empty(),
+            "identical frame should have 0 dirty tiles"
+        );
     }
 
     #[test]

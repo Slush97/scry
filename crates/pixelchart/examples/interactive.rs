@@ -13,7 +13,9 @@
 use std::io::stdout;
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, MouseEventKind, EnableMouseCapture, DisableMouseCapture},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEventKind,
+    },
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
@@ -33,10 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate sample data: damped sine wave
     let n = 60;
     let x_data: Vec<f64> = (0..n).map(|i| i as f64 * 0.2).collect();
-    let y_data: Vec<f64> = x_data
-        .iter()
-        .map(|&x| x.sin() * (-x * 0.1).exp())
-        .collect();
+    let y_data: Vec<f64> = x_data.iter().map(|&x| x.sin() * (-x * 0.1).exp()).collect();
 
     let y2_data: Vec<f64> = x_data
         .iter()
@@ -81,18 +80,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .constraints([Constraint::Min(1), Constraint::Length(3)])
                 .split(frame.area());
 
-            frame.render_stateful_widget(
-                ChartWidget::new(&chart),
-                chunks[0],
-                &mut state,
-            );
+            frame.render_stateful_widget(ChartWidget::new(&chart), chunks[0], &mut state);
 
             // Status bar
             let zoom_info = if let Some(ref zoom) = state.zoom {
                 if zoom.is_zoomed() {
-                    format!(" [ZOOMED] x:{:.1}..{:.1} y:{:.1}..{:.1}",
-                        zoom.x_range().0, zoom.x_range().1,
-                        zoom.y_range().0, zoom.y_range().1)
+                    format!(
+                        " [ZOOMED] x:{:.1}..{:.1} y:{:.1}..{:.1}",
+                        zoom.x_range().0,
+                        zoom.x_range().1,
+                        zoom.y_range().0,
+                        zoom.y_range().1
+                    )
                 } else {
                     String::new()
                 }
@@ -119,19 +118,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Char('h') => {
-                        if let Some(ref mut zoom) = state.zoom { zoom.pan_left(); }
+                        if let Some(ref mut zoom) = state.zoom {
+                            zoom.pan_left();
+                        }
                     }
                     KeyCode::Char('l') => {
-                        if let Some(ref mut zoom) = state.zoom { zoom.pan_right(); }
+                        if let Some(ref mut zoom) = state.zoom {
+                            zoom.pan_right();
+                        }
                     }
                     KeyCode::Char('k') => {
-                        if let Some(ref mut zoom) = state.zoom { zoom.pan_up(); }
+                        if let Some(ref mut zoom) = state.zoom {
+                            zoom.pan_up();
+                        }
                     }
                     KeyCode::Char('j') => {
-                        if let Some(ref mut zoom) = state.zoom { zoom.pan_down(); }
+                        if let Some(ref mut zoom) = state.zoom {
+                            zoom.pan_down();
+                        }
                     }
                     KeyCode::Char('r') => {
-                        if let Some(ref mut zoom) = state.zoom { zoom.reset(); }
+                        if let Some(ref mut zoom) = state.zoom {
+                            zoom.reset();
+                        }
                     }
                     KeyCode::Char('c') => {
                         state.cursor.toggle_crosshair();

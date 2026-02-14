@@ -118,8 +118,14 @@ fn build_scatter(theme: Theme) -> Chart {
     .marker(Marker::Circle)
     .connected()
     .add_series(
-        Series::new("Series B", vec![1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]),
-        Series::new("Series B Y", vec![5.0, 3.2, 6.1, 2.8, 7.3, 4.5, 3.0, 8.2, 5.8, 9.1]),
+        Series::new(
+            "Series B",
+            vec![1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5],
+        ),
+        Series::new(
+            "Series B Y",
+            vec![5.0, 3.2, 6.1, 2.8, 7.3, 4.5, 3.0, 8.2, 5.8, 9.1],
+        ),
     )
     .trend_line()
     .annotate(4.0, 7.2, "Peak A")
@@ -135,8 +141,14 @@ fn build_line_basic(theme: Theme) -> Chart {
         .x_label("Month")
         .y_label("Revenue ($K)")
         .theme(theme)
-        .add_series(Series::new("Product B", vec![5.0, 12.0, 8.0, 15.0, 11.0, 7.0, 13.0, 9.0, 4.0, 18.0]))
-        .add_series(Series::new("Product C", vec![8.0, 6.0, 14.0, 10.0, 16.0, 3.0, 11.0, 7.0, 13.0, 9.0]))
+        .add_series(Series::new(
+            "Product B",
+            vec![5.0, 12.0, 8.0, 15.0, 11.0, 7.0, 13.0, 9.0, 4.0, 18.0],
+        ))
+        .add_series(Series::new(
+            "Product C",
+            vec![8.0, 6.0, 14.0, 10.0, 16.0, 3.0, 11.0, 7.0, 13.0, 9.0],
+        ))
         .build()
 }
 
@@ -150,16 +162,17 @@ fn build_line_filled(theme: Theme) -> Chart {
         .theme(theme)
         .filled()
         .with_points()
-        .add_series(Series::new("GPU %", vec![2.0, 5.0, 8.0, 4.0, 10.0, 7.0, 3.0, 9.0, 6.0, 11.0]))
+        .add_series(Series::new(
+            "GPU %",
+            vec![2.0, 5.0, 8.0, 4.0, 10.0, 7.0, 3.0, 9.0, 6.0, 11.0],
+        ))
         .h_line_styled(6.0, Color::from_rgba8(255, 100, 100, 180))
         .annotate(5.0, 11.0, "Spike")
         .build()
 }
 
 fn build_bar_vertical(theme: Theme) -> Chart {
-    let labels = vec![
-        "Q1".into(), "Q2".into(), "Q3".into(), "Q4".into(),
-    ];
+    let labels = vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()];
 
     Chart::bar(labels, &[42.0, 65.0, 53.0, 78.0])
         .title("Quarterly Revenue — Grouped")
@@ -173,7 +186,11 @@ fn build_bar_vertical(theme: Theme) -> Chart {
 
 fn build_bar_horizontal(theme: Theme) -> Chart {
     let labels = vec![
-        "Rust".into(), "Go".into(), "Python".into(), "JS".into(), "C++".into(),
+        "Rust".into(),
+        "Go".into(),
+        "Python".into(),
+        "JS".into(),
+        "C++".into(),
     ];
 
     Chart::bar(labels, &[92.0, 78.0, 85.0, 70.0, 65.0])
@@ -192,10 +209,12 @@ fn build_histogram(theme: Theme) -> Chart {
     use ratatui_pixelcanvas::scene::style::Color;
 
     // Generate sample data for a normal-ish distribution
-    let data: Vec<f64> = (0..100).map(|i| {
-        let x = i as f64 / 10.0;
-        (x * 0.7).sin() * 3.0 + 5.0 + (i as f64 % 3.0) * 0.5
-    }).collect();
+    let data: Vec<f64> = (0..100)
+        .map(|i| {
+            let x = i as f64 / 10.0;
+            (x * 0.7).sin() * 3.0 + 5.0 + (i as f64 % 3.0) * 0.5
+        })
+        .collect();
 
     let mean = data.iter().sum::<f64>() / data.len() as f64;
 
@@ -206,10 +225,15 @@ fn build_histogram(theme: Theme) -> Chart {
         .theme(theme)
         .bins(12)
         .density()
-        .add_series(Series::new("Group B", (0..80).map(|i| {
-            let x = i as f64 / 8.0;
-            (x * 0.5).cos() * 2.0 + 6.0
-        }).collect()))
+        .add_series(Series::new(
+            "Group B",
+            (0..80)
+                .map(|i| {
+                    let x = i as f64 / 8.0;
+                    (x * 0.5).cos() * 2.0 + 6.0
+                })
+                .collect(),
+        ))
         .opacity(0.6)
         .v_line_styled(mean, Color::from_rgba8(255, 255, 0, 200))
         .build()
@@ -217,10 +241,22 @@ fn build_histogram(theme: Theme) -> Chart {
 
 fn build_boxplot(theme: Theme) -> Chart {
     Chart::boxplot(vec![
-        ("Control", vec![2.0, 3.0, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 15.0]),
-        ("Drug A", vec![4.0, 5.0, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 10.0]),
-        ("Drug B", vec![1.0, 5.5, 6.0, 7.0, 7.5, 8.0, 9.0, 9.5, 10.0, 11.0, 18.0]),
-        ("Drug C", vec![3.0, 4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 12.0]),
+        (
+            "Control",
+            vec![2.0, 3.0, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 15.0],
+        ),
+        (
+            "Drug A",
+            vec![4.0, 5.0, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 10.0],
+        ),
+        (
+            "Drug B",
+            vec![1.0, 5.5, 6.0, 7.0, 7.5, 8.0, 9.0, 9.5, 10.0, 11.0, 18.0],
+        ),
+        (
+            "Drug C",
+            vec![3.0, 4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 12.0],
+        ),
     ])
     .title("Clinical Trial Results")
     .x_label("Treatment Group")
@@ -235,17 +271,20 @@ fn build_heatmap(theme: Theme) -> Chart {
 
     let labels = vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()];
     Chart::heatmap(vec![
-        vec![ 1.00,  0.85,  0.30, -0.10, -0.45],
-        vec![ 0.85,  1.00,  0.55,  0.20, -0.30],
-        vec![ 0.30,  0.55,  1.00,  0.70,  0.10],
-        vec![-0.10,  0.20,  0.70,  1.00,  0.60],
-        vec![-0.45, -0.30,  0.10,  0.60,  1.00],
+        vec![1.00, 0.85, 0.30, -0.10, -0.45],
+        vec![0.85, 1.00, 0.55, 0.20, -0.30],
+        vec![0.30, 0.55, 1.00, 0.70, 0.10],
+        vec![-0.10, 0.20, 0.70, 1.00, 0.60],
+        vec![-0.45, -0.30, 0.10, 0.60, 1.00],
     ])
     .title("Correlation Matrix")
     .theme(theme)
     .row_labels(labels.clone())
     .col_labels(labels)
-    .colors(Color::from_rgba8(60, 100, 220, 255), Color::from_rgba8(220, 60, 60, 255))
+    .colors(
+        Color::from_rgba8(60, 100, 220, 255),
+        Color::from_rgba8(220, 60, 60, 255),
+    )
     .range(-1.0, 1.0)
     .values(true)
     .cell_radius(3.0)
@@ -301,11 +340,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let areas = [top[0], top[1], bot[0], bot[1]];
                 for (chart, area) in charts.iter().zip(areas.iter()) {
-                    frame.render_stateful_widget(
-                        ChartWidget::new(chart),
-                        *area,
-                        &mut state,
-                    );
+                    frame.render_stateful_widget(ChartWidget::new(chart), *area, &mut state);
                 }
             } else {
                 let chart = match page {
@@ -320,11 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Page::Dashboard => unreachable!(),
                 };
 
-                frame.render_stateful_widget(
-                    ChartWidget::new(&chart),
-                    chunks[0],
-                    &mut state,
-                );
+                frame.render_stateful_widget(ChartWidget::new(&chart), chunks[0], &mut state);
             }
 
             let status = Paragraph::new(format!(

@@ -6,9 +6,14 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! let profile = Rasterizer::rasterize_into_profiled(&canvas, &mut pixmap);
-//! // profile.raster_by_type contains per-command-type timing
+//! ```no_run
+//! use ratatui_pixelcanvas::rasterize::ProfiledRasterizer;
+//! use ratatui_pixelcanvas::scene::PixelCanvas;
+//!
+//! let canvas = PixelCanvas::new(100, 100);
+//! let mut pixmap = tiny_skia::Pixmap::new(100, 100).unwrap();
+//! let profile = ProfiledRasterizer::rasterize_into_profiled(&canvas, &mut pixmap);
+//! // profile.by_type contains per-command-type timing
 //! ```
 
 use std::fmt;
@@ -160,7 +165,11 @@ impl CommandTiming {
     /// Average time per command in microseconds (0 if no commands).
     #[must_use]
     pub fn avg_us(&self) -> u64 {
-        if self.count == 0 { 0 } else { self.total_us / u64::from(self.count) }
+        if self.count == 0 {
+            0
+        } else {
+            self.total_us / u64::from(self.count)
+        }
     }
 }
 
@@ -218,7 +227,11 @@ impl RasterProfile {
             .copied()
             .filter_map(|ct| {
                 let t = &self.by_type[ct as usize];
-                if t.count > 0 { Some((ct, t)) } else { None }
+                if t.count > 0 {
+                    Some((ct, t))
+                } else {
+                    None
+                }
             })
             .collect();
         active.sort_by(|a, b| b.1.total_us.cmp(&a.1.total_us));
@@ -243,7 +256,9 @@ impl fmt::Display for RasterProfile {
         write!(f, "{}[", compact_time(self.total_us))?;
         let sorted = self.active_types_sorted();
         for (i, (ct, timing)) in sorted.iter().enumerate() {
-            if i > 0 { write!(f, " ")?; }
+            if i > 0 {
+                write!(f, " ")?;
+            }
             write!(
                 f,
                 "{}{}={}",
@@ -318,7 +333,9 @@ impl fmt::Display for SmoothedProfile {
         write!(f, "~{}[", compact_time(self.total_median_us))?;
         let sorted = self.sorted_types();
         for (i, st) in sorted.iter().enumerate() {
-            if i > 0 { write!(f, " ")?; }
+            if i > 0 {
+                write!(f, " ")?;
+            }
             if i < 3 {
                 // Top 3: show median/P95
                 write!(
@@ -352,9 +369,14 @@ impl fmt::Display for SmoothedProfile {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use ratatui_pixelcanvas::rasterize::{ProfileHistory, ProfiledRasterizer};
+/// use ratatui_pixelcanvas::scene::PixelCanvas;
+///
 /// let mut history = ProfileHistory::new(64);
 /// // In your render loop:
+/// let canvas = PixelCanvas::new(100, 100);
+/// let mut pixmap = tiny_skia::Pixmap::new(100, 100).unwrap();
 /// let profile = ProfiledRasterizer::rasterize_into_profiled(&canvas, &mut pixmap);
 /// history.push(profile);
 /// let smoothed = history.summary();
@@ -452,7 +474,8 @@ impl ProfileHistory {
             let has_data = self.frames.iter().any(|p| p.by_type[idx].count > 0);
             if has_data {
                 #[allow(clippy::cast_possible_truncation)]
-                let median_count = percentile_of(&self.frames, |p| u64::from(p.by_type[idx].count), 50) as u32;
+                let median_count =
+                    percentile_of(&self.frames, |p| u64::from(p.by_type[idx].count), 50) as u32;
                 by_type.push(SmoothedTiming {
                     cmd_type: ct,
                     count: median_count,
@@ -586,9 +609,22 @@ impl PipelineProfile {
 impl fmt::Display for PipelineProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Pipeline Profile ({:.1}ms total)", self.total_ms())?;
-        writeln!(f, "  Canvas: {}×{} ({} pixels)", self.canvas_width, self.canvas_height, self.pixel_count)?;
-        writeln!(f, "  Build:     {:.3}ms", self.scene_build_us as f64 / 1000.0)?;
-        writeln!(f, "  Raster:    {:.3}ms ({} commands)", self.raster.total_us as f64 / 1000.0, self.raster.total_commands)?;
+        writeln!(
+            f,
+            "  Canvas: {}×{} ({} pixels)",
+            self.canvas_width, self.canvas_height, self.pixel_count
+        )?;
+        writeln!(
+            f,
+            "  Build:     {:.3}ms",
+            self.scene_build_us as f64 / 1000.0
+        )?;
+        writeln!(
+            f,
+            "  Raster:    {:.3}ms ({} commands)",
+            self.raster.total_us as f64 / 1000.0,
+            self.raster.total_commands
+        )?;
         for (ct, timing) in self.raster.active_types_sorted() {
             writeln!(
                 f,
@@ -600,11 +636,32 @@ impl fmt::Display for PipelineProfile {
                 timing.max_us as f64,
             )?;
         }
-        writeln!(f, "  Transport: {:.3}ms", self.transport.total_us as f64 / 1000.0)?;
-        writeln!(f, "    Compress: {:.3}ms", self.transport.compress_us as f64 / 1000.0)?;
-        writeln!(f, "    Encode:   {:.3}ms", self.transport.encode_us as f64 / 1000.0)?;
-        writeln!(f, "    I/O:      {:.3}ms", self.transport.io_us as f64 / 1000.0)?;
-        writeln!(f, "    Wire:     {} KB ({:.1}× compression)", self.transport.wire_bytes / 1024, self.transport.compression_ratio())?;
+        writeln!(
+            f,
+            "  Transport: {:.3}ms",
+            self.transport.total_us as f64 / 1000.0
+        )?;
+        writeln!(
+            f,
+            "    Compress: {:.3}ms",
+            self.transport.compress_us as f64 / 1000.0
+        )?;
+        writeln!(
+            f,
+            "    Encode:   {:.3}ms",
+            self.transport.encode_us as f64 / 1000.0
+        )?;
+        writeln!(
+            f,
+            "    I/O:      {:.3}ms",
+            self.transport.io_us as f64 / 1000.0
+        )?;
+        writeln!(
+            f,
+            "    Wire:     {} KB ({:.1}× compression)",
+            self.transport.wire_bytes / 1024,
+            self.transport.compression_ratio()
+        )?;
         Ok(())
     }
 }
@@ -613,9 +670,7 @@ impl fmt::Display for PipelineProfile {
 // Profiled rasterization
 // ---------------------------------------------------------------------------
 
-use tiny_skia::{
-    FillRule, Transform as SkiaTransform,
-};
+use tiny_skia::{FillRule, Transform as SkiaTransform};
 
 use crate::scene::style::Color;
 
@@ -633,10 +688,7 @@ impl ProfiledRasterizer {
     /// # Panics
     ///
     /// Panics if the pixmap dimensions don't match the canvas dimensions.
-    pub fn rasterize_into_profiled(
-        canvas: &PixelCanvas,
-        pixmap: &mut Pixmap,
-    ) -> RasterProfile {
+    pub fn rasterize_into_profiled(canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterProfile {
         let mut gc = crate::rasterize::skia::GradientCache::new();
         Self::rasterize_into_profiled_cached(canvas, pixmap, &mut gc)
     }
@@ -731,7 +783,7 @@ impl ProfiledRasterizer {
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
-                        clippy::cast_precision_loss,
+                        clippy::cast_precision_loss
                     )]
                     let (tw, th, origin_col, origin_row) = match clip {
                         Some(crate::scene::style::ClipRegion::Rect(r)) => {
@@ -747,9 +799,9 @@ impl ProfiledRasterizer {
                     };
 
                     let needed_area = (tw as usize) * (th as usize);
-                    let mut temp = pool.pop().unwrap_or_else(|| {
-                        Pixmap::new(tw, th).expect("temp pixmap for group")
-                    });
+                    let mut temp = pool
+                        .pop()
+                        .unwrap_or_else(|| Pixmap::new(tw, th).expect("temp pixmap for group"));
 
                     // Right-size: discard if too small or >4× needed.
                     let pool_area = (temp.width() as usize) * (temp.height() as usize);
@@ -770,7 +822,9 @@ impl ProfiledRasterizer {
                         for row in 0..(th as usize) {
                             let start = row * row_stride;
                             let end = (start + row_clear).min(data.len());
-                            if start >= data.len() { break; }
+                            if start >= data.len() {
+                                break;
+                            }
                             data[start..end].fill(0);
                         }
                     }
@@ -786,8 +840,7 @@ impl ProfiledRasterizer {
                         combined
                     };
 
-                    profile.group_alloc_us +=
-                        alloc_start.elapsed().as_micros() as u64;
+                    profile.group_alloc_us += alloc_start.elapsed().as_micros() as u64;
 
                     // Render children (profiled recursively)
                     for child in commands {
@@ -807,8 +860,7 @@ impl ProfiledRasterizer {
                     let mask = clip.as_ref().and_then(|clip_region| match clip_region {
                         crate::scene::style::ClipRegion::Rect(_) => None,
                         crate::scene::style::ClipRegion::Path(path_data) => {
-                            let mut mask =
-                                tiny_skia::Mask::new(pixmap.width(), pixmap.height())?;
+                            let mut mask = tiny_skia::Mask::new(pixmap.width(), pixmap.height())?;
                             mask.fill_path(
                                 path_data.path(),
                                 FillRule::Winding,
@@ -833,8 +885,7 @@ impl ProfiledRasterizer {
                         mask.as_ref(),
                     );
 
-                    profile.group_composite_us +=
-                        composite_start.elapsed().as_micros() as u64;
+                    profile.group_composite_us += composite_start.elapsed().as_micros() as u64;
 
                     pool.push(temp);
                 } else {
@@ -908,7 +959,7 @@ mod tests {
         let profile = ProfiledRasterizer::rasterize_into_profiled(&canvas, &mut pixmap);
 
         let display = format!("{profile}");
-        assert!(display.contains("["));
+        assert!(display.contains('['));
         assert!(display.contains("cir1="));
     }
 
@@ -925,7 +976,7 @@ mod tests {
 
     // -- ProfileHistory tests --
 
-    /// Build a synthetic RasterProfile with a given total_us and circle timing.
+    /// Build a synthetic `RasterProfile` with a given `total_us` and circle timing.
     fn synth_profile(total_us: u64, circle_us: u64) -> RasterProfile {
         let mut p = RasterProfile::default();
         p.total_us = total_us;

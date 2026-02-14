@@ -9,8 +9,8 @@
 //! | Backend | Feature | Quality | Transparency |
 //! |---------|---------|---------|-------------|
 //! | [`kitty::KittyBackend`] | `kitty` | Pixel-perfect | ✅ |
-//! | [`sixel::SixelBackend`] | `sixel` | 256-color quantized | ❌ |
-//! | [`iterm2::Iterm2Backend`] | `iterm2` | PNG inline | ✅ |
+//! | `sixel::SixelBackend` | `sixel` | 256-color quantized | ❌ |
+//! | `iterm2::Iterm2Backend` | `iterm2` | PNG inline | ✅ |
 //! | [`halfblock::HalfblockBackend`] | always | 1×2 per cell | ❌ |
 
 pub mod backend;
