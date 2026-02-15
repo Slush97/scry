@@ -1,0 +1,14 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 400x300, 17 commands
+overlays: 8
+  [0] (31, 245) Right "0"
+  [1] (31, 138) Right "20"
+  [2] (31, 30) Right "40"
+  [3] (80, 250) Right rot=90° "Alpha"
+  [4] (168, 250) Right rot=90° "Beta"
+  [5] (256, 250) Right rot=90° "Gamma"
+  [6] (344, 250) Right rot=90° "Delta"
+  [7] (212, 16) Center "Vertical Labels"

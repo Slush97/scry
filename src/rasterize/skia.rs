@@ -433,6 +433,8 @@ impl Rasterizer {
                     let needed_area = (tw as usize) * (th as usize);
                     let mut temp = pool
                         .pop()
+                        // SAFETY: tw and th are clamped to parent pixmap dims
+                        // (which were already validated), so Pixmap::new succeeds.
                         .unwrap_or_else(|| Pixmap::new(tw, th).expect("temp pixmap for group"));
 
                     // Right-size: if pooled pixmap is too small OR >4× the
@@ -440,6 +442,7 @@ impl Rasterizer {
                     // lingering and inflating clear costs.
                     let pool_area = (temp.width() as usize) * (temp.height() as usize);
                     if temp.width() < tw || temp.height() < th || pool_area > needed_area * 4 {
+                        // SAFETY: same bound reasoning as above.
                         temp = Pixmap::new(tw, th).expect("temp pixmap for group");
                     }
 
@@ -1033,6 +1036,7 @@ impl Rasterizer {
 
         FONT_CACHE.with(|cache| {
             let cache = cache.borrow();
+            // SAFETY: font was inserted into the cache immediately above.
             let font = cache.get(&font_key).expect("font was just inserted");
 
             for ch in text.chars() {

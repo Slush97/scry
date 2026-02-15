@@ -7,16 +7,16 @@
 //! - rasterize/cache.rs: caching edge cases
 //! - scene/animation.rs: Transition, Keyframes, AnimationState advanced
 
-use ratatui_pixelcanvas::rasterize::{RasterCache, Rasterizer};
-use ratatui_pixelcanvas::scene::animation::{
+use scry_engine::rasterize::{RasterCache, Rasterizer};
+use scry_engine::scene::animation::{
     AnimationState, Easing, Keyframe, Keyframes, Lerp, Transition,
 };
-use ratatui_pixelcanvas::scene::command::DrawCommand;
-use ratatui_pixelcanvas::scene::style::{
+use scry_engine::scene::command::DrawCommand;
+use scry_engine::scene::style::{
     BlendMode, Color, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop, LineCap,
     LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
 };
-use ratatui_pixelcanvas::scene::PixelCanvas;
+use scry_engine::scene::PixelCanvas;
 use std::time::Duration;
 
 // ═══════════════════════════════════════════════════════════
@@ -1056,7 +1056,7 @@ fn animation_state_default() {
 
 #[test]
 fn halfblock_odd_height() {
-    use ratatui_pixelcanvas::transport::halfblock::HalfblockBackend;
+    use scry_engine::transport::halfblock::HalfblockBackend;
 
     let canvas = PixelCanvas::new(10, 11).background(Color::RED);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
@@ -1066,7 +1066,7 @@ fn halfblock_odd_height() {
 
 #[test]
 fn halfblock_1px_height() {
-    use ratatui_pixelcanvas::transport::halfblock::HalfblockBackend;
+    use scry_engine::transport::halfblock::HalfblockBackend;
 
     let canvas = PixelCanvas::new(5, 1).background(Color::GREEN);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
@@ -1077,7 +1077,7 @@ fn halfblock_1px_height() {
 
 #[test]
 fn halfblock_render_to_cells_flat() {
-    use ratatui_pixelcanvas::transport::halfblock::HalfblockBackend;
+    use scry_engine::transport::halfblock::HalfblockBackend;
 
     let canvas = PixelCanvas::new(10, 10).background(Color::RED);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();

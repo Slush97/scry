@@ -6,9 +6,9 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::style::Color;
-use ratatui_pixelcanvas::scene::PixelCanvas;
+use scry_engine::rasterize::Rasterizer;
+use scry_engine::scene::style::Color;
+use scry_engine::scene::PixelCanvas;
 
 /// Extract an f32 from fuzz data at a given offset.
 fn fuzz_f32(data: &[u8], offset: usize) -> f32 {

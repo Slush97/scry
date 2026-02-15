@@ -4,14 +4,14 @@
 //! verifying that a scene can be built, rasterized, and transmitted
 //! through the Kitty backend without errors.
 
-use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::{Color, PixelCanvas};
-use ratatui_pixelcanvas::transport::backend::{FontSize, ProtocolBackend, TerminalPosition};
+use scry_engine::rasterize::Rasterizer;
+use scry_engine::scene::{Color, PixelCanvas};
+use scry_engine::transport::backend::{FontSize, ProtocolBackend, TerminalPosition};
 
 #[cfg(feature = "kitty")]
-use ratatui_pixelcanvas::transport::kitty::KittyBackend;
+use scry_engine::transport::kitty::KittyBackend;
 
-use ratatui_pixelcanvas::transport::halfblock::HalfblockBackend;
+use scry_engine::transport::halfblock::HalfblockBackend;
 
 // ---------------------------------------------------------------------------
 // Kitty pipeline
@@ -60,7 +60,7 @@ fn full_pipeline_kitty_raw_rgba() {
 #[cfg(feature = "kitty")]
 #[test]
 fn full_pipeline_kitty_png_format() {
-    use ratatui_pixelcanvas::transport::kitty::TransmitFormat;
+    use scry_engine::transport::kitty::TransmitFormat;
     use std::io::Cursor;
 
     let canvas = PixelCanvas::new(50, 50)
@@ -246,12 +246,12 @@ fn polygon_rasterizes_filled() {
 #[test]
 fn push_command_mutable_api() {
     let mut canvas = PixelCanvas::new(100, 100).background(Color::BLACK);
-    canvas.push_command(ratatui_pixelcanvas::scene::command::DrawCommand::Circle {
+    canvas.push_command(scry_engine::scene::command::DrawCommand::Circle {
         cx: 50.0,
         cy: 50.0,
         radius: 25.0,
-        style: ratatui_pixelcanvas::scene::style::ShapeStyle {
-            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(
+        style: scry_engine::scene::style::ShapeStyle {
+            fill: Some(scry_engine::scene::style::FillStyle::Solid(
                 Color::RED,
             )),
             stroke: None,
@@ -270,7 +270,7 @@ fn push_command_mutable_api() {
 
 #[test]
 fn dirty_tiles_detected_on_pixel_change() {
-    use ratatui_pixelcanvas::rasterize::{RasterCache, TILE_SIZE};
+    use scry_engine::rasterize::{RasterCache, TILE_SIZE};
 
     let mut cache = RasterCache::new();
 
@@ -289,12 +289,12 @@ fn dirty_tiles_detected_on_pixel_change() {
 
     // Frame 3: change one pixel in top-left tile
     let mut canvas3 = PixelCanvas::new(128, 128).background(Color::BLUE);
-    canvas3.push_command(ratatui_pixelcanvas::scene::command::DrawCommand::Circle {
+    canvas3.push_command(scry_engine::scene::command::DrawCommand::Circle {
         cx: 16.0,
         cy: 16.0,
         radius: 5.0,
-        style: ratatui_pixelcanvas::scene::style::ShapeStyle {
-            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(
+        style: scry_engine::scene::style::ShapeStyle {
+            fill: Some(scry_engine::scene::style::FillStyle::Solid(
                 Color::RED,
             )),
             stroke: None,
@@ -317,7 +317,7 @@ fn dirty_tiles_detected_on_pixel_change() {
 #[cfg(feature = "kitty")]
 #[test]
 fn transmit_tiles_sends_multiple_images() {
-    use ratatui_pixelcanvas::rasterize::DirtyTile;
+    use scry_engine::rasterize::DirtyTile;
     use std::io::Cursor;
 
     let canvas = PixelCanvas::new(128, 128).background(Color::BLUE);

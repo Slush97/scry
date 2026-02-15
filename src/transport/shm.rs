@@ -57,7 +57,7 @@ unsafe impl Send for ShmBuffer {}
 impl ShmBuffer {
     /// Create a new shared memory buffer with the given capacity.
     ///
-    /// The `name` should be a unique identifier (e.g. `pixelcanvas-12345`).
+    /// The `name` should be a unique identifier (e.g. `scry-12345`).
     /// It will be prefixed with `/` for the POSIX `shm_open` call.
     pub(crate) fn new(name: &str, capacity: usize) -> io::Result<Self> {
         let c_name = CString::new(format!("/{name}"))
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn create_write_read_cleanup() {
-        let name = format!("pixelcanvas-test-{}", std::process::id());
+        let name = format!("scry-test-{}", std::process::id());
         let buf = ShmBuffer::new(&name, 1024).unwrap();
         assert_eq!(buf.capacity(), 1024);
 
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn resize_grows_buffer() {
-        let name = format!("pixelcanvas-resize-{}", std::process::id());
+        let name = format!("scry-resize-{}", std::process::id());
         let mut buf = ShmBuffer::new(&name, 256).unwrap();
         assert_eq!(buf.capacity(), 256);
 

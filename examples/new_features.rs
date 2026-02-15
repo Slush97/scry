@@ -32,10 +32,10 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
-use ratatui_pixelcanvas::scene::style::{BlendMode, Color as C, Point, Rect as PxRect, Transform};
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::transport;
+use scry_engine::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use scry_engine::scene::style::{BlendMode, Color as C, Point, Rect as PxRect, Transform};
+use scry_engine::scene::PixelCanvas;
+use scry_engine::transport;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
@@ -446,11 +446,11 @@ fn draw_glyph(canvas: &mut PixelCanvas, x: f32, y: f32, bits: &[u8], color: C) {
         for col in 0..5 {
             if byte & (1 << (4 - col)) != 0 {
                 canvas.push_command(
-                    ratatui_pixelcanvas::scene::command::DrawCommand::Rectangle {
+                    scry_engine::scene::command::DrawCommand::Rectangle {
                         rect: PxRect::new(x + col as f32, y + row as f32, 1.0, 1.0),
                         corner_radius: 0.0,
-                        style: ratatui_pixelcanvas::scene::style::ShapeStyle {
-                            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(color)),
+                        style: scry_engine::scene::style::ShapeStyle {
+                            fill: Some(scry_engine::scene::style::FillStyle::Solid(color)),
                             stroke: None,
                             anti_alias: false,
                         },

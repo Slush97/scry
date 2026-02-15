@@ -4,6 +4,20 @@
 //! for transmitting pixel data to the terminal. It also provides the [`Picker`]
 //! for auto-detecting the best available protocol.
 //!
+//! # Protocol Selection
+//!
+//! Use [`Picker::detect()`] to auto-detect the best protocol at runtime.
+//! The detection order is: **Kitty → iTerm2 → Sixel → Halfblock**.
+//!
+//! For manual control, construct backends directly:
+//!
+//! ```no_run
+//! use scry_engine::transport::{Picker, FontSize};
+//!
+//! let picker = Picker::detect();
+//! println!("Detected: {:?} at {:?}", picker.protocol(), picker.font_size());
+//! ```
+//!
 //! # Backends
 //!
 //! | Backend | Feature | Quality | Transparency |
@@ -12,6 +26,7 @@
 //! | `sixel::SixelBackend` | `sixel` | 256-color quantized | ❌ |
 //! | `iterm2::Iterm2Backend` | `iterm2` | PNG inline | ✅ |
 //! | [`halfblock::HalfblockBackend`] | always | 1×2 per cell | ❌ |
+
 
 pub mod backend;
 #[cfg(feature = "kitty")]

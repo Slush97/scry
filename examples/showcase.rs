@@ -32,13 +32,13 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
-use ratatui_pixelcanvas::scene::style::{
+use scry_engine::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use scry_engine::scene::style::{
     Color as C, DashPattern, GradientDef, GradientKind, GradientStop, LineCap, LineJoin, Point,
     Transform,
 };
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::transport;
+use scry_engine::scene::PixelCanvas;
+use scry_engine::transport;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
@@ -423,14 +423,14 @@ fn build_showcase(area: Rect, state: &PixelCanvasState) -> PixelCanvas {
             star_pts.push((c.cx + r * angle.cos(), c.cy + r * angle.sin()));
         }
         // Use mutable push_command instead of fluent builder
-        use ratatui_pixelcanvas::scene::command::DrawCommand;
-        use ratatui_pixelcanvas::scene::style::{FillStyle, ShapeStyle};
+        use scry_engine::scene::command::DrawCommand;
+        use scry_engine::scene::style::{FillStyle, ShapeStyle};
         canvas.push_command(DrawCommand::Polyline {
             points: star_pts,
             closed: true,
             style: ShapeStyle {
                 fill: Some(FillStyle::Solid(C::from_rgba8(255, 215, 0, 220))),
-                stroke: Some(ratatui_pixelcanvas::scene::style::StrokeStyle {
+                stroke: Some(scry_engine::scene::style::StrokeStyle {
                     color: C::WHITE,
                     width: 2.0,
                     line_cap: LineCap::Butt,

@@ -1,6 +1,6 @@
 //! **Mission Control** — space telemetry simulation.
 //!
-//! The flagship hero example for `ratatui-pixelcanvas`. A spacecraft orbits a
+//! The flagship hero example for `scry-engine`. A spacecraft orbits a
 //! planet while real-time telemetry, fuel gauges, attitude indicators, and
 //! communications waveforms update across six synchronized panels.
 //!
@@ -38,14 +38,14 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
-use ratatui_pixelcanvas::scene::command::ImageData;
-use ratatui_pixelcanvas::scene::style::{
+use scry_engine::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use scry_engine::scene::command::ImageData;
+use scry_engine::scene::style::{
     BlendMode, Color as C, DashPattern, GradientDef, GradientKind, GradientStop, LineCap, LineJoin,
     Point, Rect as PxRect, Transform,
 };
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::transport;
+use scry_engine::scene::PixelCanvas;
+use scry_engine::transport;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Color Palette — NASA-inspired deep space
@@ -1147,11 +1147,11 @@ fn draw_glyph(canvas: &mut PixelCanvas, x: f32, y: f32, bits: &[u8], color: C) {
         for col in 0..5 {
             if byte & (1 << (4 - col)) != 0 {
                 canvas.push_command(
-                    ratatui_pixelcanvas::scene::command::DrawCommand::Rectangle {
+                    scry_engine::scene::command::DrawCommand::Rectangle {
                         rect: PxRect::new(x + col as f32, y + row as f32, 1.0, 1.0),
                         corner_radius: 0.0,
-                        style: ratatui_pixelcanvas::scene::style::ShapeStyle {
-                            fill: Some(ratatui_pixelcanvas::scene::style::FillStyle::Solid(color)),
+                        style: scry_engine::scene::style::ShapeStyle {
+                            fill: Some(scry_engine::scene::style::FillStyle::Solid(color)),
                             stroke: None,
                             anti_alias: false,
                         },

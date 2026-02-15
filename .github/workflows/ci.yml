@@ -51,6 +51,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test ${{ matrix.features }}
 
+  test-crates:
+    name: Test Crate (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "scry-learn"
+            cmd: "cargo test -p scry-learn"
+          - name: "scry-learn serde"
+            cmd: "cargo test -p scry-learn --features serde"
+          - name: "scry-chart"
+            cmd: "cargo test -p scry-chart"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: ${{ matrix.cmd }}
+
   doc:
     name: Documentation
     runs-on: ubuntu-latest
@@ -112,8 +130,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Miri — core crate
         run: cargo +nightly miri test --all-features -- --skip shm --skip picker --skip sixel
-      - name: Miri — pixelchart crate
-        run: cargo +nightly miri test --manifest-path crates/pixelchart/Cargo.toml
+      - name: Miri — scry-chart crate
+        run: cargo +nightly miri test --manifest-path crates/scry-chart/Cargo.toml
 
   fuzz-smoke:
     name: Fuzz Smoke Test

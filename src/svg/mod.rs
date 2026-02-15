@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use ratatui_pixelcanvas::svg::SvgImage;
+//! use scry_engine::svg::SvgImage;
 //!
 //! // Parse an SVG string
 //! let svg = SvgImage::from_str(r#"

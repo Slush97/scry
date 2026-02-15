@@ -1,0 +1,8 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 40x30, 8 commands
+overlays: 2
+  [0] (28, 18) Center "0"
+  [1] (24, 14) Right "0.9"

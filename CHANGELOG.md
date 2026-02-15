@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added — `pixelchart` (new crate)
+### Added — `scry-chart` (new crate)
 
 - **10 chart types** — line, line XY, scatter, bar, histogram, box plot,
   heatmap, pie, radar, and candlestick/OHLC.
@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Scales** — `LinearScale`, `LogScale`, `CategoricalScale`, `TimeScale`
   with nice domain rounding and adaptive tick generation.
 
-### Added — `pixelchart-cli` (new crate)
+### Added — `scry-cli` (new crate)
 
 - **`render` command** — generate charts from JSON (stdin or `--data`).
 - **`plot` command** — generate charts from CSV with column selection,
@@ -41,25 +41,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`show` command** — display existing PNG images inline in the terminal.
 - **`info` command** — print terminal capabilities and supported chart types.
 
-### Added — `ratatui-pixelcanvas`
+### Added — `scry-engine`
 
+- **Sixel graphics protocol** (`--features sixel`) — full DEC Sixel backend with
+  median-cut color quantization (256 colors), run-length encoding, and cursor
+  positioning.
+- **iTerm2 inline image protocol** (`--features iterm2`) — OSC 1337 backend with
+  a zero-dependency PNG encoder and CRC32 checksums for iTerm2, WezTerm, and Mintty.
+- **POSIX shared memory** (`--features shm`) — zero-copy Kitty transmission via
+  `shm_open` / `mmap`. Sends a ~200 byte control sequence instead of megabytes
+  of base64.
+- **SVG rendering** (`--features svg`) — parse and rasterize SVG via `resvg`.
+  `SvgImage::render()` with aspect-ratio preservation. `SvgWidget` for Ratatui.
+- **SVG line drawing animation** — `SvgLineDrawing` progressively reveals SVG
+  paths with animated dash patterns, pen pressure simulation, and glowing pen tip.
+- **Animation system** — 20+ easing curves (CSS-standard + spring, elastic,
+  bounce), `Lerp` trait with impls for `f32`, `f64`, `Color` (Oklab), `Point`,
+  and `Transform` (decomposed interpolation). `Transition` orchestrator,
+  `Keyframes` timeline, `AnimationState` frame-level controller.
+- **Oklab color interpolation** — `Color::mix()` uses perceptual Oklab space
+  for smooth gradients. `Color::from_hsla()`, `Color::with_lightness()`.
+- **Command batching** — consecutive same-style shape commands are merged into
+  compound paths, reducing `fill_path`/`stroke_path` call overhead.
+- **Pipeline profiling** — `ProfiledRasterizer` with per-command-type timing,
+  `ProfileHistory` with rolling median/P95, and `TransportProfile` breaking down
+  compress/encode/I/O time.
+- **Dirty-tile transmission** — `RasterCache::compute_dirty_tiles()` detects
+  changed 64×64 pixel regions; `PixelCanvasWidget::incremental()` transmits
+  only dirty tiles, reducing bandwidth for partially-animated scenes.
 - **Ellipse primitive** (`ellipse(cx, cy, rx, ry)`) with optional rotation.
 - **Polyline primitive** (`polyline(points)`) for connected open line segments.
 - **Polygon primitive** (`polygon(points)`) for closed filled shapes.
-- **Mutable composition** via `PixelCanvas::push_command()` for conditional drawing.
-- **Color conversion** between `ratatui::style::Color` and `pixelcanvas::Color`
+- **Arc primitive** (`arc(cx, cy, r, start, sweep)`) via cubic Bézier approximation.
+- **`PixelCanvas::push_command()`** for mutable conditional composition.
+- **`PixelCanvas::clear()`** for animation loops.
+- **Color conversion** between `ratatui::style::Color` and `scry-engine::Color`
   (bidirectional `From` impls, gated on `widget` feature).
 - **`LineBuilder::stroke(color, width)`** for API consistency with `ShapeBuilder`.
 - **`KittyBackend::into_writer()`** for extracting the underlying writer.
-- **`TransmitFormat`** enum on `KittyBackend` — choose between raw RGBA and PNG
-  transmission.
+- **`TransmitFormat`** enum on `KittyBackend` — choose between raw RGBA, zlib
+  RGBA, PNG, and shared memory transmission.
 - **macOS support** for font-size detection (`TIOCGWINSZ` constant).
-- **Halfblock rendering** actually works now — the widget correctly renders
-  halfblock cells for terminals without graphics protocol support.
+- **Halfblock rendering** — the widget correctly renders halfblock cells for
+  terminals without graphics protocol support, with alpha compositing and
+  flat-buffer reuse.
+- **Semver safety** — `#[non_exhaustive]` on all public enums and structs.
 - Integration test suite (`tests/pipeline_test.rs`) covering the full
   scene → rasterize → transport pipeline.
-- Unit tests for halfblock backend (cell rendering, alpha compositing, protocol
-  trait methods).
+- Property tests (`tests/property_tests.rs`) via `proptest`.
+- Benchmark suite (`benches/`) with rasterization, efficiency, and chart benchmarks.
+- Fuzz testing harness (`fuzz/`) with 6 fuzz targets.
 
 ### Fixed
 

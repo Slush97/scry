@@ -21,7 +21,7 @@ use crate::transport::backend::{FontSize, ProtocolKind};
 /// # Example
 ///
 /// ```no_run
-/// use ratatui_pixelcanvas::transport::Picker;
+/// use scry_engine::transport::Picker;
 ///
 /// let picker = Picker::detect();
 /// println!("Protocol: {:?}", picker.protocol());

@@ -7,7 +7,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ratatui_pixelcanvas::transport::{FontSize, ProtocolBackend, TerminalPosition};
+use scry_engine::transport::{FontSize, ProtocolBackend, TerminalPosition};
 
 fuzz_target!(|data: &[u8]| {
     // Need at least 4 bytes for width/height
@@ -27,7 +27,7 @@ fuzz_target!(|data: &[u8]| {
     // Create a backend writing to a buffer (public API)
     let font_size = FontSize::new(8, 16);
     let mut backend =
-        ratatui_pixelcanvas::transport::kitty::KittyBackend::with_writer(Vec::new(), font_size);
+        scry_engine::transport::kitty::KittyBackend::with_writer(Vec::new(), font_size);
 
     let pos = TerminalPosition::new(0, 0, 10, 10);
 
@@ -43,11 +43,11 @@ fuzz_target!(|data: &[u8]| {
     }
 
     // Test with different format settings
-    let mut backend2 = ratatui_pixelcanvas::transport::kitty::KittyBackend::with_writer(
+    let mut backend2 = scry_engine::transport::kitty::KittyBackend::with_writer(
         Vec::new(),
         font_size,
     )
-    .format(ratatui_pixelcanvas::transport::kitty::TransmitFormat::RawRgba);
+    .format(scry_engine::transport::kitty::TransmitFormat::RawRgba);
     let _ = backend2.transmit(&pixmap, pos, 0);
 
     // Success = no panic

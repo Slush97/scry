@@ -1,0 +1,14 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 400x300, 20 commands
+overlays: 8
+  [0] (36, 278) Center "0.8"
+  [1] (137, 278) Center "2.0"
+  [2] (304, 278) Center "4.0"
+  [3] (388, 278) Center "5.0"
+  [4] (31, 273) Right "9"
+  [5] (31, 136) Right "20"
+  [6] (31, 12) Right "30"
+  [7] (230, 183) Left "Peak"

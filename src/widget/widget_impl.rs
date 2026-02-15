@@ -37,8 +37,8 @@ use crate::PixelCanvasError;
 /// # Example
 ///
 /// ```no_run
-/// use ratatui_pixelcanvas::scene::{PixelCanvas, Color};
-/// use ratatui_pixelcanvas::widget::{PixelCanvasWidget, PixelCanvasState};
+/// use scry_engine::scene::{PixelCanvas, Color};
+/// use scry_engine::widget::{PixelCanvasWidget, PixelCanvasState};
 ///
 /// let canvas = PixelCanvas::new(200, 200)
 ///     .circle(100.0, 100.0, 50.0)
@@ -178,6 +178,12 @@ impl PixelCanvasState {
     ///
     /// For halfblock backends this is a no-op (rendering happens inline in
     /// the ratatui buffer).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the raster cache is externally invalidated between the
+    /// `is_valid()` guard and the `cache.get()` call within the same
+    /// `flush()` invocation. This cannot happen in single-threaded use.
     ///
     /// # Errors
     ///

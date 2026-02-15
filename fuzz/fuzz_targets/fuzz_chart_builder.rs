@@ -7,11 +7,11 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use pixelchart::chart::{Chart, LineChart};
-use pixelchart::data::Series;
-use pixelchart::layout;
-use pixelchart::prelude::Marker;
-use pixelchart::theme::Theme;
+use scry_chart::chart::{Chart, LineChart};
+use scry_chart::data::Series;
+use scry_chart::layout;
+use scry_chart::prelude::Marker;
+use scry_chart::theme::Theme;
 
 /// Extract an f64 from fuzz data at a given offset.
 fn fuzz_f64(data: &[u8], offset: usize) -> f64 {

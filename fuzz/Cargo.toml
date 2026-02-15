@@ -1,5 +1,5 @@
 [package]
-name = "ratatui-pixelcanvas-fuzz"
+name = "scry-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -13,12 +13,12 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 tiny-skia = "0.11"
 
-[dependencies.ratatui-pixelcanvas]
+[dependencies.scry-engine]
 path = ".."
 features = ["kitty"]
 
-[dependencies.pixelchart]
-path = "../crates/pixelchart"
+[dependencies.scry-chart]
+path = "../crates/scry-chart"
 
 # ═══════════════════════════════════════════
 # Phase 1: Core crate fuzz targets

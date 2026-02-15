@@ -1,26 +1,31 @@
-//! # ratatui-pixelcanvas
+//! # scry-engine
 //!
-//! Pixel-perfect vector graphics for [Ratatui](https://ratatui.rs) via Kitty,
-//! Sixel, and Unicode fallbacks.
+//! A vector graphics engine for the terminal. Builds anti-aliased scenes with
+//! `tiny-skia`, then ships pixels to the screen via Kitty, Sixel, iTerm2, or
+//! Unicode halfblocks — whatever the terminal supports.
 //!
-//! ## Architecture
+//! ## Layers
 //!
-//! The library is organized into three independent layers:
+//! Three layers, each usable on its own:
 //!
-//! - **Layer 1 — Drawing API** ([`scene`]): Fluent builder for constructing
-//!   vector scenes (circles, lines, paths, gradients). No dependency on
-//!   Ratatui or terminal protocols.
+//! 1. **Drawing** ([`scene`]) — builder API for shapes, paths, gradients, text,
+//!    and [animations](`scene::animation`). No I/O, no terminal dependency.
 //!
-//! - **Layer 2 — Transport** ([`transport`]): Protocol backends for
-//!   transmitting pixel data to the terminal (Kitty, Sixel, Halfblock).
+//! 2. **Transport** ([`transport`]) — protocol backends that write pixel data to
+//!    stdout. Kitty (zlib / SHM), Sixel (median-cut 256-color), iTerm2 (inline
+//!    PNG), halfblock fallback. [`transport::Picker`] auto-detects at runtime.
 //!
-//! - **Layer 3 — Widget** ([`widget`]): Ratatui `StatefulWidget` integration
-//!   that coordinates rasterization and transmission.
+//! 3. **Widget** ([`widget`]) — drops into [Ratatui](https://ratatui.rs) as a
+//!    `StatefulWidget`. Content-hash caching, dirty-tile diffing, two-phase
+//!    render-then-flush lifecycle.
 //!
-//! ## Quick Start
+//! Optional: [`svg`] parses and renders SVG via `resvg`, with a
+//! [line-drawing animation](`svg::line_drawing`) module.
+//!
+//! ## Quick start — Ratatui widget
 //!
 //! ```no_run
-//! use ratatui_pixelcanvas::prelude::*;
+//! use scry_engine::prelude::*;
 //!
 //! let canvas = PixelCanvas::new(200, 200)
 //!     .circle(100.0, 100.0, 50.0)
@@ -37,17 +42,43 @@
 //! );
 //! ```
 //!
-//! ## Feature Flags
+//! ## Quick start — standalone (no Ratatui)
 //!
-//! | Flag      | Default | Description                                      |
-//! |-----------|---------|--------------------------------------------------|
-//! | `kitty`   | ✅      | Kitty graphics protocol backend                  |
-//! | `sixel`   | ❌      | Sixel graphics protocol backend                  |
-//! | `iterm2`  | ❌      | iTerm2 inline image protocol backend              |
-//! | `widget`  | ✅      | Ratatui `StatefulWidget` integration              |
-//! | `text`    | ❌      | Text rendering via `fontdue`                      |
-//! | `shm`     | ❌      | Zero-copy Kitty transmission via POSIX shared mem |
-//! | `svg`     | ❌      | SVG rendering via `resvg`                         |
+//! ```
+//! use scry_engine::scene::{PixelCanvas, Color};
+//! use scry_engine::rasterize::Rasterizer;
+//!
+//! let canvas = PixelCanvas::new(100, 100)
+//!     .background(Color::BLACK)
+//!     .circle(50.0, 50.0, 30.0)
+//!         .fill(Color::from_rgba8(70, 130, 180, 255))
+//!         .done();
+//!
+//! let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+//! assert_eq!(pixmap.width(), 100);
+//! ```
+//!
+//! ## Feature flags
+//!
+//! | Flag | Default | What it enables |
+//! |------|---------|-----------------|
+//! | `kitty` | ✅ | Kitty graphics protocol |
+//! | `sixel` | ❌ | Sixel protocol (DEC terminals, foot, mlterm) |
+//! | `iterm2` | ❌ | iTerm2 / `WezTerm` inline images |
+//! | `widget` | ✅ | Ratatui `StatefulWidget` |
+//! | `text` | ❌ | Glyph rasterization via fontdue |
+//! | `shm` | ❌ | Zero-copy Kitty via POSIX shared memory |
+//! | `svg` | ❌ | SVG rendering via resvg |
+//!
+//! **Typical combos:**
+//! - `kitty,widget,shm,text` — local Kitty terminal, max quality
+//! - `kitty,sixel,iterm2,widget` — broad compatibility, auto-detect
+//! - default features off — headless rasterization for PNG export
+//!
+//! ## MSRV
+//!
+//! 1.83.0
+
 
 // Strict lints for production quality
 #![warn(missing_docs)]
@@ -68,7 +99,7 @@ pub mod svg;
 // Error types
 // ---------------------------------------------------------------------------
 
-/// Errors that can occur in `ratatui-pixelcanvas`.
+/// Errors that can occur in `scry-engine`.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PixelCanvasError {
@@ -100,7 +131,7 @@ pub enum PixelCanvasError {
 /// Convenience re-exports for common usage.
 ///
 /// ```
-/// use ratatui_pixelcanvas::prelude::*;
+/// use scry_engine::prelude::*;
 /// ```
 pub mod prelude {
     pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};

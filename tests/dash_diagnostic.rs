@@ -1,11 +1,11 @@
 //! Diagnostic test for `DashPattern` and `SvgLineDrawing` rasterization.
 
-use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::style::{Color, DashPattern};
-use ratatui_pixelcanvas::scene::PixelCanvas;
+use scry_engine::rasterize::Rasterizer;
+use scry_engine::scene::style::{Color, DashPattern};
+use scry_engine::scene::PixelCanvas;
 
 #[cfg(feature = "svg")]
-use ratatui_pixelcanvas::svg::line_drawing::SvgLineDrawing;
+use scry_engine::svg::line_drawing::SvgLineDrawing;
 
 #[test]
 fn path_no_dash_produces_pixels() {

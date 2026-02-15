@@ -23,8 +23,8 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use ratatui_pixelcanvas::svg::line_drawing::SvgLineDrawing;
-//! use ratatui_pixelcanvas::scene::PixelCanvas;
+//! use scry_engine::svg::line_drawing::SvgLineDrawing;
+//! use scry_engine::scene::PixelCanvas;
 //!
 //! let drawing = SvgLineDrawing::from_str(SVG_CONTENT)
 //!     .unwrap()
@@ -437,8 +437,8 @@ pub enum DrawMode {
 /// # Example
 ///
 /// ```rust,ignore
-/// use ratatui_pixelcanvas::svg::line_drawing::{SvgLineDrawing, DrawMode};
-/// use ratatui_pixelcanvas::scene::PixelCanvas;
+/// use scry_engine::svg::line_drawing::{SvgLineDrawing, DrawMode};
+/// use scry_engine::scene::PixelCanvas;
 ///
 /// let drawing = SvgLineDrawing::from_str(r#"
 ///     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">

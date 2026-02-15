@@ -7,8 +7,8 @@
 //! # Usage
 //!
 //! ```no_run
-//! use ratatui_pixelcanvas::rasterize::ProfiledRasterizer;
-//! use ratatui_pixelcanvas::scene::PixelCanvas;
+//! use scry_engine::rasterize::ProfiledRasterizer;
+//! use scry_engine::scene::PixelCanvas;
 //!
 //! let canvas = PixelCanvas::new(100, 100);
 //! let mut pixmap = tiny_skia::Pixmap::new(100, 100).unwrap();
@@ -370,8 +370,8 @@ impl fmt::Display for SmoothedProfile {
 /// # Example
 ///
 /// ```no_run
-/// use ratatui_pixelcanvas::rasterize::{ProfileHistory, ProfiledRasterizer};
-/// use ratatui_pixelcanvas::scene::PixelCanvas;
+/// use scry_engine::rasterize::{ProfileHistory, ProfiledRasterizer};
+/// use scry_engine::scene::PixelCanvas;
 ///
 /// let mut history = ProfileHistory::new(64);
 /// // In your render loop:

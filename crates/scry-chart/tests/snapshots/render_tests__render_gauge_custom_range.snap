@@ -1,0 +1,10 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 1243
+expression: summarize(&rendered)
+---
+canvas: 300x250, 3 commands
+overlays: 3
+  [0] (162, 157) Center "150 rpm"
+  [1] (48, 148) Center "0"
+  [2] (276, 148) Center "200"

@@ -1,6 +1,6 @@
 //! Scene construction and drawing API.
 //!
-//! This module provides the core drawing primitives for `ratatui-pixelcanvas`.
+//! This module provides the core drawing primitives for `scry-engine`.
 //! It is **independent of any terminal protocol or Ratatui** — you can use it
 //! standalone to build scenes and rasterize them to pixel buffers.
 //!
@@ -14,8 +14,8 @@
 //! # Example
 //!
 //! ```
-//! use ratatui_pixelcanvas::scene::PixelCanvas;
-//! use ratatui_pixelcanvas::scene::style::Color;
+//! use scry_engine::scene::PixelCanvas;
+//! use scry_engine::scene::style::Color;
 //!
 //! let canvas = PixelCanvas::new(200, 200)
 //!     .background(Color::from_rgba8(20, 20, 30, 255))

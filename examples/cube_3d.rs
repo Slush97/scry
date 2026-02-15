@@ -14,10 +14,10 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::style::Color as PxColor;
-use ratatui_pixelcanvas::transport;
+use scry_engine::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use scry_engine::scene::PixelCanvas;
+use scry_engine::style::Color as PxColor;
+use scry_engine::transport;
 
 // ───────────────────────────────────────────────────────────────────
 // 3D math from scratch — that's it, this is the entire "engine"

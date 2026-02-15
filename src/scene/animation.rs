@@ -17,7 +17,7 @@
 //!
 //! ```
 //! use std::time::Duration;
-//! use ratatui_pixelcanvas::scene::animation::{Easing, Transition};
+//! use scry_engine::scene::animation::{Easing, Transition};
 //!
 //! let mut t = Transition::new(0.0_f32, 100.0_f32, Duration::from_millis(500))
 //!     .easing(Easing::EaseOutCubic);
@@ -528,7 +528,7 @@ impl<A: Lerp, B: Lerp> Lerp for (A, B) {
 ///
 /// ```
 /// use std::time::Duration;
-/// use ratatui_pixelcanvas::scene::animation::{Easing, Transition};
+/// use scry_engine::scene::animation::{Easing, Transition};
 ///
 /// let mut opacity = Transition::new(0.0_f32, 1.0_f32, Duration::from_millis(300));
 /// opacity.advance(Duration::from_millis(150));
@@ -656,7 +656,7 @@ pub struct Keyframe<T: Lerp> {
 /// # Example
 ///
 /// ```
-/// use ratatui_pixelcanvas::scene::animation::{Easing, Keyframes, Keyframe};
+/// use scry_engine::scene::animation::{Easing, Keyframes, Keyframe};
 ///
 /// let kf = Keyframes::new(vec![
 ///     Keyframe { position: 0.0, value: 0.0_f32, easing: Easing::Linear },
@@ -768,7 +768,7 @@ pub type AnimationId = &'static str;
 ///
 /// ```
 /// use std::time::Duration;
-/// use ratatui_pixelcanvas::scene::animation::{AnimationState, Easing};
+/// use scry_engine::scene::animation::{AnimationState, Easing};
 ///
 /// let mut state = AnimationState::new();
 /// state.start("opacity", 0.0_f32, 1.0_f32, Duration::from_millis(500), Easing::EaseOutCubic);

@@ -32,8 +32,8 @@ use ratatui::style::{Color as TuiColor, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use ratatui_pixelcanvas::prelude::*;
-use ratatui_pixelcanvas::transport;
+use scry_engine::prelude::*;
+use scry_engine::transport;
 
 // ───────────────────────────────────────────────────────────────────
 // Showcase SVG
@@ -239,7 +239,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let offset_x = svg_size.mul_add(-scale, w as f32) / 2.0;
         let offset_y = svg_size.mul_add(-scale, h as f32) / 2.0;
 
-        let transform = ratatui_pixelcanvas::scene::style::Transform {
+        let transform = scry_engine::scene::style::Transform {
             sx: scale,
             kx: 0.0,
             ky: 0.0,

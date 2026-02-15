@@ -1,0 +1,16 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 400x300, 22 commands
+overlays: 10
+  [0] (36, 278) Center "0"
+  [1] (124, 278) Center "1"
+  [2] (212, 278) Center "2"
+  [3] (300, 278) Center "3"
+  [4] (388, 278) Center "4"
+  [5] (31, 273) Right "0.8"
+  [6] (31, 204) Right "2.0"
+  [7] (31, 88) Right "4.0"
+  [8] (31, 30) Right "5.0"
+  [9] (212, 16) Center "Infinity Data"

@@ -4,8 +4,8 @@
 //! know `tiny-skia` internals:
 //!
 //! ```
-//! use ratatui_pixelcanvas::scene::PixelCanvas;
-//! use ratatui_pixelcanvas::scene::style::Color;
+//! use scry_engine::scene::PixelCanvas;
+//! use scry_engine::scene::style::Color;
 //!
 //! let canvas = PixelCanvas::new(200, 200)
 //!     .background(Color::BLACK)
@@ -109,9 +109,9 @@ impl PixelCanvas {
     /// where the fluent builder pattern is inconvenient.
     ///
     /// ```
-    /// use ratatui_pixelcanvas::scene::PixelCanvas;
-    /// use ratatui_pixelcanvas::scene::command::DrawCommand;
-    /// use ratatui_pixelcanvas::scene::style::{Color, ShapeStyle, FillStyle};
+    /// use scry_engine::scene::PixelCanvas;
+    /// use scry_engine::scene::command::DrawCommand;
+    /// use scry_engine::scene::style::{Color, ShapeStyle, FillStyle};
     ///
     /// let mut canvas = PixelCanvas::new(200, 200);
     /// let show_border = true;

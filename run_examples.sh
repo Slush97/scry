@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run through all ratatui-pixelcanvas examples, grouped by theme.
+# Run through all scry-engine examples, grouped by theme.
 # Press 'q' inside each example to advance to the next one.
 # Ctrl+C to stop at any time.
 
@@ -28,7 +28,7 @@ header() {
 }
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║   ratatui-pixelcanvas — Example Runner ($TOTAL examples)          ║"
+echo "║   scry-engine — Example Runner ($TOTAL examples)          ║"
 echo "║   Press 'q' inside each to advance · Ctrl+C to stop        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 
@@ -61,15 +61,15 @@ run "Aurora borealis"    aurora_borealis
 header "⚡ Stress Tests"
 run "Powertest"       powertest
 
-# ── Charts (pixelchart) ──────────────────────────────────────────
-header "📊 Charts (pixelchart)"
-run "Scatter"          scatter_demo     pixelchart
-run "Dashboard"        dashboard        pixelchart
-run "Chart demo"       demo             pixelchart
-run "Chart showcase"   showcase         pixelchart
-run "All charts"       chart_showcase   pixelchart
-run "Interactive"      interactive      pixelchart
-run "Robustness"       robustness_test  pixelchart
+# ── Charts (scry-chart) ──────────────────────────────────────────
+header "📊 Charts (scry-chart)"
+run "Scatter"          scatter_demo     scry-chart
+run "Dashboard"        dashboard        scry-chart
+run "Chart demo"       demo             scry-chart
+run "Chart showcase"   showcase         scry-chart
+run "All charts"       chart_showcase   scry-chart
+run "Interactive"      interactive      scry-chart
+run "Robustness"       robustness_test  scry-chart
 
 echo ""
 echo "✅ All $TOTAL examples complete."

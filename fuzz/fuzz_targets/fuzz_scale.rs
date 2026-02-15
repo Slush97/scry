@@ -7,7 +7,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use pixelchart::scale::{CategoricalScale, LinearScale, LogScale, Scale};
+use scry_chart::scale::{CategoricalScale, LinearScale, LogScale, Scale};
 
 /// Extract an f64 from fuzz data at a given offset.
 fn fuzz_f64(data: &[u8], offset: usize) -> f64 {

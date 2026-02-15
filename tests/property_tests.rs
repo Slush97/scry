@@ -1,4 +1,4 @@
-//! Property-based tests for ratatui-pixelcanvas.
+//! Property-based tests for scry-engine.
 //!
 //! These tests use `proptest` to verify invariants that must hold
 //! for all possible inputs, catching edge cases that hand-written
@@ -6,11 +6,11 @@
 
 use proptest::prelude::*;
 
-use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::animation::{
+use scry_engine::rasterize::Rasterizer;
+use scry_engine::scene::animation::{
     AnimationState, Easing, Keyframe, Keyframes, Transition,
 };
-use ratatui_pixelcanvas::scene::{Color, PixelCanvas};
+use scry_engine::scene::{Color, PixelCanvas};
 
 use std::time::Duration;
 
@@ -99,7 +99,7 @@ proptest! {
 proptest! {
     #[test]
     fn f32_lerp_at_zero_returns_start(a in -1000.0f32..1000.0f32, b in -1000.0f32..1000.0f32) {
-        use ratatui_pixelcanvas::scene::animation::Lerp;
+        use scry_engine::scene::animation::Lerp;
         let result = a.lerp(&b, 0.0);
         prop_assert!(
             (result - a).abs() < 1e-4,
@@ -109,7 +109,7 @@ proptest! {
 
     #[test]
     fn f32_lerp_at_one_returns_end(a in -1000.0f32..1000.0f32, b in -1000.0f32..1000.0f32) {
-        use ratatui_pixelcanvas::scene::animation::Lerp;
+        use scry_engine::scene::animation::Lerp;
         let result = a.lerp(&b, 1.0);
         prop_assert!(
             (result - b).abs() < 1e-4,
@@ -119,7 +119,7 @@ proptest! {
 
     #[test]
     fn f32_lerp_midpoint(a in -1000.0f32..1000.0f32, b in -1000.0f32..1000.0f32) {
-        use ratatui_pixelcanvas::scene::animation::Lerp;
+        use scry_engine::scene::animation::Lerp;
         let result = a.lerp(&b, 0.5);
         let expected = (a + b) / 2.0;
         prop_assert!(
@@ -138,7 +138,7 @@ proptest! {
     fn color_lerp_at_zero_returns_start(
         r in 0u8..=255, g in 0u8..=255, b in 0u8..=255, a in 0u8..=255
     ) {
-        use ratatui_pixelcanvas::scene::animation::Lerp;
+        use scry_engine::scene::animation::Lerp;
         let start = Color::from_rgba8(r, g, b, a);
         let end = Color::from_rgba8(255 - r, 255 - g, 255 - b, a);
         let result = start.lerp(&end, 0.0);
@@ -152,7 +152,7 @@ proptest! {
     fn color_lerp_at_one_returns_end(
         r in 0u8..=255, g in 0u8..=255, b in 0u8..=255, a in 0u8..=255
     ) {
-        use ratatui_pixelcanvas::scene::animation::Lerp;
+        use scry_engine::scene::animation::Lerp;
         let start = Color::from_rgba8(r, g, b, a);
         let end = Color::from_rgba8(255 - r, 255 - g, 255 - b, a);
         let result = start.lerp(&end, 1.0);
@@ -165,7 +165,7 @@ proptest! {
     fn color_lerp_alpha_linear(
         a1 in 0u8..=255, a2 in 0u8..=255, t in 0.0f32..=1.0f32
     ) {
-        use ratatui_pixelcanvas::scene::animation::Lerp;
+        use scry_engine::scene::animation::Lerp;
         let start = Color::from_rgba8(128, 128, 128, a1);
         let end = Color::from_rgba8(128, 128, 128, a2);
         let result = start.lerp(&end, t);
@@ -425,7 +425,7 @@ proptest! {
 
 #[test]
 fn dirty_tiles_second_identical_frame_is_clean() {
-    use ratatui_pixelcanvas::rasterize::RasterCache;
+    use scry_engine::rasterize::RasterCache;
 
     let mut cache = RasterCache::new();
     let canvas = PixelCanvas::new(200, 200).background(Color::BLUE);
@@ -445,7 +445,7 @@ fn dirty_tiles_second_identical_frame_is_clean() {
 
 #[test]
 fn dirty_tiles_tracks_changed_regions() {
-    use ratatui_pixelcanvas::rasterize::RasterCache;
+    use scry_engine::rasterize::RasterCache;
 
     let mut cache = RasterCache::new();
 
@@ -480,8 +480,8 @@ fn dirty_tiles_tracks_changed_regions() {
 #[cfg(feature = "kitty")]
 mod kitty_tests {
     use super::*;
-    use ratatui_pixelcanvas::transport::backend::{FontSize, ProtocolBackend, TerminalPosition};
-    use ratatui_pixelcanvas::transport::kitty::{KittyBackend, TransmitFormat};
+    use scry_engine::transport::backend::{FontSize, ProtocolBackend, TerminalPosition};
+    use scry_engine::transport::kitty::{KittyBackend, TransmitFormat};
     use std::io::Cursor;
 
     #[test]

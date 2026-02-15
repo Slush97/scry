@@ -1,0 +1,19 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 400x300, 29 commands
+overlays: 13
+  [0] (36, 261) Right rot=45° "0"
+  [1] (95, 261) Right rot=45° "1"
+  [2] (153, 261) Right rot=45° "2"
+  [3] (212, 261) Right rot=45° "3"
+  [4] (271, 261) Right rot=45° "4"
+  [5] (329, 261) Right rot=45° "5"
+  [6] (388, 261) Right rot=45° "6"
+  [7] (31, 256) Right "0.0"
+  [8] (31, 193) Right "2.5"
+  [9] (31, 131) Right "5.0"
+  [10] (31, 68) Right "7.5"
+  [11] (31, 30) Right "9.0"
+  [12] (212, 16) Center "Diagonal Ticks"

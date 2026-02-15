@@ -1,40 +1,40 @@
-# ratatui-pixelcanvas
+# scry-engine
 
-**Pixel-perfect vector graphics for [Ratatui](https://ratatui.rs) via Kitty, Sixel, and Unicode fallbacks.**
+**A vector graphics engine for the terminal.**
 
-Draw anti-aliased circles, lines, paths, gradients, and complex shapes in your TUI —
-rendered as actual pixels when the terminal supports it, with graceful degradation to
-text-based drawing when it doesn't.
+Anti-aliased shapes, paths, gradients, and text — rasterized with `tiny-skia`,
+then shipped to the screen via Kitty, Sixel, iTerm2, or Unicode halfblocks.
+Each layer works on its own: draw without a terminal, transmit without Ratatui,
+or plug in as a Ratatui widget with caching and dirty-tile diffing.
 
-## ✨ Features
+## Features
 
-- **Fluent drawing API** — `canvas.circle(50, 50, 30).fill(Color::RED).done()`
-- **Rich primitives** — circles, rectangles, ellipses, lines, polylines, polygons, arcs, paths, and groups
-- **Gradient fills** — linear and radial gradients with arbitrary color stops
-- **Alpha compositing** — full RGBA transparency and blend modes
-- **Kitty graphics protocol** — pixel-perfect rendering with transparency and zlib compression
-- **POSIX shared memory** — optional zero-copy Kitty transmission via `shm` feature
-- **Text rendering** — optional glyph rasterization via `fontdue` (`text` feature)
-- **Automatic fallback** — Kitty → Sixel → Unicode halfblocks
-- **Ratatui `StatefulWidget`** — integrates seamlessly into any Ratatui layout
-- **Content-hash caching** — skips redundant re-renders when the scene hasn't changed
-- **Layered architecture** — use the drawing API standalone, without Ratatui or any terminal protocol
+- Builder API — `canvas.circle(50, 50, 30).fill(Color::RED).done()`
+- Shapes — circles, rectangles, ellipses, lines, polylines, polygons, arcs, paths, groups
+- Gradients — linear and radial with arbitrary color stops
+- Full RGBA — alpha compositing and blend modes
+- Protocols — Kitty (zlib, SHM zero-copy), Sixel (median-cut 256-color), iTerm2 (inline PNG), halfblock fallback
+- Auto-detection — `Picker` probes the terminal and picks the best backend
+- Ratatui widget — `StatefulWidget` with content-hash caching and incremental tile updates
+- Animation — 20+ easing curves, keyframe timelines, Oklab color interpolation
+- Text — glyph rasterization via fontdue (optional)
+- SVG — parse and render via resvg, with line-drawing animation (optional)
 
-## 📦 Workspace
+## Workspace
 
-This is a Cargo workspace containing:
+| Crate | What it does |
+|-------|--------------|
+| [`scry-engine`](.) | Drawing, rasterization, and terminal transport |
+| [`scry-chart`](crates/scry-chart) | 17 chart types, 6 themes, PNG/SVG export |
+| [`scry-cli`](crates/scry-cli) | CLI — render charts from JSON/CSV, show images inline |
+| [`scry-learn`](crates/scry-learn) | ML — CART, Random Forest, Gradient Boosting, Linear/Logistic Regression, Lasso, ElasticNet, KNN, Naive Bayes, SVM, K-Means, DBSCAN, preprocessing, cross-validation |
+| [`scry-pipe`](crates/scry-pipe) | Data pipeline DSL (proposal) |
 
-| Crate | Description |
-|-------|-------------|
-| [`ratatui-pixelcanvas`](.) | Core drawing engine, rasterizer, and terminal backends |
-| [`pixelchart`](crates/pixelchart) | High-level charting library — scatter, line, bar, histogram, boxplot, heatmap |
-
-## 🚀 Quick Start
+## Quick start
 
 ```rust
-use ratatui_pixelcanvas::prelude::*;
+use scry_engine::prelude::*;
 
-// Build a scene
 let canvas = PixelCanvas::new(200, 200)
     .background(Color::from_rgba8(20, 20, 30, 255))
     .circle(100.0, 100.0, 60.0)
@@ -46,7 +46,7 @@ let canvas = PixelCanvas::new(200, 200)
         .width(3.0)
         .done();
 
-// Use as a Ratatui widget
+// Ratatui widget (Layer 3)
 frame.render_stateful_widget(
     PixelCanvasWidget::new(canvas),
     area,
@@ -54,57 +54,70 @@ frame.render_stateful_widget(
 );
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                 Your TUI App                     │
+│              Your app / TUI                      │
 ├──────────────────────────────────────────────────┤
-│  Layer 3: Widget    (StatefulWidget, lifecycle)  │
+│  3. Widget    Ratatui StatefulWidget, caching    │
 ├──────────────────────────────────────────────────┤
-│  Layer 2: Transport (Kitty / Sixel / Halfblock)  │
+│  2. Transport Kitty / Sixel / iTerm2 / Halfblock │
 ├──────────────────────────────────────────────────┤
-│  Layer 1: Drawing   (Scene → tiny-skia → Pixmap) │
+│  1. Drawing   Scene → tiny-skia → Pixmap         │
+│     SVG       resvg → Pixmap                     │
 └──────────────────────────────────────────────────┘
 ```
 
-Each layer is independently usable. The drawing API has zero dependency on
-Ratatui or any terminal protocol.
+Each layer is independent. You can draw without a terminal, transmit without
+Ratatui, or use all three together.
 
-## 📊 Pixelchart
+## 📊 scry-chart
 
-The `pixelchart` crate provides a high-level charting API on top of `ratatui-pixelcanvas`:
+The `scry-chart` crate provides a high-level charting API on top of `scry-engine`:
 
 - **Scatter plots** — with customizable markers and colors
-- **Line charts** — with fills, reference lines, and multiple series
-- **Bar charts** — grouped and stacked variants
+- **Line charts** — with fills, reference lines, dual Y-axis, and multiple series
+- **Bar charts** — grouped and stacked variants, value labels
 - **Histograms** — frequency and density modes
 - **Box plots** — with whiskers, outliers, and statistical annotations
 - **Heatmaps** — with configurable color scales
+- **Pie charts** — with percentage labels and exploded slices
+- **Radar charts** — spider/web charts with configurable axes
+- **Candlestick charts** — OHLC financial data visualization
 - **Interactive features** — zoom, pan, crosshair cursor, and tooltips
-- **Themes** — built-in dark/light themes with full customization
+- **Export** — PNG and SVG output
+- **Themes** — `dark`, `light`, `ocean`, `forest`, `pastel`, and colorblind-safe themes
 
 ## 🎨 Examples
 
+The engine ships with 25 examples. A few highlights:
+
 ```bash
-# Basic shapes
+# Basic shapes and gradients
 cargo run --example simple_shapes
-
-# 3D rotating cube
-cargo run --example cube_3d
-
-# Visual illusions
-cargo run --example illusions
-
-# New features showcase
 cargo run --example new_features
 
-# Animation demo
+# Animations
 cargo run --example animation_demo
+cargo run --example sacred_geometry
+cargo run --example wave_interference
+cargo run --example fluid_symphony
 
-# Pixelchart showcase
-cargo run -p pixelchart --example showcase
+# 3D rendering
+cargo run --example cube_3d
+
+# SVG line drawing (requires svg feature)
+cargo run --example line_drawing --features svg
+
+# Terminal startup animation (forks to background)
+cargo run --example startup_anim
+
+# scry-chart showcase
+cargo run -p scry-chart --example showcase
 ```
+
+See all examples with `ls examples/`.
 
 ## ⚙️ Feature Flags
 
@@ -112,13 +125,25 @@ cargo run -p pixelchart --example showcase
 |-----------|---------|--------------------------------------------------|
 | `kitty`   | ✅      | Kitty graphics protocol backend                  |
 | `sixel`   | ❌      | Sixel graphics protocol backend                  |
+| `iterm2`  | ❌      | iTerm2 inline image protocol backend              |
 | `widget`  | ✅      | Ratatui `StatefulWidget` integration              |
 | `text`    | ❌      | Text rendering via `fontdue`                      |
 | `shm`     | ❌      | Zero-copy Kitty transmission via POSIX shared mem |
+| `svg`     | ❌      | SVG rendering via `resvg`                         |
 
 ## 🔧 Minimum Supported Rust Version
 
 1.83.0
+
+## Crate Maturity
+
+| Crate | Maturity | Breaking Changes |
+|-------|----------|-----------------|
+| scry-engine | Stable | Semver-protected |
+| scry-chart | Stable | Semver-protected |
+| scry-learn | Beta | API may evolve |
+| scry-cli | Beta | Commands may change |
+| scry-pipe | Proposal | Not yet implemented |
 
 ## 📄 License
 

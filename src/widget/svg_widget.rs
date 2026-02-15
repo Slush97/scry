@@ -7,8 +7,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use ratatui_pixelcanvas::svg::SvgImage;
-//! use ratatui_pixelcanvas::widget::{SvgWidget, PixelCanvasState};
+//! use scry_engine::svg::SvgImage;
+//! use scry_engine::widget::{SvgWidget, PixelCanvasState};
 //!
 //! let svg = SvgImage::from_str("<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap();
 //! let widget = SvgWidget::new(&svg);

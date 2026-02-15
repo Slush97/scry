@@ -27,17 +27,17 @@ use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{
+use scry_engine::prelude::{
     AnimationState, Easing, Keyframe, Keyframes, Picker, PixelCanvasState, PixelCanvasWidget,
     ProfileHistory, ProfiledRasterizer, ProtocolKind,
 };
-use ratatui_pixelcanvas::scene::animation::Transition;
-use ratatui_pixelcanvas::scene::command::ImageData;
-use ratatui_pixelcanvas::scene::style::{
+use scry_engine::scene::animation::Transition;
+use scry_engine::scene::command::ImageData;
+use scry_engine::scene::style::{
     Color as C, GradientDef, GradientKind, GradientStop, Point, Rect as PxRect, Transform,
 };
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::transport;
+use scry_engine::scene::PixelCanvas;
+use scry_engine::transport;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pages

@@ -430,7 +430,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         let placement_id = self.placement_id;
 
         // Ensure shm buffer exists and is large enough
-        let shm_name = format!("pixelcanvas-{}", std::process::id());
+        let shm_name = format!("scry-{}", std::process::id());
         let buf = if let Some(ref mut buf) = self.shm_buf {
             if buf.capacity() < data_size {
                 buf.resize(data_size).map_err(|e| {
@@ -444,6 +444,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
                     PixelCanvasError::Rasterization(format!("shm_open failed: {e}"))
                 })?,
             );
+            // SAFETY: assigned in the `else` branch immediately above.
             self.shm_buf.as_mut().expect("just created")
         };
 

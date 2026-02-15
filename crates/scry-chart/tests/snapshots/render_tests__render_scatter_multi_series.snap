@@ -1,0 +1,15 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 400x300, 25 commands
+overlays: 9
+  [0] (36, 278) Center "0.8"
+  [1] (168, 278) Center "2.0"
+  [2] (388, 278) Center "4.0"
+  [3] (31, 273) Right "0.0"
+  [4] (31, 212) Right "2.5"
+  [5] (31, 152) Right "5.0"
+  [6] (31, 91) Right "7.5"
+  [7] (31, 30) Right "10.0"
+  [8] (212, 16) Center "Multi-Series Scatter"

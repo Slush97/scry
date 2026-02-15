@@ -9,13 +9,13 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use std::time::Duration as StdDuration;
 use std::time::Duration;
 
-use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::animation::{
+use scry_engine::rasterize::Rasterizer;
+use scry_engine::scene::animation::{
     AnimationState, Easing, Keyframe, Keyframes, Lerp, Transition,
 };
-use ratatui_pixelcanvas::scene::command::{ImageData, PathData};
-use ratatui_pixelcanvas::scene::style::{Color, Point, Transform};
-use ratatui_pixelcanvas::scene::PixelCanvas;
+use scry_engine::scene::command::{ImageData, PathData};
+use scry_engine::scene::style::{Color, Point, Transform};
+use scry_engine::scene::PixelCanvas;
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Easing curve evaluation

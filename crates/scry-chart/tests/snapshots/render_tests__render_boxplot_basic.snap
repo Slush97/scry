@@ -1,0 +1,16 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 298
+expression: summarize(&rendered)
+---
+canvas: 400x300, 35 commands
+overlays: 9
+  [0] (63, 273) Right "0"
+  [1] (63, 192) Right "10"
+  [2] (63, 111) Right "20"
+  [3] (63, 30) Right "30"
+  [4] (121, 278) Center "Group A"
+  [5] (228, 278) Center "Group B"
+  [6] (335, 278) Center "Group C"
+  [7] (228, 16) Center "Box Plot Test"
+  [8] (23, 152) Center rot=90° "Score"

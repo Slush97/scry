@@ -1,13 +1,13 @@
-//! Rasterization benchmarks for `ratatui-pixelcanvas`.
+//! Rasterization benchmarks for `scry-engine`.
 //!
 //! Run with: `cargo bench`
 
 #![allow(missing_docs)]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ratatui_pixelcanvas::rasterize::Rasterizer;
-use ratatui_pixelcanvas::scene::style::{Color, Point};
-use ratatui_pixelcanvas::scene::PixelCanvas;
+use scry_engine::rasterize::Rasterizer;
+use scry_engine::scene::style::{Color, Point};
+use scry_engine::scene::PixelCanvas;
 
 fn simple_circle(c: &mut Criterion) {
     let canvas = PixelCanvas::new(400, 400)

@@ -1,7 +1,7 @@
 //! **Power Test** — all-features animated stress test.
 //!
 //! Six concurrent animated panels in a 3×2 grid exercising every API surface
-//! of `ratatui-pixelcanvas` simultaneously. Also serves as a performance
+//! of `scry-engine` simultaneously. Also serves as a performance
 //! benchmark — the FPS counter and timing breakdown are shown in the status
 //! bar.
 //!
@@ -45,18 +45,18 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{
+use scry_engine::prelude::{
     AnimationState, Easing, Keyframe, Keyframes, Picker, PixelCanvasState, PixelCanvasWidget,
     ProfileHistory, ProfiledRasterizer, ProtocolKind,
 };
 
-use ratatui_pixelcanvas::scene::command::DrawCommand;
-use ratatui_pixelcanvas::scene::style::{
+use scry_engine::scene::command::DrawCommand;
+use scry_engine::scene::style::{
     BlendMode, Color as C, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop,
     LineCap, LineJoin, Point, Rect as PxRect, ShapeStyle, StrokeStyle, Transform,
 };
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::transport;
+use scry_engine::scene::PixelCanvas;
+use scry_engine::transport;
 
 // ───────────────────────────────────────────────────────────────────
 // Grid helper
@@ -907,7 +907,7 @@ fn panel_orchestrated_scene(
 
     if let Some(path) = pb.finish() {
         canvas.push_command(DrawCommand::Path {
-            path: ratatui_pixelcanvas::scene::command::PathData::new(path),
+            path: scry_engine::scene::command::PathData::new(path),
             style: ShapeStyle {
                 fill: Some(FillStyle::Solid(C::from_rgba8(220, 50, 80, 200))),
                 stroke: Some(StrokeStyle {
@@ -991,7 +991,7 @@ fn draw_label(canvas: &mut PixelCanvas, x: f32, y: f32, text: &str) {
 
     if let Some(path) = pb.finish() {
         canvas.push_command(DrawCommand::Path {
-            path: ratatui_pixelcanvas::scene::command::PathData::new(path),
+            path: scry_engine::scene::command::PathData::new(path),
             style: ShapeStyle {
                 fill: Some(FillStyle::Solid(C::from_rgba8(160, 170, 200, 180))),
                 stroke: None,

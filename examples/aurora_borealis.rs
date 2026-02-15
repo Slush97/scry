@@ -36,10 +36,10 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use ratatui_pixelcanvas::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
-use ratatui_pixelcanvas::scene::style::{Color as C, Point};
-use ratatui_pixelcanvas::scene::PixelCanvas;
-use ratatui_pixelcanvas::transport;
+use scry_engine::prelude::{Picker, PixelCanvasState, PixelCanvasWidget, ProtocolKind};
+use scry_engine::scene::style::{Color as C, Point};
+use scry_engine::scene::PixelCanvas;
+use scry_engine::transport;
 
 // ═══════════════════════════════════════════════════════════════════
 // Deterministic pseudo-random from a seed (for star positions)

@@ -1,0 +1,19 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+expression: summarize(&rendered)
+---
+canvas: 500x350, 27 commands
+overlays: 13
+  [0] (38, 324) Center "0"
+  [1] (150, 324) Center "1"
+  [2] (262, 324) Center "2"
+  [3] (374, 324) Center "3"
+  [4] (486, 324) Center "4"
+  [5] (32, 318) Right "0.8"
+  [6] (32, 253) Right "2.0"
+  [7] (32, 144) Right "4.0"
+  [8] (32, 35) Right "6.0"
+  [9] (435, 51) Left "Alpha"
+  [10] (435, 65) Left "Beta"
+  [11] (435, 79) Left "Gamma"
+  [12] (262, 18) Center "Multi-Series"

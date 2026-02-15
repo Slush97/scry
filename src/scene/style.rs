@@ -15,6 +15,7 @@ use std::hash::{Hash, Hasher};
 /// Premultiplication is handled automatically when converting to `tiny-skia`
 /// types via [`to_tiny_skia()`](Color::to_tiny_skia).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Color {
     /// Red channel (0.0–1.0).
     pub r: f32,
@@ -91,7 +92,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ratatui_pixelcanvas::style::Color;
+    /// use scry_engine::style::Color;
     ///
     /// let steel_blue = Color::from_rgba8(70, 130, 180, 255);
     /// ```
@@ -370,6 +371,7 @@ impl From<Color> for ratatui::style::Color {
 
 /// How the ends of a stroked line are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LineCap {
     /// Flat edge at the endpoint.
     #[default]
@@ -382,6 +384,7 @@ pub enum LineCap {
 
 /// How corners in a stroked path are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LineJoin {
     /// Sharp corner.
     #[default]
@@ -398,6 +401,7 @@ pub enum LineJoin {
 
 /// A repeating dash pattern for stroked lines.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DashPattern {
     /// Alternating lengths of dash and gap segments.
     pub intervals: Vec<f32>,

@@ -1,4 +1,4 @@
-# Unsafe Code Audit — `ratatui-pixelcanvas`
+# Unsafe Code Audit — `scry-engine`
 
 This document catalogues every `unsafe` block in the crate, following the
 conventions of [the Rust standard library's SAFETY comments](https://std-dev-guide.rust-lang.org/policy/safety-comments.html).
@@ -111,14 +111,14 @@ let ws = unsafe { ws.assume_init() };
 | `shm.rs` | 12 | Medium (FFI + raw pointers) | ❌ (FFI) |
 | `picker.rs` | 2 | Low (standard ioctl) | ❌ (FFI) |
 | All other core modules | 0 | N/A | ✅ |
-| `pixelchart` (entire crate) | 0 (`#![deny(unsafe_code)]`) | N/A | ✅ |
+| `scry-chart` (entire crate) | 0 (`#![deny(unsafe_code)]`) | N/A | ✅ |
 
 **Miri coverage (core crate):** 125/126 tests pass under Miri.
 The `full_pipeline_sixel` test is skipped — it involves heavy image encoding
 (`flate2`/`png`) that exceeds Miri's interpreted execution speed. This is not
 undefined behavior; it is a Miri performance limitation.
 
-**Miri coverage (pixelchart crate):** 9/9 tests pass under Miri.
+**Miri coverage (scry-chart crate):** 9/9 tests pass under Miri.
 Two log-scale tests were updated to use tolerance-based assertions
 (`1e-9` epsilon) because Miri's software-float emulation rounds
 `10.0_f64.powf(3.0)` to `999.999…95` instead of exactly `1000.0`.
@@ -129,6 +129,6 @@ Two log-scale tests were updated to use tolerance-based assertions
 | `fuzz_kitty_escape` | core | Kitty escape sequence parser |
 | `fuzz_rasterize` | core | Scene rasterization pipeline |
 | `fuzz_scene_hash` | core | Content hash determinism |
-| `fuzz_scale` | pixelchart | LinearScale, LogScale, CategoricalScale |
-| `fuzz_chart_render` | pixelchart | Full render pipeline, all 7 chart types |
-| `fuzz_chart_builder` | pixelchart | Builder chain with arbitrary method combos |
+| `fuzz_scale` | scry-chart | LinearScale, LogScale, CategoricalScale |
+| `fuzz_chart_render` | scry-chart | Full render pipeline, all 7 chart types |
+| `fuzz_chart_builder` | scry-chart | Builder chain with arbitrary method combos |

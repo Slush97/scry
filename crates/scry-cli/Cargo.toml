@@ -1,0 +1,26 @@
+[package]
+name = "scry-cli"
+version = "0.7.0"
+edition = "2021"
+rust-version = "1.83.0"
+authors = ["esoc"]
+description = "Unified CLI tool for pixel-perfect terminal graphics, charts, and animations"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Slush97/scry"
+keywords = ["chart", "cli", "kitty", "graphics", "terminal"]
+categories = ["command-line-utilities", "visualization"]
+
+[[bin]]
+name = "scry"
+path = "src/main.rs"
+
+[dependencies]
+scry-chart = { path = "../scry-chart" }
+scry-engine = { path = "../..", features = ["kitty", "text"] }
+
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+csv = "1"
+flate2 = "1"
