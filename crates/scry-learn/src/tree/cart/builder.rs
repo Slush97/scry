@@ -14,6 +14,85 @@ use super::{
 };
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Pre-sort sample indices by each feature value. O(n·log n) per feature.
+fn presort_indices(data: &Dataset, indices: &[usize]) -> Vec<Vec<usize>> {
+    let n_features = data.n_features();
+    let mut sorted_by_feature = Vec::with_capacity(n_features);
+    for feat_idx in 0..n_features {
+        let col = &data.features[feat_idx];
+        let mut sorted = indices.to_vec();
+        sorted.sort_unstable_by(|&a, &b| {
+            col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        sorted_by_feature.push(sorted);
+    }
+    sorted_by_feature
+}
+
+/// Filter global sorted arrays to only include member indices.
+fn filter_sorted(global_sorted: &[Vec<usize>], membership: &[bool]) -> Vec<Vec<usize>> {
+    global_sorted
+        .iter()
+        .map(|gs| {
+            gs.iter()
+                .copied()
+                .filter(|&idx| membership[idx])
+                .collect()
+        })
+        .collect()
+}
+
+/// Partition sorted arrays into left/right based on a split decision.
+/// Preserves sort order within each partition.
+fn partition_sorted(
+    sorted_by_feature: Vec<Vec<usize>>,
+    split_col: &[f64],
+    threshold: f64,
+    left_count: usize,
+    right_count: usize,
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    let n_feat = sorted_by_feature.len();
+    let mut left_sorted = Vec::with_capacity(n_feat);
+    let mut right_sorted = Vec::with_capacity(n_feat);
+    for feat_sorted in sorted_by_feature {
+        let mut left = Vec::with_capacity(left_count);
+        let mut right = Vec::with_capacity(right_count);
+        for idx in feat_sorted {
+            if split_col[idx] <= threshold {
+                left.push(idx);
+            } else {
+                right.push(idx);
+            }
+        }
+        left_sorted.push(left);
+        right_sorted.push(right);
+    }
+    (left_sorted, right_sorted)
+}
+
+/// Populate the feature buffer with indices, optionally shuffled for feature bagging.
+fn fill_feature_buf(
+    feature_buf: &mut Vec<usize>,
+    n_features: usize,
+    max_features: Option<usize>,
+) {
+    feature_buf.clear();
+    feature_buf.extend(0..n_features);
+    if let Some(max_f) = max_features {
+        let mut rng = crate::rng::FastRng::new(0);
+        let m = max_f.min(n_features);
+        for i in 0..m {
+            let j = rng.usize(i..n_features);
+            feature_buf.swap(i, j);
+        }
+        feature_buf.truncate(m);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Decision Tree Classifier
 // ---------------------------------------------------------------------------
 
@@ -138,32 +217,37 @@ impl DecisionTreeClassifier {
     /// then partitions at each node (O(n) per feature per node) — matching
     /// scikit-learn's optimized CART implementation.
     pub(crate) fn fit_on_indices(&mut self, data: &Dataset, sample_indices: &[usize]) -> Result<()> {
-        let n_features = data.n_features();
-
-        // Pre-sort sample indices by each feature value (once at root).
-        let mut sorted_by_feature: Vec<Vec<usize>> = Vec::with_capacity(n_features);
-        for feat_idx in 0..n_features {
-            let col = &data.features[feat_idx];
-            let mut sorted = sample_indices.to_vec();
-            sorted.sort_unstable_by(|&a, &b| {
-                col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            sorted_by_feature.push(sorted);
-        }
-
-        self.fit_on_indices_presorted(data, sample_indices, &sorted_by_feature)
+        let sorted_by_feature = presort_indices(data, sample_indices);
+        self.fit_with_sorted(data, sample_indices, sorted_by_feature)
     }
 
     /// Train using pre-sorted indices shared across trees (RF memory optimization).
     ///
     /// `global_sorted` contains ALL dataset indices sorted by each feature.
-    /// The membership bitset filters to only the bootstrap sample for this tree.
-    /// This avoids allocating `sorted_by_feature` per tree during RF training.
+    /// Filters to only the bootstrap sample indices, then builds the tree
+    /// using partitioned sorted arrays.
     pub(crate) fn fit_on_indices_presorted(
         &mut self,
         data: &Dataset,
         sample_indices: &[usize],
         global_sorted: &[Vec<usize>],
+    ) -> Result<()> {
+        // Filter global sorted arrays to only include bootstrap sample indices.
+        let membership_len = global_sorted.first().map_or(0, Vec::len);
+        let mut membership = vec![false; membership_len];
+        for &i in sample_indices {
+            membership[i] = true;
+        }
+        let sorted_by_feature = filter_sorted(global_sorted, &membership);
+        self.fit_with_sorted(data, sample_indices, sorted_by_feature)
+    }
+
+    /// Internal: fit using pre-filtered, per-node sorted arrays.
+    fn fit_with_sorted(
+        &mut self,
+        data: &Dataset,
+        sample_indices: &[usize],
+        sorted_by_feature: Vec<Vec<usize>>,
     ) -> Result<()> {
         let n = sample_indices.len();
         if n == 0 {
@@ -181,23 +265,12 @@ impl DecisionTreeClassifier {
         };
         self.sample_weights = weights;
 
-        // Membership bitset for partitioning at each node.
-        // Must cover ALL dataset indices (not just the bootstrap sample) because
-        // build_tree_presorted iterates over global_sorted which contains 0..n_samples.
-        let membership_len = global_sorted.first().map_or(0, Vec::len);
-        let mut membership = vec![false; membership_len];
-        for &i in sample_indices {
-            membership[i] = true;
-        }
+        let mut feature_buf = Vec::with_capacity(self.n_features);
 
         let tree = if self.sample_weights.is_some() {
-            self.build_tree_presorted_weighted(
-                data, global_sorted, &mut membership, n, 0,
-            )
+            self.build_tree_weighted(data, sorted_by_feature, n, 0, &mut feature_buf)
         } else {
-            self.build_tree_presorted(
-                data, global_sorted, &mut membership, n, 0,
-            )
+            self.build_tree(data, sorted_by_feature, n, 0, &mut feature_buf)
         };
 
         // Apply cost-complexity pruning if requested.
@@ -292,66 +365,45 @@ impl DecisionTreeClassifier {
 
         // Rebuild the recursive tree from the dataset to get the path.
         let indices: Vec<usize> = (0..data.n_samples()).collect();
-        let n_features = data.n_features();
-        let mut sorted_by_feature: Vec<Vec<usize>> = Vec::with_capacity(n_features);
-        for feat_idx in 0..n_features {
-            let col = &data.features[feat_idx];
-            let mut sorted = indices.clone();
-            sorted.sort_unstable_by(|&a, &b| {
-                col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            sorted_by_feature.push(sorted);
-        }
-        let max_idx = indices.iter().copied().max().unwrap_or(0);
-        let mut membership = vec![false; max_idx + 1];
-        for &i in &indices {
-            membership[i] = true;
-        }
+        let sorted_by_feature = presort_indices(data, &indices);
         let n = indices.len();
+        let mut feature_buf = Vec::with_capacity(unpruned.n_features);
+
         let tree = if unpruned.sample_weights.is_some() {
-            unpruned.build_tree_presorted_weighted(
-                data, &sorted_by_feature, &mut membership, n, 0,
-            )
+            unpruned.build_tree_weighted(data, sorted_by_feature, n, 0, &mut feature_buf)
         } else {
-            unpruned.build_tree_presorted(
-                data, &sorted_by_feature, &mut membership, n, 0,
-            )
+            unpruned.build_tree(data, sorted_by_feature, n, 0, &mut feature_buf)
         };
         Ok(tree.cost_complexity_pruning_path())
     }
 
     // -----------------------------------------------------------------------
-    // Pre-sorted recursive tree building
+    // Recursive tree building (unweighted)
     // -----------------------------------------------------------------------
 
-    /// Build tree using pre-sorted indices.
+    /// Build tree using partitioned sorted arrays.
     ///
-    /// `sorted_by_feature[feat_idx]` contains ALL sample indices sorted by
-    /// that feature's value. `membership[idx]` is true iff `idx` belongs
-    /// to the current node. The sorted arrays are filtered on-the-fly
-    /// using the membership bitset.
-    fn build_tree_presorted(
+    /// `sorted_by_feature[feat_idx]` contains only this node's sample indices,
+    /// sorted by that feature's value. No membership bitset needed.
+    fn build_tree(
         &mut self,
         data: &Dataset,
-        sorted_by_feature: &[Vec<usize>],
-        membership: &mut [bool],
-        n_samples: usize,
+        sorted_by_feature: Vec<Vec<usize>>,
+        n_root_samples: usize,
         depth: usize,
+        feature_buf: &mut Vec<usize>,
     ) -> TreeNode {
-        // Collect active indices and class counts.
+        let active = &sorted_by_feature[0];
+        let n_actual = active.len();
+
+        // Collect class counts.
         let mut class_counts = vec![0usize; self.n_classes];
-        let mut active_indices = Vec::with_capacity(n_samples);
-        // Use any feature's sorted order to gather active indices.
-        for &idx in &sorted_by_feature[0] {
-            if membership[idx] {
-                active_indices.push(idx);
-                let c = data.target[idx] as usize;
-                if c < self.n_classes {
-                    class_counts[c] += 1;
-                }
+        for &idx in active {
+            let c = data.target[idx] as usize;
+            if c < self.n_classes {
+                class_counts[c] += 1;
             }
         }
-        let n_actual = active_indices.len();
         let impurity = compute_impurity(&class_counts, n_actual, self.criterion);
 
         // Check stopping conditions.
@@ -368,12 +420,11 @@ impl DecisionTreeClassifier {
             };
         }
 
-        // Find best split — scan pre-sorted arrays (O(n) per feature).
-        let best = self.find_best_split_presorted(
-            data, sorted_by_feature, membership, &class_counts, n_actual,
+        // Find best split.
+        let best = self.find_best_split(
+            data, &sorted_by_feature, &class_counts, n_actual, feature_buf,
         );
 
-        // Pre-compute prediction before class_counts might be moved.
         let node_prediction = majority_class(&class_counts);
 
         match best {
@@ -384,19 +435,17 @@ impl DecisionTreeClassifier {
                 impurity,
             },
             Some(split) => {
-                // Partition: mark left/right using membership bitset.
                 let col = &data.features[split.feature_idx];
+                let threshold = split.threshold;
+
+                // Count left/right.
                 let mut left_count = 0usize;
                 let mut right_count = 0usize;
-                let mut right_indices = Vec::new();
-
-                for &idx in &active_indices {
-                    if col[idx] <= split.threshold {
+                for &idx in active {
+                    if col[idx] <= threshold {
                         left_count += 1;
-                        // Already in membership, stays.
                     } else {
                         right_count += 1;
-                        right_indices.push(idx);
                     }
                 }
 
@@ -410,43 +459,25 @@ impl DecisionTreeClassifier {
                 }
 
                 // Record feature importance.
-                let n_total = sorted_by_feature[0].len() as f64;
-                let weighted_impurity_decrease = (n_actual as f64 / n_total)
+                let weighted_impurity_decrease = (n_actual as f64 / n_root_samples as f64)
                     * (impurity - split.impurity_decrease);
                 self.feature_importances_[split.feature_idx] +=
                     weighted_impurity_decrease.max(0.0);
 
-                // Remove right-side indices from membership for left child.
-                for &idx in &right_indices {
-                    membership[idx] = false;
-                }
+                // Partition sorted arrays into left/right children.
+                let (left_sorted, right_sorted) =
+                    partition_sorted(sorted_by_feature, col, threshold, left_count, right_count);
 
-                let left = self.build_tree_presorted(
-                    data, sorted_by_feature, membership, left_count, depth + 1,
+                let left = self.build_tree(
+                    data, left_sorted, n_root_samples, depth + 1, feature_buf,
                 );
-
-                // Swap: remove left from membership, add right.
-                for &idx in &active_indices {
-                    if col[idx] <= split.threshold {
-                        membership[idx] = false;
-                    }
-                }
-                for &idx in &right_indices {
-                    membership[idx] = true;
-                }
-
-                let right = self.build_tree_presorted(
-                    data, sorted_by_feature, membership, right_count, depth + 1,
+                let right = self.build_tree(
+                    data, right_sorted, n_root_samples, depth + 1, feature_buf,
                 );
-
-                // Restore membership for parent.
-                for &idx in &active_indices {
-                    membership[idx] = true;
-                }
 
                 TreeNode::Split {
                     feature_idx: split.feature_idx,
-                    threshold: split.threshold,
+                    threshold,
                     left: Box::new(left),
                     right: Box::new(right),
                     n_samples: n_actual,
@@ -458,53 +489,33 @@ impl DecisionTreeClassifier {
         }
     }
 
-    /// Scan pre-sorted feature arrays to find the best split — O(n) per feature.
-    fn find_best_split_presorted(
+    /// Find the best split by scanning sorted arrays — O(n) per feature.
+    fn find_best_split(
         &self,
         data: &Dataset,
         sorted_by_feature: &[Vec<usize>],
-        membership: &[bool],
         parent_counts: &[usize],
         n_parent: usize,
+        feature_buf: &mut Vec<usize>,
     ) -> Option<BestSplit> {
         let n_features = data.n_features();
         let mut best: Option<BestSplit> = None;
 
-        // Feature subset selection (for random forest).
-        #[allow(clippy::option_if_let_else)]
-        let feature_indices: Vec<usize> = if let Some(max_f) = self.max_features {
-            let mut rng = crate::rng::FastRng::new(0);
-            let mut all: Vec<usize> = (0..n_features).collect();
-            let m = max_f.min(n_features);
-            for i in 0..m {
-                let j = rng.usize(i..n_features);
-                all.swap(i, j);
-            }
-            all.truncate(m);
-            all
-        } else {
-            (0..n_features).collect()
-        };
+        fill_feature_buf(feature_buf, n_features, self.max_features);
 
-        for &feat_idx in &feature_indices {
+        for &feat_idx in feature_buf.iter() {
             let col = &data.features[feat_idx];
             let sorted = &sorted_by_feature[feat_idx];
 
-            // Scan the pre-sorted array, skipping non-member indices.
             let mut left_counts = vec![0usize; self.n_classes];
             let mut left_n = 0;
             let mut prev_val = f64::NEG_INFINITY;
-            let mut prev_was_member = false;
 
             for &idx in sorted {
-                if !membership[idx] {
-                    continue;
-                }
-
                 let val = col[idx];
 
                 // Check threshold between previous and current value.
-                if prev_was_member && left_n > 0 && (val - prev_val).abs() > 1e-12 {
+                if left_n > 0 && (val - prev_val).abs() > 1e-12 {
                     let right_n = n_parent - left_n;
                     if left_n >= self.min_samples_leaf && right_n >= self.min_samples_leaf {
                         let right_counts: Vec<usize> = parent_counts
@@ -541,7 +552,6 @@ impl DecisionTreeClassifier {
                 }
                 left_n += 1;
                 prev_val = val;
-                prev_was_member = true;
             }
         }
 
@@ -552,45 +562,34 @@ impl DecisionTreeClassifier {
     // Weighted tree building (class_weight support)
     // -------------------------------------------------------------------
 
-    /// Build tree using pre-sorted indices with per-sample weights.
-    fn build_tree_presorted_weighted(
+    /// Build tree using partitioned sorted arrays with per-sample weights.
+    fn build_tree_weighted(
         &mut self,
         data: &Dataset,
-        sorted_by_feature: &[Vec<usize>],
-        membership: &mut [bool],
-        _expected_n: usize,
+        sorted_by_feature: Vec<Vec<usize>>,
+        n_root_samples: usize,
         depth: usize,
+        feature_buf: &mut Vec<usize>,
     ) -> TreeNode {
         let weights = self.sample_weights.as_ref().expect("weights must be set");
+        let active = &sorted_by_feature[0];
+        let n_actual = active.len();
 
-        // Collect active indices and weighted class counts.
-        let mut active_indices = Vec::new();
+        // Collect weighted and unweighted class counts.
         let mut w_counts = vec![0.0_f64; self.n_classes];
         let mut w_total = 0.0_f64;
+        let mut class_counts = vec![0usize; self.n_classes];
 
-        for &idx in &sorted_by_feature[0] {
-            if membership[idx] {
-                active_indices.push(idx);
-                let c = data.target[idx] as usize;
-                let w = weights[idx];
-                if c < self.n_classes {
-                    w_counts[c] += w;
-                }
-                w_total += w;
+        for &idx in active {
+            let c = data.target[idx] as usize;
+            let w = weights[idx];
+            if c < self.n_classes {
+                w_counts[c] += w;
+                class_counts[c] += 1;
             }
+            w_total += w;
         }
-        let n_actual = active_indices.len();
-        // For class_counts in TreeNode, use unweighted counts.
-        let class_counts: Vec<usize> = {
-            let mut cc = vec![0usize; self.n_classes];
-            for &idx in &active_indices {
-                let c = data.target[idx] as usize;
-                if c < self.n_classes {
-                    cc[c] += 1;
-                }
-            }
-            cc
-        };
+
         let impurity = compute_impurity_weighted(&w_counts, w_total, self.criterion);
 
         // Check stopping conditions.
@@ -607,8 +606,8 @@ impl DecisionTreeClassifier {
             };
         }
 
-        let best = self.find_best_split_presorted_weighted(
-            data, sorted_by_feature, membership, &w_counts, w_total, n_actual,
+        let best = self.find_best_split_weighted(
+            data, &sorted_by_feature, &w_counts, w_total, n_actual, feature_buf,
         );
 
         let node_prediction = weighted_majority_class(&w_counts);
@@ -622,16 +621,15 @@ impl DecisionTreeClassifier {
             },
             Some(split) => {
                 let col = &data.features[split.feature_idx];
+                let threshold = split.threshold;
+
                 let mut left_count = 0usize;
                 let mut right_count = 0usize;
-                let mut right_indices = Vec::new();
-
-                for &idx in &active_indices {
-                    if col[idx] <= split.threshold {
+                for &idx in active {
+                    if col[idx] <= threshold {
                         left_count += 1;
                     } else {
                         right_count += 1;
-                        right_indices.push(idx);
                     }
                 }
 
@@ -645,43 +643,24 @@ impl DecisionTreeClassifier {
                 }
 
                 // Record feature importance.
-                let n_total = sorted_by_feature[0].len() as f64;
-                let weighted_impurity_decrease = (n_actual as f64 / n_total)
+                let weighted_impurity_decrease = (n_actual as f64 / n_root_samples as f64)
                     * (impurity - split.impurity_decrease);
                 self.feature_importances_[split.feature_idx] +=
                     weighted_impurity_decrease.max(0.0);
 
-                // Remove right-side indices from membership for left child.
-                for &idx in &right_indices {
-                    membership[idx] = false;
-                }
+                let (left_sorted, right_sorted) =
+                    partition_sorted(sorted_by_feature, col, threshold, left_count, right_count);
 
-                let left = self.build_tree_presorted_weighted(
-                    data, sorted_by_feature, membership, left_count, depth + 1,
+                let left = self.build_tree_weighted(
+                    data, left_sorted, n_root_samples, depth + 1, feature_buf,
                 );
-
-                // Swap: remove left from membership, add right.
-                for &idx in &active_indices {
-                    if col[idx] <= split.threshold {
-                        membership[idx] = false;
-                    }
-                }
-                for &idx in &right_indices {
-                    membership[idx] = true;
-                }
-
-                let right = self.build_tree_presorted_weighted(
-                    data, sorted_by_feature, membership, right_count, depth + 1,
+                let right = self.build_tree_weighted(
+                    data, right_sorted, n_root_samples, depth + 1, feature_buf,
                 );
-
-                // Restore membership for parent.
-                for &idx in &active_indices {
-                    membership[idx] = true;
-                }
 
                 TreeNode::Split {
                     feature_idx: split.feature_idx,
-                    threshold: split.threshold,
+                    threshold,
                     left: Box::new(left),
                     right: Box::new(right),
                     n_samples: n_actual,
@@ -693,37 +672,23 @@ impl DecisionTreeClassifier {
         }
     }
 
-    /// Weighted variant of find_best_split_presorted — uses f64 weighted counts.
-    fn find_best_split_presorted_weighted(
+    /// Weighted variant of find_best_split — uses f64 weighted counts.
+    fn find_best_split_weighted(
         &self,
         data: &Dataset,
         sorted_by_feature: &[Vec<usize>],
-        membership: &[bool],
         parent_w_counts: &[f64],
         w_parent_total: f64,
         n_parent: usize,
+        feature_buf: &mut Vec<usize>,
     ) -> Option<BestSplit> {
         let weights = self.sample_weights.as_ref().expect("weights must be set");
         let n_features = data.n_features();
         let mut best: Option<BestSplit> = None;
 
-        // Feature subset selection (for random forest).
-        #[allow(clippy::option_if_let_else)]
-        let feature_indices: Vec<usize> = if let Some(max_f) = self.max_features {
-            let mut rng = crate::rng::FastRng::new(0);
-            let mut all: Vec<usize> = (0..n_features).collect();
-            let m = max_f.min(n_features);
-            for i in 0..m {
-                let j = rng.usize(i..n_features);
-                all.swap(i, j);
-            }
-            all.truncate(m);
-            all
-        } else {
-            (0..n_features).collect()
-        };
+        fill_feature_buf(feature_buf, n_features, self.max_features);
 
-        for &feat_idx in &feature_indices {
+        for &feat_idx in feature_buf.iter() {
             let col = &data.features[feat_idx];
             let sorted = &sorted_by_feature[feat_idx];
 
@@ -731,17 +696,12 @@ impl DecisionTreeClassifier {
             let mut left_w_total = 0.0_f64;
             let mut left_n = 0usize;
             let mut prev_val = f64::NEG_INFINITY;
-            let mut prev_was_member = false;
 
             for &idx in sorted {
-                if !membership[idx] {
-                    continue;
-                }
-
                 let val = col[idx];
                 let w = weights[idx];
 
-                if prev_was_member && left_n > 0 && (val - prev_val).abs() > 1e-12 {
+                if left_n > 0 && (val - prev_val).abs() > 1e-12 {
                     let right_n = n_parent - left_n;
                     if left_n >= self.min_samples_leaf && right_n >= self.min_samples_leaf {
                         let right_w_total = w_parent_total - left_w_total;
@@ -784,7 +744,6 @@ impl DecisionTreeClassifier {
                 left_w_total += w;
                 left_n += 1;
                 prev_val = val;
-                prev_was_member = true;
             }
         }
 
@@ -884,27 +843,10 @@ impl DecisionTreeRegressor {
         self.n_features = data.n_features();
         self.feature_importances_ = vec![0.0; self.n_features];
 
-        // Pre-sort sample indices by each feature (once at root).
-        let n_features = data.n_features();
-        let mut sorted_by_feature: Vec<Vec<usize>> = Vec::with_capacity(n_features);
-        for feat_idx in 0..n_features {
-            let col = &data.features[feat_idx];
-            let mut sorted = sample_indices.to_vec();
-            sorted.sort_unstable_by(|&a, &b| {
-                col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            sorted_by_feature.push(sorted);
-        }
+        let sorted_by_feature = presort_indices(data, sample_indices);
+        let mut feature_buf = Vec::with_capacity(self.n_features);
 
-        let max_idx = sample_indices.iter().copied().max().unwrap_or(0);
-        let mut membership = vec![false; max_idx + 1];
-        for &i in sample_indices {
-            membership[i] = true;
-        }
-
-        let tree = self.build_tree_presorted_reg(
-            data, &sorted_by_feature, &mut membership, n, 0,
-        );
+        let tree = self.build_tree_reg(data, sorted_by_feature, n, 0, &mut feature_buf);
 
         // Apply cost-complexity pruning if requested.
         let tree = if self.ccp_alpha > 0.0 {
@@ -951,27 +893,18 @@ impl DecisionTreeRegressor {
         self.n_features
     }
 
-    fn build_tree_presorted_reg(
+    /// Build tree using partitioned sorted arrays — no membership bitset.
+    fn build_tree_reg(
         &mut self,
         data: &Dataset,
-        sorted_by_feature: &[Vec<usize>],
-        membership: &mut [bool],
-        n_samples: usize,
+        sorted_by_feature: Vec<Vec<usize>>,
+        n_root_samples: usize,
         depth: usize,
+        feature_buf: &mut Vec<usize>,
     ) -> TreeNode {
-        // Collect active indices and compute mean/MSE.
-        let mut active_indices = Vec::with_capacity(n_samples);
-        let mut sum = 0.0;
-        let mut sq_sum = 0.0;
-        for &idx in &sorted_by_feature[0] {
-            if membership[idx] {
-                active_indices.push(idx);
-                let v = data.target[idx];
-                sum += v;
-                sq_sum += v * v;
-            }
-        }
-        let n_actual = active_indices.len();
+        let active = &sorted_by_feature[0];
+        let n_actual = active.len();
+
         if n_actual == 0 {
             return TreeNode::Leaf {
                 prediction: 0.0,
@@ -979,6 +912,15 @@ impl DecisionTreeRegressor {
                 class_counts: Vec::new(),
                 impurity: 0.0,
             };
+        }
+
+        // Compute mean/MSE from active indices directly.
+        let mut sum = 0.0;
+        let mut sq_sum = 0.0;
+        for &idx in active {
+            let v = data.target[idx];
+            sum += v;
+            sq_sum += v * v;
         }
         let mean = sum / n_actual as f64;
         let mse = sq_sum / n_actual as f64 - mean * mean;
@@ -995,8 +937,8 @@ impl DecisionTreeRegressor {
             };
         }
 
-        let best = self.find_best_split_presorted_reg(
-            data, sorted_by_feature, membership, sum, sq_sum, n_actual,
+        let best = self.find_best_split_reg(
+            data, &sorted_by_feature, sum, sq_sum, n_actual, feature_buf,
         );
 
         match best {
@@ -1008,16 +950,15 @@ impl DecisionTreeRegressor {
             },
             Some(split) => {
                 let col = &data.features[split.feature_idx];
+                let threshold = split.threshold;
+
                 let mut left_count = 0usize;
                 let mut right_count = 0usize;
-                let mut right_indices = Vec::new();
-
-                for &idx in &active_indices {
-                    if col[idx] <= split.threshold {
+                for &idx in active {
+                    if col[idx] <= threshold {
                         left_count += 1;
                     } else {
                         right_count += 1;
-                        right_indices.push(idx);
                     }
                 }
 
@@ -1030,38 +971,23 @@ impl DecisionTreeRegressor {
                     };
                 }
 
-                let n_total = sorted_by_feature[0].len() as f64;
-                let decrease = (n_actual as f64 / n_total) * (mse - split.impurity_decrease);
+                let decrease = (n_actual as f64 / n_root_samples as f64)
+                    * (mse - split.impurity_decrease);
                 self.feature_importances_[split.feature_idx] += decrease.max(0.0);
 
-                for &idx in &right_indices {
-                    membership[idx] = false;
-                }
+                let (left_sorted, right_sorted) =
+                    partition_sorted(sorted_by_feature, col, threshold, left_count, right_count);
 
-                let left = self.build_tree_presorted_reg(
-                    data, sorted_by_feature, membership, left_count, depth + 1,
+                let left = self.build_tree_reg(
+                    data, left_sorted, n_root_samples, depth + 1, feature_buf,
                 );
-
-                for &idx in &active_indices {
-                    if col[idx] <= split.threshold {
-                        membership[idx] = false;
-                    }
-                }
-                for &idx in &right_indices {
-                    membership[idx] = true;
-                }
-
-                let right = self.build_tree_presorted_reg(
-                    data, sorted_by_feature, membership, right_count, depth + 1,
+                let right = self.build_tree_reg(
+                    data, right_sorted, n_root_samples, depth + 1, feature_buf,
                 );
-
-                for &idx in &active_indices {
-                    membership[idx] = true;
-                }
 
                 TreeNode::Split {
                     feature_idx: split.feature_idx,
-                    threshold: split.threshold,
+                    threshold,
                     left: Box::new(left),
                     right: Box::new(right),
                     n_samples: n_actual,
@@ -1073,34 +999,22 @@ impl DecisionTreeRegressor {
         }
     }
 
-    fn find_best_split_presorted_reg(
+    /// Find best regression split using incremental variance — O(n) per feature.
+    fn find_best_split_reg(
         &self,
         data: &Dataset,
         sorted_by_feature: &[Vec<usize>],
-        membership: &[bool],
         total_sum: f64,
         total_sq: f64,
         n_parent: usize,
+        feature_buf: &mut Vec<usize>,
     ) -> Option<BestSplit> {
         let n_features = data.n_features();
         let mut best: Option<BestSplit> = None;
 
-        #[allow(clippy::option_if_let_else)]
-        let feature_indices: Vec<usize> = if let Some(max_f) = self.max_features {
-            let mut rng = crate::rng::FastRng::new(0);
-            let mut all: Vec<usize> = (0..n_features).collect();
-            let m = max_f.min(n_features);
-            for i in 0..m {
-                let j = rng.usize(i..n_features);
-                all.swap(i, j);
-            }
-            all.truncate(m);
-            all
-        } else {
-            (0..n_features).collect()
-        };
+        fill_feature_buf(feature_buf, n_features, self.max_features);
 
-        for &feat_idx in &feature_indices {
+        for &feat_idx in feature_buf.iter() {
             let col = &data.features[feat_idx];
             let sorted = &sorted_by_feature[feat_idx];
 
@@ -1108,17 +1022,12 @@ impl DecisionTreeRegressor {
             let mut left_sq_sum = 0.0;
             let mut left_n = 0usize;
             let mut prev_val = f64::NEG_INFINITY;
-            let mut prev_was_member = false;
 
             for &idx in sorted {
-                if !membership[idx] {
-                    continue;
-                }
-
                 let feat_val = col[idx];
 
                 // Check threshold between previous and current.
-                if prev_was_member && left_n > 0 && (feat_val - prev_val).abs() > 1e-12 {
+                if left_n > 0 && (feat_val - prev_val).abs() > 1e-12 {
                     let right_n = n_parent - left_n;
                     if left_n >= self.min_samples_leaf && right_n >= self.min_samples_leaf {
                         let left_mse = left_sq_sum / left_n as f64
@@ -1149,7 +1058,6 @@ impl DecisionTreeRegressor {
                 left_sq_sum += target_val * target_val;
                 left_n += 1;
                 prev_val = feat_val;
-                prev_was_member = true;
             }
         }
         best

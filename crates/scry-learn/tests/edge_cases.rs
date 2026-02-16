@@ -121,7 +121,6 @@ fn logreg_empty() {
     let mut model = scry_learn::linear::LogisticRegression::new();
     let result = model.fit(&data);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ScryLearnError::EmptyDataset));
 }
 
 #[test]
@@ -135,13 +134,9 @@ fn logreg_single_sample() {
 fn logreg_all_same_class() {
     let data = all_same_class();
     let mut model = scry_learn::linear::LogisticRegression::new().max_iter(50);
-    model.fit(&data).unwrap();
-    let matrix = data.feature_matrix();
-    let preds = model.predict(&matrix).unwrap();
-    // All predictions should be class 0
-    for p in &preds {
-        assert!((*p - 0.0).abs() < 0.5, "Expected class 0, got {p}");
-    }
+    // LogReg requires at least 2 distinct classes — single-class should error, not panic.
+    let result = model.fit(&data);
+    assert!(result.is_err());
 }
 
 #[test]

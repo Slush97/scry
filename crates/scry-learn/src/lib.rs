@@ -40,6 +40,7 @@
 
 pub mod error;
 pub(crate) mod rng;
+pub mod matrix;
 pub mod dataset;
 pub mod distance;
 pub mod split;
@@ -64,6 +65,7 @@ pub mod neural;
 /// Convenience re-exports for common usage.
 pub mod prelude {
     pub use crate::dataset::Dataset;
+    pub use crate::matrix::DenseMatrix;
     pub use crate::split::{
         train_test_split, stratified_split,
         cross_val_score, cross_val_score_stratified, ScoringFn,

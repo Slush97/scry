@@ -5,6 +5,7 @@
 
 #[cfg(feature = "csv")]
 use crate::error::{Result, ScryLearnError};
+use crate::matrix::DenseMatrix;
 
 /// A tabular dataset with features and a target column.
 ///
@@ -23,6 +24,9 @@ pub struct Dataset {
     pub target_name: String,
     /// Class label mapping (index → label string) for classification tasks.
     pub class_labels: Option<Vec<String>>,
+    /// Contiguous column-major feature matrix.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    matrix: Option<DenseMatrix>,
     /// Lazily-computed contiguous row-major feature buffer.
     ///
     /// Layout: `[sample_0_feat_0, sample_0_feat_1, ..., sample_n_feat_m]`.
@@ -39,14 +43,46 @@ impl Dataset {
         feature_names: Vec<String>,
         target_name: impl Into<String>,
     ) -> Self {
+        let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Self {
             features,
             target,
             feature_names,
             target_name: target_name.into(),
             class_labels: None,
+            matrix,
             row_major_cache: None,
         }
+    }
+
+    /// Create a dataset from a [`DenseMatrix`], target, and column names.
+    ///
+    /// The `features` field is populated from the matrix for backward compat.
+    pub fn from_matrix(
+        matrix: DenseMatrix,
+        target: Vec<f64>,
+        feature_names: Vec<String>,
+        target_name: impl Into<String>,
+    ) -> Self {
+        let features = matrix.to_col_vecs();
+        Self {
+            features,
+            target,
+            feature_names,
+            target_name: target_name.into(),
+            class_labels: None,
+            matrix: Some(matrix),
+            row_major_cache: None,
+        }
+    }
+
+    /// The contiguous column-major feature matrix.
+    ///
+    /// Always available after construction via [`new`](Self::new),
+    /// [`from_matrix`](Self::from_matrix), or [`from_csv`](Self::from_csv).
+    #[inline]
+    pub fn matrix(&self) -> &DenseMatrix {
+        self.matrix.as_ref().expect("DenseMatrix not initialized")
     }
 
     /// Load a dataset from a CSV file.
@@ -117,12 +153,14 @@ impl Dataset {
             }
         }
 
+        let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Ok(Self {
             features,
             target,
             feature_names,
             target_name: headers[target_idx].clone(),
             class_labels,
+            matrix,
             row_major_cache: None,
         })
     }
@@ -184,9 +222,19 @@ impl Dataset {
             let n = self.n_samples();
             let m = self.n_features();
             let mut buf = vec![0.0; n * m];
-            for j in 0..m {
-                for i in 0..n {
-                    buf[i * m + j] = self.features[j][i];
+            if let Some(mat) = &self.matrix {
+                let src = mat.as_slice();
+                for j in 0..m {
+                    let col_off = j * n;
+                    for i in 0..n {
+                        buf[i * m + j] = src[col_off + i];
+                    }
+                }
+            } else {
+                for j in 0..m {
+                    for i in 0..n {
+                        buf[i * m + j] = self.features[j][i];
+                    }
                 }
             }
             self.row_major_cache = Some(buf);
@@ -205,18 +253,20 @@ impl Dataset {
 
     /// Create a subset of this dataset with the given sample indices.
     pub fn subset(&self, indices: &[usize]) -> Self {
-        let features = self
+        let features: Vec<Vec<f64>> = self
             .features
             .iter()
             .map(|col| indices.iter().map(|&i| col[i]).collect())
             .collect();
         let target = indices.iter().map(|&i| self.target[i]).collect();
+        let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Self {
             features,
             target,
             feature_names: self.feature_names.clone(),
             target_name: self.target_name.clone(),
             class_labels: self.class_labels.clone(),
+            matrix,
             row_major_cache: None,
         }
     }
@@ -325,5 +375,26 @@ mod tests {
             "t",
         );
         assert_eq!(ds.n_classes(), 3);
+    }
+
+    #[test]
+    fn test_matrix_accessor() {
+        let features = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+        let ds = Dataset::new(features, vec![0.0, 1.0], vec!["a".into(), "b".into()], "t");
+        let mat = ds.matrix();
+        assert_eq!(mat.n_rows(), 2);
+        assert_eq!(mat.n_cols(), 2);
+        assert_eq!(mat.col(0), &[1.0, 2.0]);
+        assert_eq!(mat.col(1), &[3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_from_matrix() {
+        let mat = DenseMatrix::from_col_major(vec![vec![1.0, 2.0], vec![3.0, 4.0]]).unwrap();
+        let ds = Dataset::from_matrix(mat, vec![0.0, 1.0], vec!["a".into(), "b".into()], "t");
+        assert_eq!(ds.n_samples(), 2);
+        assert_eq!(ds.n_features(), 2);
+        assert_eq!(ds.feature(0), &[1.0, 2.0]);
+        assert_eq!(ds.matrix().col(1), &[3.0, 4.0]);
     }
 }

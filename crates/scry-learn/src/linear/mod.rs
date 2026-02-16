@@ -25,6 +25,8 @@ mod logistic;
 mod lasso;
 mod elastic_net;
 mod lbfgs;
+pub(crate) mod svd;
+pub(crate) mod qr;
 
 pub use regression::LinearRegression;
 pub use logistic::{LogisticRegression, Penalty, Solver};
