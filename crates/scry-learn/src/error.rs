@@ -46,6 +46,10 @@ pub enum ScryLearnError {
     #[error("CSV error: {0}")]
     Csv(String),
 
+    /// A referenced feature index is out of bounds.
+    #[error("invalid feature index: {0}")]
+    InvalidFeatureIndex(usize),
+
     /// Chart rendering error.
     #[error("visualization error: {0}")]
     ChartError(String),

@@ -17,6 +17,9 @@ pub struct GaussianNb {
     /// Prior probabilities per class.
     priors: Vec<f64>,
     class_weight: ClassWeight,
+    /// Additive smoothing: `var_smoothing * max(all_variances)` is added to each
+    /// feature variance, matching scikit-learn's behaviour.
+    var_smoothing: f64,
     n_classes: usize,
     fitted: bool,
 }
@@ -29,6 +32,7 @@ impl GaussianNb {
             variances: Vec::new(),
             priors: Vec::new(),
             class_weight: ClassWeight::Uniform,
+            var_smoothing: 1e-9,
             n_classes: 0,
             fitted: false,
         }
@@ -37,6 +41,16 @@ impl GaussianNb {
     /// Set class weighting strategy for imbalanced datasets.
     pub fn class_weight(mut self, cw: ClassWeight) -> Self {
         self.class_weight = cw;
+        self
+    }
+
+    /// Set variance smoothing parameter (default `1e-9`, matching sklearn).
+    ///
+    /// The smoothing epsilon added to each feature variance is
+    /// `var_smoothing × max(all_variances)`, which adapts to the scale
+    /// of the data — important for high-dimensional datasets.
+    pub fn var_smoothing(mut self, vs: f64) -> Self {
+        self.var_smoothing = vs;
         self
     }
 
@@ -85,9 +99,21 @@ impl GaussianNb {
             if ws > 0.0 {
                 for vj in c_var.iter_mut() {
                     *vj /= ws;
-                    // Add small epsilon to avoid division by zero.
-                    *vj += 1e-9;
                 }
+            }
+        }
+
+        // Compute max variance across all classes and features (sklearn-style).
+        let max_var = self.variances.iter()
+            .flat_map(|cv| cv.iter())
+            .copied()
+            .fold(0.0_f64, f64::max);
+        let epsilon = self.var_smoothing * max_var.max(1e-300);
+
+        // Add scaled smoothing to all variances.
+        for c_var in &mut self.variances {
+            for vj in c_var.iter_mut() {
+                *vj += epsilon;
             }
         }
 
@@ -96,6 +122,21 @@ impl GaussianNb {
         self.priors = w_sums.iter().map(|&ws| ws / w_total).collect();
         self.fitted = true;
         Ok(())
+    }
+
+    /// Per-class means: `class_means()[c][j]` is the mean of feature `j` for class `c`.
+    pub fn class_means(&self) -> &[Vec<f64>] {
+        &self.means
+    }
+
+    /// Per-class variances (smoothed): `class_variances()[c][j]` for class `c`, feature `j`.
+    pub fn class_variances(&self) -> &[Vec<f64>] {
+        &self.variances
+    }
+
+    /// Prior probabilities per class.
+    pub fn class_priors(&self) -> &[f64] {
+        &self.priors
     }
 
     /// Predict class labels.

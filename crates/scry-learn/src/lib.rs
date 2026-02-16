@@ -57,6 +57,7 @@ pub mod anomaly;
 pub mod ensemble;
 pub mod weights;
 pub mod viz;
+pub mod accel;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {
@@ -100,7 +101,9 @@ pub mod prelude {
         pr_chart, learning_curve, prediction_error_chart,
         calibration_chart, class_report_chart, metric_comparison_chart,
         elbow_chart, cluster_scatter, silhouette_chart,
+        scatter3d_data, scatter3d_chart,
     };
+    pub use crate::viz::model_viz::Visualize;
     pub use crate::pipeline::Pipeline;
     pub use crate::search::{
         GridSearchCV, RandomizedSearchCV, ParamValue, ParamGrid, Tunable, CvResult,

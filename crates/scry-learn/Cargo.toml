@@ -14,6 +14,7 @@ readme = "README.md"
 [features]
 default = []
 serde = ["dep:serde"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 scry-chart = { path = "../scry-chart" }
@@ -22,6 +23,11 @@ csv = "1"
 thiserror = "2"
 fastrand = "2"
 serde = { version = "1", features = ["derive"], optional = true }
+
+# Optional: GPU acceleration via wgpu compute shaders
+wgpu = { version = "24", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 insta = { version = "1", features = ["glob"] }
@@ -50,11 +56,25 @@ harness = false
 name = "competitor_bench"
 harness = false
 
+[[bench]]
+name = "industry_benchmark"
+harness = false
+
 [[example]]
 name = "bench_dashboard"
 
 [[example]]
 name = "parity_diagnostic"
+
+[[example]]
+name = "industry_report"
+
+[[example]]
+name = "benchmark_comparison"
+
+[[example]]
+name = "memory_benchmark"
+required-features = ["serde"]
 
 [lints.rust]
 missing_docs = "warn"

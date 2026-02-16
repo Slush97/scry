@@ -5,6 +5,8 @@
 //!
 //! All charts default to [`Theme::dark()`] for consistent terminal aesthetics.
 
+pub mod model_viz;
+
 use scry_chart::chart::{Chart, Heatmap, LineChart, BarChart, BoxPlot, ScatterChart};
 use scry_chart::data::Series;
 use scry_chart::theme::Theme;
@@ -599,6 +601,98 @@ pub fn decision_boundary_chart(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5 — 3D scatter visualization (Sprint 8.5C)
+// ---------------------------------------------------------------------------
+
+/// Extract 3D data from a dataset for scatter visualization.
+///
+/// Extracts three feature columns by index and returns coordinates
+/// plus the target converted to integer labels (rounded to `usize`).
+///
+/// # Example
+///
+/// ```ignore
+/// use scry_learn::prelude::*;
+/// use scry_learn::viz::scatter3d_data;
+///
+/// let data = Dataset::from_csv("iris.csv", "species")?;
+/// let (x, y, z, labels) = scatter3d_data(&data, 0, 1, 2);
+/// ```
+pub fn scatter3d_data(
+    dataset: &crate::dataset::Dataset,
+    feat_x: usize,
+    feat_y: usize,
+    feat_z: usize,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<usize>) {
+    let n = dataset.n_samples();
+    let mut x = Vec::with_capacity(n);
+    let mut y = Vec::with_capacity(n);
+    let mut z = Vec::with_capacity(n);
+    let mut labels = Vec::with_capacity(n);
+
+    let x_col = dataset.feature(feat_x);
+    let y_col = dataset.feature(feat_y);
+    let z_col = dataset.feature(feat_z);
+
+    for i in 0..n {
+        x.push(x_col[i]);
+        y.push(y_col[i]);
+        z.push(z_col[i]);
+        // Target is f64; convert to usize for class labels
+        labels.push(dataset.target[i] as usize);
+    }
+
+    (x, y, z, labels)
+}
+
+/// Render a 3D scatter chart colored by class from a dataset.
+///
+/// Extracts three feature columns by index and colors points by the
+/// target column. Feature names are used as axis labels.
+///
+/// # Example
+///
+/// ```ignore
+/// use scry_learn::prelude::*;
+/// use scry_learn::viz::scatter3d_chart;
+///
+/// let data = Dataset::from_csv("iris.csv", "species")?;
+/// let chart = scatter3d_chart(&data, 0, 1, 2);
+/// chart.save_png(800, 600, "iris_3d.png")?;
+/// ```
+pub fn scatter3d_chart(
+    dataset: &crate::dataset::Dataset,
+    feat_x: usize,
+    feat_y: usize,
+    feat_z: usize,
+) -> scry_chart::chart3d::Chart3D {
+    let (x, y, z, labels) = scatter3d_data(dataset, feat_x, feat_y, feat_z);
+
+    let x_name = dataset.feature_names.get(feat_x)
+        .map_or("X", |s| s.as_str());
+    let y_name = dataset.feature_names.get(feat_y)
+        .map_or("Y", |s| s.as_str());
+    let z_name = dataset.feature_names.get(feat_z)
+        .map_or("Z", |s| s.as_str());
+
+    let title = dataset.class_labels.as_ref().map_or_else(
+        || format!("{x_name} × {y_name} × {z_name}"),
+        |class_labels| format!(
+            "{} × {} × {} (colored by {})",
+            x_name, y_name, z_name,
+            class_labels.join("/")
+        ),
+    );
+
+    scry_chart::chart3d::Chart3D::scatter(&x, &y, &z)
+        .title(title)
+        .x_label(x_name)
+        .y_label(y_name)
+        .z_label(z_name)
+        .color_by_class(&labels)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -786,5 +880,48 @@ mod tests {
         };
         let chart = decision_boundary_chart(&x, &y, &labels, &predict, 10);
         assert!(matches!(chart, Chart::Scatter(_)));
+    }
+
+    #[test]
+    fn test_scatter3d_data() {
+        let mut dataset = crate::dataset::Dataset::new(
+            vec![
+                vec![1.0, 2.0, 3.0],
+                vec![4.0, 5.0, 6.0],
+                vec![7.0, 8.0, 9.0],
+                vec![10.0, 11.0, 12.0],
+            ],
+            vec![0.0, 1.0, 2.0],
+            vec!["f0".into(), "f1".into(), "f2".into(), "f3".into()],
+            "class",
+        );
+        dataset.class_labels = Some(vec!["a".into(), "b".into(), "c".into()]);
+
+        let (x, y, z, labels) = scatter3d_data(&dataset, 0, 1, 2);
+        assert_eq!(x, vec![1.0, 2.0, 3.0]);
+        assert_eq!(y, vec![4.0, 5.0, 6.0]);
+        assert_eq!(z, vec![7.0, 8.0, 9.0]);
+        assert_eq!(labels, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_scatter3d_chart() {
+        let mut dataset = crate::dataset::Dataset::new(
+            vec![
+                vec![1.0, 2.0, 3.0],
+                vec![4.0, 5.0, 6.0],
+                vec![7.0, 8.0, 9.0],
+            ],
+            vec![0.0, 1.0, 0.0],
+            vec!["sepal_l".into(), "sepal_w".into(), "petal_l".into()],
+            "species",
+        );
+        dataset.class_labels = Some(vec!["setosa".into(), "versicolor".into()]);
+
+        let chart = scatter3d_chart(&dataset, 0, 1, 2);
+
+        // Verify it can render
+        let result = chart.render(200, 150);
+        assert!(result.is_ok(), "scatter3d_chart should render: {:?}", result.err());
     }
 }

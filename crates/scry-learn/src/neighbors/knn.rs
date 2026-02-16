@@ -9,6 +9,7 @@
 //! - Uses `select_nth_unstable` for partial sort (O(n) vs O(n·log n)).
 //! - Fixed-size vote array avoids HashMap overhead.
 
+use crate::accel;
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neighbors::kdtree::KdTree;
@@ -225,11 +226,15 @@ impl KnnClassifier {
         Ok(probas
             .into_iter()
             .map(|votes| {
+                // Fold to keep the *first* class with max votes on ties
+                // (sklearn picks lowest class index).
                 votes
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map_or(0.0, |(idx, _)| idx as f64)
+                    .fold((0usize, f64::NEG_INFINITY), |(best_i, best_v), (i, &v)| {
+                        if v > best_v { (i, v) } else { (best_i, best_v) }
+                    })
+                    .0 as f64
             })
             .collect())
     }
@@ -283,87 +288,69 @@ impl KnnClassifier {
     /// Core voting logic shared by `predict` and `predict_proba`.
     ///
     /// Returns raw weighted vote counts per class for each query sample.
+    ///
+    /// When the metric is Euclidean and no KD-tree is in use, distances
+    /// are computed in a single batch via [`ComputeBackend`], which
+    /// uses GPU compute shaders when the `gpu` feature is enabled and
+    /// the dataset is large enough.
     #[allow(clippy::option_if_let_else)]
     fn compute_votes(&self, features: &[Vec<f64>]) -> Vec<Vec<f64>> {
         let k = self.k.min(self.train_features.len());
         let use_actual_dist = matches!(self.weight_fn, WeightFunction::Distance);
         let metric = self.metric;
 
-        features
-            .iter()
-            .map(|query| {
-                // Get k-nearest neighbor indices + distances.
-                let neighbors: Vec<(f64, usize)> = if let Some(ref tree) = self.kdtree {
-                    // KD-tree path — returns (dist², idx) pairs.
-                    let raw = tree.query_k_nearest(query, k, &self.train_features);
-                    if use_actual_dist {
-                        // Convert squared distance to actual distance.
-                        raw.into_iter().map(|(d2, i)| (d2.sqrt(), i)).collect()
-                    } else {
-                        raw
-                    }
-                } else {
-                    // Brute-force path.
-                    let mut dists: Vec<(f64, usize)> = self
-                        .train_features
-                        .iter()
-                        .enumerate()
-                        .map(|(i, train_row)| {
-                            let d = if use_actual_dist {
-                                actual_distance(query, train_row, metric)
-                            } else {
-                                distance_for_compare(query, train_row, metric)
-                            };
-                            (d, i)
-                        })
-                        .collect();
+        // Try batched backend path for Euclidean brute-force.
+        let batched = if self.kdtree.is_none() && matches!(metric, DistanceMetric::Euclidean) {
+            batched_brute_force_neighbors(
+                features,
+                &self.train_features,
+                k,
+                use_actual_dist,
+            )
+        } else {
+            None
+        };
 
-                    if k < dists.len() {
-                        dists.select_nth_unstable_by(k - 1, |a, b| {
-                            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-                    }
-                    dists.truncate(k);
-                    dists
-                };
-
-                // Aggregate votes.
-                let mut votes = vec![0.0_f64; self.n_classes.max(1)];
-
-                if use_actual_dist {
-                    let has_exact = neighbors.iter().any(|&(d, _)| d < f64::EPSILON);
-                    if has_exact {
-                        for &(d, idx) in &neighbors {
-                            if d < f64::EPSILON {
-                                let class = self.train_target[idx] as usize;
-                                let w = self.train_weights[idx];
-                                if class < votes.len() {
-                                    votes[class] += w;
-                                }
-                            }
+        if let Some(all_neighbors) = batched {
+            // Batched path — distances already computed.
+            all_neighbors
+                .into_iter()
+                .map(|neighbors| {
+                    aggregate_votes(
+                        &neighbors,
+                        &self.train_target,
+                        &self.train_weights,
+                        self.n_classes,
+                        use_actual_dist,
+                    )
+                })
+                .collect()
+        } else {
+            // Per-sample path (KD-tree or non-Euclidean metric).
+            features
+                .iter()
+                .map(|query| {
+                    let neighbors: Vec<(f64, usize)> = if let Some(ref tree) = self.kdtree {
+                        let raw = tree.query_k_nearest(query, k, &self.train_features);
+                        if use_actual_dist {
+                            raw.into_iter().map(|(d2, i)| (d2.sqrt(), i)).collect()
+                        } else {
+                            raw
                         }
                     } else {
-                        for &(d, idx) in &neighbors {
-                            let class = self.train_target[idx] as usize;
-                            let w = self.train_weights[idx];
-                            if class < votes.len() {
-                                votes[class] += w / d;
-                            }
-                        }
-                    }
-                } else {
-                    for &(_, idx) in &neighbors {
-                        let class = self.train_target[idx] as usize;
-                        let w = self.train_weights[idx];
-                        if class < votes.len() {
-                            votes[class] += w;
-                        }
-                    }
-                }
+                        scalar_brute_force(query, &self.train_features, k, metric, use_actual_dist)
+                    };
 
-                votes
-            })
-            .collect()
+                    aggregate_votes(
+                        &neighbors,
+                        &self.train_target,
+                        &self.train_weights,
+                        self.n_classes,
+                        use_actual_dist,
+                    )
+                })
+                .collect()
+        }
     }
 }
 
@@ -480,6 +467,9 @@ impl KnnRegressor {
     ///
     /// For each query point, finds the k nearest training samples and returns
     /// their mean (or distance-weighted mean) target value.
+    ///
+    /// When the metric is Euclidean and no KD-tree is in use, distances
+    /// are computed in a single batch via [`ComputeBackend`].
     #[allow(clippy::option_if_let_else)]
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
         if !self.fitted {
@@ -490,59 +480,42 @@ impl KnnRegressor {
         let use_actual_dist = matches!(self.weight_fn, WeightFunction::Distance);
         let metric = self.metric;
 
+        // Try batched backend path for Euclidean brute-force.
+        let batched = if self.kdtree.is_none() && matches!(metric, DistanceMetric::Euclidean) {
+            batched_brute_force_neighbors(
+                features,
+                &self.train_features,
+                k,
+                use_actual_dist,
+            )
+        } else {
+            None
+        };
+
+        let get_neighbors = |query: &Vec<f64>| -> Vec<(f64, usize)> {
+            if let Some(ref tree) = self.kdtree {
+                let raw = tree.query_k_nearest(query, k, &self.train_features);
+                if use_actual_dist {
+                    raw.into_iter().map(|(d2, i)| (d2.sqrt(), i)).collect()
+                } else {
+                    raw
+                }
+            } else {
+                scalar_brute_force(query, &self.train_features, k, metric, use_actual_dist)
+            }
+        };
+
         Ok(features
             .iter()
-            .map(|query| {
-                // Get (distance, idx) pairs via KD-tree or brute-force.
-                let neighbors: Vec<(f64, usize)> = if let Some(ref tree) = self.kdtree {
-                    let raw = tree.query_k_nearest(query, k, &self.train_features);
-                    if use_actual_dist {
-                        raw.into_iter().map(|(d2, i)| (d2.sqrt(), i)).collect()
-                    } else {
-                        raw
-                    }
+            .enumerate()
+            .map(|(qi, query)| {
+                let neighbors = if let Some(ref all) = batched {
+                    all[qi].clone()
                 } else {
-                    let mut dists: Vec<(f64, usize)> = self
-                        .train_features
-                        .iter()
-                        .enumerate()
-                        .map(|(i, train_row)| {
-                            let d = if use_actual_dist {
-                                actual_distance(query, train_row, metric)
-                            } else {
-                                distance_for_compare(query, train_row, metric)
-                            };
-                            (d, i)
-                        })
-                        .collect();
-
-                    if k < dists.len() {
-                        dists.select_nth_unstable_by(k - 1, |a, b| {
-                            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-                    }
-                    dists.truncate(k);
-                    dists
+                    get_neighbors(query)
                 };
 
-                if use_actual_dist {
-                    let has_exact = neighbors.iter().any(|&(d, _)| d < f64::EPSILON);
-                    if has_exact {
-                        let (sum, count) = neighbors.iter().fold((0.0, 0usize), |(s, c), &(d, idx)| {
-                            if d < f64::EPSILON { (s + self.train_target[idx], c + 1) } else { (s, c) }
-                        });
-                        sum / count as f64
-                    } else {
-                        let (weighted_sum, total_w) = neighbors.iter().fold((0.0, 0.0), |(ws, tw), &(d, idx)| {
-                            let w = 1.0 / d;
-                            (ws + w * self.train_target[idx], tw + w)
-                        });
-                        weighted_sum / total_w
-                    }
-                } else {
-                    let sum: f64 = neighbors.iter().map(|&(_, idx)| self.train_target[idx]).sum();
-                    sum / k as f64
-                }
+                aggregate_regression(&neighbors, &self.train_target, use_actual_dist, k)
             })
             .collect())
     }
@@ -551,6 +524,184 @@ impl KnnRegressor {
 impl Default for KnnRegressor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Shared helpers
+// ─────────────────────────────────────────────────────────────────
+
+/// Per-sample brute-force distance computation.
+///
+/// Used when the batched backend path is not applicable (non-Euclidean metric).
+fn scalar_brute_force(
+    query: &[f64],
+    train: &[Vec<f64>],
+    k: usize,
+    metric: DistanceMetric,
+    use_actual_dist: bool,
+) -> Vec<(f64, usize)> {
+    let mut dists: Vec<(f64, usize)> = train
+        .iter()
+        .enumerate()
+        .map(|(i, train_row)| {
+            let d = if use_actual_dist {
+                actual_distance(query, train_row, metric)
+            } else {
+                distance_for_compare(query, train_row, metric)
+            };
+            (d, i)
+        })
+        .collect();
+
+    if k < dists.len() {
+        dists.select_nth_unstable_by(k - 1, |a, b| {
+            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    dists.truncate(k);
+    // Stable sort by (distance, index) to deterministically prefer
+    // lower-index training samples on ties (matches sklearn behavior).
+    dists.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.1.cmp(&b.1))
+    });
+    dists
+}
+
+/// Batched brute-force using `ComputeBackend::pairwise_distances_squared()`.
+///
+/// Returns `Some(neighbors)` where `neighbors[i]` is a `Vec<(dist, idx)>` of
+/// k-nearest for query `i`, or `None` if batch threshold isn't met.
+///
+/// Only valid for Euclidean distance (squared distances preserve ordering).
+fn batched_brute_force_neighbors(
+    queries: &[Vec<f64>],
+    train: &[Vec<f64>],
+    k: usize,
+    use_actual_dist: bool,
+) -> Option<Vec<Vec<(f64, usize)>>> {
+    let n_q = queries.len();
+    let n_t = train.len();
+    if n_q == 0 || n_t == 0 {
+        return None;
+    }
+    let dim = queries[0].len();
+
+    // Only worth batching for reasonably sized problems.
+    // The backend has its own internal thresholds too.
+    if n_q * n_t < 256 {
+        return None;
+    }
+
+    // Flatten row-major: queries[n_q][dim] → flat[n_q * dim]
+    let q_flat: Vec<f64> = queries.iter().flat_map(|r| r.iter().copied()).collect();
+    let t_flat: Vec<f64> = train.iter().flat_map(|r| r.iter().copied()).collect();
+
+    let backend = accel::auto();
+    let dist_matrix = backend.pairwise_distances_squared(&q_flat, &t_flat, n_q, n_t, dim);
+
+    let result: Vec<Vec<(f64, usize)>> = (0..n_q)
+        .map(|qi| {
+            let row = &dist_matrix[qi * n_t..(qi + 1) * n_t];
+            let mut indexed: Vec<(f64, usize)> = row
+                .iter()
+                .enumerate()
+                .map(|(j, &d2)| {
+                    let d = if use_actual_dist { d2.sqrt() } else { d2 };
+                    (d, j)
+                })
+                .collect();
+
+            let k_eff = k.min(indexed.len());
+            if k_eff < indexed.len() {
+                indexed.select_nth_unstable_by(k_eff - 1, |a, b| {
+                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+            indexed.truncate(k_eff);
+            // Stable sort by (distance, index) — matches sklearn tie-breaking.
+            indexed.sort_by(|a, b| {
+                a.0.partial_cmp(&b.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.1.cmp(&b.1))
+            });
+            indexed
+        })
+        .collect();
+
+    Some(result)
+}
+
+/// Aggregate weighted votes for classification.
+fn aggregate_votes(
+    neighbors: &[(f64, usize)],
+    target: &[f64],
+    weights: &[f64],
+    n_classes: usize,
+    use_actual_dist: bool,
+) -> Vec<f64> {
+    let mut votes = vec![0.0_f64; n_classes.max(1)];
+
+    if use_actual_dist {
+        let has_exact = neighbors.iter().any(|&(d, _)| d < f64::EPSILON);
+        if has_exact {
+            for &(d, idx) in neighbors {
+                if d < f64::EPSILON {
+                    let class = target[idx] as usize;
+                    let w = weights[idx];
+                    if class < votes.len() {
+                        votes[class] += w;
+                    }
+                }
+            }
+        } else {
+            for &(d, idx) in neighbors {
+                let class = target[idx] as usize;
+                let w = weights[idx];
+                if class < votes.len() {
+                    votes[class] += w / d;
+                }
+            }
+        }
+    } else {
+        for &(_, idx) in neighbors {
+            let class = target[idx] as usize;
+            let w = weights[idx];
+            if class < votes.len() {
+                votes[class] += w;
+            }
+        }
+    }
+
+    votes
+}
+
+/// Aggregate predictions for regression.
+fn aggregate_regression(
+    neighbors: &[(f64, usize)],
+    target: &[f64],
+    use_actual_dist: bool,
+    k: usize,
+) -> f64 {
+    if use_actual_dist {
+        let has_exact = neighbors.iter().any(|&(d, _)| d < f64::EPSILON);
+        if has_exact {
+            let (sum, count) = neighbors.iter().fold((0.0, 0usize), |(s, c), &(d, idx)| {
+                if d < f64::EPSILON { (s + target[idx], c + 1) } else { (s, c) }
+            });
+            sum / count as f64
+        } else {
+            let (weighted_sum, total_w) = neighbors.iter().fold((0.0, 0.0), |(ws, tw), &(d, idx)| {
+                let w = 1.0 / d;
+                (ws + w * target[idx], tw + w)
+            });
+            weighted_sum / total_w
+        }
+    } else {
+        let sum: f64 = neighbors.iter().map(|&(_, idx)| target[idx]).sum();
+        sum / k as f64
     }
 }
 
@@ -766,5 +917,70 @@ mod tests {
 
         let knn_r = KnnRegressor::new();
         assert!(knn_r.predict(&[vec![1.0]]).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_tests {
+    use super::*;
+
+    #[test]
+    fn gpu_knn_classifier_batched_matches_scalar() {
+        // 100 training samples × 5 features, 10 queries → 1000 pairs (above 256 threshold)
+        let n_train = 100;
+        let n_feat = 5;
+        let mut features_col: Vec<Vec<f64>> = Vec::with_capacity(n_feat);
+        for j in 0..n_feat {
+            let col: Vec<f64> = (0..n_train).map(|i| ((i * (j + 3)) % 37) as f64 * 0.5).collect();
+            features_col.push(col);
+        }
+        let target: Vec<f64> = (0..n_train).map(|i| (i % 3) as f64).collect();
+        let names: Vec<String> = (0..n_feat).map(|j| format!("f{j}")).collect();
+        let data = Dataset::new(features_col, target, names, "class");
+
+        let mut knn = KnnClassifier::new()
+            .k(5)
+            .algorithm(Algorithm::BruteForce);
+        knn.fit(&data).unwrap();
+
+        // 10 queries — enough to trigger batched path
+        let queries: Vec<Vec<f64>> = (0..10)
+            .map(|i| (0..n_feat).map(|j| ((i + j) % 17) as f64 * 0.3).collect())
+            .collect();
+
+        let preds = knn.predict(&queries).unwrap();
+        assert_eq!(preds.len(), 10);
+        for p in &preds {
+            assert!(*p >= 0.0 && *p < 3.0, "prediction must be a valid class: {p}");
+        }
+    }
+
+    #[test]
+    fn gpu_knn_regressor_batched_matches_scalar() {
+        let n_train = 100;
+        let n_feat = 5;
+        let mut features_col: Vec<Vec<f64>> = Vec::with_capacity(n_feat);
+        for j in 0..n_feat {
+            let col: Vec<f64> = (0..n_train).map(|i| ((i * (j + 2)) % 41) as f64 * 0.2).collect();
+            features_col.push(col);
+        }
+        let target: Vec<f64> = (0..n_train).map(|i| (i % 50) as f64).collect();
+        let names: Vec<String> = (0..n_feat).map(|j| format!("f{j}")).collect();
+        let data = Dataset::new(features_col, target, names, "y");
+
+        let mut knn = KnnRegressor::new()
+            .k(5)
+            .algorithm(Algorithm::BruteForce);
+        knn.fit(&data).unwrap();
+
+        let queries: Vec<Vec<f64>> = (0..10)
+            .map(|i| (0..n_feat).map(|j| ((i + j) % 19) as f64 * 0.4).collect())
+            .collect();
+
+        let preds = knn.predict(&queries).unwrap();
+        assert_eq!(preds.len(), 10);
+        for p in &preds {
+            assert!(p.is_finite(), "prediction must be finite: {p}");
+        }
     }
 }
