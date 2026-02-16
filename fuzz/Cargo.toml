@@ -12,6 +12,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 tiny-skia = "0.11"
+fastrand = "2"
 
 [dependencies.scry-engine]
 path = ".."
@@ -19,6 +20,9 @@ features = ["kitty"]
 
 [dependencies.scry-chart]
 path = "../crates/scry-chart"
+
+[dependencies.scry-learn]
+path = "../crates/scry-learn"
 
 # ═══════════════════════════════════════════
 # Phase 1: Core crate fuzz targets
@@ -66,6 +70,31 @@ bench = false
 [[bin]]
 name = "fuzz_chart_builder"
 path = "fuzz_targets/fuzz_chart_builder.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 3: scry-learn fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_cart_predict"
+path = "fuzz_targets/fuzz_cart_predict.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_scaler_chain"
+path = "fuzz_targets/fuzz_scaler_chain.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_neural_forward"
+path = "fuzz_targets/fuzz_neural_forward.rs"
 test = false
 doc = false
 bench = false

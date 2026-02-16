@@ -102,7 +102,7 @@ impl MiniBatchKMeans {
         }
 
         let rows = data.feature_matrix();
-        let mut rng = fastrand::Rng::with_seed(self.seed);
+        let mut rng = crate::rng::FastRng::new(self.seed);
         let effective_batch = self.batch_size.min(n);
 
         // K-means++ initialization.

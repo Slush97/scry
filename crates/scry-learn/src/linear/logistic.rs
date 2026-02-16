@@ -161,6 +161,13 @@ impl LogisticRegression {
     /// Returns `InvalidParameter` if `Penalty::L1` or `Penalty::ElasticNet` is used
     /// with the `Lbfgs` solver (L-BFGS requires a differentiable objective).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        // Classification requires at least 2 distinct classes.
+        if data.n_classes() < 2 {
+            return Err(ScryLearnError::InvalidParameter(
+                "LogisticRegression requires at least 2 distinct classes in the target."
+                    .into(),
+            ));
+        }
         // Validate solver/penalty compatibility.
         if matches!(self.solver, Solver::Lbfgs)
             && matches!(self.penalty, Penalty::L1 | Penalty::ElasticNet(_))

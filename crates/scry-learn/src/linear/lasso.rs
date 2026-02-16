@@ -236,7 +236,7 @@ mod tests {
     fn test_lasso_sparsity() {
         // y = 2*x1 + 3*x3 + 1, x2 and x4 are noise
         let n = 100;
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
         let mut x1 = Vec::with_capacity(n);
         let mut x2 = Vec::with_capacity(n);
         let mut x3 = Vec::with_capacity(n);

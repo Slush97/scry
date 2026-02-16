@@ -447,19 +447,20 @@ mod tests {
     #[test]
     fn test_agglomerative_three_clusters() {
         // Three well-separated clusters.
+        let mut rng = crate::rng::FastRng::new(0);
         let mut f1 = Vec::new();
         let mut f2 = Vec::new();
         for _ in 0..10 {
-            f1.push(fastrand::f64() * 2.0);
-            f2.push(fastrand::f64() * 2.0);
+            f1.push(rng.f64() * 2.0);
+            f2.push(rng.f64() * 2.0);
         }
         for _ in 0..10 {
-            f1.push(50.0 + fastrand::f64() * 2.0);
-            f2.push(50.0 + fastrand::f64() * 2.0);
+            f1.push(50.0 + rng.f64() * 2.0);
+            f2.push(50.0 + rng.f64() * 2.0);
         }
         for _ in 0..10 {
-            f1.push(100.0 + fastrand::f64() * 2.0);
-            f2.push(100.0 + fastrand::f64() * 2.0);
+            f1.push(100.0 + rng.f64() * 2.0);
+            f2.push(100.0 + rng.f64() * 2.0);
         }
 
         let data = Dataset::new(

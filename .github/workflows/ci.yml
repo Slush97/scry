@@ -132,6 +132,8 @@ jobs:
         run: cargo +nightly miri test --all-features -- --skip shm --skip picker --skip sixel
       - name: Miri — scry-chart crate
         run: cargo +nightly miri test --manifest-path crates/scry-chart/Cargo.toml
+      - name: Miri — scry-learn crate
+        run: cargo +nightly miri test -p scry-learn -- --skip gpu --skip viz
 
   fuzz-smoke:
     name: Fuzz Smoke Test

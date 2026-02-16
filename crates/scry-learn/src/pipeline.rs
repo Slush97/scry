@@ -145,6 +145,16 @@ impl PipelineModel for crate::tree::HistGradientBoostingRegressor {
     fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
 }
 
+impl PipelineModel for crate::neural::MLPClassifier {
+    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
+    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
+}
+
+impl PipelineModel for crate::neural::MLPRegressor {
+    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
+    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
+}
+
 impl Pipeline {
     /// Create an empty pipeline.
     pub fn new() -> Self {

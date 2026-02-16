@@ -39,6 +39,7 @@
 #![allow(clippy::suspicious_operation_groupings)]
 
 pub mod error;
+pub(crate) mod rng;
 pub mod dataset;
 pub mod distance;
 pub mod split;
@@ -58,6 +59,7 @@ pub mod ensemble;
 pub mod weights;
 pub mod viz;
 pub mod accel;
+pub mod neural;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {
@@ -113,6 +115,7 @@ pub mod prelude {
     };
     pub use crate::anomaly::IsolationForest;
     pub use crate::ensemble::{VotingClassifier, StackingClassifier, Voting};
+    pub use crate::neural::{MLPClassifier, MLPRegressor, Activation, OptimizerKind};
     pub use crate::error::ScryLearnError;
     pub use crate::weights::ClassWeight;
 }

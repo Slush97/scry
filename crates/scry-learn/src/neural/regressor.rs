@@ -1,0 +1,455 @@
+//! Multi-layer perceptron regressor.
+//!
+//! Sklearn-compatible API with builder pattern.
+//!
+//! ```ignore
+//! let mut reg = MLPRegressor::new()
+//!     .hidden_layers(&[100, 50])
+//!     .max_iter(200)
+//!     .seed(42);
+//! reg.fit(&data)?;
+//! let preds = reg.predict(&test_features)?;
+//! ```
+
+use crate::dataset::Dataset;
+use crate::error::{Result, ScryLearnError};
+use crate::neural::activation::Activation;
+use crate::neural::layer::FastRng;
+use crate::neural::network::{self, Network};
+use crate::neural::optimizer::{OptimizerKind, OptimizerState};
+
+/// Multi-layer perceptron regressor.
+///
+/// Trains a feedforward neural network for regression using
+/// backpropagation with MSE loss.
+///
+/// Defaults match sklearn: `hidden_layers=[100]`, Adam, lr=0.001,
+/// `max_iter=200`, `batch_size=200`, `alpha=0.0001`.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct MLPRegressor {
+    hidden_layers: Vec<usize>,
+    activation: Activation,
+    optimizer_kind: OptimizerKind,
+    learning_rate: f64,
+    max_iter: usize,
+    batch_size: usize,
+    alpha: f64,
+    tolerance: f64,
+    early_stopping: bool,
+    validation_fraction: f64,
+    n_iter_no_change: usize,
+    seed: u64,
+    // ── Fitted state ──
+    fitted: bool,
+    n_features: usize,
+    network_weights: Vec<(Vec<f64>, Vec<f64>)>,
+    network_dims: Vec<(usize, usize)>,
+    /// Training loss curve (one entry per epoch).
+    pub loss_curve: Vec<f64>,
+}
+
+impl MLPRegressor {
+    /// Create a new MLP regressor with sklearn defaults.
+    pub fn new() -> Self {
+        Self {
+            hidden_layers: vec![100],
+            activation: Activation::Relu,
+            optimizer_kind: OptimizerKind::default(),
+            learning_rate: 0.001,
+            max_iter: 200,
+            batch_size: 200,
+            alpha: 0.0001,
+            tolerance: 1e-4,
+            early_stopping: false,
+            validation_fraction: 0.1,
+            n_iter_no_change: 10,
+            seed: 42,
+            fitted: false,
+            n_features: 0,
+            network_weights: Vec::new(),
+            network_dims: Vec::new(),
+            loss_curve: Vec::new(),
+        }
+    }
+
+    /// Set hidden layer sizes. Default: `&[100]`.
+    pub fn hidden_layers(mut self, sizes: &[usize]) -> Self {
+        self.hidden_layers = sizes.to_vec();
+        self
+    }
+
+    /// Set activation function for hidden layers. Default: ReLU.
+    pub fn activation(mut self, activation: Activation) -> Self {
+        self.activation = activation;
+        self
+    }
+
+    /// Set optimizer algorithm. Default: Adam.
+    pub fn optimizer(mut self, kind: OptimizerKind) -> Self {
+        self.optimizer_kind = kind;
+        self
+    }
+
+    /// Set learning rate. Default: 0.001.
+    pub fn learning_rate(mut self, lr: f64) -> Self {
+        self.learning_rate = lr;
+        self
+    }
+
+    /// Set maximum training iterations (epochs). Default: 200.
+    pub fn max_iter(mut self, n: usize) -> Self {
+        self.max_iter = n;
+        self
+    }
+
+    /// Set mini-batch size. Default: 200.
+    pub fn batch_size(mut self, n: usize) -> Self {
+        self.batch_size = n;
+        self
+    }
+
+    /// Set L2 regularization strength. Default: 0.0001.
+    pub fn alpha(mut self, a: f64) -> Self {
+        self.alpha = a;
+        self
+    }
+
+    /// Set convergence tolerance. Default: 1e-4.
+    pub fn tolerance(mut self, tol: f64) -> Self {
+        self.tolerance = tol;
+        self
+    }
+
+    /// Enable early stopping. Default: false.
+    pub fn early_stopping(mut self, enable: bool) -> Self {
+        self.early_stopping = enable;
+        self
+    }
+
+    /// Set validation fraction for early stopping. Default: 0.1.
+    pub fn validation_fraction(mut self, frac: f64) -> Self {
+        self.validation_fraction = frac;
+        self
+    }
+
+    /// Set patience for early stopping. Default: 10.
+    pub fn n_iter_no_change(mut self, n: usize) -> Self {
+        self.n_iter_no_change = n;
+        self
+    }
+
+    /// Set random seed. Default: 42.
+    pub fn seed(mut self, s: u64) -> Self {
+        self.seed = s;
+        self
+    }
+
+    /// Train the regressor on a dataset.
+    pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        let n_samples = data.n_samples();
+        let n_features = data.n_features();
+
+        if n_samples == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+
+        // Build row-major feature matrix
+        let x = build_row_major(&data.features, n_samples, n_features);
+        let y = data.target.clone();
+
+        // Split train/val if early stopping
+        let (train_x, train_y, val_x, val_y) = if self.early_stopping {
+            let mut rng = FastRng::new(self.seed);
+            let val_size = (n_samples as f64 * self.validation_fraction).max(1.0) as usize;
+            let train_size = n_samples - val_size;
+            let mut indices: Vec<usize> = (0..n_samples).collect();
+            rng.shuffle(&mut indices);
+
+            let mut tx = Vec::with_capacity(train_size * n_features);
+            let mut ty = Vec::with_capacity(train_size);
+            let mut vx = Vec::with_capacity(val_size * n_features);
+            let mut vy = Vec::with_capacity(val_size);
+
+            for &i in &indices[..train_size] {
+                tx.extend_from_slice(&x[i * n_features..(i + 1) * n_features]);
+                ty.push(y[i]);
+            }
+            for &i in &indices[train_size..] {
+                vx.extend_from_slice(&x[i * n_features..(i + 1) * n_features]);
+                vy.push(y[i]);
+            }
+            (tx, ty, Some(vx), Some(vy))
+        } else {
+            (x, y, None, None)
+        };
+
+        let train_n = train_y.len();
+
+        // Build network: output is 1 neuron for regression
+        let mut sizes = Vec::with_capacity(self.hidden_layers.len() + 2);
+        sizes.push(n_features);
+        sizes.extend_from_slice(&self.hidden_layers);
+        sizes.push(1);
+
+        let mut net = Network::new(&sizes, self.activation, self.seed);
+        let param_sizes = net.param_group_sizes();
+        let mut optimizer = OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
+
+        let batch_size = self.batch_size.min(train_n);
+        let mut rng = FastRng::new(self.seed.wrapping_add(1));
+        let mut indices: Vec<usize> = (0..train_n).collect();
+
+        self.loss_curve.clear();
+        let mut best_val_loss = f64::INFINITY;
+        let mut best_weights: Option<Vec<(Vec<f64>, Vec<f64>)>> = None;
+        let mut no_improve = 0;
+
+        for _epoch in 0..self.max_iter {
+            rng.shuffle(&mut indices);
+
+            let mut epoch_loss = 0.0;
+            let mut n_batches = 0;
+
+            for chunk in indices.chunks(batch_size) {
+                let b = chunk.len();
+                let mut batch_x = Vec::with_capacity(b * n_features);
+                let mut batch_y = Vec::with_capacity(b);
+                for &i in chunk {
+                    batch_x.extend_from_slice(&train_x[i * n_features..(i + 1) * n_features]);
+                    batch_y.push(train_y[i]);
+                }
+
+                let output = net.forward(&batch_x, b, true);
+                let (loss, grad) = network::mse_loss(&output, &batch_y, b);
+                epoch_loss += loss;
+                n_batches += 1;
+
+                // Reshape gradient to [batch, 1] for backward pass
+                let grad_2d: Vec<f64> = grad;
+                let layer_grads = net.backward(&grad_2d, self.alpha);
+                optimizer.tick();
+                net.apply_gradients(&layer_grads, &mut optimizer);
+            }
+
+            let avg_loss = epoch_loss / n_batches as f64;
+            self.loss_curve.push(avg_loss);
+
+            // Early stopping check
+            if self.early_stopping {
+                if let (Some(ref vx), Some(ref vy)) = (&val_x, &val_y) {
+                    let val_n = vy.len();
+                    let val_output = net.forward(vx, val_n, false);
+                    let (val_loss, _) = network::mse_loss(&val_output, vy, val_n);
+
+                    if val_loss < best_val_loss - self.tolerance {
+                        best_val_loss = val_loss;
+                        best_weights = Some(net.save_weights());
+                        no_improve = 0;
+                    } else {
+                        no_improve += 1;
+                        if no_improve >= self.n_iter_no_change {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                let n = self.loss_curve.len();
+                if n >= 2 {
+                    let improvement = self.loss_curve[n - 2] - self.loss_curve[n - 1];
+                    if improvement.abs() < self.tolerance {
+                        no_improve += 1;
+                        if no_improve >= self.n_iter_no_change {
+                            break;
+                        }
+                    } else {
+                        no_improve = 0;
+                    }
+                }
+            }
+        }
+
+        if let Some(ref best) = best_weights {
+            net.restore_weights(best);
+        }
+
+        self.network_weights = net.save_weights();
+        self.network_dims = net.layer_dims();
+        self.n_features = n_features;
+        self.fitted = true;
+
+        Ok(())
+    }
+
+    /// Predict target values for input samples.
+    pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+
+        let batch = features.len();
+        if batch == 0 {
+            return Ok(Vec::new());
+        }
+
+        let n_feat = features[0].len();
+        if n_feat != self.n_features {
+            return Err(ScryLearnError::ShapeMismatch {
+                expected: self.n_features,
+                got: n_feat,
+            });
+        }
+
+        let mut net = self.rebuild_network();
+        let x: Vec<f64> = features.iter().flat_map(|row| row.iter().copied()).collect();
+        let output = net.forward(&x, batch, false);
+        Ok(output)
+    }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
+
+    /// Training loss per epoch.
+    pub fn loss_curve(&self) -> &[f64] {
+        &self.loss_curve
+    }
+
+    /// Saved network weights (for visualization).
+    pub fn weights(&self) -> &[(Vec<f64>, Vec<f64>)] {
+        &self.network_weights
+    }
+
+    /// Layer dimensions (for visualization).
+    pub fn layer_dims(&self) -> &[(usize, usize)] {
+        &self.network_dims
+    }
+
+    fn rebuild_network(&self) -> Network {
+        let mut sizes = Vec::with_capacity(self.network_dims.len() + 1);
+        sizes.push(self.network_dims[0].0);
+        for &(_, out) in &self.network_dims {
+            sizes.push(out);
+        }
+        let mut net = Network::new(&sizes, self.activation, 0);
+        net.restore_weights(&self.network_weights);
+        net
+    }
+}
+
+impl Default for MLPRegressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for MLPRegressor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MLPRegressor")
+            .field("hidden_layers", &self.hidden_layers)
+            .field("activation", &self.activation)
+            .field("fitted", &self.fitted)
+            .finish()
+    }
+}
+
+/// Build row-major feature matrix from column-major Dataset.
+fn build_row_major(features: &[Vec<f64>], n_samples: usize, n_features: usize) -> Vec<f64> {
+    let mut x = vec![0.0; n_samples * n_features];
+    for j in 0..n_features {
+        for i in 0..n_samples {
+            x[i * n_features + j] = features[j][i];
+        }
+    }
+    x
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linear_dataset() -> Dataset {
+        // y = 2x + 1
+        let n = 100;
+        let x_vals: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
+        let y_vals: Vec<f64> = x_vals.iter().map(|&x| 2.0 * x + 1.0).collect();
+        Dataset::new(
+            vec![x_vals],
+            y_vals,
+            vec!["x".into()],
+            "y",
+        )
+    }
+
+    #[test]
+    fn not_fitted_error() {
+        let reg = MLPRegressor::new();
+        let result = reg.predict(&[vec![1.0]]);
+        assert!(matches!(result, Err(ScryLearnError::NotFitted)));
+    }
+
+    #[test]
+    fn regression_y_equals_2x_plus_1() {
+        let data = linear_dataset();
+        let mut reg = MLPRegressor::new()
+            .hidden_layers(&[20, 10])
+            .learning_rate(0.01)
+            .max_iter(500)
+            .batch_size(32)
+            .seed(42);
+        reg.fit(&data).unwrap();
+
+        let test_x = vec![
+            vec![0.0],
+            vec![0.5],
+            vec![1.0],
+        ];
+        let preds = reg.predict(&test_x).unwrap();
+
+        // Check R²
+        let actual = vec![1.0, 2.0, 3.0];
+        let mean_y: f64 = actual.iter().sum::<f64>() / actual.len() as f64;
+        let ss_res: f64 = preds.iter().zip(actual.iter())
+            .map(|(p, a)| (p - a).powi(2))
+            .sum();
+        let ss_tot: f64 = actual.iter()
+            .map(|a| (a - mean_y).powi(2))
+            .sum();
+        let r2 = 1.0 - ss_res / ss_tot;
+
+        assert!(r2 > 0.9, "R² should be > 0.9, got {r2:.4}, preds={preds:?}");
+    }
+
+    #[test]
+    fn early_stopping_regression() {
+        let data = linear_dataset();
+        let mut reg = MLPRegressor::new()
+            .hidden_layers(&[20])
+            .max_iter(1000)
+            .early_stopping(true)
+            .n_iter_no_change(5)
+            .seed(42);
+        reg.fit(&data).unwrap();
+
+        assert!(
+            reg.loss_curve.len() < 1000,
+            "expected early stop, got {} epochs",
+            reg.loss_curve.len()
+        );
+    }
+
+    #[test]
+    fn loss_decreases() {
+        let data = linear_dataset();
+        let mut reg = MLPRegressor::new()
+            .hidden_layers(&[20])
+            .max_iter(50)
+            .seed(42);
+        reg.fit(&data).unwrap();
+
+        let curve = reg.loss_curve();
+        assert!(curve.len() >= 2);
+        assert!(curve.first().unwrap() > curve.last().unwrap());
+    }
+}

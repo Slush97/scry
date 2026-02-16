@@ -1199,7 +1199,7 @@ mod tests {
         let mut f1 = Vec::with_capacity(n);
         let mut f2 = Vec::with_capacity(n);
         let mut target = Vec::with_capacity(n);
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
 
         for _ in 0..n / 2 {
             f1.push(rng.f64() * 2.0);
@@ -1274,7 +1274,7 @@ mod tests {
     #[test]
     fn test_hist_gbc_multiclass() {
         let n_per_class = 50;
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
         let mut f1 = Vec::new();
         let mut f2 = Vec::new();
         let mut target = Vec::new();

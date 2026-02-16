@@ -62,7 +62,7 @@ struct IsolationTree {
 
 impl IsolationTree {
     /// Build an isolation tree on a subsample.
-    fn build(data: &[Vec<f64>], max_depth: usize, rng: &mut fastrand::Rng) -> Self {
+    fn build(data: &[Vec<f64>], max_depth: usize, rng: &mut crate::rng::FastRng) -> Self {
         let root = Self::build_node(data, 0, max_depth, rng);
         Self { root }
     }
@@ -71,7 +71,7 @@ impl IsolationTree {
         data: &[Vec<f64>],
         depth: usize,
         max_depth: usize,
-        rng: &mut fastrand::Rng,
+        rng: &mut crate::rng::FastRng,
     ) -> ITreeNode {
         let n = data.len();
         if n <= 1 || depth >= max_depth {
@@ -291,7 +291,7 @@ impl IsolationForest {
         let mut trees = Vec::with_capacity(self.n_estimators);
 
         for i in 0..self.n_estimators {
-            let mut rng = fastrand::Rng::with_seed(seed.wrapping_add(i as u64));
+            let mut rng = crate::rng::FastRng::new(seed.wrapping_add(i as u64));
 
             // Sample `sub_size` points randomly (with replacement).
             let subsample: Vec<Vec<f64>> = (0..sub_size)
@@ -373,7 +373,7 @@ mod tests {
     /// Generate `n_normal` normal points centered around origin and
     /// `n_outliers` outliers far from origin.
     fn make_test_data(n_normal: usize, n_outliers: usize, seed: u64) -> Vec<Vec<f64>> {
-        let mut rng = fastrand::Rng::with_seed(seed);
+        let mut rng = crate::rng::FastRng::new(seed);
         let mut data = Vec::with_capacity(n_normal + n_outliers);
 
         // Normal cluster around (0, 0).
@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_iforest_multi_feature() {
-        let mut rng = fastrand::Rng::with_seed(99);
+        let mut rng = crate::rng::FastRng::new(99);
         let mut data: Vec<Vec<f64>> = (0..100)
             .map(|_| {
                 vec![

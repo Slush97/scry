@@ -251,7 +251,7 @@ mod tests {
     fn test_elastic_net_pure_lasso() {
         // l1_ratio=1.0 should behave like Lasso
         let n = 50;
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
         let mut x1 = Vec::with_capacity(n);
         let mut x2 = Vec::with_capacity(n);
         let mut y = Vec::with_capacity(n);

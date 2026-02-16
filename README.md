@@ -110,9 +110,6 @@ cargo run --example cube_3d
 # SVG line drawing (requires svg feature)
 cargo run --example line_drawing --features svg
 
-# Terminal startup animation (forks to background)
-cargo run --example startup_anim
-
 # scry-chart showcase
 cargo run -p scry-chart --example showcase
 ```

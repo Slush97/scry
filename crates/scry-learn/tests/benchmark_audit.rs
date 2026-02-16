@@ -43,6 +43,16 @@ fn accuracy_f64(y_true: &[f64], y_pred: &[f64]) -> f64 {
     correct as f64 / y_true.len() as f64
 }
 
+/// FNV-1a hash of prediction vector for cross-machine reproducibility verification.
+fn prediction_checksum(preds: &[f64]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &p in preds {
+        h ^= p.to_bits();
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
 /// Convert row-major Vec<Vec<f64>> + Vec<f64> target into linfa Dataset (ndarray-based)
 fn to_linfa_dataset(features: &[Vec<f64>], target: &[f64]) -> linfa::DatasetBase<ndarray::Array2<f64>, ndarray::Array1<usize>> {
     let n = features.len();
@@ -89,10 +99,10 @@ fn audit_dt_predict_fairness() {
     let linfa_acc = accuracy_f64(&target, &linfa_preds);
 
     println!("\n{}", "=".repeat(65));
-    println!("DECISION TREE ACCURACY (1K×10, train=test)");
-    println!("  scry-learn:          {:.1}%", scry_acc * 100.0);
-    println!("  smartcore 0.4.9:     {:.1}%", smart_acc * 100.0);
-    println!("  linfa-trees 0.7:     {:.1}%", linfa_acc * 100.0);
+    println!("DECISION TREE ACCURACY (1K×10, train=test, timing only — NOT generalization)");
+    println!("  scry-learn:          {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
+    println!("  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
+    println!("  linfa-trees 0.7:     {:.1}%  checksum=0x{:016x}", linfa_acc * 100.0, prediction_checksum(&linfa_preds));
 
     assert!(scry_acc > 0.95);
     assert!(smart_acc > 0.95);
@@ -182,10 +192,10 @@ fn audit_rf_predict_fairness() {
     let linfa_acc = accuracy_f64(&target, &linfa_preds);
 
     println!("\n{}", "=".repeat(65));
-    println!("RANDOM FOREST ACCURACY (2K×10, 100t, max_depth=8, train=test)");
-    println!("  scry-learn:              {:.1}%", scry_acc * 100.0);
-    println!("  smartcore 0.4.9:         {:.1}%", smart_acc * 100.0);
-    println!("  linfa-ensemble 0.8:      {:.1}%", linfa_acc * 100.0);
+    println!("RANDOM FOREST ACCURACY (2K×10, 100t, max_depth=8, train=test, timing only — NOT generalization)");
+    println!("  scry-learn:              {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
+    println!("  smartcore 0.4.9:         {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
+    println!("  linfa-ensemble 0.8:      {:.1}%  checksum=0x{:016x}", linfa_acc * 100.0, prediction_checksum(&linfa_preds));
 
     assert!(scry_acc > 0.90);
     assert!(smart_acc > 0.90);
@@ -453,19 +463,6 @@ fn audit_pca_fairness() {
     }
     println!("]");
 
-    println!("\nFEATURE GAP ANALYSIS:");
-    println!("  ┌─────────────────────────┬────────┬───────────┬────────────┐");
-    println!("  │ Feature                 │ scry   │ smartcore │ linfa      │");
-    println!("  ├─────────────────────────┼────────┼───────────┼────────────┤");
-    println!("  │ Pure Rust (no BLAS)     │   ✅   │    ✅     │    ❌     │");
-    println!("  │ inverse_transform       │   ✅   │    ❌     │    ✅     │");
-    println!("  │ whiten                  │   ✅   │    ❌     │    ❌     │");
-    println!("  │ explained_variance_ratio│   ✅   │    ❌     │    ✅     │");
-    println!("  │ Pipeline integration    │   ✅   │    ❌     │    ❌     │");
-    println!("  │ OneHotEncoder           │   ✅   │    ❌     │    ❌     │");
-    println!("  │  └─ drop strategy       │   ✅   │    ❌     │    ❌     │");
-    println!("  │  └─ handle_unknown      │   ✅   │    ❌     │    ❌     │");
-    println!("  └─────────────────────────┴────────┴───────────┴────────────┘");
     println!();
 }
 
@@ -590,31 +587,21 @@ fn audit_ensemble_regression_fairness() {
 
     // ── Report ──
     println!("\n{}", "=".repeat(65));
-    println!("ENSEMBLE REGRESSION FIT ({n_samples}×{n_features}, {n_estimators} estimators, {n_iters} iters)");
-    println!("  Note: scry=GBT, smartcore=RF (smartcore lacks GBT API)");
-    println!("  scry-learn GBT:      {:.2} µs", scry_fit_us);
-    println!("  smartcore RF 0.4:    {:.2} µs  ({:.2}×)", smart_fit_us, smart_fit_us / scry_fit_us);
+    println!("ENSEMBLE REGRESSION — TIMING ONLY (NOT a like-for-like comparison)");
+    println!("  scry = GradientBoostingRegressor (100 trees, lr=0.1, depth=3)");
+    println!("  smartcore = RandomForestRegressor (default params)");
+    println!("  smartcore 0.4 lacks a GBT API — RF shown for reference only.");
+    println!("  Accuracy/MSE numbers are NOT comparable across different algorithms.");
+    println!();
+    println!("  FIT ({n_samples}x{n_features}, {n_estimators} estimators, {n_iters} iters)");
+    println!("    scry-learn GBT:      {:.2} us", scry_fit_us);
+    println!("    smartcore RF 0.4:    {:.2} us", smart_fit_us);
 
-    println!("\nENSEMBLE REGRESSION PREDICT ({n_samples} samples, {n_iters} iters)");
-    println!("  scry-learn GBT:      {:.2} µs", scry_pred_us);
-    println!("  smartcore RF 0.4:    {:.2} µs  ({:.2}×)", smart_pred_us, smart_pred_us / scry_pred_us);
+    println!("\n  PREDICT ({n_samples} samples, {n_iters} iters)");
+    println!("    scry-learn GBT:      {:.2} us", scry_pred_us);
+    println!("    smartcore RF 0.4:    {:.2} us", smart_pred_us);
 
-    println!("\nscry-learn GBT train MSE: {:.4}", scry_mse);
-
-    println!("\nENSEMBLE REGRESSION FEATURE GAP ANALYSIS:");
-    println!("  ┌─────────────────────────┬────────┬───────────┬────────────┐");
-    println!("  │ Feature                 │ scry   │ smartcore │ linfa      │");
-    println!("  ├─────────────────────────┼────────┼───────────┼────────────┤");
-    println!("  │ GBT Classifier          │   ✅   │    ❌     │    ❌     │");
-    println!("  │ GBT Regressor           │   ✅   │    ✅¹    │    ❌     │");
-    println!("  │ Multiclass (softmax)    │   ✅   │    ❌     │    ❌     │");
-    println!("  │ predict_proba           │   ✅   │    ❌     │    ❌     │");
-    println!("  │ Stochastic subsampling  │   ✅   │    ✅     │    ❌     │");
-    println!("  │ feature_importances     │   ✅   │    ❌     │    ❌     │");
-    println!("  │ FlatTree predict (16B)  │   ✅   │    ❌     │    ❌     │");
-    println!("  │ Pure Rust (no BLAS)     │   ✅   │    ✅     │    ❌     │");
-    println!("  └─────────────────────────┴────────┴───────────┴────────────┘");
-    println!("  ¹ smartcore has XGRegressor but it's regression-only");
+    println!("\n  scry-learn GBT train MSE (self-only, no comparison): {:.4}", scry_mse);
     println!();
 }
 
@@ -668,10 +655,10 @@ fn audit_logreg_fairness() {
     let linfa_acc = accuracy_f64(&target, &linfa_preds);
 
     println!("\n{}", "=".repeat(65));
-    println!("LOGISTIC REGRESSION ACCURACY (1K×10, train=test)");
-    println!("  scry-learn:          {:.1}%", scry_acc * 100.0);
-    println!("  smartcore 0.4.9:     {:.1}%", smart_acc * 100.0);
-    println!("  linfa-logistic 0.8:  {:.1}%", linfa_acc * 100.0);
+    println!("LOGISTIC REGRESSION ACCURACY (1K×10, train=test, timing only — NOT generalization)");
+    println!("  scry-learn:          {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
+    println!("  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
+    println!("  linfa-logistic 0.8:  {:.1}%  checksum=0x{:016x}", linfa_acc * 100.0, prediction_checksum(&linfa_preds));
 
     assert!(scry_acc > 0.90);
     assert!(smart_acc > 0.90);
@@ -777,9 +764,9 @@ fn audit_knn_fairness() {
     let smart_acc = accuracy_f64(&target, &smart_preds);
 
     println!("\n{}", "=".repeat(65));
-    println!("KNN ACCURACY (1K×10, k=5, train=test)");
-    println!("  scry-learn:          {:.1}%", scry_acc * 100.0);
-    println!("  smartcore 0.4.9:     {:.1}%", smart_acc * 100.0);
+    println!("KNN ACCURACY (1K×10, k=5, train=test, timing only — NOT generalization)");
+    println!("  scry-learn:          {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
+    println!("  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
 
     assert!(scry_acc > 0.90);
     assert!(smart_acc > 0.90);
@@ -810,16 +797,6 @@ fn audit_knn_fairness() {
     println!("  scry-learn:          {:.2} µs", scry_us);
     println!("  smartcore 0.4.9:     {:.2} µs  ({:.1}×)", smart_us, smart_us / scry_us);
 
-    println!("\nKNN FEATURE GAP ANALYSIS:");
-    println!("  ┌─────────────────────────┬────────┬───────────┐");
-    println!("  │ Feature                 │ scry   │ smartcore │");
-    println!("  ├─────────────────────────┼────────┼───────────┤");
-    println!("  │ Distance weights        │   ✅   │    ❌     │");
-    println!("  │ predict_proba           │   ✅   │    ❌     │");
-    println!("  │ Cosine distance         │   ✅   │    ❌     │");
-    println!("  │ KNN Regressor           │   ✅   │    ✅     │");
-    println!("  │ Pipeline integration    │   ✅   │    ❌     │");
-    println!("  └─────────────────────────┴────────┴───────────┘");
     println!();
 }
 
@@ -904,18 +881,6 @@ fn audit_kmeans_fairness() {
     println!("  scry-learn:              {:.2} µs", scry_us);
     println!("  linfa-clustering 0.8:    {:.2} µs  ({:.2}×)", linfa_us, linfa_us / scry_us);
 
-    println!("\nK-MEANS FEATURE GAP ANALYSIS:");
-    println!("  ┌─────────────────────────┬────────┬────────────┐");
-    println!("  │ Feature                 │ scry   │ linfa      │");
-    println!("  ├─────────────────────────┼────────┼────────────┤");
-    println!("  │ k-means++               │   ✅   │    ✅     │");
-    println!("  │ n_init (best-of-N)      │   ✅   │    ❌     │");
-    println!("  │ MiniBatchKMeans         │   ✅   │    ❌     │");
-    println!("  │ silhouette_score        │   ✅   │    ❌     │");
-    println!("  │ transform (distances)   │   ✅   │    ✅     │");
-    println!("  │ Pipeline integration    │   ✅   │    ❌     │");
-    println!("  │ Pure Rust (no BLAS)     │   ✅   │    ❌     │");
-    println!("  └─────────────────────────┴────────┴────────────┘");
     println!();
 }
 

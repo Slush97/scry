@@ -280,7 +280,7 @@ impl KMeans {
 
 /// K-means++ initialization: select initial centroids to be spread apart.
 pub(crate) fn kmeans_plus_plus(rows: &[Vec<f64>], k: usize, seed: u64) -> Vec<Vec<f64>> {
-    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut rng = crate::rng::FastRng::new(seed);
     let n = rows.len();
     let mut centroids = Vec::with_capacity(k);
 
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_kmeans_n_init_improves_inertia() {
         // n_init=10 should produce inertia ≤ n_init=1.
-        let mut rng = fastrand::Rng::with_seed(7);
+        let mut rng = crate::rng::FastRng::new(7);
         let n = 100;
         let mut f1 = Vec::with_capacity(n);
         let mut f2 = Vec::with_capacity(n);

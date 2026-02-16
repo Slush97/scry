@@ -757,6 +757,44 @@ fn bench_hist_gbt(c: &mut Criterion) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Group 11: Thread scaling — RandomForest parallel efficiency
+// ─────────────────────────────────────────────────────────────────
+
+fn bench_thread_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("thread_scaling");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(10));
+    group.sampling_mode(SamplingMode::Flat);
+
+    let n = 5000;
+    let n_features = 10;
+    let data = gen_classification(n, n_features, 42);
+
+    for threads in [1, 2, 4, 8] {
+        group.bench_with_input(
+            BenchmarkId::new("rf_100t", threads),
+            &threads,
+            |b, &t| {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(t)
+                    .build()
+                    .unwrap();
+                pool.install(|| {
+                    b.iter(|| {
+                        let mut rf = RandomForestClassifier::new()
+                            .n_estimators(100)
+                            .max_depth(8);
+                        rf.fit(black_box(&data)).unwrap();
+                    });
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ─────────────────────────────────────────────────────────────────
 
 criterion_group!(
     benches,
@@ -770,5 +808,6 @@ criterion_group!(
     bench_e2e_pipeline,
     bench_multiclass,
     bench_hist_gbt,
+    bench_thread_scaling,
 );
 criterion_main!(benches);

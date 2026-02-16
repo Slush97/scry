@@ -517,7 +517,7 @@ impl StackingClassifier {
 /// Generate fold indices for k-fold cross-validation.
 fn generate_fold_indices(n: usize, k: usize, seed: u64) -> Vec<Vec<usize>> {
     let mut indices: Vec<usize> = (0..n).collect();
-    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut rng = crate::rng::FastRng::new(seed);
 
     // Fisher-Yates shuffle.
     for i in (1..indices.len()).rev() {
@@ -549,7 +549,7 @@ mod tests {
         let mut f1 = Vec::new();
         let mut f2 = Vec::new();
         let mut target = Vec::new();
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
 
         // Class 0: cluster around (1, 1)
         for _ in 0..40 {

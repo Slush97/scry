@@ -13,15 +13,14 @@ readme = "README.md"
 
 [features]
 default = []
+csv = ["dep:csv"]
 serde = ["dep:serde"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 scry-chart = { path = "../scry-chart" }
 rayon = "1"
-csv = "1"
-thiserror = "2"
-fastrand = "2"
+csv = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 
 # Optional: GPU acceleration via wgpu compute shaders
@@ -30,6 +29,8 @@ pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
+fastrand = "2"
+csv = "1"
 insta = { version = "1", features = ["glob"] }
 pretty_assertions = "1"
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -4,7 +4,7 @@
 //! [`ModelViz`] builder.  From there, model-family-specific methods produce
 //! [`Chart`] instances ready for terminal rendering, PNG, or SVG export.
 
-use scry_chart::chart::{Chart, BarChart, LineChart};
+use scry_chart::chart::{Chart, BarChart, Heatmap, LineChart};
 use scry_chart::data::Series;
 use scry_chart::theme::Theme;
 
@@ -583,6 +583,171 @@ impl_regressor_viz!(
     Ridge,
     KnnRegressor,
 );
+
+// ---------------------------------------------------------------------------
+// MLP Neural Networks — learning curve + weight heatmap
+// ---------------------------------------------------------------------------
+
+use crate::neural::{MLPClassifier, MLPRegressor};
+
+impl Visualize for MLPClassifier {}
+
+impl ModelViz<'_, MLPClassifier> {
+    /// Learning curve chart showing training loss per epoch.
+    pub fn learning_curve(&self) -> Result<Chart> {
+        let curve = self.model.loss_curve();
+        if curve.is_empty() {
+            return Err(ScryLearnError::NotFitted);
+        }
+        let x: Vec<f64> = (1..=curve.len()).map(|i| i as f64).collect();
+        Ok(LineChart::new(vec![
+            Series::new("Training Loss", curve.to_vec()),
+        ])
+        .x_values(x)
+        .title("MLP Learning Curve")
+        .x_label("Epoch")
+        .y_label("Loss")
+        .with_points()
+        .theme(ml_theme())
+        .build())
+    }
+
+    /// Confusion matrix heatmap.
+    pub fn confusion_matrix(
+        &self,
+        test_x: &[Vec<f64>],
+        test_y: &[f64],
+    ) -> Result<Chart> {
+        classifier_confusion_matrix(self.model, test_x, test_y)
+    }
+
+    /// Weight heatmap for each layer.
+    ///
+    /// Returns one heatmap per layer showing the weight matrix.
+    /// For networks with many layers, pass `layer_idx` to select one.
+    pub fn weight_heatmap(&self, layer_idx: Option<usize>) -> Result<Chart> {
+        weight_heatmap_impl(
+            self.model.weights(),
+            self.model.layer_dims(),
+            layer_idx,
+        )
+    }
+}
+
+impl ClassifierPredict for MLPClassifier {
+    fn predict_classes(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        self.predict(features)
+    }
+}
+
+impl Visualize for MLPRegressor {}
+
+impl ModelViz<'_, MLPRegressor> {
+    /// Learning curve chart showing training loss per epoch.
+    pub fn learning_curve(&self) -> Result<Chart> {
+        let curve = self.model.loss_curve();
+        if curve.is_empty() {
+            return Err(ScryLearnError::NotFitted);
+        }
+        let x: Vec<f64> = (1..=curve.len()).map(|i| i as f64).collect();
+        Ok(LineChart::new(vec![
+            Series::new("Training Loss (MSE)", curve.to_vec()),
+        ])
+        .x_values(x)
+        .title("MLP Learning Curve")
+        .x_label("Epoch")
+        .y_label("MSE")
+        .with_points()
+        .theme(ml_theme())
+        .build())
+    }
+
+    /// Residual plot (residuals vs fitted values).
+    pub fn residual_plot(
+        &self,
+        test_x: &[Vec<f64>],
+        test_y: &[f64],
+    ) -> Result<Chart> {
+        regressor_residual_plot(self.model, test_x, test_y)
+    }
+
+    /// Prediction error chart (predicted vs actual).
+    pub fn prediction_error(
+        &self,
+        test_x: &[Vec<f64>],
+        test_y: &[f64],
+    ) -> Result<Chart> {
+        regressor_prediction_error(self.model, test_x, test_y)
+    }
+
+    /// Weight heatmap for each layer.
+    ///
+    /// Returns one heatmap per layer showing the weight matrix.
+    /// For networks with many layers, pass `layer_idx` to select one.
+    pub fn weight_heatmap(&self, layer_idx: Option<usize>) -> Result<Chart> {
+        weight_heatmap_impl(
+            self.model.weights(),
+            self.model.layer_dims(),
+            layer_idx,
+        )
+    }
+}
+
+impl RegressorPredict for MLPRegressor {
+    fn predict_values(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        self.predict(features)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MLP weight heatmap shared helper
+// ---------------------------------------------------------------------------
+
+/// Render a weight heatmap for a single layer of a fitted MLP.
+///
+/// `weights` and `dims` come from `model.weights()` and `model.layer_dims()`.
+/// If `layer_idx` is `None`, defaults to the first hidden layer (index 0).
+fn weight_heatmap_impl(
+    weights: &[(Vec<f64>, Vec<f64>)],
+    dims: &[(usize, usize)],
+    layer_idx: Option<usize>,
+) -> Result<Chart> {
+    if weights.is_empty() {
+        return Err(ScryLearnError::NotFitted);
+    }
+    let idx = layer_idx.unwrap_or(0);
+    if idx >= weights.len() {
+        return Err(ScryLearnError::InvalidParameter(
+            format!("layer index {idx} out of range (0..{})", weights.len()),
+        ));
+    }
+
+    let (ref w, _) = weights[idx];
+    let (in_size, out_size) = dims[idx];
+
+    // w is row-major [out_size, in_size] — each row is one output neuron.
+    // Build the 2D grid for the heatmap.
+    let mut grid: Vec<Vec<f64>> = Vec::with_capacity(out_size);
+    for o in 0..out_size {
+        let row = w[o * in_size..(o + 1) * in_size].to_vec();
+        grid.push(row);
+    }
+
+    // Row labels = output neurons, col labels = input neurons
+    let row_labels: Vec<String> = (0..out_size).map(|i| format!("out_{i}")).collect();
+    let col_labels: Vec<String> = (0..in_size).map(|i| format!("in_{i}")).collect();
+
+    // Symmetric range around zero for diverging colormap
+    let abs_max = w.iter().map(|v| v.abs()).fold(0.0f64, f64::max);
+
+    Ok(Heatmap::new(grid)
+        .row_labels(row_labels)
+        .col_labels(col_labels)
+        .range(-abs_max, abs_max)
+        .title(&format!("Layer {} Weights ({in_size} -> {out_size})", idx + 1))
+        .theme(ml_theme())
+        .build())
+}
 
 // ---------------------------------------------------------------------------
 // Tests

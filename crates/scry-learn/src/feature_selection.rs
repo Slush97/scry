@@ -397,7 +397,7 @@ mod tests {
         let mut f3 = Vec::with_capacity(n);
         let mut target = Vec::with_capacity(n);
 
-        let mut rng = fastrand::Rng::with_seed(123);
+        let mut rng = crate::rng::FastRng::new(123);
 
         for _ in 0..n_per_class {
             // Class 0

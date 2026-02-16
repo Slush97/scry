@@ -75,7 +75,7 @@ pub fn run(args: &SplashArgs) -> Result<(), String> {
             eprintln!("  sacred geometry animation in the terminal's top rows.");
             eprintln!();
             eprintln!("  For the full experience, run the standalone example:");
-            eprintln!("    cargo run --example startup_anim");
+            eprintln!("    cargo run --example fastfetch_anim");
             eprintln!();
             eprintln!("  Standalone CLI integration coming soon.");
             Ok(())

@@ -180,7 +180,7 @@ impl RandomForestClassifier {
         let mut trees: Vec<DecisionTreeClassifier> = (0..self.n_estimators)
             .into_par_iter()
             .map(|tree_idx| {
-                let mut rng = fastrand::Rng::with_seed(self.seed.wrapping_add(tree_idx as u64));
+                let mut rng = crate::rng::FastRng::new(self.seed.wrapping_add(tree_idx as u64));
                 let n = n_samples;
 
                 // Bootstrap sample.
@@ -470,7 +470,7 @@ impl RandomForestRegressor {
         let mut trees: Vec<DecisionTreeRegressor> = (0..self.n_estimators)
             .into_par_iter()
             .map(|tree_idx| {
-                let mut rng = fastrand::Rng::with_seed(self.seed.wrapping_add(tree_idx as u64));
+                let mut rng = crate::rng::FastRng::new(self.seed.wrapping_add(tree_idx as u64));
                 let n = data.n_samples();
 
                 let indices: Vec<usize> = if self.bootstrap {
@@ -567,7 +567,7 @@ mod tests {
         let mut f1 = Vec::with_capacity(n);
         let mut f2 = Vec::with_capacity(n);
         let mut target = Vec::with_capacity(n);
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
 
         for _ in 0..n / 2 {
             f1.push(rng.f64() * 3.0);

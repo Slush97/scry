@@ -4,18 +4,7 @@
 
 ## ✅ Completed This Session
 
-### 1. Looping Background Startup Animation (`examples/startup_anim.rs`)
-- Forks to background via `libc::fork()` — shell prompt appears immediately
-- Animation loops infinitely (6s cycle, sacred geometry)
-- Auto-exits on stdout write failure (broken pipe = terminal closed)
-- 120s safety-net timeout as fallback
-- Colors matched to user's `fastfetch config.jsonc` + `kitty.conf` palette
-- Kitty terminal accent colors (`#4A76E6`, `#4AA3A3`, `#B04AA2`) in palette
-- Floating sparkle particles, thicker geometry strokes
-- Shell script at `examples/startup_anim.sh` for `.bashrc` integration
-- `libc` added as dev-dependency
-
-### 2. Crate Rename: `ratatui-pixelcanvas` → `scry-engine`
+### 1. Crate Rename: `ratatui-pixelcanvas` → `scry-engine`
 - Package name updated in all `Cargo.toml` files (root, scry-chart, scry-cli, fuzz)
 - All `use ratatui_pixelcanvas::` → `use scry_engine::` across ~50 source files
 - All docs (README, CHANGELOG, CLAUDE.md, SAFETY.md) updated

@@ -318,17 +318,18 @@ mod tests {
 
     #[test]
     fn test_dbscan_two_clusters() {
+        let mut rng = crate::rng::FastRng::new(0);
         let mut f1 = Vec::new();
         let mut f2 = Vec::new();
         // Cluster A near origin.
         for _ in 0..10 {
-            f1.push(fastrand::f64() * 2.0);
-            f2.push(fastrand::f64() * 2.0);
+            f1.push(rng.f64() * 2.0);
+            f2.push(rng.f64() * 2.0);
         }
         // Cluster B far away.
         for _ in 0..10 {
-            f1.push(50.0 + fastrand::f64() * 2.0);
-            f2.push(50.0 + fastrand::f64() * 2.0);
+            f1.push(50.0 + rng.f64() * 2.0);
+            f2.push(50.0 + rng.f64() * 2.0);
         }
 
         let data = Dataset::new(
@@ -363,7 +364,7 @@ mod tests {
     #[test]
     fn test_dbscan_kdtree_parity() {
         // Verify KD-tree and brute-force produce identical labels.
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
         let n = 100;
         let mut f1 = Vec::with_capacity(n);
         let mut f2 = Vec::with_capacity(n);
@@ -444,15 +445,16 @@ mod tests {
     #[test]
     fn test_dbscan_manhattan() {
         // Use Manhattan metric — forces brute-force path.
+        let mut rng = crate::rng::FastRng::new(0);
         let mut f1 = Vec::new();
         let mut f2 = Vec::new();
         for _ in 0..10 {
-            f1.push(fastrand::f64() * 2.0);
-            f2.push(fastrand::f64() * 2.0);
+            f1.push(rng.f64() * 2.0);
+            f2.push(rng.f64() * 2.0);
         }
         for _ in 0..10 {
-            f1.push(50.0 + fastrand::f64() * 2.0);
-            f2.push(50.0 + fastrand::f64() * 2.0);
+            f1.push(50.0 + rng.f64() * 2.0);
+            f2.push(50.0 + rng.f64() * 2.0);
         }
 
         let data = Dataset::new(

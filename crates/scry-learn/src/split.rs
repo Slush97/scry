@@ -45,7 +45,7 @@ pub fn stratified_split(data: &Dataset, test_ratio: f64, seed: u64) -> (Dataset,
     let mut train_indices = Vec::new();
     let mut test_indices = Vec::new();
 
-    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut rng = crate::rng::FastRng::new(seed);
     for (_class, mut indices) in class_map {
         // Shuffle within each class.
         for i in (1..indices.len()).rev() {
@@ -99,7 +99,7 @@ pub fn stratified_k_fold(data: &Dataset, k: usize, seed: u64) -> Vec<(Dataset, D
         class_map.entry(key).or_default().push(i);
     }
 
-    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut rng = crate::rng::FastRng::new(seed);
     for indices in class_map.values_mut() {
         for i in (1..indices.len()).rev() {
             let j = rng.usize(0..=i);
@@ -191,7 +191,7 @@ fn run_cv<M: PipelineModel + Clone>(
 
 /// Fisher-Yates shuffle with a seeded RNG.
 fn shuffle(arr: &mut [usize], seed: u64) {
-    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut rng = crate::rng::FastRng::new(seed);
     for i in (1..arr.len()).rev() {
         let j = rng.usize(0..=i);
         arr.swap(i, j);

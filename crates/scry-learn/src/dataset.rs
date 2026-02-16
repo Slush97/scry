@@ -3,8 +3,8 @@
 //! [`Dataset`] provides a lightweight, column-major representation of
 //! features + target, with CSV loading and basic column access.
 
+#[cfg(feature = "csv")]
 use crate::error::{Result, ScryLearnError};
-use std::io::Read;
 
 /// A tabular dataset with features and a target column.
 ///
@@ -53,13 +53,19 @@ impl Dataset {
     ///
     /// The `target_column` is extracted as the target; all other numeric
     /// columns become features. String columns are label-encoded automatically.
+    ///
+    /// Requires the `csv` feature.
+    #[cfg(feature = "csv")]
     pub fn from_csv(path: &str, target_column: &str) -> Result<Self> {
         let file = std::fs::File::open(path).map_err(ScryLearnError::Io)?;
         Self::from_csv_reader(file, target_column)
     }
 
     /// Load a dataset from any reader producing CSV data.
-    pub fn from_csv_reader(rdr: impl Read, target_column: &str) -> Result<Self> {
+    ///
+    /// Requires the `csv` feature.
+    #[cfg(feature = "csv")]
+    pub fn from_csv_reader(rdr: impl std::io::Read, target_column: &str) -> Result<Self> {
         let mut csv_rdr = csv::ReaderBuilder::new()
             .has_headers(true)
             .flexible(true)
@@ -222,6 +228,7 @@ impl Dataset {
     }
 }
 
+#[cfg(feature = "csv")]
 /// Parse a target column: try numeric, fall back to label encoding.
 ///
 /// Returns `(encoded_values, Option<class_labels>)`.
@@ -276,6 +283,7 @@ mod tests {
         assert_eq!(ds.sample(1), vec![2.0, 5.0]);
     }
 
+    #[cfg(feature = "csv")]
     #[test]
     fn test_dataset_from_csv_reader() {
         let csv = "f1,f2,target\n1.0,4.0,a\n2.0,5.0,b\n3.0,6.0,a\n";
@@ -300,6 +308,7 @@ mod tests {
         assert_eq!(sub.target, vec![0.0, 0.0]);
     }
 
+    #[cfg(feature = "csv")]
     #[test]
     fn test_empty_csv() {
         let csv = "f1,target\n";

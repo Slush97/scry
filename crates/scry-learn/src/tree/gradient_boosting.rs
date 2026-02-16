@@ -379,7 +379,7 @@ impl GradientBoostingRegressor {
             _ => 0.0, // unused for other losses
         };
 
-        let mut rng = fastrand::Rng::with_seed(self.seed);
+        let mut rng = crate::rng::FastRng::new(self.seed);
         let all_indices: Vec<usize> = (0..n_train).collect();
         self.trees = Vec::with_capacity(self.n_estimators);
 
@@ -695,7 +695,7 @@ impl GradientBoostingClassifier {
             ));
         }
 
-        let mut rng = fastrand::Rng::with_seed(self.seed);
+        let mut rng = crate::rng::FastRng::new(self.seed);
         let all_indices: Vec<usize> = (0..n).collect();
         let row_major = data.feature_matrix();
         let sample_weights = compute_sample_weights(&data.target, &self.class_weight);
@@ -714,7 +714,7 @@ impl GradientBoostingClassifier {
         &mut self,
         data: &Dataset,
         n: usize,
-        rng: &mut fastrand::Rng,
+        rng: &mut crate::rng::FastRng,
         all_indices: &[usize],
         row_major: &[Vec<f64>],
         sample_weights: &[f64],
@@ -788,7 +788,7 @@ impl GradientBoostingClassifier {
         data: &Dataset,
         n: usize,
         k: usize,
-        rng: &mut fastrand::Rng,
+        rng: &mut crate::rng::FastRng,
         all_indices: &[usize],
         row_major: &[Vec<f64>],
         sample_weights: &[f64],
@@ -1099,7 +1099,7 @@ fn softmax_matrix(f_vals: &[Vec<f64>], n: usize, k: usize) -> Vec<Vec<f64>> {
 fn subsample_indices(
     n: usize,
     subsample: f64,
-    rng: &mut fastrand::Rng,
+    rng: &mut crate::rng::FastRng,
     all_indices: &[usize],
 ) -> Vec<usize> {
     if subsample >= 1.0 {
@@ -1234,7 +1234,7 @@ mod tests {
     #[test]
     fn regressor_early_stopping() {
         // Use noisy data where overfitting will occur with aggressive settings.
-        let mut rng = fastrand::Rng::with_seed(42);
+        let mut rng = crate::rng::FastRng::new(42);
         let n = 50;
         let x: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
         // y = sin(x) + heavy noise — tree will overfit noise.
