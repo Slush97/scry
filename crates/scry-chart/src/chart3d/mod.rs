@@ -969,7 +969,7 @@ impl Chart3D {
     #[cfg(feature = "widget")]
     pub fn show(&self) -> Result<(), String> {
         use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-        use crossterm::terminal::{self, ClearType};
+        use crossterm::terminal::{self};
         use crossterm::ExecutableCommand;
         use scry_engine::prelude::{Picker, ProtocolKind};
         use scry_engine::rasterize::Rasterizer;
@@ -1007,11 +1007,14 @@ impl Chart3D {
         let mut angle_x: f64 = 0.35;
         let mut distance: f64 = 2.5;
 
-        // Enter raw mode for keyboard capture
+        // Enter alternate screen + raw mode so terminal text is hidden
+        let mut stdout = std::io::stdout();
+        stdout.execute(crossterm::terminal::EnterAlternateScreen)
+            .map_err(|e| format!("failed to enter alternate screen: {e}"))?;
         terminal::enable_raw_mode()
             .map_err(|e| format!("failed to enable raw mode: {e}"))?;
-
-        let mut stdout = std::io::stdout();
+        // Hide cursor for a cleaner look
+        let _ = stdout.execute(crossterm::cursor::Hide);
 
         // Render initial frame
         let cam = Camera3D::orbiting(
@@ -1079,11 +1082,11 @@ impl Chart3D {
             }
         }
 
-        // Cleanup
+        // Cleanup: restore terminal state
         let _ = backend.remove(&handle);
+        let _ = stdout.execute(crossterm::cursor::Show);
         let _ = terminal::disable_raw_mode();
-        let _ = stdout.execute(crossterm::cursor::MoveTo(0, display_rows));
-        let _ = stdout.execute(crossterm::terminal::Clear(ClearType::FromCursorDown));
+        let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
 
         Ok(())
     }

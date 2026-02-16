@@ -73,6 +73,7 @@ pretty_assertions = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1"
 scry-chart = { path = "crates/scry-chart", features = ["widget"] }
+scry-learn = { path = "crates/scry-learn" }
 
 [[example]]
 name = "line_drawing"

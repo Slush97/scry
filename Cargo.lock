@@ -2172,6 +2172,7 @@ dependencies = [
  "ratatui",
  "resvg",
  "scry-chart",
+ "scry-learn",
  "serde",
  "thiserror 2.0.18",
  "tiny-skia",
