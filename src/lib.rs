@@ -66,6 +66,7 @@
 //! | `sixel` | ❌ | Sixel protocol (DEC terminals, foot, mlterm) |
 //! | `iterm2` | ❌ | iTerm2 / `WezTerm` inline images |
 //! | `widget` | ✅ | Ratatui `StatefulWidget` |
+//! | `gpu` | ✅ | GPU-accelerated rasterization via wgpu |
 //! | `text` | ❌ | Glyph rasterization via fontdue |
 //! | `shm` | ❌ | Zero-copy Kitty via POSIX shared memory |
 //! | `svg` | ❌ | SVG rendering via resvg |
@@ -138,6 +139,8 @@ pub enum PixelCanvasError {
 /// ```
 pub mod prelude {
     pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
+    #[cfg(feature = "gpu")]
+    pub use crate::rasterize::{rasterize_auto, WgpuContext2D, WgpuRasterizer};
     pub use crate::scene::animation::{
         AnimationState, Easing, Keyframe, Keyframes, Lerp, Transition,
     };

@@ -29,9 +29,21 @@ pub mod cache;
 pub mod profiler;
 pub mod skia;
 
+#[cfg(feature = "gpu")]
+mod wgpu_context;
+#[cfg(feature = "gpu")]
+pub mod wgpu;
+
 pub use cache::{DirtyTile, RasterCache, TILE_SIZE};
 pub use profiler::{
     CommandTiming, CommandType, PipelineProfile, ProfileHistory, ProfiledRasterizer, RasterProfile,
     SmoothedProfile, TransportProfile,
 };
 pub use skia::Rasterizer;
+
+#[cfg(feature = "gpu")]
+pub use self::wgpu::WgpuRasterizer;
+#[cfg(feature = "gpu")]
+pub use wgpu_context::WgpuContext2D;
+#[cfg(feature = "gpu")]
+pub use self::wgpu::rasterize_auto;

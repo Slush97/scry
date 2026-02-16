@@ -81,7 +81,7 @@ impl LogisticRegression {
     pub fn new() -> Self {
         Self {
             learning_rate: 0.01,
-            max_iter: 200,
+            max_iter: 1000,
             alpha: 1.0,
             tolerance: 1e-6,
             class_weight: ClassWeight::Uniform,
@@ -105,12 +105,15 @@ impl LogisticRegression {
         self
     }
 
-    /// Set regularization strength.
+    /// Set regularization strength (equivalent to `1/C` in scikit-learn).
     ///
     /// The meaning depends on the [`Penalty`]:
     /// - `L2` / `L1` — multiplier on the penalty term
     /// - `ElasticNet` — total regularization strength (split by l1_ratio)
     /// - `None` — ignored
+    ///
+    /// To match scikit-learn's `LogisticRegression(C=x)`, use `alpha(1.0 / x)`.
+    /// The default `alpha = 1.0` corresponds to `C = 1.0`.
     pub fn alpha(mut self, a: f64) -> Self {
         self.alpha = a;
         self
@@ -306,19 +309,25 @@ impl LogisticRegression {
                 }
 
                 // ── 4. Average over samples + L2 regularization.
-                //      (L-BFGS only reaches here for Penalty::L2 or Penalty::None.)
+                //      sklearn formula: min_w  C * mean(log_loss) + 0.5 * ||w||²
+                //      Equivalently:    min_w  mean(log_loss) + 0.5 * (1/C) * ||w||²
+                //      Our `alpha` = 1/C, so we scale both loss and penalty by inv_n
+                //      to get: mean(log_loss) + 0.5 * alpha * inv_n * ||w||²
+                //      This ensures regularization strength scales with dataset size
+                //      (matching sklearn's behavior).
                 loss *= inv_n;
                 for g in grad.iter_mut() {
                     *g *= inv_n;
                 }
 
                 if alpha > 0.0 {
+                    let reg_scale = alpha * inv_n;
                     for c in 0..k {
                         let base = c * dim;
                         for j in 1..dim {
                             let w = x[base + j];
-                            loss += 0.5 * alpha * w * w;
-                            grad[base + j] += alpha * w;
+                            loss += 0.5 * reg_scale * w * w;
+                            grad[base + j] += reg_scale * w;
                         }
                     }
                 }
@@ -405,13 +414,15 @@ impl LogisticRegression {
                 Penalty::ElasticNet(r) => (*r, 1.0 - *r),
             };
 
+            let inv_n = 1.0 / n as f64;
+
             // Update weights: gradient step + L2 regularization in gradient.
             for (c_grad, c_w) in gradient.iter_mut().zip(self.weights.iter_mut()).take(self.n_classes) {
                 for (j, (g, w)) in c_grad.iter_mut().zip(c_w.iter_mut()).enumerate().take(dim) {
-                    *g /= n as f64;
+                    *g *= inv_n;
                     if j > 0 {
-                        // L2 component goes into the gradient.
-                        *g += self.alpha * l2_ratio * *w;
+                        // L2 component goes into the gradient (scaled by inv_n like sklearn).
+                        *g += self.alpha * inv_n * l2_ratio * *w;
                     }
                     max_grad = max_grad.max(g.abs());
                     *w -= self.learning_rate * *g;
@@ -421,7 +432,7 @@ impl LogisticRegression {
             // Proximal step for L1 component (soft-thresholding).
             // Applied after the gradient update, only to feature weights (skip bias j=0).
             if l1_ratio > 0.0 {
-                let threshold = self.learning_rate * self.alpha * l1_ratio;
+                let threshold = self.learning_rate * self.alpha * inv_n * l1_ratio;
                 for c_w in self.weights.iter_mut().take(self.n_classes) {
                     for w in c_w.iter_mut().skip(1) {
                         let sign = w.signum();

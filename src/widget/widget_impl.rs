@@ -19,6 +19,8 @@ use ratatui::widgets::StatefulWidget;
 
 use crate::rasterize::{RasterCache, Rasterizer};
 use crate::scene::PixelCanvas;
+#[cfg(feature = "gpu")]
+use crate::rasterize::{WgpuContext2D, WgpuRasterizer};
 use crate::transport::backend::{
     FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
 };
@@ -149,6 +151,9 @@ pub struct PixelCanvasState {
     pending: Option<PendingFrame>,
     /// Reusable flat buffer for halfblock cell rendering (avoids per-frame Vec<Vec<>> allocation).
     halfblock_buf: Vec<HalfblockCell>,
+    /// Cached GPU context for accelerated rasterization (lazy-initialized).
+    #[cfg(feature = "gpu")]
+    gpu_ctx: Option<WgpuContext2D>,
 }
 
 impl PixelCanvasState {
@@ -161,6 +166,8 @@ impl PixelCanvasState {
             font_size,
             pending: None,
             halfblock_buf: Vec::new(),
+            #[cfg(feature = "gpu")]
+            gpu_ctx: None,
         }
     }
 
@@ -390,6 +397,29 @@ impl StatefulWidget for PixelCanvasWidget {
         let Some(pixmap) = pixmap_opt else {
             return;
         };
+
+        // Use GPU when the scene is GPU-friendly, otherwise use CPU directly
+        #[cfg(feature = "gpu")]
+        {
+            if canvas.gpu_suitable() {
+                // Lazily initialize GPU context on first render
+                if state.gpu_ctx.is_none() {
+                    state.gpu_ctx = WgpuContext2D::new().ok();
+                }
+                if let Some(ref ctx) = state.gpu_ctx {
+                    if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, &canvas) {
+                        pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
+                    } else {
+                        Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
+                    }
+                } else {
+                    Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
+                }
+            } else {
+                Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
         Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
         // Use a unique hash per frame when skip_cache is on, so flush() can find it.
         let store_hash = if self.skip_cache {

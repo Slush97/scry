@@ -91,6 +91,83 @@ impl PixelCanvas {
         &self.commands
     }
 
+    /// Returns `true` if this scene can be correctly rendered on GPU.
+    ///
+    /// The 2D GPU rasterizer draws all GPU primitives first, then blits CPU
+    /// fallback overlays on top.  This fixed render order means **any** CPU
+    /// fallback command breaks z-ordering with surrounding GPU commands.
+    /// Additionally, shapes with gradient fills are silently transparent on
+    /// GPU (no shader support yet).
+    ///
+    /// Therefore we only route to GPU when the scene is **pure GPU** — zero
+    /// CPU-fallback commands.
+    #[must_use]
+    pub fn gpu_suitable(&self) -> bool {
+        Self::all_gpu_native(&self.commands)
+    }
+
+    /// Returns `true` when every command in `cmds` can be rendered natively
+    /// on the GPU without CPU fallback.
+    fn all_gpu_native(cmds: &[DrawCommand]) -> bool {
+        for cmd in cmds {
+            match cmd {
+                DrawCommand::Line { .. }
+                | DrawCommand::Gradient { .. }
+                | DrawCommand::Clear { .. } => {}
+
+                // Shapes are GPU-native only with solid or no fill.
+                // Gradient fills silently render transparent on GPU.
+                DrawCommand::Circle { style, .. }
+                | DrawCommand::Rectangle { style, .. }
+                | DrawCommand::Ellipse { style, .. } => {
+                    if matches!(
+                        &style.fill,
+                        Some(crate::scene::style::FillStyle::LinearGradient(_))
+                            | Some(crate::scene::style::FillStyle::RadialGradient(_))
+                    ) {
+                        return false;
+                    }
+                }
+
+                // Polylines: stroke-only is GPU-native; fill requires CPU.
+                DrawCommand::Polyline { style, .. } => {
+                    if style.fill.is_some() {
+                        return false;
+                    }
+                }
+
+                // Always CPU-only
+                DrawCommand::Path { .. }
+                | DrawCommand::Arc { .. }
+                | DrawCommand::Image { .. } => return false,
+
+                #[cfg(feature = "text")]
+                DrawCommand::Text { .. } => return false,
+
+                DrawCommand::Group {
+                    commands,
+                    opacity,
+                    blend_mode,
+                    clip,
+                    transform,
+                } => {
+                    let needs_compositing = *opacity < 1.0
+                        || clip.is_some()
+                        || *blend_mode != crate::scene::style::BlendMode::SrcOver;
+                    if needs_compositing
+                        || *transform != crate::scene::style::Transform::IDENTITY
+                    {
+                        return false;
+                    }
+                    if !Self::all_gpu_native(commands) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
     /// Consume the canvas and return the command list.
     #[must_use]
     pub fn into_commands(self) -> Vec<DrawCommand> {
@@ -992,5 +1069,61 @@ mod tests {
         } else {
             panic!("Expected Rectangle command");
         }
+    }
+
+    #[test]
+    fn gpu_suitable_pure_shapes() {
+        let canvas = PixelCanvas::new(100, 100)
+            .circle(50.0, 50.0, 20.0)
+            .fill(Color::RED)
+            .done()
+            .rect(10.0, 10.0, 30.0, 30.0)
+            .fill(Color::BLUE)
+            .done()
+            .line(0.0, 0.0, 100.0, 100.0)
+            .color(Color::WHITE)
+            .done();
+        assert!(canvas.gpu_suitable());
+    }
+
+    #[test]
+    fn gpu_suitable_false_with_path() {
+        let mut canvas = PixelCanvas::new(100, 100)
+            .circle(50.0, 50.0, 20.0)
+            .fill(Color::RED)
+            .done();
+        let mut pb = tiny_skia::PathBuilder::new();
+        pb.move_to(0.0, 0.0);
+        pb.line_to(100.0, 100.0);
+        if let Some(path) = pb.finish() {
+            canvas.push_command(crate::scene::command::DrawCommand::Path {
+                path: crate::scene::command::PathData::new(path),
+                style: crate::scene::style::ShapeStyle::default(),
+            });
+        }
+        assert!(!canvas.gpu_suitable());
+    }
+
+    #[test]
+    fn gpu_suitable_false_with_arc() {
+        let canvas = PixelCanvas::new(100, 100)
+            .arc(50.0, 50.0, 30.0, 0.0, 1.5)
+            .stroke(Color::RED, 2.0)
+            .done();
+        assert!(!canvas.gpu_suitable());
+    }
+
+    #[test]
+    fn gpu_suitable_false_with_transform_group() {
+        let canvas = PixelCanvas::new(100, 100)
+            .group(crate::scene::style::Transform::rotate_at(0.5, 50.0, 50.0))
+            .canvas(|inner| {
+                inner
+                    .rect(20.0, 20.0, 60.0, 60.0)
+                    .fill(Color::GREEN)
+                    .done()
+            })
+            .done();
+        assert!(!canvas.gpu_suitable());
     }
 }

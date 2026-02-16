@@ -595,7 +595,7 @@ impl Rasterizer {
     /// Estimate the axis-aligned bounding box of a single draw command.
     /// Returns `(min_x, min_y, max_x, max_y)`.
     #[allow(clippy::cast_precision_loss)]
-    fn estimate_command_bounds(cmd: &DrawCommand) -> (f32, f32, f32, f32) {
+    pub(crate) fn estimate_command_bounds(cmd: &DrawCommand) -> (f32, f32, f32, f32) {
         match cmd {
             DrawCommand::Circle {
                 cx,

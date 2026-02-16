@@ -27,6 +27,7 @@ mod play;
 mod render_image;
 mod spec;
 mod splash;
+mod viz;
 
 use clap::{Parser, Subcommand};
 
@@ -59,6 +60,12 @@ enum Commands {
     /// Play interactive fullscreen animations
     Play(play::PlayArgs),
 
+    /// 3D visualization commands (scatter, etc.)
+    Viz {
+        #[command(subcommand)]
+        cmd: Box<viz::VizCommands>,
+    },
+
     /// Print terminal capabilities and supported features
     Info,
 }
@@ -75,6 +82,7 @@ fn main() {
         Commands::Splash(args) => splash::run(&args),
         Commands::Render(args) => render_image::run(&args),
         Commands::Play(args) => play::run(&args),
+        Commands::Viz { cmd } => viz::run(*cmd),
         Commands::Info => cmd_info(),
     };
 

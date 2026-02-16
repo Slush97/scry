@@ -33,6 +33,7 @@
 pub mod annotation;
 pub mod axis;
 pub mod chart;
+pub mod chart3d;
 pub mod colormap;
 pub mod cursor;
 pub mod data;
@@ -47,6 +48,7 @@ pub mod subplot;
 pub mod svg_export;
 pub mod theme;
 pub mod time_scale;
+#[cfg(feature = "widget")]
 pub mod widget;
 pub mod zoom;
 
@@ -64,12 +66,17 @@ pub mod prelude {
     pub use crate::colormap::{colormap_from_name, Colormap};
     pub use crate::data::{FillPattern, GapPolicy, GradientFill, Series, SeriesStyle};
     pub use crate::error::ChartError;
+    pub use crate::chart3d::{Chart3D, Rasterizer3D};
+    pub use crate::chart3d::camera::Camera3D;
+    #[cfg(feature = "gpu")]
+    pub use crate::chart3d::wgpu_backend::{WgpuContext, WgpuRasterizer3D};
     pub use crate::export::{render_to_png, save_png};
     pub use crate::margin::Margin;
     pub use crate::subplot::{SharedAxisMode, SubplotGrid};
     pub use crate::legend::{LegendConfig, LegendOrientation, LegendPosition};
     pub use crate::svg_export::{render_to_svg, save_svg};
     pub use crate::theme::Theme;
-    pub use crate::widget::{ChartState, ChartWidget};
+    #[cfg(feature = "widget")]
+    pub use crate::widget::{ChartState, ChartWidget, Chart3DState, Chart3DWidget};
     pub use crate::zoom::ZoomState;
 }

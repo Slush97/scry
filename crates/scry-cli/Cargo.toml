@@ -15,7 +15,7 @@ name = "scry"
 path = "src/main.rs"
 
 [dependencies]
-scry-chart = { path = "../scry-chart" }
+scry-chart = { path = "../scry-chart", features = ["widget"] }
 scry-engine = { path = "../..", features = ["kitty", "text"] }
 
 clap = { version = "4", features = ["derive"] }

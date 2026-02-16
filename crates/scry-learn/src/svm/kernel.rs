@@ -406,6 +406,18 @@ pub(crate) fn smo_train(
     max_passes: usize,
 ) -> BinarySMO {
     let n = x.len();
+
+    // Guard: with 0 or 1 sample, SMO cannot select a pair (j index
+    // computation uses `n - 1` as divisor → div-by-zero when n == 1).
+    if n <= 1 {
+        return BinarySMO {
+            alphas: if n == 1 { vec![c.min(1.0)] } else { Vec::new() },
+            b: 0.0,
+            support_vectors: x.to_vec(),
+            labels: y.to_vec(),
+        };
+    }
+
     let mut alphas = vec![0.0; n];
     let mut b = 0.0_f64;
 
@@ -793,5 +805,20 @@ mod tests {
             }
             other => panic!("expected RBF kernel, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_kernel_svc_single_sample() {
+        // Single-sample input should not panic (previously caused div-by-zero
+        // in smo_train at `passes % (n - 1)` when n == 1).
+        let features = vec![vec![1.0], vec![2.0]];
+        let target = vec![0.0];
+        let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
+
+        let mut svc = KernelSVC::new().kernel(Kernel::Linear).c(1.0);
+        svc.fit(&data).unwrap();
+
+        let preds = svc.predict(&[vec![1.0, 2.0]]).unwrap();
+        assert_eq!(preds.len(), 1);
     }
 }

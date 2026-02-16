@@ -19,7 +19,7 @@ readme = "README.md"
 exclude = ["examples/", "benches/", "tests/", ".github/"]
 
 [features]
-default = ["kitty", "widget"]
+default = ["kitty", "widget", "gpu"]
 kitty = []
 sixel = []
 iterm2 = []
@@ -29,6 +29,7 @@ shm = ["dep:libc"]
 svg = ["dep:resvg"]
 serde = ["dep:serde"]
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 tiny-skia = "0.11"
@@ -46,6 +47,10 @@ fontdue = { version = "0.9", optional = true }
 libc = { version = "0.2", optional = true }
 # Optional: SVG rendering via resvg (uses tiny-skia internally)
 resvg = { version = "0.44", optional = true, default-features = false }
+# Optional: GPU-accelerated rasterization via wgpu
+wgpu = { version = "24", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
 # Optional: WASM bridge for rendering to HTML5 Canvas
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
@@ -67,7 +72,7 @@ insta = { version = "1", features = ["glob"] }
 pretty_assertions = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1"
-scry-chart = { path = "crates/scry-chart" }
+scry-chart = { path = "crates/scry-chart", features = ["widget"] }
 libc = "0.2"
 
 [[example]]

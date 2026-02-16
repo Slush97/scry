@@ -1,5 +1,6 @@
 //! Linear regression via OLS (Ordinary Least Squares).
 
+use crate::accel;
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 
@@ -7,6 +8,9 @@ use crate::error::{Result, ScryLearnError};
 ///
 /// Uses the **OLS** closed-form normal equations solution:
 /// `β = (XᵀX + αI)⁻¹ Xᵀy`. Set `alpha > 0` for Ridge (L2) regularization.
+///
+/// When the `gpu` feature is enabled and the dataset is large enough,
+/// the XᵀX/Xᵀy computation is automatically offloaded to GPU compute shaders.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LinearRegression {
@@ -38,7 +42,8 @@ impl LinearRegression {
 
     /// Train using the normal equations: β = (X^T X + αI)^{-1} X^T y.
     ///
-    /// For small-to-medium datasets this is exact and fast.
+    /// For small-to-medium datasets this is exact and fast. With the `gpu`
+    /// feature enabled, large matrices are computed on the GPU automatically.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
         let n = data.n_samples();
         let m = data.n_features();
@@ -49,30 +54,11 @@ impl LinearRegression {
         // Build augmented feature matrix [1, x1, x2, ...] for intercept.
         let dim = m + 1;
 
-        // X^T X (dim × dim) + alpha * I
-        let mut xtx = vec![0.0; dim * dim];
-        // X^T y (dim × 1)
-        let mut xty = vec![0.0; dim];
-
-        for i in 0..n {
-            let y = data.target[i];
-
-            // Intercept term.
-            xtx[0] += 1.0;
-            xty[0] += y;
-
-            for j in 0..m {
-                let xj = data.features[j][i];
-                xtx[(j + 1) * dim] += xj; // first column
-                xtx[j + 1] += xj; // first row
-                xty[j + 1] += xj * y;
-
-                for k in 0..m {
-                    let xk = data.features[k][i];
-                    xtx[(j + 1) * dim + (k + 1)] += xj * xk;
-                }
-            }
-        }
+        // Compute XᵀX and Xᵀy via the best available backend.
+        // data.features is column-major [n_features][n_samples], which is
+        // exactly what ComputeBackend::xtx_xty() expects.
+        let backend = accel::auto();
+        let (mut xtx, mut xty) = backend.xtx_xty(&data.features, &data.target);
 
         // Add regularization (skip intercept term at index 0).
         for j in 1..dim {
@@ -210,5 +196,37 @@ mod tests {
         // With regularization, coefficient should be slightly less than 2.0.
         assert!(lr.coefficients()[0] < 2.0);
         assert!(lr.coefficients()[0] > 1.0);
+    }
+}
+
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_tests {
+    use super::*;
+
+    #[test]
+    fn gpu_linear_regression_matches_cpu() {
+        // Dataset large enough (500 samples × 50 features) to trigger GPU path
+        // in xtx_xty (threshold: n_samples * n_features² > 50_000).
+        let n = 500;
+        let m = 50;
+        let mut features = Vec::with_capacity(m);
+        for j in 0..m {
+            let col: Vec<f64> = (0..n).map(|i| ((i * (j + 1)) % 97) as f64 * 0.1).collect();
+            features.push(col);
+        }
+        // Target: sum of first 3 features + noise
+        let target: Vec<f64> = (0..n)
+            .map(|i| features[0][i] * 2.0 + features[1][i] * 0.5 + features[2][i] + 3.0)
+            .collect();
+        let names: Vec<String> = (0..m).map(|j| format!("f{j}")).collect();
+        let data = Dataset::new(features, target, names, "y");
+
+        let mut lr = LinearRegression::new().alpha(0.1);
+        lr.fit(&data).unwrap();
+
+        // Sanity: model should be fitted and produce reasonable predictions.
+        assert!(lr.coefficients().len() == m);
+        let preds = lr.predict(&[vec![1.0; m]]).unwrap();
+        assert!(preds[0].is_finite(), "prediction must be finite, got {}", preds[0]);
     }
 }

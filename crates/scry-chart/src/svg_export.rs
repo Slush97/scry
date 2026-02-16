@@ -92,6 +92,7 @@ pub fn save_svg(
 // Command → SVG element translation
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::match_wildcard_for_single_variants)]
 fn emit_command(body: &mut String, defs: &mut String, grad_id: &mut u32, cmd: &DrawCommand) {
     match cmd {
         DrawCommand::Clear { color } => {
@@ -303,7 +304,7 @@ fn emit_command(body: &mut String, defs: &mut String, grad_id: &mut u32, cmd: &D
         DrawCommand::Image { .. } => {}
 
         // Feature-gated variants (e.g. Text behind "text" feature).
-        #[allow(unreachable_patterns, clippy::match_same_arms)]
+        #[allow(unreachable_patterns, clippy::match_same_arms, clippy::match_wildcard_for_single_variants)]
         _ => {}
     }
 }

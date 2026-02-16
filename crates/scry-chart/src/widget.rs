@@ -375,3 +375,164 @@ fn render_text_overlays(buf: &mut Buffer, area: Rect, overlays: &[TextOverlay], 
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Chart3DWidget — ratatui widget for 3D charts
+// ---------------------------------------------------------------------------
+
+/// A ratatui widget that renders a 3D chart.
+///
+/// This is the **TUI mode** for 3D charts. For inline rendering without
+/// ratatui, use [`Chart3D::show()`](crate::chart3d::Chart3D::show).
+///
+/// # Example
+///
+/// ```ignore
+/// use scry_chart::prelude::*;
+/// use scry_chart::chart3d::Chart3D;
+///
+/// let chart = Chart3D::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], &[7.0, 8.0, 9.0])
+///     .title("My 3D Scatter");
+///
+/// frame.render_stateful_widget(
+///     Chart3DWidget::new(&chart),
+///     area,
+///     &mut chart3d_state,
+/// );
+/// ```
+#[must_use]
+pub struct Chart3DWidget<'a> {
+    chart: &'a crate::chart3d::Chart3D,
+    z_index: i32,
+}
+
+impl<'a> Chart3DWidget<'a> {
+    /// Create a new 3D chart widget.
+    pub fn new(chart: &'a crate::chart3d::Chart3D) -> Self {
+        Self { chart, z_index: -1 }
+    }
+
+    /// Set the z-index for Kitty layering.
+    pub fn z_index(mut self, z: i32) -> Self {
+        self.z_index = z;
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Chart3DState
+// ---------------------------------------------------------------------------
+
+/// Persistent state for [`Chart3DWidget`] across render frames.
+///
+/// Wraps [`PixelCanvasState`] for protocol management. Uses the same
+/// auto-detect pattern as [`ChartState`].
+pub struct Chart3DState {
+    /// Underlying pixel canvas state.
+    pub(crate) pixel_state: PixelCanvasState,
+    /// Cached GPU context for accelerated 3D rendering (lazily initialized).
+    #[cfg(feature = "gpu")]
+    pub(crate) gpu_ctx: Option<crate::chart3d::wgpu_backend::WgpuContext>,
+}
+
+impl Chart3DState {
+    /// Create a new 3D chart state from a pixel canvas state.
+    #[must_use]
+    pub fn new(pixel_state: PixelCanvasState) -> Self {
+        Self {
+            pixel_state,
+            #[cfg(feature = "gpu")]
+            gpu_ctx: None,
+        }
+    }
+
+    /// Auto-detect the best protocol and create state with one call.
+    ///
+    /// ```ignore
+    /// let mut state = Chart3DState::auto();
+    /// ```
+    #[must_use]
+    pub fn auto() -> Self {
+        use scry_engine::prelude::{Picker, ProtocolKind};
+
+        let picker = Picker::detect();
+        let backend: Box<dyn ProtocolBackend> = match picker.protocol() {
+            ProtocolKind::Kitty => {
+                Box::new(transport::kitty::KittyBackend::new(picker.font_size()))
+            }
+            _ => Box::new(transport::halfblock::HalfblockBackend::new()),
+        };
+        Self::new(PixelCanvasState::new(backend, picker.font_size()))
+    }
+
+    /// Get the font size for cell ↔ pixel calculations.
+    #[must_use]
+    pub fn font_size(&self) -> FontSize {
+        self.pixel_state.font_size()
+    }
+
+    /// Transmit any pending image to the terminal.
+    ///
+    /// Call this **after** `terminal.draw()` to avoid flicker.
+    pub fn flush(&mut self) -> Result<(), scry_engine::PixelCanvasError> {
+        self.pixel_state.flush()
+    }
+
+    /// Clean up resources.
+    pub fn cleanup(&mut self) {
+        self.pixel_state.cleanup();
+    }
+}
+
+impl std::fmt::Debug for Chart3DState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Chart3DState")
+            .field("pixel_state", &self.pixel_state)
+            .finish()
+    }
+}
+
+impl StatefulWidget for Chart3DWidget<'_> {
+    type State = Chart3DState;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        if area.width < 4 || area.height < 4 {
+            return;
+        }
+
+        let font = state.font_size();
+        let pixel_w = u32::from(area.width) * u32::from(font.width);
+        let pixel_h = u32::from(area.height) * u32::from(font.height);
+
+        // Render Chart3D to a PixelCanvas — use GPU when available
+        let canvas = {
+            #[cfg(feature = "gpu")]
+            {
+                // Lazily initialize GPU context on first frame
+                if state.gpu_ctx.is_none() {
+                    state.gpu_ctx = crate::chart3d::wgpu_backend::WgpuContext::new().ok();
+                }
+                // Try GPU path, fall back to CPU on failure
+                if let Some(ref ctx) = state.gpu_ctx {
+                    self.chart
+                        .render_gpu_to_canvas_with_context(ctx, pixel_w, pixel_h)
+                        .or_else(|_| self.chart.render_to_canvas(pixel_w, pixel_h))
+                } else {
+                    self.chart.render_to_canvas(pixel_w, pixel_h)
+                }
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                self.chart.render_to_canvas(pixel_w, pixel_h)
+            }
+        };
+
+        let Ok(canvas) = canvas else {
+            return;
+        };
+
+        // Delegate to PixelCanvasWidget
+        let pcw = PixelCanvasWidget::new(canvas).z_index(self.z_index);
+        pcw.render(area, buf, &mut state.pixel_state);
+    }
+}

@@ -4,7 +4,7 @@ description: Handoff instructions for the next agent — current state, what's d
 
 # Next Agent Handoff — Full Status & Instructions
 
-> **Last updated**: 2026-02-15 20:30 PST
+> **Last updated**: 2026-02-16 03:49 PST
 
 ---
 
@@ -14,152 +14,309 @@ description: Handoff instructions for the next agent — current state, what's d
 
 | Crate | Purpose | Maturity |
 |-------|---------|----------|
-| `scry-engine` | Low-level 2D rasterizer (shapes, text, gradients) | Stable |
-| `scry-chart` | Chart builder library (17 chart types, 6 themes) | Stable |
+| `scry-engine` | Low-level 2D rasterizer (shapes, text, gradients, animation) | Stable |
+| `scry-chart` | Chart builder library (19 chart types + 3D scatter, 6 themes) | Stable |
 | `scry-learn` | Machine learning library (23+ models, search, preprocessing) | Stable |
 | `scry-cli` | CLI for chart rendering | Stable |
-| `scry-pipe` | Feature engineering compiler | **Phase 1 in progress** |
+| `scry-pipe` | Feature engineering compiler (Phase 1 done) | Beta |
 
 ---
 
-## 2. What Is Complete
+## 2. What Is Complete (Sprints 1–7 + 8A + 8.5A–D + 8C + 9B + 9C + 9D-1 + 9D-2)
 
-**Everything through Sprint 6 complete. Total: 428 tests, 0 clippy warnings.**
+**Everything through Sprint 9D-2 GPU Compute Wiring is done.**
 
-### scry-learn (ML crate)
-- **23+ model types**: LinearRegression, LogisticRegression (L-BFGS + GD, L1/L2/ElasticNet penalty), Lasso, ElasticNet, DecisionTree (C/R), RandomForest (C/R), GBT (C/R), HistGBT (C/R), KNN (C/R), LinearSVC, LinearSVR, KernelSVC, KernelSVR, GaussianNB, BernoulliNB, MultinomialNB, KMeans, MiniBatchKMeans, DBSCAN (KD-tree), AgglomerativeClustering, IsolationForest, VotingClassifier, StackingClassifier
-- **Preprocessing**: StandardScaler, MinMaxScaler, RobustScaler, PCA, OneHotEncoder, SimpleImputer, ColumnTransformer, PolynomialFeatures, Normalizer, LabelEncoder
-- **Search**: GridSearchCV, RandomizedSearchCV — Tunable trait on ALL models, `.scoring()`, `.stratified()`, `ParamValue::Categorical`
-- **CV**: k_fold, stratified_k_fold, RepeatedKFold, GroupKFold, TimeSeriesSplit, cross_val_predict
-- **Metrics**: accuracy, precision, recall, f1, log_loss, balanced_accuracy, cohen_kappa, r2, mse, mae, mape, explained_variance, adjusted_rand_index, calinski_harabasz, davies_bouldin, silhouette
-- **Visualizations**: 19 ML-specific chart functions in `viz.rs`
-- **SVM**: Platt scaling (predict_proba), auto gamma (Scale/Auto/Value)
-- **Tests**: 428 total (8 bench tests `#[ignore]`d, 1 flaky: `determinism_rf_same_seed` due to rayon nondeterminism)
+### Sprint 8.5A ✅ 3D Scene Graph & Camera
 
-### Industry Standards Audit — COMPLETE
-A comprehensive audit comparing scry-learn against scikit-learn was completed. **Estimated score after Sprint 6: 9+/10.**
+- `Camera3D` with arcball quaternion rotation (gimbal-lock-free orbit/pan/zoom)
+- `Camera3D::orbiting()` — spherical coordinate constructor for interactive loops
+- `PerspectiveProjection` with depth sorting (painter's algorithm)
+- `Scene3D` with point clouds, axis lines, grid planes, billboard labels
+- `Rasterizer3D` trait (architecture boundary for backend swaps)
+- `SkiaRasterizer3D` v1 backend (tiny-skia + fontdue)
+- `Chart3D::scatter()` builder with `render_to_png()` / `save_png()`
 
-All gaps identified in the audit have been closed by Sessions 11-17.
+### Sprint 8.5B ✅ Two Rendering Frontends (Terminal Integration)
+
+| Mode | API | Dependency | How to use |
+|------|-----|------------|------------|
+| **Inline** | `Chart3D::show()` | `widget` feature (crossterm) | Renders directly to stdout via Kitty/Sixel/halfblock. Scoped raw mode for keyboard controls (WASD/arrows rotate, +/- zoom, Q quit). |
+| **TUI** | `Chart3DWidget` + `Chart3DState` | `widget` feature (ratatui) | `StatefulWidget` — compose with other ratatui widgets. Same camera controls in your event loop. |
+
+**Bridge method:** `Chart3D::render_to_canvas(w, h)` — converts RGBA output to `PixelCanvas` via `ImageData`. Used by both modes internally.
+
+**Example:** `cargo run --example scatter3d` (inline) or `cargo run --example scatter3d -- --tui` (TUI)
+
+### Sprint 8.5C ✅ CLI Integration & ML Hooks
+
+- `scry viz 3d-scatter` subcommand with `--x`, `--y`, `--z`, `--color-by`, `--output`
+- `Chart3D::color_by_labels()` and `color_by_class()` builder methods
+- `default_palette()` shared 6-color palette function
+- `scatter3d_data()` and `scatter3d_chart()` in scry-learn `viz.rs`
+
+### Sprint 8C ✅ ratatui Feature-Gated
+
+- `ratatui` + `crossterm` moved to optional deps behind `widget` feature flag (default-on)
+- `pub mod widget` gated with `#[cfg(feature = "widget")]`
+- `Chart3D::show()` gated with `#[cfg(feature = "widget")]`
+- Prelude re-exports (`ChartWidget`, `ChartState`, `Chart3DWidget`, `Chart3DState`) conditional
+- Headless users: `cargo add scry-chart --no-default-features` drops ~30 transitive deps
+
+### Sprint 8.5D ✅ Performance Targets
+
+| Scenario | Target | Actual Mean |
+|----------|--------|:-----------:|
+| 1K pts, 800×600 | 16.7ms (60fps) | **1.21ms** (~827fps) |
+| 5K pts, 1080p | 33.3ms (30fps) | **4.96ms** (~202fps) |
+| 10K pts, 1080p | 66.7ms (15fps) | **10.4ms** (~96fps) |
+
+### Sprint 9B ✅ GPU Acceleration v1 (wgpu)
+
+Implemented `WgpuRasterizer3D` — a GPU-accelerated backend behind `gpu` feature flag (opt-in, NOT default).
+
+**Architecture:**
+- `WgpuRasterizer3D` implements `Rasterizer3D` trait — drop-in swap for `SkiaRasterizer3D`
+- `Chart3D::render_gpu(w, h)` convenience method (feature-gated)
+- Headless wgpu: `Instance → Adapter → Device` (no Surface/window needed)
+- Deferred batching: all `draw_*` calls record batches, `finish()` submits one render pass + readback
+- WGSL shaders: instanced circle SDF (points) + anti-aliased line quads (segments)
+- Text stays CPU-side: fontdue rasterizes, blits to GPU output after readback
+
+**Dependencies added (all optional, behind `gpu` feature):**
+- `wgpu = "24"`, `pollster = "0.4"`, `bytemuck = "1"`
+
+**Benchmark results (RTX 5070 Ti, 1080p):**
+
+| Scenario | CPU (tiny-skia) | GPU (wgpu v1) | Notes |
+|----------|----------------|---------------|-------|
+| 50K pts | 21.9ms | 104ms | GPU slower due to per-call device init overhead |
+| 100K pts | ~44ms | 107ms | GPU rendering scales flat (+3ms for 2× points) |
+
+**Key insight:** The ~100ms constant overhead is `request_adapter` + `request_device` + pipeline creation + readback sync. The actual GPU rendering at 100K points is only ~7ms. Sprint 9C caches the device.
+
+**Test results:** 304/304 scry-learn tests passing. 172/172 scry-chart tests passing. Clippy clean `--all-features`.
+
+### Sprint 9C ✅ GPU Device Caching (scry-chart 3D)
+
+Extracted wgpu device, queue, and pipelines into a reusable `WgpuContext` struct.
+
+**New APIs:**
+- `WgpuContext::new()` — one-time expensive init (~100ms)
+- `WgpuRasterizer3D::with_context(&ctx, w, h, bg)` — fast per-frame rasterizer
+- `Chart3D::render_gpu_with_context(&ctx, w, h)` — convenience method
+
+**Architecture:**
+- `DeviceRef` / `QueueRef` / `PipelineRef` enums — owned (one-shot) or borrowed (cached)
+- `create_frame_resources()` — creates only per-frame texture + uniform buffer
+- Existing `WgpuRasterizer3D::new()` and `Chart3D::render_gpu()` still work unchanged
+
+**Benchmark results (RTX 5070 Ti, 1080p):**
+
+| Scenario | CPU (tiny-skia) | GPU uncached | GPU **cached** | vs uncached | vs CPU |
+|----------|:-:|:-:|:-:|:-:|:-:|
+| 50K pts | 22.2ms | 107ms | **3.46ms** | **31×** | **6.4×** |
+| 100K pts | 45.6ms | 109ms | **6.59ms** | **17×** | **6.9×** |
+
+**Test results:** 172/172 tests passing (164 existing + 8 GPU). Clippy clean `--all-features`.
+
+### Sprint 9D-1 ✅ GPU Compute Backend for scry-learn
+
+Implemented `ComputeBackend` trait with CPU and wgpu GPU implementations for accelerated linear algebra.
+
+**Architecture:**
+- `ComputeBackend` trait — matmul, XᵀX/Xᵀy, pairwise distances
+- `CpuBackend` — pure Rust (always available)
+- `GpuBackend` — wgpu compute shaders (behind `gpu` feature flag)
+- `accel::auto()` — runtime auto-detection (GPU → CPU fallback)
+- Size thresholds: GPU only used when matrices are large enough to offset overhead
+
+**WGSL Compute Shaders:**
+- `matmul.wgsl` — tiled 16×16 matrix multiply with shared memory
+- `distance.wgsl` — pairwise squared Euclidean distance (256-thread workgroups)
+
+**Dependencies added (all optional, behind `gpu` feature):**
+- `wgpu = "24"`, `pollster = "0.4"`, `bytemuck = "1"`
+
+**Test results:** 304/304 tests passing (297 existing + 4 GPU compute + 3 GPU wiring). Clippy clean `--all-features`.
+
+### Sprint 9D-2 ✅ Wire GPU into Model Training
+
+Replaced manual linear algebra loops with `ComputeBackend` calls in all three models:
+
+**LinearRegression.fit():**
+- Replaced 24-line XᵀX/Xᵀy loop with `accel::auto().xtx_xty()` (1 line)
+- `data.features` is already column-major — zero conversion needed
+
+**KnnClassifier.compute_votes():**
+- Batched brute-force distances via `pairwise_distances_squared()` for Euclidean metric
+- Gated on: Euclidean metric, no KD-tree, `n_q × n_t ≥ 256`
+
+**KnnRegressor.predict():**
+- Same batched distance refactoring as classifier
+
+**Extracted shared helpers:** `scalar_brute_force()`, `batched_brute_force_neighbors()`, `aggregate_votes()`, `aggregate_regression()`
+
+**Test results:** 304/304 scry-learn tests passing (301 existing + 3 GPU wiring). Clippy clean `--all-features`.
 
 ---
 
-## 3. What Was Just Done (Latest Session)
+## 3. What To Do Next
 
-**Sprint 7 is in progress.** Multiple parallel agents ran:
+> **Read `.agent/ROADMAP.md` for the full plan.**
 
-1. **v0.7.0 tagged** — all crate versions bumped, annotated tag created
-2. **WASM target for scry-engine** — COMPLETE
-   - Added `wasm` feature flag + `wasm-bindgen`/`web-sys`/`js-sys` optional deps to root `Cargo.toml`
-   - Created `src/wasm.rs` with `WasmCanvas` struct (JS-accessible via wasm-bindgen)
-   - Methods: `new()`, `width()`, `height()`, `set_background()`, `add_circle()`, `add_rect()`, `pixels()`, `render_to_canvas()`, `clear()`, `command_count()`
-   - Free function `render_rgba_to_canvas()` for blitting pre-rendered RGBA to HTML canvas
-   - 6 native unit tests, all passing
-   - `cargo check --target wasm32-unknown-unknown --no-default-features --features wasm` ✅
-   - Demo page at `examples/wasm_demo/` with build instructions
-3. **IsolationForest** — anomaly detection model with `contamination`, `n_estimators`, `max_samples`, `predict()` labels + `decision_function()` scores
-4. **VotingClassifier + StackingClassifier** — advanced ensemble methods via `EnsembleClassifier` trait
-5. **RF memory optimization fix** — fixed index-out-of-bounds in `cart.rs` membership bitset sizing (was sized to bootstrap max index, now covers full dataset)
-6. **Production bench `#[ignore]`** — 8 heavy benchmark tests marked `#[ignore]` to prevent 20+ min debug-mode runs
-7. **scry-pipe Phase 1A** — IR + transform engine (likely in progress by another agent)
+### PRIORITY 1: Sprint 9C — scry-engine GPU 2D Rasterizer
+
+Add a GPU-accelerated 2D rasterizer to scry-engine. The current `Rasterizer` in `src/rasterize/skia.rs` uses `tiny-skia` (CPU). This sprint adds a wgpu alternative behind the `gpu` feature flag.
+
+**Scope:**
+
+1. **Add `gpu` feature to `Cargo.toml`** — `wgpu = "24"`, `pollster = "0.4"`, `bytemuck = "1"` (all optional)
+
+2. **Create `src/rasterize/wgpu.rs`** — a `WgpuRasterizer` implementing the same API as `Rasterizer`:
+   - `rasterize(&PixelCanvas) → Pixmap`
+   - `rasterize_into(&PixelCanvas, &mut Pixmap)`
+
+3. **WGSL shaders to implement:**
+
+   | DrawCommand variant | GPU shader approach |
+   |---|---|
+   | `Clear` | `clear_value` on render pass |
+   | `Circle` | Instanced SDF quad (same pattern as 3D `point.wgsl`) |
+   | `Rectangle` | Instanced box SDF or direct quad geometry |
+   | `Ellipse` | SDF quad with non-uniform scale |
+   | `Line` | Anti-aliased line quads (same pattern as 3D `line.wgsl`) |
+   | `Polyline` | Decompose into line segments, batch |
+   | `Arc` | SDF fragment shader (angular test) |
+   | `Gradient` | Fragment shader with linear/radial interpolation |
+   | `Image` | Texture sample + alpha blend |
+   | `Path` | CPU tessellation → GPU triangles (or fallback to CPU) |
+   | `Text` | CPU rasterization (fontdue) → GPU blit (same as 3D approach) |
+   | `Group` | Offscreen render target + composite |
+
+4. **Device caching** — reuse the `WgpuContext` pattern from scry-chart's 3D backend:
+   - `WgpuContext::new()` for one-time init
+   - `WgpuRasterizer::with_context()` for per-frame reuse
+   - Reference: `crates/scry-chart/src/chart3d/wgpu_backend.rs`
+
+5. **`rasterize_auto()`** — runtime detection function:
+   - If `gpu` feature enabled + GPU available → `WgpuRasterizer`
+   - Otherwise → `Rasterizer` (tiny-skia)
+
+6. **Integration with existing caching** — `RasterCache` still works at the hash level. Only the rasterization backend changes.
+
+**Reference implementation pattern:**
+- Study `crates/scry-chart/src/chart3d/wgpu_backend.rs` — same project, same wgpu version, same headless rendering approach
+- The `WgpuRasterizer3D` is a working blueprint: headless instance → adapter → device → render pass → texture readback
+
+**Key decision: Path rendering**
+- Complex Bézier paths (`DrawCommand::Path`) are hard to GPU-rasterize directly
+- Recommended: use cpu-side tessellation (e.g., `lyon` crate or convert `tiny_skia::Path` to triangles) then draw triangles on GPU
+- Alternative: fall back to CPU (`Rasterizer`) for Path commands, GPU for everything else
+- Start simple — get shapes and lines on GPU first, handle paths later
+
+**Current scry-engine DrawCommand variants (11 total):**
+`Clear`, `Circle`, `Rectangle`, `Ellipse`, `Line`, `Path`, `Polyline`, `Gradient`, `Arc`, `Image`, `Text` (text feature-gated), `Group` (nested commands)
+
+**Target:** ≥10× throughput improvement at 4K resolution for 2D charts
+
+### PRIORITY 2: Housekeeping (P2)
+
+- Git commit workflow → `.agent/workflows/git-commit.md` (conventional commits)
+- `cargo-semver-checks` → add to CI + Sprint 13A
+- `cargo-audit` → add to CI alongside `cargo deny`
+- Remove `suggestions.md` before publishing (internal audit)
 
 ---
 
-## 4. What To Do Next — Priority-Ordered
-
-### Sprint 7 — Platform & Commercial (in progress)
-> Read `ROADMAP.md` section "Sprint 7" for details.
-
-1. ~~**Tag v0.7.0**~~ — ✅ DONE
-2. ~~**WASM target** for scry-engine~~ — ✅ DONE
-3. **scry-pipe Phase 1** — IR + transform engine + Rust codegen (check if another agent completed this)
-4. **scry-pipe Phase 2** — PyO3 Python SDK (3 sessions)
-5. **DataFrame / Polars interop** (2 sessions)
-6. **Streaming-aware charts** (2 sessions)
-
-### PARALLEL: Chart Quality Hardening (separate agent)
-
-A separate agent is running the chart quality roadmap. See `.agent/workflows/chart-quality-roadmap.md`.
-
----
-
-## 5. Known Issues
+## 4. Known Issues
 
 | Issue | Severity | Details |
 |-------|----------|---------|
-| `determinism_rf_same_seed` flaky test | Low | RF uses rayon without deterministic ordering. Pre-existing. |
-| KernelSVC single-sample div-by-zero | Low | `kernel.rs:305`. Wrapped in `catch_unwind` in edge tests. |
-| Production bench only in release | Info | 8 bench tests are `#[ignore]`d. Run: `cargo test --test production_bench --release -- --ignored --nocapture` |
+| ~~GPU v1 per-call overhead~~ | ~~High~~ | ~~Fixed in Sprint 9C — cached: 3.5ms/6.6ms (was 107ms/109ms)~~ |
+| Gaussian NB digits gap | Medium | −2.2% vs sklearn (improved from −3.3% with var_smoothing fix) |
+| KNN iris gap | Low | −2.7% — inherent to 150-sample dataset, not a bug |
+| `determinism_rf_same_seed` flaky | Low | Passes reliably in `--release`; debug-only thread scheduling |
+| 8 bench tests `#[ignore]`d | Info | Run: `--release -- --ignored` |
 
 ---
 
-## 6. Key Files Reference
+## 5. Key Files
 
 | Purpose | Path |
 |---------|------|
 | Product roadmap | `.agent/ROADMAP.md` |
-| ML roadmap (sessions 1-17) | `.agent/workflows/ml-learn-roadmap.md` |
-| scry-learn lib entry | `crates/scry-learn/src/lib.rs` |
-| Search (GridSearchCV, Tunable) | `crates/scry-learn/src/search.rs` |
-| Visualizations (15 functions) | `crates/scry-learn/src/viz.rs` |
-| Benchmark dashboard | `crates/scry-learn/examples/bench_dashboard.rs` |
-| UCI fixture generator (Python) | `crates/scry-learn/tests/fixtures/generate_fixtures.py` |
-| sklearn references JSON | `crates/scry-learn/tests/fixtures/sklearn_predictions.json` |
-| Decision tree impl | `crates/scry-learn/src/tree/cart.rs` |
-| HistGBT impl | `crates/scry-learn/src/tree/histogram_gbt.rs` |
-| Pipeline impl | `crates/scry-learn/src/pipeline.rs` |
-| KNN impl | `crates/scry-learn/src/neighbors/knn.rs` |
-| LogReg impl | `crates/scry-learn/src/linear/logistic.rs` |
-| SVM kernel impl | `crates/scry-learn/src/svm/kernel.rs` |
-| SVM linear impl | `crates/scry-learn/src/svm/linear.rs` |
-| DBSCAN impl | `crates/scry-learn/src/cluster/dbscan.rs` |
-| Metrics (classification) | `crates/scry-learn/src/metrics/classification.rs` |
-| Metrics (regression) | `crates/scry-learn/src/metrics/regression.rs` |
-| CV / split | `crates/scry-learn/src/split.rs` |
-| Preprocessing | `crates/scry-learn/src/preprocess/` |
-| scry-pipe proposal | `SCRY_PIPE_PROPOSAL.md` |
-| WASM bridge | `src/wasm.rs` |
-| WASM demo page | `examples/wasm_demo/index.html` |
+| Agent context | `.agent/CONTEXT.md` |
+| **2D rasterizer (CPU)** | `src/rasterize/skia.rs` (1187 lines) |
+| **2D rasterize module** | `src/rasterize/mod.rs` |
+| **Command batching** | `src/rasterize/batch.rs` |
+| **Content-hash cache** | `src/rasterize/cache.rs` |
+| **Performance profiler** | `src/rasterize/profiler.rs` |
+| **Scene commands** | `src/scene/command.rs` (DrawCommand enum, 11 variants) |
+| **Scene canvas** | `src/scene/mod.rs` (PixelCanvas builder) |
+| **Style types** | `src/scene/style.rs` (Color, Rect, ShapeStyle, GradientDef, etc.) |
+| Engine Cargo.toml | `Cargo.toml` (workspace root = scry-engine) |
+| **3D wgpu backend (reference)** | `crates/scry-chart/src/chart3d/wgpu_backend.rs` |
+| **3D point shader (reference)** | `crates/scry-chart/src/chart3d/shaders/point.wgsl` |
+| **3D line shader (reference)** | `crates/scry-chart/src/chart3d/shaders/line.wgsl` |
+| GPU compute backend | `crates/scry-learn/src/accel/mod.rs` |
+| GPU backend (wgpu) | `crates/scry-learn/src/accel/gpu.rs` |
+| CPU backend | `crates/scry-learn/src/accel/cpu.rs` |
+| Linear regression (GPU-wired) | `crates/scry-learn/src/linear/regression.rs` |
+| KNN (GPU-wired) | `crates/scry-learn/src/neighbors/knn.rs` |
+| Benchmarks doc | `BENCHMARKS.md` |
+
+## 6. Feature Flag Architecture
+
+| Crate | Feature | What it gates |
+|-------|---------|---------------|
+| `scry-engine` | `widget` (default) | `ratatui` dep, `PixelCanvasWidget` |
+| `scry-engine` | `kitty` (default) | Kitty graphics protocol |
+| `scry-engine` | `text` | fontdue text rendering |
+| `scry-engine` | `svg` | resvg SVG rendering |
+| `scry-engine` | **`gpu`** (to add) | **wgpu + pollster + bytemuck, `WgpuRasterizer`, `rasterize_auto()`** |
+| `scry-chart` | `widget` (default) | `ratatui` + `crossterm` deps, `mod widget`, `Chart3D::show()` |
+| `scry-chart` | **`gpu`** (opt-in) | **`wgpu` + `pollster` + `bytemuck`, `WgpuRasterizer3D`, `Chart3D::render_gpu()`** |
+| `scry-learn` | **`gpu`** (opt-in) | **`wgpu` + `pollster` + `bytemuck`, `GpuBackend`, `accel::auto()`** |
+| `scry-chart` | `serde` | Serialize/Deserialize derives |
 
 ## 7. Verification Commands
 
+// turbo-all
+
 ```bash
-# All tests (321 passing, 1 flaky)
-cargo test -p scry-learn
+# All scry-engine tests
+cargo test -p scry-engine --lib --all-features
 
-# scry-engine tests (87 native, 93 with wasm feature)
-cargo test -p scry-engine --lib
-cargo test -p scry-engine --lib --features wasm
+# Clippy (must be 0 warnings)
+cargo clippy -p scry-engine --all-features -- -D warnings
 
-# Clippy (must be 0 warnings) — run BOTH
-cargo clippy -p scry-learn -- -D warnings
-cargo clippy -p scry-learn --features serde -- -D warnings
-cargo clippy -p scry-engine --lib -- -D warnings
-cargo clippy -p scry-engine --lib --features wasm -- -D warnings
+# Headless build (no optional features)
+cargo check -p scry-engine --no-default-features
 
-# WASM cross-compile check
-cargo check -p scry-engine --no-default-features --features wasm --target wasm32-unknown-unknown
+# Default features build
+cargo check -p scry-engine
 
-# Benchmark dashboard (release mode, with memory footprint)
-cargo run --example bench_dashboard -p scry-learn --release --features serde
+# Workspace check
+cargo check --workspace
+
+# Rasterize benchmarks
+cargo bench --bench rasterize -p scry-engine
+
+# All scry-chart tests (includes GPU)
+cargo test -p scry-chart --lib --all-features
+
+# All scry-learn tests — USE --release for speed
+cargo test -p scry-learn --lib --all-features --release
 ```
 
 ## 8. Code Quality Rules
 
 - **Zero clippy warnings** — always run with `-D warnings`
-- **All existing tests must continue to pass** — never break existing functionality
-- **Builder pattern** — config types use consuming builder methods (`.field(value) -> Self`)
+- **All tests must pass** — never break existing functionality
+- **Use --release for tests** — debug mode is 50x slower for ML tests
+- **Builder pattern** — config types use consuming builder methods
+- **Feature gates** — widget/TUI code behind `#[cfg(feature = "widget")]`, GPU behind `#[cfg(feature = "gpu")]`
 - **Serde** — new public types derive Serialize/Deserialize under `#[cfg(feature = "serde")]`
 - **Doc comments** — all public APIs need `///` doc comments
 - **Error handling** — `Result<T, E>` with crate-specific error types, never panic
-- **Pure Rust** — no BLAS, nalgebra, or ndarray in production dependencies
-
-## 9. Versioning Roadmap
-
-| Version | Gate |
-|:-------:|------|
-| 0.5.0 | ✅ Tagged — Sprint 4 gates met |
-| 0.6.0 | ✅ Correctness hardening suite (Sprint 4.5) |
-| 0.7.0 | ✅ Tagged — Industry parity + algorithm expansion (Sprints 5-6) |
-| 0.8.0 | scry-pipe Phase 1 |
-| 0.9.0 | WASM + Python SDK |
-| **1.0.0** | API stability freeze |
+- **Pure Rust** — no BLAS, nalgebra, or ndarray in default dependencies (optional feature only)
