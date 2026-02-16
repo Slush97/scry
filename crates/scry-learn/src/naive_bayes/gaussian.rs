@@ -66,6 +66,7 @@ impl GaussianNb {
         self.means = vec![vec![0.0; m]; self.n_classes];
         self.variances = vec![vec![0.0; m]; self.n_classes];
 
+        let mat = data.matrix();
         let sample_weights = compute_sample_weights(&data.target, &self.class_weight);
         let mut w_sums = vec![0.0_f64; self.n_classes];
 
@@ -75,7 +76,7 @@ impl GaussianNb {
             if c >= self.n_classes { continue; }
             w_sums[c] += sw;
             for j in 0..m {
-                self.means[c][j] += sw * data.features[j][i];
+                self.means[c][j] += sw * mat.get(i, j);
             }
         }
         for (c_means, &ws) in self.means.iter_mut().zip(w_sums.iter()) {
@@ -91,7 +92,7 @@ impl GaussianNb {
             let c = target_val as usize;
             if c >= self.n_classes { continue; }
             for j in 0..m {
-                let diff = data.features[j][i] - self.means[c][j];
+                let diff = mat.get(i, j) - self.means[c][j];
                 self.variances[c][j] += sw * diff * diff;
             }
         }

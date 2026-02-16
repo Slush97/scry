@@ -63,6 +63,29 @@ pub trait ComputeBackend {
         dim: usize,
     ) -> Vec<f64>;
 
+    /// Compute XᵀX and Xᵀy from a contiguous column-major feature buffer.
+    ///
+    /// - `data`: flat column-major buffer of length `n_samples * n_features`
+    /// - `target`: target vector of length `n_samples`
+    /// - `n_samples`: number of rows
+    /// - `n_features`: number of feature columns
+    /// - Returns: same as [`xtx_xty`] — `(XᵀX, Xᵀy)` with intercept column
+    ///
+    /// Default implementation rebuilds `Vec<Vec<f64>>` and delegates to [`xtx_xty`].
+    /// Backends may override for better cache locality on contiguous data.
+    fn xtx_xty_contiguous(
+        &self,
+        data: &[f64],
+        target: &[f64],
+        n_samples: usize,
+        n_features: usize,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let features: Vec<Vec<f64>> = (0..n_features)
+            .map(|j| data[j * n_samples..(j + 1) * n_samples].to_vec())
+            .collect();
+        self.xtx_xty(&features, target)
+    }
+
     /// Returns the backend name for diagnostics.
     fn name(&self) -> &'static str;
 }

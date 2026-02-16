@@ -39,10 +39,12 @@ impl Transformer for StandardScaler {
         if n == 0.0 {
             return Err(ScryLearnError::EmptyDataset);
         }
+        let mat = data.matrix();
         self.means = Vec::with_capacity(data.n_features());
         self.stds = Vec::with_capacity(data.n_features());
 
-        for col in &data.features {
+        for j in 0..data.n_features() {
+            let col = mat.col(j);
             let mean = col.iter().sum::<f64>() / n;
             let var = col.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
             self.means.push(mean);
@@ -65,6 +67,7 @@ impl Transformer for StandardScaler {
                 }
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 
@@ -79,6 +82,7 @@ impl Transformer for StandardScaler {
                 *x = *x * std + mean;
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 }
@@ -117,10 +121,12 @@ impl Transformer for MinMaxScaler {
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
+        let mat = data.matrix();
         self.mins = Vec::with_capacity(data.n_features());
         self.maxs = Vec::with_capacity(data.n_features());
 
-        for col in &data.features {
+        for j in 0..data.n_features() {
+            let col = mat.col(j);
             let min = col.iter().copied().fold(f64::INFINITY, f64::min);
             let max = col.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             self.mins.push(min);
@@ -147,6 +153,7 @@ impl Transformer for MinMaxScaler {
                 }
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 
@@ -161,6 +168,7 @@ impl Transformer for MinMaxScaler {
                 *x = *x * range + min;
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 }
@@ -224,11 +232,13 @@ impl Transformer for RobustScaler {
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
+        let mat = data.matrix();
         self.medians = Vec::with_capacity(data.n_features());
         self.iqrs = Vec::with_capacity(data.n_features());
 
-        for col in &data.features {
-            let mut sorted = col.clone();
+        for j in 0..data.n_features() {
+            let col = mat.col(j);
+            let mut sorted = col.to_vec();
             sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
             let median = quantile_sorted(&sorted, 0.5);
             let q1 = quantile_sorted(&sorted, 0.25);
@@ -257,6 +267,7 @@ impl Transformer for RobustScaler {
                 }
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 
@@ -271,6 +282,7 @@ impl Transformer for RobustScaler {
                 *x = *x * iqr + median;
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 }

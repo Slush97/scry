@@ -24,6 +24,9 @@ path = "../crates/scry-chart"
 [dependencies.scry-learn]
 path = "../crates/scry-learn"
 
+[dependencies.scry-pipe]
+path = "../crates/scry-pipe"
+
 # ═══════════════════════════════════════════
 # Phase 1: Core crate fuzz targets
 # ═══════════════════════════════════════════
@@ -95,6 +98,24 @@ bench = false
 [[bin]]
 name = "fuzz_neural_forward"
 path = "fuzz_targets/fuzz_neural_forward.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 4: scry-pipe fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_ir_roundtrip"
+path = "fuzz_targets/fuzz_ir_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pipeline_transform"
+path = "fuzz_targets/fuzz_pipeline_transform.rs"
 test = false
 doc = false
 bench = false

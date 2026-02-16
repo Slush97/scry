@@ -61,6 +61,7 @@ pub mod weights;
 pub mod viz;
 pub mod accel;
 pub mod neural;
+pub mod sparse;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {
@@ -120,4 +121,5 @@ pub mod prelude {
     pub use crate::neural::{MLPClassifier, MLPRegressor, Activation, OptimizerKind};
     pub use crate::error::ScryLearnError;
     pub use crate::weights::ClassWeight;
+    pub use crate::sparse::{CsrMatrix, CscMatrix};
 }

@@ -183,6 +183,7 @@ impl Transformer for PolynomialFeatures {
 
         data.features = new_features;
         data.feature_names = new_names;
+        data.sync_matrix();
         Ok(())
     }
 

@@ -70,7 +70,7 @@ impl RenderContext {
             let x_label_h = proportional_x_label_height(h);
             self.overlays.push(TextOverlay {
                 x_px: px + pw / 2.0,
-                y_px: py + ph + x_tick_h + x_label_h * 0.7,
+                y_px: py + ph + x_tick_h + x_label_h,
                 text: label.clone(),
                 color: config.theme.label_style.color,
                 align: TextAlign::Center,

@@ -129,6 +129,7 @@ impl Transformer for ColumnTransformer {
         // Replace the dataset's features with the concatenated result.
         data.features = result_cols;
         data.feature_names = result_names;
+        data.sync_matrix();
 
         Ok(())
     }

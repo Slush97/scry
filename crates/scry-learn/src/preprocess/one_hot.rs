@@ -240,6 +240,7 @@ impl Transformer for OneHotEncoder {
 
         data.features = new_features;
         data.feature_names = new_names;
+        data.sync_matrix();
         Ok(())
     }
 
@@ -317,6 +318,7 @@ impl Transformer for OneHotEncoder {
 
         data.features = new_features;
         data.feature_names = new_names;
+        data.sync_matrix();
         Ok(())
     }
 }

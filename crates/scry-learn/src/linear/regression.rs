@@ -94,11 +94,13 @@ impl LinearRegression {
 
     /// Normal equation solver (existing code path).
     fn fit_normal(&mut self, data: &Dataset) -> Result<()> {
+        let n = data.n_samples();
         let m = data.n_features();
         let dim = m + 1;
 
         let backend = accel::auto();
-        let (mut xtx, mut xty) = backend.xtx_xty(&data.features, &data.target);
+        let mat = data.matrix();
+        let (mut xtx, mut xty) = backend.xtx_xty_contiguous(mat.as_slice(), &data.target, n, m);
 
         for j in 1..dim {
             xtx[j * dim + j] += self.alpha;
@@ -117,13 +119,14 @@ impl LinearRegression {
         let n = data.n_samples();
         let m = data.n_features();
         let dim = m + 1;
+        let mat = data.matrix();
         let mut x = vec![0.0; n * dim];
         for i in 0..n {
             x[i] = 1.0;
         }
-        for (j, col) in data.features.iter().enumerate() {
+        for j in 0..m {
             let offset = (j + 1) * n;
-            x[offset..offset + n].copy_from_slice(col);
+            x[offset..offset + n].copy_from_slice(mat.col(j));
         }
         (x, n, dim)
     }
@@ -133,6 +136,7 @@ impl LinearRegression {
         let n = data.n_samples();
         let m = data.n_features();
         let dim = m + 1;
+        let mat = data.matrix();
         let sqrt_a = alpha.sqrt();
         let aug_rows = n + m;
         let mut x_aug = vec![0.0; aug_rows * dim];
@@ -141,9 +145,9 @@ impl LinearRegression {
         for i in 0..n {
             x_aug[i] = 1.0;
         }
-        for (j, col) in data.features.iter().enumerate() {
+        for j in 0..m {
             let offset = (j + 1) * aug_rows;
-            x_aug[offset..offset + n].copy_from_slice(col);
+            x_aug[offset..offset + n].copy_from_slice(mat.col(j));
         }
         y_aug[..n].copy_from_slice(&data.target);
 

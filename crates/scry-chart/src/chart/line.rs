@@ -2,10 +2,10 @@
 
 use crate::chart::config_builder::{
     chart_config_annotations, chart_config_axis_labels, chart_config_core, chart_config_formatters,
-    chart_config_grid, chart_config_h_lines, chart_config_legend, chart_config_locale,
-    chart_config_ranges, chart_config_secondary_y, chart_config_semantic_zoom,
-    chart_config_subtitle_footer, chart_config_tick_rotation, chart_config_tick_steps,
-    chart_config_v_lines,
+    chart_config_grid, chart_config_h_lines, chart_config_invert, chart_config_legend,
+    chart_config_locale, chart_config_margin, chart_config_ranges, chart_config_secondary_y,
+    chart_config_semantic_zoom, chart_config_subtitle_footer, chart_config_tick_rotation,
+    chart_config_tick_steps, chart_config_v_lines,
 };
 use crate::chart::{Chart, ChartConfig};
 use crate::data::{GapPolicy, Series};
@@ -76,6 +76,8 @@ impl LineChart {
     chart_config_secondary_y!();
     chart_config_subtitle_footer!();
     chart_config_semantic_zoom!();
+    chart_config_margin!();
+    chart_config_invert!();
 
     /// Set explicit x values (otherwise 0, 1, 2, …).
     pub fn x_values(mut self, x: Vec<f64>) -> Self {

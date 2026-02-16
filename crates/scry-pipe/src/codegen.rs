@@ -761,6 +761,101 @@ mod tests {
     }
 
     #[test]
+    fn generate_with_all_builder_options() {
+        let codegen = RustCodegen::new()
+            .no_std(false)
+            .emit_batch(true)
+            .module_name("custom_mod");
+        let code = codegen.generate(&proposal_pipeline()).unwrap();
+        assert!(!code.contains("#![no_std]"));
+        assert!(code.contains("pub fn transform_batch"));
+        assert!(code.contains("Module: custom_mod"));
+    }
+
+    #[test]
+    fn generate_impute_contains_is_nan_check() {
+        let def = PipelineDef {
+            name: "imp".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![PipelineStep {
+                feature_idx: 0,
+                op: TransformOp::Impute {
+                    strategy: ImputeStrategy::Mean,
+                    fill_value: 99.0,
+                },
+            }],
+            input_schema: vec![FeatureSpec {
+                name: "x".into(),
+                dtype: DType::Float64,
+                index: 0,
+            }],
+        };
+        let code = RustCodegen::new().no_std(false).emit_batch(false).generate(&def).unwrap();
+        assert!(code.contains("is_nan()"), "impute should emit is_nan check");
+        assert!(code.contains("99"), "impute should embed fill_value");
+    }
+
+    #[test]
+    fn generate_robust_scale() {
+        let def = PipelineDef {
+            name: "robust".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![PipelineStep {
+                feature_idx: 0,
+                op: TransformOp::RobustScale {
+                    median: 5.0,
+                    iqr: 3.0,
+                },
+            }],
+            input_schema: vec![FeatureSpec {
+                name: "x".into(),
+                dtype: DType::Float64,
+                index: 0,
+            }],
+        };
+        let code = RustCodegen::new().no_std(false).emit_batch(false).generate(&def).unwrap();
+        assert!(code.contains("robust_scale"));
+        assert!(code.contains("5"));
+        assert!(code.contains("3"));
+    }
+
+    #[test]
+    fn generate_onehot_then_scale_shifts_index() {
+        // OneHot feature 0 (3 categories) then StandardScale feature 1.
+        // Feature 1 should be at output index 3 (shifted by 2 from onehot expansion).
+        let def = PipelineDef {
+            name: "shift".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![
+                PipelineStep {
+                    feature_idx: 0,
+                    op: TransformOp::OneHotEncode {
+                        categories: vec!["A".into(), "B".into(), "C".into()],
+                    },
+                },
+                PipelineStep {
+                    feature_idx: 1,
+                    op: TransformOp::StandardScale {
+                        mean: 10.0,
+                        std_dev: 2.0,
+                    },
+                },
+            ],
+            input_schema: vec![
+                FeatureSpec { name: "cat".into(), dtype: DType::Float64, index: 0 },
+                FeatureSpec { name: "num".into(), dtype: DType::Float64, index: 1 },
+            ],
+        };
+        let code = RustCodegen::new().no_std(false).emit_batch(false).generate(&def).unwrap();
+        assert!(code.contains("N_OUTPUT: usize = 4"), "3 OHE + 1 = 4");
+        // Feature 1's scale should target out[3] after OHE expansion.
+        assert!(code.contains("out[3]"), "feature 1 should be at index 3 after OHE shift");
+    }
+
+    #[test]
     fn proposal_example_output_structure() {
         // Verify the generated code mirrors the structure shown in the proposal.
         let codegen = RustCodegen::new();

@@ -118,9 +118,11 @@ impl Transformer for Pca {
 
         let k = self.n_components.unwrap_or(m).min(m);
 
-        // 1. Column means.
+        // 1. Column means — contiguous column slices from DenseMatrix.
+        let mat = data.matrix();
         let mut mean = vec![0.0; m];
-        for (j, col) in data.features.iter().enumerate() {
+        for j in 0..m {
+            let col = mat.col(j);
             let s: f64 = col.iter().sum();
             mean[j] = s / n as f64;
         }
@@ -130,11 +132,13 @@ impl Transformer for Pca {
         let denom = if n > 1 { (n - 1) as f64 } else { 1.0 };
         let mut cov = vec![0.0; m * m];
         for i in 0..m {
+            let col_i = mat.col(i);
             for j in i..m {
+                let col_j = mat.col(j);
                 let mut s = 0.0;
                 for s_idx in 0..n {
-                    s += (data.features[i][s_idx] - mean[i])
-                        * (data.features[j][s_idx] - mean[j]);
+                    s += (col_i[s_idx] - mean[i])
+                        * (col_j[s_idx] - mean[j]);
                 }
                 let v = s / denom;
                 cov[i * m + j] = v;
@@ -191,9 +195,10 @@ impl Transformer for Pca {
         // for column-major access, then blocked matmul with slice-based
         // bound elision for SIMD (iter_mut().zip() proves equal lengths →
         // LLVM emits vfmadd231pd).
+        let mat = data.matrix();
         let mut centered = vec![0.0; n * m];
         for j in 0..m {
-            let col = &data.features[j];
+            let col = mat.col(j);
             let mean_j = self.mean[j];
             for i in 0..n {
                 centered[i * m + j] = col[i] - mean_j;
@@ -253,6 +258,7 @@ impl Transformer for Pca {
         // Replace dataset features.
         data.features = new_features;
         data.feature_names = (0..k).map(|i| format!("PC{}", i + 1)).collect();
+        data.sync_matrix();
         Ok(())
     }
 
@@ -346,6 +352,7 @@ impl Transformer for Pca {
 
         data.features = reconstructed;
         data.feature_names = (0..m).map(|i| format!("x{i}")).collect();
+        data.sync_matrix();
         Ok(())
     }
 }

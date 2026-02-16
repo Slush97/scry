@@ -1,6 +1,5 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 92
 expression: summarize(&rendered)
 ---
 canvas: 400x300, 26 commands
@@ -15,5 +14,5 @@ overlays: 12
   [7] (53, 68) Right "7.5"
   [8] (53, 30) Right "9.0"
   [9] (223, 16) Center "Scatter Test"
-  [10] (223, 284) Center "X"
+  [10] (223, 288) Center "X"
   [11] (23, 144) Center rot=90° "Y"

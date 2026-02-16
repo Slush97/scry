@@ -564,6 +564,150 @@ mod tests {
     }
 
     #[test]
+    fn standard_scale_division_by_zero() {
+        // std_dev=0 causes division by zero → produces inf, not a panic.
+        let e = single_step_pipeline(TransformOp::StandardScale {
+            mean: 0.0,
+            std_dev: 0.0,
+        });
+        let out = e.transform_row(&[5.0]).unwrap();
+        assert!(out[0].is_infinite() || out[0].is_nan());
+    }
+
+    #[test]
+    fn min_max_scale_identical_bounds() {
+        // min == max → division by zero → inf/nan, not a panic.
+        let e = single_step_pipeline(TransformOp::MinMaxScale {
+            min: 10.0,
+            max: 10.0,
+        });
+        let out = e.transform_row(&[10.0]).unwrap();
+        assert!(out[0].is_nan() || out[0].is_infinite());
+    }
+
+    #[test]
+    fn robust_scale_zero_iqr() {
+        let e = single_step_pipeline(TransformOp::RobustScale {
+            median: 5.0,
+            iqr: 0.0,
+        });
+        let out = e.transform_row(&[10.0]).unwrap();
+        assert!(out[0].is_infinite());
+    }
+
+    #[test]
+    fn log1p_negative_input() {
+        // ln(1 + x) for x < -1 → NaN.
+        let e = single_step_pipeline(TransformOp::Log1p);
+        let out = e.transform_row(&[-2.0]).unwrap();
+        assert!(out[0].is_nan());
+    }
+
+    #[test]
+    fn bin_discretize_empty_edges() {
+        // No edges → partition_point returns 0 for everything.
+        let e = single_step_pipeline(TransformOp::BinDiscretize {
+            bin_edges: vec![],
+        });
+        let out = e.transform_row(&[42.0]).unwrap();
+        assert!((out[0] - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn one_hot_out_of_range_index() {
+        // Category index >= n → all indicators are 0.
+        let e = single_step_pipeline(TransformOp::OneHotEncode {
+            categories: vec!["A".into(), "B".into()],
+        });
+        let out = e.transform_row(&[5.0]).unwrap();
+        assert_eq!(out.len(), 2);
+        assert!((out[0] - 0.0).abs() < 1e-10);
+        assert!((out[1] - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn polynomial_degree_1_no_expansion() {
+        let e = single_step_pipeline(TransformOp::Polynomial { degree: 1 });
+        let out = e.transform_row(&[3.0]).unwrap();
+        // degree=1: no extra terms generated (loop 2..=1 is empty).
+        assert_eq!(out.len(), 1);
+        assert!((out[0] - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn def_accessor() {
+        let e = single_step_pipeline(TransformOp::Log1p);
+        assert_eq!(e.def().name, "test");
+        assert_eq!(e.def().steps.len(), 1);
+    }
+
+    #[test]
+    fn roundtrip_serialize_then_execute() {
+        // Define pipeline → serialize → deserialize → execute → same result.
+        let def = PipelineDef {
+            name: "roundtrip".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![
+                PipelineStep {
+                    feature_idx: 0,
+                    op: TransformOp::StandardScale { mean: 10.0, std_dev: 5.0 },
+                },
+                PipelineStep {
+                    feature_idx: 1,
+                    op: TransformOp::Clip { lower: 0.0, upper: 1.0 },
+                },
+            ],
+            input_schema: vec![
+                FeatureSpec { name: "a".into(), dtype: DType::Float64, index: 0 },
+                FeatureSpec { name: "b".into(), dtype: DType::Float64, index: 1 },
+            ],
+        };
+
+        let engine1 = PipelineEngine::new(def.clone());
+        let out1 = engine1.transform_row(&[20.0, 0.5]).unwrap();
+
+        let json = def.to_json().unwrap();
+        let def2 = PipelineDef::from_json(&json).unwrap();
+        let engine2 = PipelineEngine::new(def2);
+        let out2 = engine2.transform_row(&[20.0, 0.5]).unwrap();
+
+        assert_eq!(out1, out2);
+    }
+
+    #[test]
+    fn polynomial_then_another_feature() {
+        // Polynomial on feature 0 (degree 3), then scale feature 1.
+        // After poly: [x, x^2, x^3, y] → scale targets adjusted index.
+        let engine = PipelineEngine::new(PipelineDef {
+            name: "poly_shift".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![
+                PipelineStep {
+                    feature_idx: 0,
+                    op: TransformOp::Polynomial { degree: 3 },
+                },
+                PipelineStep {
+                    feature_idx: 1,
+                    op: TransformOp::StandardScale { mean: 0.0, std_dev: 2.0 },
+                },
+            ],
+            input_schema: vec![
+                FeatureSpec { name: "x".into(), dtype: DType::Float64, index: 0 },
+                FeatureSpec { name: "y".into(), dtype: DType::Float64, index: 1 },
+            ],
+        });
+        // x=2, y=6 → poly: [2, 4, 8, 6] → scale y: 6/2=3
+        let out = engine.transform_row(&[2.0, 6.0]).unwrap();
+        assert_eq!(out.len(), 4);
+        assert!((out[0] - 2.0).abs() < 1e-10);
+        assert!((out[1] - 4.0).abs() < 1e-10);
+        assert!((out[2] - 8.0).abs() < 1e-10);
+        assert!((out[3] - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
     fn batch_parallel_1000_rows() {
         let engine = PipelineEngine::new(PipelineDef {
             name: "big".into(),

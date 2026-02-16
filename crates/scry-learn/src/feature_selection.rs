@@ -373,6 +373,7 @@ fn filter_features(data: &mut Dataset, mask: &[bool]) {
 
     data.features = new_features;
     data.feature_names = new_names;
+    data.sync_matrix();
 }
 
 // ---------------------------------------------------------------------------

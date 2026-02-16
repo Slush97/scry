@@ -62,6 +62,40 @@ impl ComputeBackend for CpuBackend {
         (xtx, xty)
     }
 
+    fn xtx_xty_contiguous(
+        &self,
+        data: &[f64],
+        target: &[f64],
+        n_samples: usize,
+        n_features: usize,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let dim = n_features + 1;
+        let mut xtx = vec![0.0; dim * dim];
+        let mut xty = vec![0.0; dim];
+
+        for i in 0..n_samples {
+            let y = target[i];
+
+            // Intercept terms
+            xtx[0] += 1.0;
+            xty[0] += y;
+
+            for j in 0..n_features {
+                let xj = data[j * n_samples + i];
+                xtx[(j + 1) * dim] += xj;
+                xtx[j + 1] += xj;
+                xty[j + 1] += xj * y;
+
+                for k in 0..n_features {
+                    let xk = data[k * n_samples + i];
+                    xtx[(j + 1) * dim + (k + 1)] += xj * xk;
+                }
+            }
+        }
+
+        (xtx, xty)
+    }
+
     fn pairwise_distances_squared(
         &self,
         queries: &[f64],

@@ -100,6 +100,7 @@ impl Transformer for Normalizer {
             }
         }
 
+        data.sync_matrix();
         Ok(())
     }
 

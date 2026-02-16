@@ -271,6 +271,16 @@ impl Dataset {
         }
     }
 
+    /// Rebuild the internal [`DenseMatrix`] from the current `features`.
+    ///
+    /// Call this after mutating `features` in place (e.g. after a
+    /// transformer's `transform()` step) so that [`matrix()`](Self::matrix)
+    /// returns up-to-date data.
+    pub fn sync_matrix(&mut self) {
+        self.matrix = DenseMatrix::from_col_major(self.features.clone()).ok();
+        self.row_major_cache = None;
+    }
+
     /// Attach class labels for classification.
     pub fn with_class_labels(mut self, labels: Vec<String>) -> Self {
         self.class_labels = Some(labels);

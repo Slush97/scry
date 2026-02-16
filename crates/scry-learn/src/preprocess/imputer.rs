@@ -173,6 +173,7 @@ impl Transformer for SimpleImputer {
                 }
             }
         }
+        data.sync_matrix();
         Ok(())
     }
 

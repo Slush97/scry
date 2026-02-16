@@ -358,6 +358,131 @@ mod tests {
     }
 
     #[test]
+    fn from_json_invalid_json_returns_error() {
+        let result = PipelineDef::from_json("not json at all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_json_empty_string_returns_error() {
+        let result = PipelineDef::from_json("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_json_missing_required_fields() {
+        // Valid JSON but missing "steps" field.
+        let json = r#"{"name": "x", "version": "0.1.0", "created_at": "2026-01-01", "input_schema": []}"#;
+        let result = PipelineDef::from_json(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_json_unknown_transform_op_returns_error() {
+        let json = r#"{
+            "name": "x", "version": "0.1.0", "created_at": "2026-01-01",
+            "steps": [{ "feature_idx": 0, "op": { "UnknownOp": {} } }],
+            "input_schema": [{ "name": "a", "dtype": "Float64", "index": 0 }]
+        }"#;
+        let result = PipelineDef::from_json(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn output_dim_combined_onehot_and_polynomial() {
+        let pipe = PipelineDef {
+            name: "combo".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![
+                PipelineStep {
+                    feature_idx: 0,
+                    op: TransformOp::OneHotEncode {
+                        categories: vec!["A".into(), "B".into(), "C".into(), "D".into()],
+                    },
+                },
+                PipelineStep {
+                    feature_idx: 1,
+                    op: TransformOp::Polynomial { degree: 4 },
+                },
+            ],
+            input_schema: vec![
+                FeatureSpec { name: "cat".into(), dtype: DType::Float64, index: 0 },
+                FeatureSpec { name: "num".into(), dtype: DType::Float64, index: 1 },
+            ],
+        };
+        // 2 base + (4-1) onehot + (4-1) polynomial = 2 + 3 + 3 = 8
+        assert_eq!(pipe.output_dim(), 8);
+    }
+
+    #[test]
+    fn output_dim_polynomial_degree_1_no_expansion() {
+        let pipe = PipelineDef {
+            name: "poly1".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![PipelineStep {
+                feature_idx: 0,
+                op: TransformOp::Polynomial { degree: 1 },
+            }],
+            input_schema: vec![FeatureSpec {
+                name: "x".into(),
+                dtype: DType::Float64,
+                index: 0,
+            }],
+        };
+        // degree=1 → 0 extra columns
+        assert_eq!(pipe.output_dim(), 1);
+    }
+
+    #[test]
+    fn output_dim_onehot_single_category() {
+        let pipe = PipelineDef {
+            name: "ohe1".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![PipelineStep {
+                feature_idx: 0,
+                op: TransformOp::OneHotEncode {
+                    categories: vec!["only".into()],
+                },
+            }],
+            input_schema: vec![FeatureSpec {
+                name: "x".into(),
+                dtype: DType::Float64,
+                index: 0,
+            }],
+        };
+        // 1 base + max(1-1, 0) = 1
+        assert_eq!(pipe.output_dim(), 1);
+    }
+
+    #[test]
+    fn all_impute_strategies_serialize() {
+        let strategies = [
+            ImputeStrategy::Mean,
+            ImputeStrategy::Median,
+            ImputeStrategy::MostFrequent,
+            ImputeStrategy::Constant,
+        ];
+        for s in &strategies {
+            let json = serde_json::to_string(s).unwrap();
+            let restored: ImputeStrategy = serde_json::from_str(&json).unwrap();
+            assert_eq!(*s, restored);
+        }
+    }
+
+    #[test]
+    fn all_dtypes_serialize() {
+        let dtypes = [DType::Float64, DType::Int64, DType::String, DType::Bool];
+        for d in &dtypes {
+            let json = serde_json::to_string(d).unwrap();
+            let restored: DType = serde_json::from_str(&json).unwrap();
+            assert_eq!(*d, restored);
+        }
+    }
+
+    #[test]
     fn parse_design_doc_example_json() {
         // Matches the JSON example from SCRY_PIPE_PROPOSAL.md (adapted to
         // our struct layout where steps use PipelineStep with tagged enum).
