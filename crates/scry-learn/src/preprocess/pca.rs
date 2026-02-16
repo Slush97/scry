@@ -177,31 +177,75 @@ impl Transformer for Pca {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        const BLOCK: usize = 32;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
         let n = data.n_samples();
-        let _m_orig = self.mean.len();
+        let m = self.mean.len();
         let k = self.components.len();
 
-        // Project: new_features[comp][sample] = Σ_j component[comp][j] * (x[j][sample] - mean[j])
-        let mut new_features: Vec<Vec<f64>> = Vec::with_capacity(k);
-        for comp in &self.components {
-            let mut col = Vec::with_capacity(n);
-            for s in 0..n {
-                let mut val = 0.0;
-                for (j, (&cj, &mj)) in comp.iter().zip(self.mean.iter()).enumerate() {
-                    val += cj * (data.features[j][s] - mj);
-                }
-                // Whiten: divide by sqrt(eigenvalue).
-                if self.do_whiten {
-                    let idx = new_features.len();
-                    let ev = self.explained_variance[idx];
-                    if ev > 1e-15 {
-                        val /= ev.sqrt();
+        // ── Cache-friendly blocked matrix multiply ──
+        //
+        // Pre-center into contiguous row-major buffer, transpose components
+        // for column-major access, then blocked matmul with slice-based
+        // bound elision for SIMD (iter_mut().zip() proves equal lengths →
+        // LLVM emits vfmadd231pd).
+        let mut centered = vec![0.0; n * m];
+        for j in 0..m {
+            let col = &data.features[j];
+            let mean_j = self.mean[j];
+            for i in 0..n {
+                centered[i * m + j] = col[i] - mean_j;
+            }
+        }
+
+        // 2. Transpose components to column-major layout: comp_t[j*k + c]
+        //    so that the inner dot-product loop reads contiguously.
+        let mut comp_t = vec![0.0; m * k];
+        for (c, comp) in self.components.iter().enumerate() {
+            for (j, &v) in comp.iter().enumerate() {
+                comp_t[j * k + c] = v;
+            }
+        }
+
+        // 3. Blocked matmul: centered(n×m) × comp_t(m×k) → result(n×k)
+        //    Slice extraction elides bounds checks → LLVM vectorises to FMA.
+        let mut result = vec![0.0; n * k];
+        for ib in (0..n).step_by(BLOCK) {
+            let i_end = (ib + BLOCK).min(n);
+            for jb in (0..m).step_by(BLOCK) {
+                let j_end = (jb + BLOCK).min(m);
+                for i in ib..i_end {
+                    let r_row = i * k;
+                    for j in jb..j_end {
+                        let c_val = centered[i * m + j];
+
+                        let r_slice = &mut result[r_row..r_row + k];
+                        let c_slice = &comp_t[j * k..j * k + k];
+
+                        // iter_mut().zip() proves equal lengths → no
+                        // bounds checks → LLVM vectorises to vfmadd231pd.
+                        for (r, &w) in r_slice.iter_mut().zip(c_slice) {
+                            *r += c_val * w;
+                        }
                     }
                 }
-                col.push(val);
+            }
+        }
+
+        // 4. Apply whitening if enabled, then split into column-major features.
+        let mut new_features: Vec<Vec<f64>> = Vec::with_capacity(k);
+        for c in 0..k {
+            let scale = if self.do_whiten {
+                let ev = self.explained_variance[c];
+                if ev > 1e-15 { 1.0 / ev.sqrt() } else { 1.0 }
+            } else {
+                1.0
+            };
+            let mut col = Vec::with_capacity(n);
+            for i in 0..n {
+                col.push(result[i * k + c] * scale);
             }
             new_features.push(col);
         }
@@ -213,34 +257,95 @@ impl Transformer for Pca {
     }
 
     fn inverse_transform(&self, data: &mut Dataset) -> Result<()> {
+        const BLOCK: usize = 64;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
         let n = data.n_samples();
-        let m_orig = self.mean.len();
+        let k = self.components.len();
+        let m = self.mean.len();
 
-        // Reconstruct: x_j = mean_j + Σ_comp component[comp][j] * score[comp]
-        // If whitened, un-whiten first: score *= sqrt(eigenvalue).
-        let mut reconstructed: Vec<Vec<f64>> = vec![vec![0.0; n]; m_orig];
+        // ── Cache-friendly blocked inverse transform ──
+        //
+        // Reconstructs X_recon ≈ Y · W + μ using contiguous flat buffers
+        // and blocked matmul with slice-based bound elision for SIMD.
 
-        for s in 0..n {
-            for (c, comp) in self.components.iter().enumerate() {
-                let mut score = data.features[c][s];
-                if self.do_whiten {
-                    let ev = self.explained_variance[c];
-                    score *= ev.sqrt();
-                }
-                for (recon_col, &cj) in reconstructed.iter_mut().zip(comp.iter()) {
-                    recon_col[s] += cj * score;
+        // Step 1: Flatten scores from column-major Vec<Vec<f64>> into
+        //         row-major n×k buffer, un-whitening inline.
+        let mut scores_flat = vec![0.0; n * k];
+        for c in 0..k {
+            let col = &data.features[c];
+            let scale = if self.do_whiten {
+                self.explained_variance[c].sqrt()
+            } else {
+                1.0
+            };
+            for i in 0..n {
+                scores_flat[i * k + c] = col[i] * scale;
+            }
+        }
+
+        // Step 2: Flatten components (k × m) — natively row-major,
+        //         so copy_from_slice lowers to a fast memcpy.
+        let mut comp_flat = vec![0.0; k * m];
+        for (c, comp) in self.components.iter().enumerate() {
+            comp_flat[c * m..c * m + m].copy_from_slice(comp);
+        }
+
+        // Step 3: Pre-fill row-major n×m recon buffer with means.
+        //         Avoids a separate addition pass in the hot loop.
+        let mut recon_flat = vec![0.0; n * m];
+        for i in 0..n {
+            recon_flat[i * m..i * m + m].copy_from_slice(&self.mean);
+        }
+
+        // Step 4: Blocked DAXPY matmul — scores_flat(n×k) · comp_flat(k×m)
+        //         Loop order ib→jb→cb keeps a BLOCK×BLOCK recon tile in L1.
+        //         Slice extraction elides bounds checks → LLVM emits SIMD FMA.
+        for ib in (0..n).step_by(BLOCK) {
+            let i_end = (ib + BLOCK).min(n);
+            for jb in (0..m).step_by(BLOCK) {
+                let j_end = (jb + BLOCK).min(m);
+                for cb in (0..k).step_by(BLOCK) {
+                    let c_end = (cb + BLOCK).min(k);
+
+                    for i in ib..i_end {
+                        for c in cb..c_end {
+                            let y_val = scores_flat[i * k + c];
+
+                            let recon_slice =
+                                &mut recon_flat[i * m + jb..i * m + j_end];
+                            let comp_slice =
+                                &comp_flat[c * m + jb..c * m + j_end];
+
+                            // iter_mut().zip() proves equal lengths → no
+                            // bounds checks → LLVM vectorises to vfmadd231pd.
+                            for (r, &w) in recon_slice.iter_mut().zip(comp_slice) {
+                                *r += y_val * w;
+                            }
+                        }
+                    }
                 }
             }
-            for (recon_col, &mj) in reconstructed.iter_mut().zip(self.mean.iter()) {
-                recon_col[s] += mj;
+        }
+
+        // Step 5: Blocked scatter from row-major flat → column-major Vec<Vec<f64>>.
+        let mut reconstructed: Vec<Vec<f64>> = vec![vec![0.0; n]; m];
+        for ib in (0..n).step_by(BLOCK) {
+            let i_end = (ib + BLOCK).min(n);
+            for jb in (0..m).step_by(BLOCK) {
+                let j_end = (jb + BLOCK).min(m);
+                for j in jb..j_end {
+                    let col = &mut reconstructed[j];
+                    for i in ib..i_end {
+                        col[i] = recon_flat[i * m + j];
+                    }
+                }
             }
         }
 
         data.features = reconstructed;
-        data.feature_names = (0..m_orig).map(|i| format!("x{i}")).collect();
+        data.feature_names = (0..m).map(|i| format!("x{i}")).collect();
         Ok(())
     }
 }

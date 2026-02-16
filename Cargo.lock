@@ -887,6 +887,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "linfa-elasticnet"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4231548fd532403798cd5286a94b415d9279e29b1eee7beb259806bf091e5d7"
+dependencies = [
+ "approx 0.5.1",
+ "linfa",
+ "linfa-linalg",
+ "ndarray",
+ "num-traits",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "linfa-ensemble"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1746,6 +1760,7 @@ dependencies = [
  "flate2",
  "fontdue",
  "insta",
+ "js-sys",
  "libc",
  "pretty_assertions",
  "proptest",
@@ -1755,6 +1770,8 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tiny-skia",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -1767,6 +1784,7 @@ dependencies = [
  "insta",
  "linfa",
  "linfa-clustering",
+ "linfa-elasticnet",
  "linfa-ensemble",
  "linfa-linear",
  "linfa-logistic",

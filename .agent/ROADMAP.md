@@ -1,6 +1,6 @@
 # scry — Product Roadmap
 
-> **Updated**: 2026-02-15 | Sprints 1-6 complete | 388 tests, 0 clippy warnings
+> **Updated**: 2026-02-15 | Sprints 1-7 in progress | 428 tests, 0 clippy warnings
 
 ---
 
@@ -43,6 +43,10 @@ These items were on the previous roadmap and are now **done**:
 | CV infrastructure (RepeatedKFold, GroupKFold, TimeSeriesSplit, cross_val_predict) | scry-learn | ✅ |
 | Preprocessing expansion (PolynomialFeatures, Normalizer) | scry-learn | ✅ |
 | AgglomerativeClustering + DBSCAN KD-tree optimization | scry-learn | ✅ |
+| Isolation Forest (anomaly detection) | scry-learn | ✅ |
+| Stacking/Voting ensembles (StackingClassifier, VotingClassifier) | scry-learn | ✅ |
+| RF memory optimization fix (membership bitset OOB) | scry-learn | ✅ |
+| Production bench tests marked `#[ignore]` (20+ min debug runs → instant) | scry-learn | ✅ |
 
 ---
 
@@ -52,15 +56,13 @@ These items were on the previous roadmap and are now **done**:
 |:---:|------|-----|---------|:---:|
 | **P0** | Tag v0.7.0 release | All sprint gates met through Sprint 6 | scry-learn | 1h |
 | **P1** | Chart quality hardening (4 sessions) | Audit found 15 gaps vs D3/matplotlib | scry-chart | 4 sessions |
-| **P2** | scry-pipe Phase 1 (IR + engine + codegen) | Highest commercial potential | scry-pipe | 3 sessions |
+| **P2** | scry-pipe Phase 1 (IR + engine + codegen) | ✅ 50 tests, clippy clean | scry-pipe | Done |
 | **P2** | WASM rasterization target | Browser deployment | scry-engine | 2 sessions |
 | **P3** | scry-pipe Phase 2 (PyO3 Python SDK) | Data scientist adoption | scry-pipe | 3 sessions |
 | **P3** | Streaming-aware axis | Live data visualization | scry-chart | 2 sessions |
 | **P3** | GPU rasterization | Performance ceiling lift | scry-engine | 3 sessions |
 | **P3** | DataFrame abstraction | Polars interop | scry-learn | 2 sessions |
 | **P3** | MLP / Neural network basics | Algorithm breadth | scry-learn | 2 sessions |
-| **P3** | Isolation Forest | Anomaly detection | scry-learn | 1 session |
-| **P3** | Stacking/Voting ensembles | Advanced ensemble methods | scry-learn | 1 session |
 
 ---
 

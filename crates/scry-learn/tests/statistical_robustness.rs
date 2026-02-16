@@ -409,6 +409,7 @@ fn convergence_logreg_solvers_agree() {
 
     // L-BFGS solver
     let mut lr_lbfgs = LogisticRegression::new()
+        .alpha(0.0)
         .max_iter(500)
         .solver(scry_learn::linear::Solver::Lbfgs);
     lr_lbfgs.fit(&ds).unwrap();
@@ -417,6 +418,7 @@ fn convergence_logreg_solvers_agree() {
 
     // GD solver
     let mut lr_gd = LogisticRegression::new()
+        .alpha(0.0)
         .max_iter(2000)
         .learning_rate(0.05)
         .solver(scry_learn::linear::Solver::GradientDescent);

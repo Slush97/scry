@@ -374,6 +374,132 @@ fn bench_kmeans_training(c: &mut Criterion) {
     group.finish();
 }
 
+// ── SVM: scry LinearSVC vs smartcore SVC ────────────────────────
+
+fn bench_svm_training(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vs/svm/train");
+    group.sample_size(10);
+
+    let (features, target) = gen_classification(1000, 10);
+    let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
+
+    group.bench_function("scry-learn/1k", |b| {
+        b.iter(|| {
+            let data = scry_learn::prelude::Dataset::new(
+                transpose(&features), target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(), "target",
+            );
+            let mut svc = scry_learn::prelude::LinearSVC::new();
+            svc.fit(black_box(&data)).unwrap();
+        });
+    });
+
+    group.bench_function("smartcore/1k", |b| {
+        b.iter(|| {
+            let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+            let knl = smartcore::svm::Kernels::linear();
+            let params = smartcore::svm::svc::SVCParameters::default()
+                .with_c(1.0)
+                .with_kernel(knl);
+            let _ = smartcore::svm::svc::SVC::fit(
+                black_box(&x), black_box(&target_i32), black_box(&params),
+            ).unwrap();
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_svm_predict(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vs/svm/predict");
+    group.sample_size(20);
+
+    let (features, target) = gen_classification(1000, 10);
+    let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
+
+    // scry-learn
+    let data = scry_learn::prelude::Dataset::new(
+        transpose(&features), target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(), "target",
+    );
+    let mut scry_svc = scry_learn::prelude::LinearSVC::new();
+    scry_svc.fit(&data).unwrap();
+
+    // smartcore
+    let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+    let knl = smartcore::svm::Kernels::linear();
+    let params = smartcore::svm::svc::SVCParameters::default()
+        .with_c(1.0)
+        .with_kernel(knl);
+    let smart_svc = smartcore::svm::svc::SVC::fit(&x, &target_i32, &params).unwrap();
+
+    group.bench_function("scry-learn/1k", |b| {
+        b.iter(|| scry_svc.predict(black_box(&features)).unwrap());
+    });
+    group.bench_function("smartcore/1k", |b| {
+        b.iter(|| smart_svc.predict(black_box(&x)).unwrap());
+    });
+
+    group.finish();
+}
+
+// ── Lasso: scry vs linfa-elasticnet ────────────────────────────
+
+fn gen_regression(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut rng = fastrand::Rng::with_seed(42);
+    let mut features_col_major = vec![vec![0.0; n]; n_features];
+    let mut target = vec![0.0; n];
+
+    for i in 0..n {
+        let mut sum = 0.0;
+        for j in 0..n_features {
+            let v = rng.f64() * 10.0;
+            features_col_major[j][i] = v;
+            sum += v * (j as f64 + 1.0);
+        }
+        target[i] = sum + rng.f64() * 0.1;
+    }
+
+    let row_major: Vec<Vec<f64>> = (0..n)
+        .map(|i| (0..n_features).map(|j| features_col_major[j][i]).collect())
+        .collect();
+    (row_major, target)
+}
+
+fn bench_lasso_training(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vs/lasso/train");
+    group.sample_size(10);
+
+    let (features, target) = gen_regression(1000, 10);
+
+    group.bench_function("scry-learn/1k", |b| {
+        b.iter(|| {
+            let data = scry_learn::prelude::Dataset::new(
+                transpose(&features), target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(), "target",
+            );
+            let mut lasso = scry_learn::prelude::LassoRegression::new().alpha(0.1);
+            lasso.fit(black_box(&data)).unwrap();
+        });
+    });
+
+    group.bench_function("linfa-elasticnet/1k", |b| {
+        use linfa::prelude::Fit;
+        let flat: Vec<f64> = features.iter().flat_map(|r| r.iter().copied()).collect();
+        let x = ndarray::Array2::from_shape_vec((1000, 10), flat).unwrap();
+        let y = ndarray::Array1::from_vec(target.clone());
+        let ds = linfa::Dataset::new(x, y);
+        b.iter(|| {
+            let _ = linfa_elasticnet::ElasticNet::<f64>::lasso()
+                .penalty(0.1)
+                .fit(black_box(&ds))
+                .unwrap();
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_dt_training,
@@ -385,6 +511,9 @@ criterion_group!(
     bench_logreg_training,
     bench_knn_predict,
     bench_kmeans_training,
+    bench_svm_training,
+    bench_svm_predict,
+    bench_lasso_training,
 );
 criterion_main!(benches);
 

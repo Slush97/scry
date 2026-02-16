@@ -26,6 +26,10 @@ pub enum PipeError {
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// Error during code generation.
+    #[error("codegen error: {0}")]
+    Codegen(String),
+
     /// Filesystem I/O error.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

@@ -53,6 +53,8 @@ pub mod metrics;
 pub mod pipeline;
 pub mod search;
 pub mod feature_selection;
+pub mod anomaly;
+pub mod ensemble;
 pub mod weights;
 pub mod viz;
 
@@ -106,6 +108,8 @@ pub mod prelude {
     pub use crate::feature_selection::{
         VarianceThreshold, SelectKBest, ScoreFn, f_classif,
     };
+    pub use crate::anomaly::IsolationForest;
+    pub use crate::ensemble::{VotingClassifier, StackingClassifier, Voting};
     pub use crate::error::ScryLearnError;
     pub use crate::weights::ClassWeight;
 }

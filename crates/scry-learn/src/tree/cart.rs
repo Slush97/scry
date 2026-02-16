@@ -54,57 +54,86 @@ pub struct FlatNode {
     pub threshold: f64,
 }
 
+
+
 /// A cache-optimal decision tree stored as a contiguous DFS pre-ordered array.
 ///
 /// - Left child is always the **next** node in memory (free prefetch)
 /// - 16-byte nodes → 4 fit per 64-byte cache line
 /// - A depth-8 tree (~255 nodes × 16B = 4KB) fits entirely in L1 cache
-/// - Prediction data stored in separate cold arrays
+/// - Prediction / probability data stored **only for leaf nodes** in compact cold arrays
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(clippy::unsafe_derive_deserialize)]
 pub struct FlatTree {
     /// DFS pre-ordered hot nodes (16 bytes each).
+    ///
+    /// For leaf nodes (`right == LEAF_SENTINEL`), `feature_idx` stores the
+    /// leaf data index into `predictions` and `leaf_probas` — no separate
+    /// `leaf_indices` Vec needed.
     pub nodes: Vec<FlatNode>,
-    /// Prediction value for each node (indexed by DFS position).
+    /// Prediction value for each **leaf** node (indexed by leaf position).
     pub predictions: Vec<f64>,
-    /// Class probability distributions (indexed by DFS position).
-    pub leaf_probas: Vec<Vec<f64>>,
+    /// Flat array of leaf probabilities as f32: `leaf_probas[leaf_idx * n_classes + class_idx]`.
+    /// Empty for regression trees (n_classes_stored == 0).
+    pub leaf_probas: Vec<f32>,
+    /// Number of classes (stride for `leaf_probas`).
+    pub n_classes_stored: u32,
 }
 
 impl FlatTree {
     /// Flatten a recursive `TreeNode` into a DFS pre-ordered `FlatTree`.
+    ///
+    /// Predictions and probabilities are stored **only for leaf nodes**.
+    /// The leaf data index is embedded directly in `FlatNode::feature_idx`
+    /// for leaf nodes, eliminating a separate `leaf_indices` Vec.
     pub fn from_tree_node(root: &TreeNode, n_classes: usize) -> Self {
         let mut nodes = Vec::new();
         let mut predictions = Vec::new();
-        let mut leaf_probas = Vec::new();
-        Self::flatten_dfs(root, &mut nodes, &mut predictions, &mut leaf_probas, n_classes);
-        FlatTree { nodes, predictions, leaf_probas }
+        let mut leaf_probas: Vec<f32> = Vec::new();
+        let mut leaf_count: u32 = 0;
+        Self::flatten_dfs(
+            root, &mut nodes, &mut predictions, &mut leaf_probas,
+            &mut leaf_count, n_classes,
+        );
+        FlatTree {
+            nodes,
+            predictions,
+            leaf_probas,
+            n_classes_stored: n_classes as u32,
+        }
     }
 
     /// Recursive DFS pre-order flattening.
+    ///
+    /// For leaf nodes, `feature_idx` is repurposed to store the leaf data
+    /// index (into `predictions` / `leaf_probas`).  Internal nodes use it
+    /// normally as the split feature index.
     fn flatten_dfs(
         node: &TreeNode,
         nodes: &mut Vec<FlatNode>,
         predictions: &mut Vec<f64>,
-        leaf_probas: &mut Vec<Vec<f64>>,
+        leaf_probas: &mut Vec<f32>,
+        leaf_count: &mut u32,
         n_classes: usize,
     ) {
         match node {
             TreeNode::Leaf {
                 prediction, n_samples, class_counts, ..
             } => {
+                let li = *leaf_count;
+                *leaf_count += 1;
                 nodes.push(FlatNode {
                     right: LEAF_SENTINEL,
-                    feature_idx: 0,
+                    feature_idx: li, // repurposed: leaf data index
                     threshold: 0.0,
                 });
                 predictions.push(*prediction);
-                leaf_probas.push(Self::compute_proba(class_counts, *n_samples, n_classes));
+                Self::append_proba(leaf_probas, class_counts, *n_samples, n_classes);
             }
             TreeNode::Split {
                 feature_idx, threshold, left, right,
-                prediction, n_samples, class_counts, ..
+                class_counts: _, n_samples: _, prediction: _, ..
             } => {
                 let my_idx = nodes.len();
                 nodes.push(FlatNode {
@@ -112,31 +141,25 @@ impl FlatTree {
                     feature_idx: *feature_idx as u32,
                     threshold: *threshold,
                 });
-                predictions.push(*prediction);
-                leaf_probas.push(Self::compute_proba(class_counts, *n_samples, n_classes));
 
                 // Recurse left — left child is always my_idx + 1.
-                Self::flatten_dfs(left, nodes, predictions, leaf_probas, n_classes);
+                Self::flatten_dfs(left, nodes, predictions, leaf_probas, leaf_count, n_classes);
 
                 // Right child index = current length (after entire left subtree).
                 nodes[my_idx].right = nodes.len() as u32;
-                Self::flatten_dfs(right, nodes, predictions, leaf_probas, n_classes);
+                Self::flatten_dfs(right, nodes, predictions, leaf_probas, leaf_count, n_classes);
             }
         }
     }
 
-    fn compute_proba(class_counts: &[usize], n_samples: usize, n_classes: usize) -> Vec<f64> {
+    /// Append probabilities for one leaf to the flat f32 array.
+    fn append_proba(probas: &mut Vec<f32>, class_counts: &[usize], n_samples: usize, n_classes: usize) {
         if n_classes > 0 && n_samples > 0 {
             let total = n_samples as f64;
-            let mut p = vec![0.0; n_classes];
-            for (i, &count) in class_counts.iter().enumerate() {
-                if i < n_classes {
-                    p[i] = count as f64 / total;
-                }
+            for i in 0..n_classes {
+                let count = if i < class_counts.len() { class_counts[i] } else { 0 };
+                probas.push((count as f64 / total) as f32);
             }
-            p
-        } else {
-            Vec::new()
         }
     }
 
@@ -158,7 +181,9 @@ impl FlatTree {
             // SAFETY: idx is 0 (initial) or from DFS indices validated at construction.
             let node = unsafe { nodes.get_unchecked(idx) };
             if node.right == LEAF_SENTINEL {
-                return unsafe { *preds.get_unchecked(idx) };
+                // feature_idx stores leaf data index for leaf nodes.
+                let li = node.feature_idx as usize;
+                return unsafe { *preds.get_unchecked(li) };
             }
             // SAFETY: feature_idx < n_features, validated during fit().
             let feat_val = unsafe { *sample.get_unchecked(node.feature_idx as usize) };
@@ -175,19 +200,19 @@ impl FlatTree {
     #[allow(unsafe_code, clippy::inline_always)]
     pub fn predict_proba_sample(&self, sample: &[f64], n_classes: usize) -> Vec<f64> {
         let nodes = self.nodes.as_slice();
+        let nc = self.n_classes_stored as usize;
         debug_assert!(!nodes.is_empty());
         let mut idx = 0usize;
         loop {
             debug_assert!(idx < nodes.len());
             let node = unsafe { nodes.get_unchecked(idx) };
             if node.right == LEAF_SENTINEL {
-                let proba = &self.leaf_probas[idx];
-                if proba.len() >= n_classes {
-                    return proba[..n_classes].to_vec();
-                }
+                let li = node.feature_idx as usize;
+                let start = li * nc;
                 let mut result = vec![0.0; n_classes];
-                for (i, &p) in proba.iter().enumerate() {
-                    result[i] = p;
+                let copy_len = n_classes.min(nc);
+                for (i, p) in self.leaf_probas[start..start + copy_len].iter().enumerate() {
+                    result[i] = *p as f64;
                 }
                 return result;
             }
@@ -198,6 +223,42 @@ impl FlatTree {
                 node.right as usize
             };
         }
+    }
+
+    // ── GBT compatibility methods ──
+
+    /// Number of nodes in the tree (DFS array length).
+    ///
+    /// Used by GBT for sizing per-node accumulation arrays.
+    #[inline]
+    pub fn n_nodes(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Read a leaf's prediction value given its DFS node index.
+    ///
+    /// Panics in debug if `node_idx` is not a leaf.
+    #[inline]
+    pub fn leaf_prediction(&self, node_idx: usize) -> f64 {
+        let node = &self.nodes[node_idx];
+        debug_assert!(node.right == LEAF_SENTINEL, "node_idx {node_idx} is not a leaf");
+        self.predictions[node.feature_idx as usize]
+    }
+
+    /// Set a leaf's prediction value given its DFS node index.
+    ///
+    /// Used by GBT Newton-Raphson correction. Panics in debug if not a leaf.
+    #[inline]
+    pub fn set_leaf_prediction(&mut self, node_idx: usize, value: f64) {
+        let node = &self.nodes[node_idx];
+        debug_assert!(node.right == LEAF_SENTINEL, "node_idx {node_idx} is not a leaf");
+        self.predictions[node.feature_idx as usize] = value;
+    }
+
+    /// Check if a DFS node index is a leaf.
+    #[inline]
+    pub fn is_leaf(&self, node_idx: usize) -> bool {
+        self.nodes[node_idx].right == LEAF_SENTINEL
     }
 
     /// Predict for all samples.
@@ -533,7 +594,7 @@ pub struct DecisionTreeClassifier {
     pub(crate) flat_tree: Option<FlatTree>,
     n_classes: usize,
     n_features: usize,
-    feature_importances_: Vec<f64>,
+    pub(crate) feature_importances_: Vec<f64>,
 }
 
 impl DecisionTreeClassifier {
@@ -636,6 +697,33 @@ impl DecisionTreeClassifier {
     /// then partitions at each node (O(n) per feature per node) — matching
     /// scikit-learn's optimized CART implementation.
     pub(crate) fn fit_on_indices(&mut self, data: &Dataset, sample_indices: &[usize]) -> Result<()> {
+        let n_features = data.n_features();
+
+        // Pre-sort sample indices by each feature value (once at root).
+        let mut sorted_by_feature: Vec<Vec<usize>> = Vec::with_capacity(n_features);
+        for feat_idx in 0..n_features {
+            let col = &data.features[feat_idx];
+            let mut sorted = sample_indices.to_vec();
+            sorted.sort_unstable_by(|&a, &b| {
+                col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            sorted_by_feature.push(sorted);
+        }
+
+        self.fit_on_indices_presorted(data, sample_indices, &sorted_by_feature)
+    }
+
+    /// Train using pre-sorted indices shared across trees (RF memory optimization).
+    ///
+    /// `global_sorted` contains ALL dataset indices sorted by each feature.
+    /// The membership bitset filters to only the bootstrap sample for this tree.
+    /// This avoids allocating `sorted_by_feature` per tree during RF training.
+    pub(crate) fn fit_on_indices_presorted(
+        &mut self,
+        data: &Dataset,
+        sample_indices: &[usize],
+        global_sorted: &[Vec<usize>],
+    ) -> Result<()> {
         let n = sample_indices.len();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -652,32 +740,22 @@ impl DecisionTreeClassifier {
         };
         self.sample_weights = weights;
 
-        // Pre-sort sample indices by each feature value (once at root).
-        let n_features = data.n_features();
-        let mut sorted_by_feature: Vec<Vec<usize>> = Vec::with_capacity(n_features);
-        for feat_idx in 0..n_features {
-            let col = &data.features[feat_idx];
-            let mut sorted = sample_indices.to_vec();
-            sorted.sort_unstable_by(|&a, &b| {
-                col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            sorted_by_feature.push(sorted);
-        }
-
         // Membership bitset for partitioning at each node.
-        let max_idx = sample_indices.iter().copied().max().unwrap_or(0);
-        let mut membership = vec![false; max_idx + 1];
+        // Must cover ALL dataset indices (not just the bootstrap sample) because
+        // build_tree_presorted iterates over global_sorted which contains 0..n_samples.
+        let membership_len = global_sorted.first().map_or(0, Vec::len);
+        let mut membership = vec![false; membership_len];
         for &i in sample_indices {
             membership[i] = true;
         }
 
         let tree = if self.sample_weights.is_some() {
             self.build_tree_presorted_weighted(
-                data, &sorted_by_feature, &mut membership, n, 0,
+                data, global_sorted, &mut membership, n, 0,
             )
         } else {
             self.build_tree_presorted(
-                data, &sorted_by_feature, &mut membership, n, 0,
+                data, global_sorted, &mut membership, n, 0,
             )
         };
 
@@ -699,6 +777,9 @@ impl DecisionTreeClassifier {
                 *imp /= total;
             }
         }
+
+        // Free training-only data.
+        self.sample_weights = None;
 
         Ok(())
     }
@@ -1292,7 +1373,7 @@ pub struct DecisionTreeRegressor {
     /// Flattened tree for cache-optimal prediction.
     pub(crate) flat_tree: Option<FlatTree>,
     n_features: usize,
-    feature_importances_: Vec<f64>,
+    pub(crate) feature_importances_: Vec<f64>,
 }
 
 impl DecisionTreeRegressor {

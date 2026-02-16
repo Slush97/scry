@@ -421,7 +421,7 @@ impl GradientBoostingRegressor {
                 if let Some(ref mut flat) = tree.flat_tree {
                     // Compute leaf assignments for training samples.
                     let leaf_ids = flat.apply(&row_major);
-                    let n_nodes = flat.predictions.len();
+                    let n_nodes = flat.n_nodes();
                     let mut leaf_residuals: Vec<Vec<f64>> = vec![Vec::new(); n_nodes];
                     let mut leaf_y: Vec<Vec<f64>> = vec![Vec::new(); n_nodes];
                     let mut leaf_f: Vec<Vec<f64>> = vec![Vec::new(); n_nodes];
@@ -432,12 +432,13 @@ impl GradientBoostingRegressor {
                     }
                     for node_id in 0..n_nodes {
                         if !leaf_residuals[node_id].is_empty() {
-                            flat.predictions[node_id] = self.loss.update_terminal_value(
+                            let new_val = self.loss.update_terminal_value(
                                 &leaf_residuals[node_id],
                                 &leaf_y[node_id],
                                 &leaf_f[node_id],
                                 delta,
                             );
+                            flat.set_leaf_prediction(node_id, new_val);
                         }
                     }
                 }
@@ -1030,7 +1031,7 @@ fn newton_correct_binary_leaves(
         let den = leaf_den[&leaf_idx];
         // Avoid division by zero; fall back to gradient mean.
         if den.abs() > 1e-12 {
-            flat.predictions[leaf_idx] = num / den;
+            flat.set_leaf_prediction(leaf_idx, num / den);
         }
     }
 }
@@ -1065,7 +1066,7 @@ fn newton_correct_multiclass_leaves(
     for (&leaf_idx, &num) in &leaf_num {
         let den = leaf_den[&leaf_idx];
         if den.abs() > 1e-12 {
-            flat.predictions[leaf_idx] = factor * num / den;
+            flat.set_leaf_prediction(leaf_idx, factor * num / den);
         }
     }
 }

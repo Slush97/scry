@@ -27,11 +27,11 @@ from sklearn.ensemble import (
     HistGradientBoostingClassifier,
 )
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.linear_model import LogisticRegression, LinearRegression, Lasso
-from sklearn.cluster import KMeans
+from sklearn.linear_model import LogisticRegression, LinearRegression, Lasso, ElasticNet
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 from sklearn.decomposition import PCA
 from sklearn.svm import LinearSVC
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import GaussianNB, BernoulliNB, MultinomialNB
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -127,17 +127,25 @@ def run_benchmarks():
         ("PCA(5 comp)", PCA(n_components=5)),
         ("LinearSVC", LinearSVC(random_state=42, max_iter=1000)),
         ("GaussianNB", GaussianNB()),
+        ("BernoulliNB", BernoulliNB()),
+        ("MultinomialNB", MultinomialNB()),
+        ("DBSCAN", DBSCAN(eps=1.0, min_samples=5)),
+        ("AgglomerativeClustering", AgglomerativeClustering(n_clusters=3)),
     ]
 
     models_reg = [
         ("LinearRegression", LinearRegression()),
         ("GBT_Regressor(100t)", GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)),
+        ("Lasso", Lasso(alpha=0.1)),
+        ("ElasticNet", ElasticNet(alpha=0.1, l1_ratio=0.5)),
     ]
 
     peak_heap_results = []
 
     for name, model in models_cls:
-        if name.startswith("KMeans") or name.startswith("PCA"):
+        if name == "MultinomialNB":
+            peak, elapsed = measure_fit(model, np.abs(X_cls), y_cls)
+        elif name.startswith(("KMeans", "PCA", "DBSCAN", "Agglomerative")):
             peak, elapsed = measure_fit(model, X_cls, None)
         else:
             peak, elapsed = measure_fit(model, X_cls, y_cls)
@@ -167,6 +175,8 @@ def run_benchmarks():
         ("KNN(k=5)", KNeighborsClassifier(n_neighbors=5)),
         ("LogisticReg", LogisticRegression(max_iter=200, random_state=42)),
         ("GaussianNB", GaussianNB()),
+        ("LinearSVC", LinearSVC(random_state=42, max_iter=1000)),
+        ("BernoulliNB", BernoulliNB()),
     ]
 
     for name, model in predict_models:
@@ -188,6 +198,8 @@ def run_benchmarks():
         ("HistGBT(50t)", lambda: HistGradientBoostingClassifier(max_iter=50, learning_rate=0.1, random_state=42)),
         ("KNN(k=5)", lambda: KNeighborsClassifier(n_neighbors=5)),
         ("LogisticReg", lambda: LogisticRegression(max_iter=200, random_state=42)),
+        ("LinearSVC", lambda: LinearSVC(random_state=42, max_iter=1000)),
+        ("DBSCAN", lambda: DBSCAN(eps=1.0, min_samples=5)),
     ]
 
     scaling_results = []
@@ -196,7 +208,8 @@ def run_benchmarks():
         for n_s in sizes:
             X_s, y_s = gen_classification(n_s, 10)
             model = make_model()
-            peak, elapsed = measure_fit(model, X_s, y_s)
+            y_fit = None if name == "DBSCAN" else y_s
+            peak, elapsed = measure_fit(model, X_s, y_fit)
             points.append({
                 "n": n_s,
                 "peak_bytes": peak,

@@ -178,14 +178,16 @@ pub(crate) struct BinarySMO {
 impl KernelSVC {
     /// Create a new `KernelSVC` with default parameters.
     ///
-    /// Defaults: RBF(gamma=1.0), `C = 1.0`, `tol = 1e-3`, `max_iter = 1000`.
+    /// Defaults: RBF with `Gamma::Scale`, `C = 1.0`, `tol = 1e-3`, `max_iter = 1000`.
+    /// Gamma is resolved from data variance during [`fit`](Self::fit),
+    /// matching sklearn's `SVC(kernel='rbf')` behaviour.
     pub fn new() -> Self {
         Self {
             kernel: Kernel::default(),
             c: 1.0,
             tol: 1e-3,
             max_iter: 1000,
-            gamma_strategy: None,
+            gamma_strategy: Some(Gamma::Scale),
             probability: false,
             models: Vec::new(),
             platt_params: Vec::new(),

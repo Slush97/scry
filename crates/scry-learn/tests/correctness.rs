@@ -151,6 +151,7 @@ fn prove_logistic_regression_iris() {
     scaler.transform(&mut test_scaled).unwrap();
 
     let mut lr = LogisticRegression::new()
+        .alpha(0.0)
         .learning_rate(0.1)
         .max_iter(1000);
     lr.fit(&train).unwrap();

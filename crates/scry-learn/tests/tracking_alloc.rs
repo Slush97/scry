@@ -7,7 +7,7 @@
 //! won't conflict with other binaries.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 /// Global allocation tracker wrapping the system allocator.
 pub struct TrackingAllocator {
@@ -34,24 +34,24 @@ unsafe impl GlobalAlloc for TrackingAllocator {
         let ptr = unsafe { self.inner.alloc(layout) };
         if !ptr.is_null() {
             let size = layout.size();
-            let prev = CURRENT_BYTES.fetch_add(size, Relaxed);
+            let prev = CURRENT_BYTES.fetch_add(size, SeqCst);
             let new = prev + size;
             // Update peak via compare-and-swap loop.
-            let mut peak = PEAK_BYTES.load(Relaxed);
+            let mut peak = PEAK_BYTES.load(SeqCst);
             while new > peak {
-                match PEAK_BYTES.compare_exchange_weak(peak, new, Relaxed, Relaxed) {
+                match PEAK_BYTES.compare_exchange_weak(peak, new, SeqCst, SeqCst) {
                     Ok(_) => break,
                     Err(actual) => peak = actual,
                 }
             }
-            ALLOC_COUNT.fetch_add(1, Relaxed);
+            ALLOC_COUNT.fetch_add(1, SeqCst);
         }
         ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        CURRENT_BYTES.fetch_sub(layout.size(), Relaxed);
-        DEALLOC_COUNT.fetch_add(1, Relaxed);
+        CURRENT_BYTES.fetch_sub(layout.size(), SeqCst);
+        DEALLOC_COUNT.fetch_add(1, SeqCst);
         unsafe { self.inner.dealloc(ptr, layout) };
     }
 }
@@ -69,10 +69,10 @@ impl AllocSnapshot {
     /// Take a snapshot of the current allocator state.
     pub fn now() -> Self {
         Self {
-            current_bytes: CURRENT_BYTES.load(Relaxed),
-            peak_bytes: PEAK_BYTES.load(Relaxed),
-            alloc_count: ALLOC_COUNT.load(Relaxed),
-            dealloc_count: DEALLOC_COUNT.load(Relaxed),
+            current_bytes: CURRENT_BYTES.load(SeqCst),
+            peak_bytes: PEAK_BYTES.load(SeqCst),
+            alloc_count: ALLOC_COUNT.load(SeqCst),
+            dealloc_count: DEALLOC_COUNT.load(SeqCst),
         }
     }
 
@@ -81,16 +81,21 @@ impl AllocSnapshot {
     /// Note: not perfectly atomic across all counters, but good enough
     /// for single-threaded benchmark sections.
     pub fn reset() -> Self {
-        let current = CURRENT_BYTES.load(Relaxed);
-        PEAK_BYTES.store(current, Relaxed);
-        ALLOC_COUNT.store(0, Relaxed);
-        DEALLOC_COUNT.store(0, Relaxed);
+        let current = CURRENT_BYTES.load(SeqCst);
+        PEAK_BYTES.store(current, SeqCst);
+        ALLOC_COUNT.store(0, SeqCst);
+        DEALLOC_COUNT.store(0, SeqCst);
         Self {
             current_bytes: current,
             peak_bytes: current,
             alloc_count: 0,
             dealloc_count: 0,
         }
+    }
+
+    /// Snapshot without resetting — safe for concurrent test threads.
+    pub fn snapshot() -> Self {
+        Self::now()
     }
 
     /// Compute the delta between two snapshots (self = after, other = before).

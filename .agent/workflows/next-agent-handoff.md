@@ -4,7 +4,7 @@ description: Handoff instructions for the next agent — current state, what's d
 
 # Next Agent Handoff — Full Status & Instructions
 
-> **Last updated**: 2026-02-15 02:00 PST
+> **Last updated**: 2026-02-15 20:30 PST
 
 ---
 
@@ -16,25 +16,25 @@ description: Handoff instructions for the next agent — current state, what's d
 |-------|---------|----------|
 | `scry-engine` | Low-level 2D rasterizer (shapes, text, gradients) | Stable |
 | `scry-chart` | Chart builder library (17 chart types, 6 themes) | Stable |
-| `scry-learn` | Machine learning library (19 models, search, preprocessing) | Stable |
+| `scry-learn` | Machine learning library (23+ models, search, preprocessing) | Stable |
 | `scry-cli` | CLI for chart rendering | Stable |
-| `scry-pipe` | Feature engineering compiler | **Empty stub** |
+| `scry-pipe` | Feature engineering compiler | **Phase 1 in progress** |
 
 ---
 
 ## 2. What Is Complete
 
-**Everything through Sprint 6 complete. Total: 388 tests, 0 clippy warnings.**
+**Everything through Sprint 6 complete. Total: 428 tests, 0 clippy warnings.**
 
 ### scry-learn (ML crate)
-- **21+ model types**: LinearRegression, LogisticRegression (L-BFGS + GD, L1/L2/ElasticNet penalty), Lasso, ElasticNet, DecisionTree (C/R), RandomForest (C/R), GBT (C/R), HistGBT (C/R), KNN (C/R), LinearSVC, LinearSVR, KernelSVC, KernelSVR, GaussianNB, BernoulliNB, MultinomialNB, KMeans, MiniBatchKMeans, DBSCAN (KD-tree), AgglomerativeClustering
+- **23+ model types**: LinearRegression, LogisticRegression (L-BFGS + GD, L1/L2/ElasticNet penalty), Lasso, ElasticNet, DecisionTree (C/R), RandomForest (C/R), GBT (C/R), HistGBT (C/R), KNN (C/R), LinearSVC, LinearSVR, KernelSVC, KernelSVR, GaussianNB, BernoulliNB, MultinomialNB, KMeans, MiniBatchKMeans, DBSCAN (KD-tree), AgglomerativeClustering, IsolationForest, VotingClassifier, StackingClassifier
 - **Preprocessing**: StandardScaler, MinMaxScaler, RobustScaler, PCA, OneHotEncoder, SimpleImputer, ColumnTransformer, PolynomialFeatures, Normalizer, LabelEncoder
 - **Search**: GridSearchCV, RandomizedSearchCV — Tunable trait on ALL models, `.scoring()`, `.stratified()`, `ParamValue::Categorical`
 - **CV**: k_fold, stratified_k_fold, RepeatedKFold, GroupKFold, TimeSeriesSplit, cross_val_predict
 - **Metrics**: accuracy, precision, recall, f1, log_loss, balanced_accuracy, cohen_kappa, r2, mse, mae, mape, explained_variance, adjusted_rand_index, calinski_harabasz, davies_bouldin, silhouette
 - **Visualizations**: 19 ML-specific chart functions in `viz.rs`
 - **SVM**: Platt scaling (predict_proba), auto gamma (Scale/Auto/Value)
-- **Tests**: 388 total (1 flaky: `determinism_rf_same_seed` due to rayon nondeterminism)
+- **Tests**: 428 total (8 bench tests `#[ignore]`d, 1 flaky: `determinism_rf_same_seed` due to rayon nondeterminism)
 
 ### Industry Standards Audit — COMPLETE
 A comprehensive audit comparing scry-learn against scikit-learn was completed. **Estimated score after Sprint 6: 9+/10.**
@@ -45,27 +45,36 @@ All gaps identified in the audit have been closed by Sessions 11-17.
 
 ## 3. What Was Just Done (Latest Session)
 
-1. **Verified full project state** — 388 tests passing, 0 clippy warnings
-2. **Confirmed all Sprints 1-6 complete** including Sprint 4.5 correctness hardening
-3. **Updated `ROADMAP.md`** — marked Sprints 4.5, 5, 6 as COMPLETE, consolidated versioning (v0.7.0 ready to tag)
-4. **Updated priority matrix** — removed all completed items, Sprint 7 (Platform & Commercial) is next
+**Sprint 7 is in progress.** Multiple parallel agents ran:
+
+1. **v0.7.0 tagged** — all crate versions bumped, annotated tag created
+2. **WASM target for scry-engine** — COMPLETE
+   - Added `wasm` feature flag + `wasm-bindgen`/`web-sys`/`js-sys` optional deps to root `Cargo.toml`
+   - Created `src/wasm.rs` with `WasmCanvas` struct (JS-accessible via wasm-bindgen)
+   - Methods: `new()`, `width()`, `height()`, `set_background()`, `add_circle()`, `add_rect()`, `pixels()`, `render_to_canvas()`, `clear()`, `command_count()`
+   - Free function `render_rgba_to_canvas()` for blitting pre-rendered RGBA to HTML canvas
+   - 6 native unit tests, all passing
+   - `cargo check --target wasm32-unknown-unknown --no-default-features --features wasm` ✅
+   - Demo page at `examples/wasm_demo/` with build instructions
+3. **IsolationForest** — anomaly detection model with `contamination`, `n_estimators`, `max_samples`, `predict()` labels + `decision_function()` scores
+4. **VotingClassifier + StackingClassifier** — advanced ensemble methods via `EnsembleClassifier` trait
+5. **RF memory optimization fix** — fixed index-out-of-bounds in `cart.rs` membership bitset sizing (was sized to bootstrap max index, now covers full dataset)
+6. **Production bench `#[ignore]`** — 8 heavy benchmark tests marked `#[ignore]` to prevent 20+ min debug-mode runs
+7. **scry-pipe Phase 1A** — IR + transform engine (likely in progress by another agent)
 
 ---
 
 ## 4. What To Do Next — Priority-Ordered
 
-### IMMEDIATE: Tag v0.7.0
-
-All sprint gates through Sprint 6 are met. Tag the release.
-
-### THEN: Sprint 7 — Platform & Commercial
+### Sprint 7 — Platform & Commercial (in progress)
 > Read `ROADMAP.md` section "Sprint 7" for details.
 
-1. **scry-pipe Phase 1** — IR + transform engine + Rust codegen (3 sessions)
-2. **WASM target** for scry-engine (2 sessions)
-3. **scry-pipe Phase 2** — PyO3 Python SDK (3 sessions)
-4. **DataFrame / Polars interop** (2 sessions)
-5. **Streaming-aware charts** (2 sessions)
+1. ~~**Tag v0.7.0**~~ — ✅ DONE
+2. ~~**WASM target** for scry-engine~~ — ✅ DONE
+3. **scry-pipe Phase 1** — IR + transform engine + Rust codegen (check if another agent completed this)
+4. **scry-pipe Phase 2** — PyO3 Python SDK (3 sessions)
+5. **DataFrame / Polars interop** (2 sessions)
+6. **Streaming-aware charts** (2 sessions)
 
 ### PARALLEL: Chart Quality Hardening (separate agent)
 
@@ -79,6 +88,7 @@ A separate agent is running the chart quality roadmap. See `.agent/workflows/cha
 |-------|----------|---------|
 | `determinism_rf_same_seed` flaky test | Low | RF uses rayon without deterministic ordering. Pre-existing. |
 | KernelSVC single-sample div-by-zero | Low | `kernel.rs:305`. Wrapped in `catch_unwind` in edge tests. |
+| Production bench only in release | Info | 8 bench tests are `#[ignore]`d. Run: `cargo test --test production_bench --release -- --ignored --nocapture` |
 
 ---
 
@@ -107,6 +117,8 @@ A separate agent is running the chart quality roadmap. See `.agent/workflows/cha
 | CV / split | `crates/scry-learn/src/split.rs` |
 | Preprocessing | `crates/scry-learn/src/preprocess/` |
 | scry-pipe proposal | `SCRY_PIPE_PROPOSAL.md` |
+| WASM bridge | `src/wasm.rs` |
+| WASM demo page | `examples/wasm_demo/index.html` |
 
 ## 7. Verification Commands
 
@@ -114,9 +126,18 @@ A separate agent is running the chart quality roadmap. See `.agent/workflows/cha
 # All tests (321 passing, 1 flaky)
 cargo test -p scry-learn
 
+# scry-engine tests (87 native, 93 with wasm feature)
+cargo test -p scry-engine --lib
+cargo test -p scry-engine --lib --features wasm
+
 # Clippy (must be 0 warnings) — run BOTH
 cargo clippy -p scry-learn -- -D warnings
 cargo clippy -p scry-learn --features serde -- -D warnings
+cargo clippy -p scry-engine --lib -- -D warnings
+cargo clippy -p scry-engine --lib --features wasm -- -D warnings
+
+# WASM cross-compile check
+cargo check -p scry-engine --no-default-features --features wasm --target wasm32-unknown-unknown
 
 # Benchmark dashboard (release mode, with memory footprint)
 cargo run --example bench_dashboard -p scry-learn --release --features serde

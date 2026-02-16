@@ -3,7 +3,7 @@
 //! Uses bootstrap sampling and random feature subsets for each tree,
 //! trained in parallel via rayon.
 
-use std::collections::HashSet;
+
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
@@ -133,7 +133,14 @@ impl RandomForestClassifier {
     }
 
     /// Train the random forest.
+    ///
+    /// OOB votes are accumulated into a shared atomic array during parallel build,
+    /// avoiding retention of per-tree vote arrays or bootstrap indices.
+    /// Dataset indices are pre-sorted once and shared across all trees to avoid
+    /// per-tree `sorted_by_feature` allocation (~6 MB savings with 16 threads).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -142,13 +149,39 @@ impl RandomForestClassifier {
         self.n_classes = data.n_classes();
         let max_feats = self.max_features.resolve(self.n_features);
         let do_bootstrap = self.bootstrap;
+        let n_samples = data.n_samples();
+        let n_classes = self.n_classes;
+        let feature_matrix = data.feature_matrix();
+        let n_features = data.n_features();
 
-        // Train trees in parallel, returning bootstrap indices for OOB.
-        let results: Vec<(DecisionTreeClassifier, Vec<usize>)> = (0..self.n_estimators)
+        // Pre-sort ALL dataset indices by each feature once (shared read-only).
+        // Each tree filters via membership bitset for its bootstrap sample.
+        let global_sorted: Vec<Vec<usize>> = (0..n_features)
+            .map(|feat_idx| {
+                let col = &data.features[feat_idx];
+                let mut sorted: Vec<usize> = (0..n_samples).collect();
+                sorted.sort_unstable_by(|&a, &b| {
+                    col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                sorted
+            })
+            .collect();
+        let global_sorted_ref = &global_sorted;
+
+        // Shared OOB accumulator: oob_votes[sample * n_classes + class].
+        // Atomic u32 so multiple threads can update without locking.
+        let oob_votes: Vec<AtomicU32> = (0..n_samples * n_classes)
+            .map(|_| AtomicU32::new(0))
+            .collect();
+        let oob_votes_ref = &oob_votes;
+
+        // Train trees in parallel. OOB votes are merged directly into the
+        // shared accumulator — no per-tree vote arrays are ever stored.
+        let mut trees: Vec<DecisionTreeClassifier> = (0..self.n_estimators)
             .into_par_iter()
             .map(|tree_idx| {
                 let mut rng = fastrand::Rng::with_seed(self.seed.wrapping_add(tree_idx as u64));
-                let n = data.n_samples();
+                let n = n_samples;
 
                 // Bootstrap sample.
                 let indices: Vec<usize> = if do_bootstrap {
@@ -167,19 +200,37 @@ impl RandomForestClassifier {
                     tree = tree.max_depth(d);
                 }
 
-                // Train directly on indices — no data copy.
-                tree.fit_on_indices(data, &indices).ok();
-                (tree, indices)
+                // Train using shared pre-sorted indices — no per-tree sort allocation.
+                tree.fit_on_indices_presorted(data, &indices, global_sorted_ref).ok();
+
+                // Compute OOB votes inline and merge into shared accumulator.
+                // Bootstrap indices and bitset are dropped at end of closure.
+                if do_bootstrap {
+                    if let Some(ref ft) = tree.flat_tree {
+                        // Build compact bitset of in-bag samples.
+                        let n_words = n.div_ceil(64);
+                        let mut in_bag = vec![0u64; n_words];
+                        for &idx in &indices {
+                            in_bag[idx / 64] |= 1u64 << (idx % 64);
+                        }
+
+                        // Vote for OOB samples, merging directly into shared accumulator.
+                        for sample_idx in 0..n {
+                            if in_bag[sample_idx / 64] & (1u64 << (sample_idx % 64)) != 0 {
+                                continue;
+                            }
+                            let pred = ft.predict_sample(&feature_matrix[sample_idx]) as usize;
+                            if pred < n_classes {
+                                oob_votes_ref[sample_idx * n_classes + pred]
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                }
+
+                tree
             })
             .collect();
-
-        // Separate trees and bootstrap indices.
-        let mut trees = Vec::with_capacity(results.len());
-        let mut bootstrap_indices = Vec::with_capacity(results.len());
-        for (tree, indices) in results {
-            trees.push(tree);
-            bootstrap_indices.push(indices);
-        }
 
         // Aggregate feature importances.
         self.feature_importances_ = vec![0.0; self.n_features];
@@ -195,67 +246,46 @@ impl RandomForestClassifier {
             *imp /= n_trees;
         }
 
-        // Compute OOB score if bootstrap is enabled.
+        // Compute OOB accuracy from accumulated atomic votes.
         self.oob_score_ = if do_bootstrap {
-            self.compute_oob_score(data, &trees, &bootstrap_indices)
+            // Convert atomics to plain u32 for scoring.
+            let totals: Vec<u32> = oob_votes.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+            Self::oob_accuracy_from_votes(&totals, n_samples, n_classes, &data.target)
         } else {
             None
         };
+
+        // Clear per-tree training-only data to save memory.
+        for tree in &mut trees {
+            tree.sample_weights = None;
+            tree.feature_importances_ = Vec::new();
+        }
 
         self.trees = trees;
         Ok(())
     }
 
-    /// Compute out-of-bag accuracy.
-    ///
-    /// For each sample, predicts using only trees where the sample was NOT
-    /// in the bootstrap. Returns `None` if no sample had any OOB trees.
-    fn compute_oob_score(
-        &self,
-        data: &Dataset,
-        trees: &[DecisionTreeClassifier],
-        bootstrap_indices: &[Vec<usize>],
+    /// Compute OOB accuracy from flat vote accumulation array.
+    fn oob_accuracy_from_votes(
+        oob_total: &[u32],
+        n_samples: usize,
+        n_classes: usize,
+        target: &[f64],
     ) -> Option<f64> {
-        let n_samples = data.n_samples();
-        let n_classes = self.n_classes;
-        let feature_matrix = data.feature_matrix();
-
-        // Accumulate OOB votes: oob_votes[sample][class] = count.
-        let mut oob_votes: Vec<Vec<usize>> = vec![vec![0; n_classes]; n_samples];
-        let mut oob_count: Vec<usize> = vec![0; n_samples]; // how many trees voted
-
-        for (tree_idx, tree) in trees.iter().enumerate() {
-            let Some(ft) = &tree.flat_tree else { continue };
-
-            // Build set of in-bag sample indices for this tree.
-            let in_bag: HashSet<usize> = bootstrap_indices[tree_idx].iter().copied().collect();
-
-            // Predict for OOB samples.
-            for sample_idx in 0..n_samples {
-                if in_bag.contains(&sample_idx) {
-                    continue;
-                }
-                let pred = ft.predict_sample(&feature_matrix[sample_idx]) as usize;
-                if pred < n_classes {
-                    oob_votes[sample_idx][pred] += 1;
-                }
-                oob_count[sample_idx] += 1;
-            }
-        }
-
-        // Compute accuracy over samples that had at least one OOB vote.
         let mut correct = 0usize;
         let mut total = 0usize;
         for sample_idx in 0..n_samples {
-            if oob_count[sample_idx] == 0 {
+            let row = &oob_total[sample_idx * n_classes..(sample_idx + 1) * n_classes];
+            let vote_count: u32 = row.iter().sum();
+            if vote_count == 0 {
                 continue;
             }
-            let predicted_class = oob_votes[sample_idx]
+            let predicted_class = row
                 .iter()
                 .enumerate()
                 .max_by_key(|&(_, &v)| v)
                 .map_or(0, |(idx, _)| idx);
-            let true_class = data.target[sample_idx] as usize;
+            let true_class = target[sample_idx] as usize;
             if predicted_class == true_class {
                 correct += 1;
             }
@@ -393,7 +423,7 @@ impl RandomForestRegressor {
         Self {
             n_estimators: 100,
             max_depth: None,
-            max_features: MaxFeatures::Sqrt,
+            max_features: MaxFeatures::All,
             min_samples_split: 2,
             min_samples_leaf: 1,
             bootstrap: true,
@@ -437,7 +467,7 @@ impl RandomForestRegressor {
         self.n_features = data.n_features();
         let max_feats = self.max_features.resolve(self.n_features);
 
-        let trees: Vec<DecisionTreeRegressor> = (0..self.n_estimators)
+        let mut trees: Vec<DecisionTreeRegressor> = (0..self.n_estimators)
             .into_par_iter()
             .map(|tree_idx| {
                 let mut rng = fastrand::Rng::with_seed(self.seed.wrapping_add(tree_idx as u64));
@@ -475,6 +505,11 @@ impl RandomForestRegressor {
         let n_trees = trees.len() as f64;
         for imp in &mut self.feature_importances_ {
             *imp /= n_trees;
+        }
+
+        // Clear per-tree training-only data to save memory.
+        for tree in &mut trees {
+            tree.feature_importances_ = Vec::new();
         }
 
         self.trees = trees;

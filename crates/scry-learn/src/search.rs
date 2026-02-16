@@ -473,6 +473,25 @@ impl Tunable for crate::tree::DecisionTreeRegressor {
     fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
 }
 
+impl Tunable for crate::anomaly::IsolationForest {
+    fn set_param(&mut self, name: &str, value: ParamValue) -> Result<()> {
+        match name {
+            "n_estimators" => { if let ParamValue::Int(v) = value { *self = self.clone().n_estimators(v); Ok(()) } else { Err(ScryLearnError::InvalidParameter(format!("n_estimators expects Int, got {value}"))) } }
+            "max_samples" => { if let ParamValue::Int(v) = value { *self = self.clone().max_samples(v); Ok(()) } else { Err(ScryLearnError::InvalidParameter(format!("max_samples expects Int, got {value}"))) } }
+            "contamination" => { if let ParamValue::Float(v) = value { *self = self.clone().contamination(v); Ok(()) } else { Err(ScryLearnError::InvalidParameter(format!("contamination expects Float, got {value}"))) } }
+            _ => Err(ScryLearnError::InvalidParameter(format!("unknown parameter: {name}"))),
+        }
+    }
+    fn clone_box(&self) -> Box<dyn Tunable> { Box::new(self.clone()) }
+    fn fit(&mut self, data: &Dataset) -> Result<()> {
+        let features = data.feature_matrix();
+        self.fit(&features)
+    }
+    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        Ok(self.predict(features))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CvResult
 // ---------------------------------------------------------------------------

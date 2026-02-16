@@ -1,7 +1,7 @@
 //! Pure-Rust L-BFGS optimizer for smooth unconstrained optimization.
 //!
 //! Implements the limited-memory BFGS algorithm with two-loop recursion
-//! (Nocedal & Wright, 2006) and Armijo backtracking line search.
+//! (Nocedal & Wright, 2006) and strong-Wolfe backtracking line search.
 //!
 //! This is the gold-standard optimizer for smooth convex problems such as
 //! logistic regression — scikit-learn uses it as their default solver.
@@ -127,9 +127,12 @@ pub(crate) fn minimize(
             *d = -*d;
         }
 
-        // ─── Armijo backtracking line search ──────────────────────
-        // Find step α such that f(x + α·d) ≤ f(x) + c·α·(grad · d).
+        // ─── Strong Wolfe backtracking line search ─────────────
+        // Accept step α when both conditions hold:
+        //   Armijo:  f(x + α·d) ≤ f(x) + c₁·α·(∇f · d)
+        //   Wolfe:   |∇f(x + α·d) · d| ≤ c₂·|∇f · d|
         let c_armijo = 1e-4;
+        let c_wolfe = 0.9;
         let rho_bt = 0.5;
         let mut step = 1.0;
 
@@ -145,19 +148,57 @@ pub(crate) fn minimize(
         }
 
         let dir_deriv_ls: f64 = grad.iter().zip(direction.iter()).map(|(&g, &d)| g * d).sum();
+        let abs_dir_deriv = dir_deriv_ls.abs();
 
+        // Use a separate gradient buffer for trial evaluations so we never
+        // corrupt `grad` with a rejected step's gradient.
+        let mut grad_trial = vec![0.0; n];
         let mut x_trial: Vec<f64> = x0.to_vec();
+
+        // Track the first (largest) Armijo-satisfying step as fallback
+        // in case the Wolfe curvature condition is never met.
+        let mut best_armijo: Option<(f64, f64)> = None; // (f_trial, step)
+        let mut best_grad: Option<Vec<f64>> = None;
+        let mut best_x: Option<Vec<f64>> = None;
+        let mut accepted = false;
+
         for _ls in 0..20 {
             for j in 0..n {
                 x_trial[j] = x0[j] + step * direction[j];
             }
-            let f_trial = eval(&x_trial, &mut grad);
+            let f_trial = eval(&x_trial, &mut grad_trial);
             if f_trial <= f + c_armijo * step * dir_deriv_ls {
-                f = f_trial;
-                x0.copy_from_slice(&x_trial);
-                break;
+                // Armijo satisfied — record as fallback if first.
+                if best_armijo.is_none() {
+                    best_armijo = Some((f_trial, step));
+                    best_grad = Some(grad_trial.clone());
+                    best_x = Some(x_trial.clone());
+                }
+                // Check strong Wolfe curvature condition.
+                let trial_deriv: f64 = grad_trial.iter().zip(direction.iter())
+                    .map(|(&g, &d)| g * d).sum();
+                if trial_deriv.abs() <= c_wolfe * abs_dir_deriv {
+                    // Both conditions met — accept this step.
+                    f = f_trial;
+                    x0.copy_from_slice(&x_trial);
+                    grad.copy_from_slice(&grad_trial);
+                    accepted = true;
+                    break;
+                }
             }
             step *= rho_bt;
+        }
+
+        // Fallback: if Wolfe was never satisfied but Armijo was, accept
+        // the first (largest) Armijo step to guarantee progress.
+        if !accepted {
+            if let (Some((f_a, _)), Some(g_a), Some(x_a)) =
+                (best_armijo, best_grad, best_x)
+            {
+                f = f_a;
+                x0.copy_from_slice(&x_a);
+                grad.copy_from_slice(&g_a);
+            }
         }
 
         // ─── Update history ──────────────────────────────────────

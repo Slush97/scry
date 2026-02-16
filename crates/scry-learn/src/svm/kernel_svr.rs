@@ -77,8 +77,9 @@ pub struct KernelSVR {
 impl KernelSVR {
     /// Create a new `KernelSVR` with default parameters.
     ///
-    /// Defaults: RBF(gamma=1.0), `C = 1.0`, `epsilon = 0.1`,
-    /// `tol = 1e-3`, `max_iter = 1000`.
+    /// Defaults: RBF with `Gamma::Scale`, `C = 1.0`, `epsilon = 0.1`,
+    /// `tol = 1e-3`, `max_iter = 1000`. Gamma is resolved from data
+    /// variance during [`fit`](Self::fit), matching sklearn's `SVR(kernel='rbf')`.
     pub fn new() -> Self {
         Self {
             kernel: Kernel::default(),
@@ -86,7 +87,7 @@ impl KernelSVR {
             epsilon: 0.1,
             tol: 1e-3,
             max_iter: 1000,
-            gamma_strategy: None,
+            gamma_strategy: Some(Gamma::Scale),
             b: 0.0,
             sv_x: Vec::new(),
             sv_coeff: Vec::new(),

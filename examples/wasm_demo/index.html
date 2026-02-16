@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>scry-engine WASM Demo</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background: #1a1a2e;
+            color: #e0e0e0;
+        }
+        h1 { color: #64b5f6; }
+        canvas {
+            border: 1px solid #333;
+            background: #000;
+            display: block;
+            margin: 1rem 0;
+        }
+        .controls {
+            margin: 1rem 0;
+            display: flex;
+            gap: 0.5rem;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            background: #4a90d9;
+            color: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        button:hover { background: #64b5f6; }
+        #status { color: #81c784; font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>🔮 scry-engine WASM Demo</h1>
+    <p>This demo renders shapes via scry-engine compiled to WebAssembly.</p>
+
+    <div class="controls">
+        <button id="btn-circle">Add Circle</button>
+        <button id="btn-rect">Add Rectangle</button>
+        <button id="btn-clear">Clear</button>
+    </div>
+
+    <canvas id="demo-canvas" width="400" height="300"></canvas>
+    <p id="status">Loading WASM module...</p>
+
+    <script type="module">
+        import init, { WasmCanvas } from './pkg/scry_engine.js';
+
+        async function main() {
+            await init();
+
+            const status = document.getElementById('status');
+            status.textContent = 'WASM module loaded ✓';
+
+            const canvas = new WasmCanvas(400, 300);
+            canvas.set_background(26, 26, 46, 255);
+
+            // Draw initial scene
+            canvas.add_circle(200, 150, 60, 100, 149, 237, 200);
+            canvas.add_rect(50, 50, 80, 60, 129, 199, 132, 180);
+            canvas.render_to_canvas('demo-canvas');
+            status.textContent = `Rendered ${canvas.command_count()} commands ✓`;
+
+            // Button handlers
+            document.getElementById('btn-circle').addEventListener('click', () => {
+                const cx = Math.random() * 380 + 10;
+                const cy = Math.random() * 280 + 10;
+                const r = Math.random() * 40 + 10;
+                const red = Math.floor(Math.random() * 256);
+                const green = Math.floor(Math.random() * 256);
+                const blue = Math.floor(Math.random() * 256);
+                canvas.add_circle(cx, cy, r, red, green, blue, 200);
+                canvas.render_to_canvas('demo-canvas');
+                status.textContent = `Rendered ${canvas.command_count()} commands ✓`;
+            });
+
+            document.getElementById('btn-rect').addEventListener('click', () => {
+                const x = Math.random() * 300 + 10;
+                const y = Math.random() * 200 + 10;
+                const w = Math.random() * 80 + 20;
+                const h = Math.random() * 60 + 20;
+                const red = Math.floor(Math.random() * 256);
+                const green = Math.floor(Math.random() * 256);
+                const blue = Math.floor(Math.random() * 256);
+                canvas.add_rect(x, y, w, h, red, green, blue, 180);
+                canvas.render_to_canvas('demo-canvas');
+                status.textContent = `Rendered ${canvas.command_count()} commands ✓`;
+            });
+
+            document.getElementById('btn-clear').addEventListener('click', () => {
+                canvas.clear();
+                canvas.render_to_canvas('demo-canvas');
+                status.textContent = 'Canvas cleared';
+            });
+        }
+
+        main().catch(err => {
+            document.getElementById('status').textContent = `Error: ${err}`;
+        });
+    </script>
+</body>
+</html>

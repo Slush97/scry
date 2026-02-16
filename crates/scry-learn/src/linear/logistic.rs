@@ -82,7 +82,7 @@ impl LogisticRegression {
         Self {
             learning_rate: 0.01,
             max_iter: 200,
-            alpha: 0.0,
+            alpha: 1.0,
             tolerance: 1e-6,
             class_weight: ClassWeight::Uniform,
             solver: Solver::default(),
@@ -519,6 +519,7 @@ mod tests {
         let data = Dataset::new(features, target, vec!["x".into()], "class");
 
         let mut lr = LogisticRegression::new()
+            .alpha(0.0)
             .max_iter(200);
         lr.fit(&data).unwrap();
 

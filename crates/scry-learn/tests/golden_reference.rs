@@ -201,7 +201,7 @@ fn golden_logreg_iris() {
     let sklearn = load_sklearn_json();
     let sklearn_acc = sklearn["logreg_iris"]["accuracy"].as_f64().unwrap();
 
-    let mut lr = scry_learn::linear::LogisticRegression::new().max_iter(200);
+    let mut lr = scry_learn::linear::LogisticRegression::new().alpha(0.0).max_iter(200);
     lr.fit(&data).unwrap();
     let matrix = data.feature_matrix();
     let preds = lr.predict(&matrix).unwrap();

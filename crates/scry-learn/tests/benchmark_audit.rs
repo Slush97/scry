@@ -101,18 +101,28 @@ fn audit_dt_predict_fairness() {
     // ── Raw timing ──
     let n_iters = 1000;
 
+    // Warmup
+    for _ in 0..2 {
+        std::hint::black_box(scry_dt.predict(std::hint::black_box(&features)).unwrap());
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(scry_dt.predict(std::hint::black_box(&features)).unwrap());
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        std::hint::black_box(smart_dt.predict(std::hint::black_box(&x)).unwrap());
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(smart_dt.predict(std::hint::black_box(&x)).unwrap());
     }
     let smart_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        std::hint::black_box(linfa_dt.predict(std::hint::black_box(&linfa_ds)));
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(linfa_dt.predict(std::hint::black_box(&linfa_ds)));
@@ -184,18 +194,28 @@ fn audit_rf_predict_fairness() {
     // ── Predict timing ──
     let n_iters = 200;
 
+    // Warmup
+    for _ in 0..2 {
+        std::hint::black_box(scry_rf.predict(std::hint::black_box(&features)).unwrap());
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(scry_rf.predict(std::hint::black_box(&features)).unwrap());
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        std::hint::black_box(smart_rf.predict(std::hint::black_box(&x)).unwrap());
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(smart_rf.predict(std::hint::black_box(&x)).unwrap());
     }
     let smart_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        std::hint::black_box(linfa_rf.predict(std::hint::black_box(&linfa_ds)));
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(linfa_rf.predict(std::hint::black_box(&linfa_ds)));
@@ -249,6 +269,7 @@ fn audit_rf_predict_fairness() {
     println!("  scry-learn:              {:.2} ms", scry_train_ms);
     println!("  smartcore 0.4.9:         {:.2} ms  ({:.1}× slower)", smart_train_ms, smart_train_ms / scry_train_ms);
     println!("  linfa-ensemble 0.8:      {:.2} ms  ({:.1}× slower)", linfa_train_ms, linfa_train_ms / scry_train_ms);
+    println!("  Note: linfa uses bootstrap=0.7, features=0.3 (non-default, differs from scry/smartcore)");
     println!();
 }
 
@@ -273,6 +294,11 @@ fn audit_pca_fairness() {
         features_col.clone(), target.clone(),
         (0..n_features).map(|i| format!("f{i}")).collect(), "target",
     );
+    // Warmup
+    for _ in 0..2 {
+        let mut pca = scry_learn::prelude::Pca::with_n_components(n_components);
+        scry_learn::preprocess::Transformer::fit(&mut pca, std::hint::black_box(&scry_ds)).unwrap();
+    }
     let t0 = Instant::now();
     for _ in 0..n_fit_iters {
         let mut pca = scry_learn::prelude::Pca::with_n_components(n_components);
@@ -286,6 +312,12 @@ fn audit_pca_fairness() {
     let smart_params = smartcore::decomposition::pca::PCAParameters::default()
         .with_n_components(n_components);
 
+    for _ in 0..2 {
+        let pca = smartcore::decomposition::pca::PCA::fit(
+            std::hint::black_box(&x), smart_params.clone(),
+        ).unwrap();
+        std::hint::black_box(&pca);
+    }
     let t0 = Instant::now();
     for _ in 0..n_fit_iters {
         let pca = smartcore::decomposition::pca::PCA::fit(
@@ -304,6 +336,12 @@ fn audit_pca_fairness() {
         ndarray::Array1::<usize>::from_vec(target.iter().map(|&t| t as usize).collect()),
     );
 
+    for _ in 0..2 {
+        let pca = linfa_reduction::Pca::params(n_components)
+            .fit(std::hint::black_box(&linfa_ds))
+            .unwrap();
+        std::hint::black_box(&pca);
+    }
     let t0 = Instant::now();
     for _ in 0..n_fit_iters {
         let pca = linfa_reduction::Pca::params(n_components)
@@ -329,6 +367,11 @@ fn audit_pca_fairness() {
         .fit(&linfa_ds)
         .unwrap();
 
+    // Warmup transforms
+    for _ in 0..2 {
+        let mut ds = scry_ds.clone();
+        scry_learn::preprocess::Transformer::transform(&scry_pca, std::hint::black_box(&mut ds)).unwrap();
+    }
     // scry-learn transform
     let t0 = Instant::now();
     for _ in 0..n_transform_iters {
@@ -339,6 +382,10 @@ fn audit_pca_fairness() {
     let scry_transform_us = t0.elapsed().as_nanos() as f64 / n_transform_iters as f64 / 1000.0;
 
     // smartcore transform
+    for _ in 0..2 {
+        let result = smart_pca.transform(std::hint::black_box(&x)).unwrap();
+        std::hint::black_box(&result);
+    }
     let t0 = Instant::now();
     for _ in 0..n_transform_iters {
         let result = smart_pca.transform(std::hint::black_box(&x)).unwrap();
@@ -347,6 +394,10 @@ fn audit_pca_fairness() {
     let smart_transform_us = t0.elapsed().as_nanos() as f64 / n_transform_iters as f64 / 1000.0;
 
     // linfa transform (uses predict)
+    for _ in 0..2 {
+        let result = linfa_pca.predict(std::hint::black_box(&x_nd));
+        std::hint::black_box(&result);
+    }
     let t0 = Instant::now();
     for _ in 0..n_transform_iters {
         let result = linfa_pca.predict(std::hint::black_box(&x_nd));
@@ -443,7 +494,7 @@ fn gen_regression(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<
 }
 
 #[test]
-fn audit_gbt_fairness() {
+fn audit_ensemble_regression_fairness() {
     let n_samples = 2000;
     let n_features = 10;
     let n_estimators = 100;
@@ -459,6 +510,14 @@ fn audit_gbt_fairness() {
         "y",
     );
 
+    // Warmup
+    for _ in 0..2 {
+        let mut gbr = scry_learn::tree::GradientBoostingRegressor::new()
+            .n_estimators(n_estimators)
+            .learning_rate(0.1)
+            .max_depth(3);
+        gbr.fit(std::hint::black_box(&scry_ds)).unwrap();
+    }
     let scry_start = Instant::now();
     for _ in 0..n_iters {
         let mut gbr = scry_learn::tree::GradientBoostingRegressor::new()
@@ -476,6 +535,9 @@ fn audit_gbt_fairness() {
         .max_depth(3);
     scry_gbr.fit(&scry_ds).unwrap();
 
+    for _ in 0..2 {
+        let _ = scry_gbr.predict(std::hint::black_box(&row_major)).unwrap();
+    }
     let scry_pred_start = Instant::now();
     for _ in 0..n_iters {
         let _ = scry_gbr.predict(std::hint::black_box(&row_major)).unwrap();
@@ -490,7 +552,7 @@ fn audit_gbt_fairness() {
         .sum::<f64>()
         / n_samples as f64;
 
-    // ── smartcore XGRegressor ──
+    // ── smartcore RF Regressor ──
     use smartcore::ensemble::random_forest_regressor::RandomForestRegressor as SmartRFR;
     use smartcore::linalg::basic::matrix::DenseMatrix;
 
@@ -498,6 +560,13 @@ fn audit_gbt_fairness() {
     // for ensemble regression timing comparison.
     let smart_x = DenseMatrix::from_2d_vec(&row_major).unwrap();
 
+    for _ in 0..2 {
+        let _model = SmartRFR::fit(
+            std::hint::black_box(&smart_x),
+            std::hint::black_box(&target),
+            Default::default(),
+        ).unwrap();
+    }
     let smart_fit_start = Instant::now();
     for _ in 0..n_iters {
         let _model = SmartRFR::fit(
@@ -510,6 +579,9 @@ fn audit_gbt_fairness() {
     let smart_fit_us = smart_fit_start.elapsed().as_micros() as f64 / n_iters as f64;
 
     let smart_model = SmartRFR::fit(&smart_x, &target, Default::default()).unwrap();
+    for _ in 0..2 {
+        let _ = smart_model.predict(std::hint::black_box(&smart_x)).unwrap();
+    }
     let smart_pred_start = Instant::now();
     for _ in 0..n_iters {
         let _ = smart_model.predict(std::hint::black_box(&smart_x)).unwrap();
@@ -518,17 +590,18 @@ fn audit_gbt_fairness() {
 
     // ── Report ──
     println!("\n{}", "=".repeat(65));
-    println!("GBT FIT ({n_samples}×{n_features}, {n_estimators} estimators, {n_iters} iters)");
+    println!("ENSEMBLE REGRESSION FIT ({n_samples}×{n_features}, {n_estimators} estimators, {n_iters} iters)");
+    println!("  Note: scry=GBT, smartcore=RF (smartcore lacks GBT API)");
     println!("  scry-learn GBT:      {:.2} µs", scry_fit_us);
     println!("  smartcore RF 0.4:    {:.2} µs  ({:.2}×)", smart_fit_us, smart_fit_us / scry_fit_us);
 
-    println!("\nGBT PREDICT ({n_samples} samples, {n_iters} iters)");
+    println!("\nENSEMBLE REGRESSION PREDICT ({n_samples} samples, {n_iters} iters)");
     println!("  scry-learn GBT:      {:.2} µs", scry_pred_us);
     println!("  smartcore RF 0.4:    {:.2} µs  ({:.2}×)", smart_pred_us, smart_pred_us / scry_pred_us);
 
     println!("\nscry-learn GBT train MSE: {:.4}", scry_mse);
 
-    println!("\nGBT FEATURE GAP ANALYSIS:");
+    println!("\nENSEMBLE REGRESSION FEATURE GAP ANALYSIS:");
     println!("  ┌─────────────────────────┬────────┬───────────┬────────────┐");
     println!("  │ Feature                 │ scry   │ smartcore │ linfa      │");
     println!("  ├─────────────────────────┼────────┼───────────┼────────────┤");
@@ -607,6 +680,16 @@ fn audit_logreg_fairness() {
     // ── Train timing ──
     let n_iters = 50;
 
+    // Warmup
+    for _ in 0..2 {
+        let d = scry_learn::prelude::Dataset::new(
+            transpose(&features), target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut lr = scry_learn::prelude::LogisticRegression::new()
+            .max_iter(200).learning_rate(0.1);
+        lr.fit(std::hint::black_box(&d)).unwrap();
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let d = scry_learn::prelude::Dataset::new(
@@ -619,6 +702,14 @@ fn audit_logreg_fairness() {
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        let x2 = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+        let _ = smartcore::linear::logistic_regression::LogisticRegression::fit(
+            std::hint::black_box(&x2),
+            std::hint::black_box(&target_i32),
+            Default::default(),
+        ).unwrap();
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let x2 = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
@@ -630,6 +721,12 @@ fn audit_logreg_fairness() {
     }
     let smart_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        let _ = linfa_logistic::LogisticRegression::default()
+            .max_iterations(200)
+            .fit(std::hint::black_box(&linfa_ds))
+            .unwrap();
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let _ = linfa_logistic::LogisticRegression::default()
@@ -690,12 +787,19 @@ fn audit_knn_fairness() {
     // ── Predict timing ──
     let n_iters = 100;
 
+    // Warmup
+    for _ in 0..2 {
+        std::hint::black_box(scry_knn.predict(std::hint::black_box(&matrix)).unwrap());
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(scry_knn.predict(std::hint::black_box(&matrix)).unwrap());
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        std::hint::black_box(smart_knn.predict(std::hint::black_box(&x)).unwrap());
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         std::hint::black_box(smart_knn.predict(std::hint::black_box(&x)).unwrap());
@@ -759,6 +863,15 @@ fn audit_kmeans_fairness() {
     // ── Train timing ──
     let n_iters = 20;
 
+    // Warmup
+    for _ in 0..2 {
+        let d = scry_learn::prelude::Dataset::new(
+            transpose(&features), target.clone(),
+            (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut km = scry_learn::prelude::KMeans::new(k).seed(42).max_iter(100).n_init(1);
+        km.fit(std::hint::black_box(&d)).unwrap();
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let d = scry_learn::prelude::Dataset::new(
@@ -770,6 +883,13 @@ fn audit_kmeans_fairness() {
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
+    for _ in 0..2 {
+        let ds = linfa::DatasetBase::from(x_nd.clone());
+        let _ = linfa_clustering::KMeans::params_with_rng(k, rand::thread_rng())
+            .max_n_iterations(100)
+            .fit(std::hint::black_box(&ds))
+            .unwrap();
+    }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let ds = linfa::DatasetBase::from(x_nd.clone());
@@ -796,5 +916,55 @@ fn audit_kmeans_fairness() {
     println!("  │ Pipeline integration    │   ✅   │    ❌     │");
     println!("  │ Pure Rust (no BLAS)     │   ✅   │    ❌     │");
     println!("  └─────────────────────────┴────────┴────────────┘");
+    println!();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DBSCAN fairness audit — scry-only profiling at multiple data sizes
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn audit_dbscan_fairness() {
+    let sizes = [500, 2_000, 10_000];
+    let n_features = 10;
+    let n_iters = 5;
+
+    println!("\n{}", "═".repeat(72));
+    println!("  DBSCAN PROFILING — scry-learn (eps=1.0, min_samples=5)");
+    println!("{}", "═".repeat(72));
+    println!(
+        "  {:>8} {:>14} {:>14}",
+        "N", "Fit time(ms)", "Clusters"
+    );
+    println!("  {}", "─".repeat(40));
+
+    for &n in &sizes {
+        let (features, target) = gen_classification(n, n_features);
+
+        let data = scry_learn::prelude::Dataset::new(
+            transpose(&features), target,
+            (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        );
+
+        let mut total_ms = 0.0;
+        let mut n_clusters = 0;
+
+        for _ in 0..n_iters {
+            let mut m = scry_learn::prelude::Dbscan::new(1.0, 5);
+            let t0 = std::time::Instant::now();
+            m.fit(std::hint::black_box(&data)).unwrap();
+            total_ms += t0.elapsed().as_secs_f64() * 1000.0;
+            n_clusters = m.n_clusters();
+        }
+
+        let avg_ms = total_ms / n_iters as f64;
+        println!(
+            "  {:>8} {:>12.2}ms {:>14}",
+            n, avg_ms, n_clusters,
+        );
+    }
+
+    println!("\n  Note: DBSCAN uses KD-tree for Euclidean distance with ≤ 20 features.");
+    println!("  Sublinear scaling demonstrates KD-tree O(n log n) vs brute-force O(n²).");
     println!();
 }

@@ -659,6 +659,145 @@ fn bench_pca() -> Vec<BenchResult> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SVM: scry LinearSVC vs smartcore SVC
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn gen_regression_data(n: usize, d: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut rng = fastrand::Rng::with_seed(42);
+    let mut col_major = vec![vec![0.0; n]; d];
+    let mut target = vec![0.0; n];
+    for i in 0..n {
+        let mut sum = 0.0;
+        for j in 0..d {
+            let v = rng.f64() * 10.0;
+            col_major[j][i] = v;
+            sum += v * (j as f64 + 1.0);
+        }
+        target[i] = sum + rng.f64() * 0.1;
+    }
+    (col_major, target)
+}
+
+fn bench_svm() -> Vec<BenchResult> {
+    let n_samples = 1000;
+    let n_features = 10;
+    let n_iters = 20;
+    let (features_row, target) = gen_classification(n_samples, n_features);
+    let col_major = transpose(&features_row);
+    let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
+
+    // scry-learn LinearSVC
+    let scry_ds = scry_learn::prelude::Dataset::new(
+        col_major.clone(), target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+    );
+    for _ in 0..WARMUP_ITERS {
+        let mut m = scry_learn::prelude::LinearSVC::new();
+        m.fit(std::hint::black_box(&scry_ds)).unwrap();
+    }
+    let mut scry_times = Vec::with_capacity(n_iters);
+    for _ in 0..n_iters {
+        let t0 = Instant::now();
+        let mut m = scry_learn::prelude::LinearSVC::new();
+        m.fit(std::hint::black_box(&scry_ds)).unwrap();
+        scry_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
+    }
+    let (scry_us, scry_std) = mean_std(&scry_times);
+
+    // smartcore SVC with linear kernel
+    let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features_row).unwrap();
+    for _ in 0..WARMUP_ITERS {
+        let knl = smartcore::svm::Kernels::linear();
+        let params = smartcore::svm::svc::SVCParameters::default()
+            .with_c(1.0).with_kernel(knl);
+        let _ = smartcore::svm::svc::SVC::fit(
+            std::hint::black_box(&x), std::hint::black_box(&target_i32),
+            std::hint::black_box(&params),
+        ).unwrap();
+    }
+    let mut smart_times = Vec::with_capacity(n_iters);
+    for _ in 0..n_iters {
+        let knl = smartcore::svm::Kernels::linear();
+        let params = smartcore::svm::svc::SVCParameters::default()
+            .with_c(1.0).with_kernel(knl);
+        let t0 = Instant::now();
+        let _ = smartcore::svm::svc::SVC::fit(
+            std::hint::black_box(&x), std::hint::black_box(&target_i32),
+            std::hint::black_box(&params),
+        ).unwrap();
+        smart_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
+    }
+    let (smart_us, smart_std) = mean_std(&smart_times);
+
+    vec![
+        BenchResult { algorithm: "SVM Train", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
+        BenchResult { algorithm: "SVM Train", library: "smartcore",  time_us: smart_us, time_std: smart_std, accuracy: None },
+    ]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Lasso: scry LassoRegression vs linfa-elasticnet
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn bench_lasso() -> Vec<BenchResult> {
+    let n_samples = 2000;
+    let n_features = 10;
+    let n_iters = 20;
+    let (col_major, target) = gen_regression_data(n_samples, n_features);
+    let row_major: Vec<Vec<f64>> = (0..n_samples)
+        .map(|i| (0..n_features).map(|j| col_major[j][i]).collect())
+        .collect();
+
+    // scry-learn Lasso
+    let scry_ds = scry_learn::prelude::Dataset::new(
+        col_major.clone(), target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+    );
+    for _ in 0..WARMUP_ITERS {
+        let mut m = scry_learn::prelude::LassoRegression::new().alpha(0.1);
+        m.fit(std::hint::black_box(&scry_ds)).unwrap();
+    }
+    let mut scry_times = Vec::with_capacity(n_iters);
+    for _ in 0..n_iters {
+        let t0 = Instant::now();
+        let mut m = scry_learn::prelude::LassoRegression::new().alpha(0.1);
+        m.fit(std::hint::black_box(&scry_ds)).unwrap();
+        scry_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
+    }
+    let (scry_us, scry_std) = mean_std(&scry_times);
+
+    // linfa-elasticnet
+    let flat: Vec<f64> = row_major.iter().flat_map(|r| r.iter().copied()).collect();
+    let x = ndarray::Array2::from_shape_vec((n_samples, n_features), flat).unwrap();
+    let y = ndarray::Array1::from_vec(target.clone());
+    let linfa_ds = linfa::Dataset::new(x, y);
+
+    for _ in 0..WARMUP_ITERS {
+        use linfa::prelude::Fit;
+        let _ = linfa_elasticnet::ElasticNet::<f64>::lasso()
+            .penalty(0.1)
+            .fit(std::hint::black_box(&linfa_ds))
+            .unwrap();
+    }
+    let mut linfa_times = Vec::with_capacity(n_iters);
+    for _ in 0..n_iters {
+        use linfa::prelude::Fit;
+        let t0 = Instant::now();
+        let _ = linfa_elasticnet::ElasticNet::<f64>::lasso()
+            .penalty(0.1)
+            .fit(std::hint::black_box(&linfa_ds))
+            .unwrap();
+        linfa_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
+    }
+    let (linfa_us, linfa_std) = mean_std(&linfa_times);
+
+    vec![
+        BenchResult { algorithm: "Lasso Train", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
+        BenchResult { algorithm: "Lasso Train", library: "linfa",      time_us: linfa_us, time_std: linfa_std, accuracy: None },
+    ]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // NEW: Inference latency — single-sample p50/p99
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -820,7 +959,7 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── LogisticRegression ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major, target,
+            col_major.clone(), target.clone(),
             (0..10).map(|i| format!("f{i}")).collect(), "target",
         );
         let mut lr = scry_learn::prelude::LogisticRegression::new().max_iter(200);
@@ -837,6 +976,84 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
         latencies.sort_unstable();
         results.push(InferenceResult {
             model: "LogisticReg",
+            p50_ns: percentile(&latencies, 50.0),
+            p99_ns: percentile(&latencies, 99.0),
+            iterations: n_iters,
+        });
+    }
+
+    // ── GaussianNB ──
+    {
+        let data = scry_learn::prelude::Dataset::new(
+            col_major.clone(), target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut gnb = scry_learn::prelude::GaussianNb::new();
+        gnb.fit(&data).unwrap();
+        for _ in 0..100 {
+            std::hint::black_box(gnb.predict(std::hint::black_box(&sample)).unwrap());
+        }
+        let mut latencies = Vec::with_capacity(n_iters);
+        for _ in 0..n_iters {
+            let t0 = Instant::now();
+            std::hint::black_box(gnb.predict(std::hint::black_box(&sample)).unwrap());
+            latencies.push(t0.elapsed().as_nanos() as u64);
+        }
+        latencies.sort_unstable();
+        results.push(InferenceResult {
+            model: "GaussianNB",
+            p50_ns: percentile(&latencies, 50.0),
+            p99_ns: percentile(&latencies, 99.0),
+            iterations: n_iters,
+        });
+    }
+
+    // ── LinearSVC ──
+    {
+        let data = scry_learn::prelude::Dataset::new(
+            col_major.clone(), target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut lsvc = scry_learn::prelude::LinearSVC::new();
+        lsvc.fit(&data).unwrap();
+        for _ in 0..100 {
+            std::hint::black_box(lsvc.predict(std::hint::black_box(&sample)).unwrap());
+        }
+        let mut latencies = Vec::with_capacity(n_iters);
+        for _ in 0..n_iters {
+            let t0 = Instant::now();
+            std::hint::black_box(lsvc.predict(std::hint::black_box(&sample)).unwrap());
+            latencies.push(t0.elapsed().as_nanos() as u64);
+        }
+        latencies.sort_unstable();
+        results.push(InferenceResult {
+            model: "LinearSVC",
+            p50_ns: percentile(&latencies, 50.0),
+            p99_ns: percentile(&latencies, 99.0),
+            iterations: n_iters,
+        });
+    }
+
+    // ── BernoulliNB ──
+    {
+        let data = scry_learn::prelude::Dataset::new(
+            col_major, target,
+            (0..10).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut bnb = scry_learn::prelude::BernoulliNB::new();
+        bnb.fit(&data).unwrap();
+        for _ in 0..100 {
+            std::hint::black_box(bnb.predict(std::hint::black_box(&sample)).unwrap());
+        }
+        let mut latencies = Vec::with_capacity(n_iters);
+        for _ in 0..n_iters {
+            let t0 = Instant::now();
+            std::hint::black_box(bnb.predict(std::hint::black_box(&sample)).unwrap());
+            latencies.push(t0.elapsed().as_nanos() as u64);
+        }
+        latencies.sort_unstable();
+        results.push(InferenceResult {
+            model: "BernoulliNB",
             p50_ns: percentile(&latencies, 50.0),
             p99_ns: percentile(&latencies, 99.0),
             iterations: n_iters,
@@ -960,7 +1177,7 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
         // ── LogReg ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major, target,
+                col_major.clone(), target.clone(),
                 (0..10).map(|i| format!("f{i}")).collect(), "target",
             );
             let n_iter = if n <= 1000 { 10 } else { 3 };
@@ -974,10 +1191,28 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
             let (mean, _) = mean_std(&times);
             points.push(ScalingPoint { model: "LogReg", n_samples: n, train_us: mean });
         }
+
+        // ── LinearSVC ──
+        {
+            let data = scry_learn::prelude::Dataset::new(
+                col_major, target,
+                (0..10).map(|i| format!("f{i}")).collect(), "target",
+            );
+            let n_iter = if n <= 1000 { 10 } else { 3 };
+            let mut times = Vec::new();
+            for _ in 0..n_iter {
+                let mut m = scry_learn::prelude::LinearSVC::new();
+                let t0 = Instant::now();
+                m.fit(std::hint::black_box(&data)).unwrap();
+                times.push(t0.elapsed().as_micros() as f64);
+            }
+            let (mean, _) = mean_std(&times);
+            points.push(ScalingPoint { model: "LinearSVC", n_samples: n, train_us: mean });
+        }
     }
 
     // Build line chart (dogfooding scry-chart)
-    let models = ["DT", "RF", "GBT", "HistGBT", "KNN", "LogReg"];
+    let models = ["DT", "RF", "GBT", "HistGBT", "KNN", "LogReg", "LinearSVC"];
     let x_vals: Vec<f64> = sizes.iter().map(|&s| s as f64).collect();
     let mut chart = LineChart::new(vec![])
         .x_values(x_vals)
@@ -1081,13 +1316,37 @@ fn bench_model_size() -> Vec<MemoryResult> {
     // ── LogReg ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major, target,
+            col_major.clone(), target.clone(),
             (0..10).map(|i| format!("f{i}")).collect(), "target",
         );
         let mut m = scry_learn::prelude::LogisticRegression::new().max_iter(200);
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
         results.push(MemoryResult { model: "LogisticReg", serialized_bytes: json.len() });
+    }
+
+    // ── GaussianNB ──
+    {
+        let data = scry_learn::prelude::Dataset::new(
+            col_major.clone(), target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut m = scry_learn::prelude::GaussianNb::new();
+        m.fit(&data).unwrap();
+        let json = serde_json::to_string(&m).unwrap();
+        results.push(MemoryResult { model: "GaussianNB", serialized_bytes: json.len() });
+    }
+
+    // ── LinearSVC ──
+    {
+        let data = scry_learn::prelude::Dataset::new(
+            col_major, target,
+            (0..10).map(|i| format!("f{i}")).collect(), "target",
+        );
+        let mut m = scry_learn::prelude::LinearSVC::new();
+        m.fit(&data).unwrap();
+        let json = serde_json::to_string(&m).unwrap();
+        results.push(MemoryResult { model: "LinearSVC", serialized_bytes: json.len() });
     }
 
     results
@@ -1977,6 +2236,12 @@ fn main() {
 
     println!("🔄 Running PCA benchmarks...");
     all_results.extend(bench_pca());
+
+    println!("🔄 Running SVM benchmarks (scry LinearSVC vs smartcore SVC)...");
+    all_results.extend(bench_svm());
+
+    println!("🔄 Running Lasso benchmarks (scry Lasso vs linfa-elasticnet)...");
+    all_results.extend(bench_lasso());
 
     // NEW: Inference latency
     println!("\n⏱️  Measuring single-sample inference latency (10K iters)...");
