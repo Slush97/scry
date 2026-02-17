@@ -31,6 +31,8 @@ pub struct GaussianNb {
     partial_sum: Vec<Vec<f64>>,
     partial_sum_sq: Vec<Vec<f64>>,
     n_features_partial: usize,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl GaussianNb {
@@ -48,6 +50,7 @@ impl GaussianNb {
             partial_sum: Vec::new(),
             partial_sum_sq: Vec::new(),
             n_features_partial: 0,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -69,6 +72,7 @@ impl GaussianNb {
 
     /// Train the model (single-pass computation of per-class mean/variance).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc, &data.target);
         }
@@ -346,6 +350,7 @@ impl GaussianNb {
 
     /// Predict class labels.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

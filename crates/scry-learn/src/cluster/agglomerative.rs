@@ -103,6 +103,8 @@ pub struct AgglomerativeClustering {
     labels: Vec<usize>,
     children: Vec<MergeStep>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl AgglomerativeClustering {
@@ -118,6 +120,7 @@ impl AgglomerativeClustering {
             labels: Vec::new(),
             children: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -133,6 +136,7 @@ impl AgglomerativeClustering {
     /// full O(n²) pairwise distance matrix, then greedily merges the
     /// closest cluster pair using a priority queue.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);

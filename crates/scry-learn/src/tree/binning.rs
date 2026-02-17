@@ -52,6 +52,8 @@ pub struct FeatureBinner {
     n_bins_per_feature: Vec<usize>,
     max_bins: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl FeatureBinner {
@@ -68,6 +70,7 @@ impl FeatureBinner {
             n_bins_per_feature: Vec::new(),
             max_bins: MAX_BINS,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -83,6 +86,7 @@ impl FeatureBinner {
     /// equally-spaced quantile boundaries to create up to `max_bins - 1`
     /// valid bins (bin 0 is reserved for missing).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_no_inf()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }

@@ -49,6 +49,8 @@ pub struct ElasticNet {
     intercept: f64,
     /// Whether the model has been fitted.
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl ElasticNet {
@@ -62,6 +64,7 @@ impl ElasticNet {
             coefficients: Vec::new(),
             intercept: 0.0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -91,6 +94,7 @@ impl ElasticNet {
 
     /// Fit the ElasticNet model using coordinate descent.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc, &data.target);
         }
@@ -194,6 +198,7 @@ impl ElasticNet {
     ///
     /// `features` is row-major: `features[sample_idx][feature_idx]`.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

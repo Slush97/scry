@@ -74,6 +74,8 @@ pub struct KernelSVR {
     /// Corresponding α_i - α*_i for support vectors.
     sv_coeff: Vec<f64>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl KernelSVR {
@@ -94,6 +96,7 @@ impl KernelSVR {
             sv_x: Vec::new(),
             sv_coeff: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -146,6 +149,7 @@ impl KernelSVR {
 
     /// Train the kernel SVR using SMO.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -295,6 +299,7 @@ impl KernelSVR {
 
     /// Predict continuous target values.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

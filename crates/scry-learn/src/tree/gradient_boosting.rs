@@ -244,6 +244,8 @@ pub struct GradientBoostingRegressor {
     /// User-supplied training callbacks (not cloned or serialized).
     #[cfg_attr(feature = "serde", serde(skip))]
     callbacks: Vec<Box<dyn TrainingCallback>>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl Clone for GradientBoostingRegressor {
@@ -267,6 +269,7 @@ impl Clone for GradientBoostingRegressor {
             n_estimators_used: self.n_estimators_used,
             history: self.history.clone(),
             callbacks: Vec::new(),
+            _schema_version: self._schema_version,
         }
     }
 }
@@ -293,6 +296,7 @@ impl GradientBoostingRegressor {
             n_estimators_used: 0,
             history: None,
             callbacks: Vec::new(),
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -386,6 +390,7 @@ impl GradientBoostingRegressor {
 
     /// Train the gradient boosting ensemble.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -624,6 +629,7 @@ impl GradientBoostingRegressor {
     ///
     /// `features` is row-major: `features[sample_idx][feature_idx]`.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
@@ -763,6 +769,8 @@ pub struct GradientBoostingClassifier {
     /// User-supplied training callbacks (not cloned or serialized).
     #[cfg_attr(feature = "serde", serde(skip))]
     callbacks: Vec<Box<dyn TrainingCallback>>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl Clone for GradientBoostingClassifier {
@@ -783,6 +791,7 @@ impl Clone for GradientBoostingClassifier {
             fitted: self.fitted,
             history: self.history.clone(),
             callbacks: Vec::new(),
+            _schema_version: self._schema_version,
         }
     }
 }
@@ -806,6 +815,7 @@ impl GradientBoostingClassifier {
             fitted: false,
             history: None,
             callbacks: Vec::new(),
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -865,6 +875,7 @@ impl GradientBoostingClassifier {
 
     /// Train the gradient boosting classifier.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -1200,6 +1211,7 @@ impl GradientBoostingClassifier {
 
     /// Predict class labels for new samples.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

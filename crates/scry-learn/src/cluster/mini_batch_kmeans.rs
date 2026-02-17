@@ -49,6 +49,8 @@ pub struct MiniBatchKMeans {
     fitted: bool,
     // Per-centroid update counts for streaming average (used by partial_fit).
     centroid_counts: Vec<u64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl MiniBatchKMeans {
@@ -66,6 +68,7 @@ impl MiniBatchKMeans {
             n_iter: 0,
             fitted: false,
             centroid_counts: Vec::new(),
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -100,6 +103,7 @@ impl MiniBatchKMeans {
 
     /// Fit the model on a dataset (uses features only, ignores target).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -199,6 +203,7 @@ impl MiniBatchKMeans {
 
     /// Predict cluster assignments for new data.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<usize>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

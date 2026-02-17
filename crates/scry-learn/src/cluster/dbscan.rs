@@ -54,6 +54,8 @@ pub struct Dbscan {
     /// Cluster label for each core point.
     core_labels: Vec<i32>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl Dbscan {
@@ -73,6 +75,7 @@ impl Dbscan {
             core_features: Vec::new(),
             core_labels: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -91,6 +94,7 @@ impl Dbscan {
     /// Uses KD-tree for Euclidean distance with ≤ 20 features,
     /// brute-force otherwise.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -246,6 +250,7 @@ impl Dbscan {
     /// assert!(preds[0] >= 0, "Should be assigned to a cluster");
     /// ```
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<i32>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

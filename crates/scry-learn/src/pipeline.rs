@@ -106,6 +106,7 @@ impl Pipeline {
 
     /// Fit all transformers and the model.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let mut transformed = data.clone();
 
         for t in &mut self.transformers {

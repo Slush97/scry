@@ -45,6 +45,8 @@ pub struct LinearRegression {
     #[cfg_attr(feature = "serde", serde(skip))]
     solver: LinRegSolver,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl LinearRegression {
@@ -56,6 +58,7 @@ impl LinearRegression {
             alpha: 0.0,
             solver: LinRegSolver::Normal,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -73,6 +76,7 @@ impl LinearRegression {
 
     /// Train the model on the given dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc, &data.target);
         }
@@ -204,6 +208,7 @@ impl LinearRegression {
 
     /// Predict target values.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

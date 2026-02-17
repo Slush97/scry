@@ -37,17 +37,25 @@ pub enum Norm {
 #[non_exhaustive]
 pub struct Normalizer {
     norm: Norm,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl Normalizer {
     /// Create a normalizer with the given norm type.
     pub fn new(norm: Norm) -> Self {
-        Self { norm }
+        Self {
+            norm,
+            _schema_version: crate::version::SCHEMA_VERSION,
+        }
     }
 
     /// Create a normalizer with L2 norm (default).
     pub fn l2() -> Self {
-        Self { norm: Norm::L2 }
+        Self {
+            norm: Norm::L2,
+            _schema_version: crate::version::SCHEMA_VERSION,
+        }
     }
 }
 
@@ -59,6 +67,7 @@ impl Default for Normalizer {
 
 impl Transformer for Normalizer {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -67,6 +76,7 @@ impl Transformer for Normalizer {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        crate::version::check_schema_version(self._schema_version)?;
         let n = data.n_samples();
         let m = data.n_features();
 

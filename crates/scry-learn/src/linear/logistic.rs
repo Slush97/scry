@@ -80,6 +80,8 @@ pub struct LogisticRegression {
     weights: Vec<Vec<f64>>, // [n_classes][n_features + 1] (includes bias)
     n_classes: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl LogisticRegression {
@@ -96,6 +98,7 @@ impl LogisticRegression {
             weights: Vec::new(),
             n_classes: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -172,6 +175,7 @@ impl LogisticRegression {
     /// Returns `InvalidParameter` if `Penalty::L1` or `Penalty::ElasticNet` is used
     /// with the `Lbfgs` solver (L-BFGS requires a differentiable objective).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc, &data.target);
         }
@@ -482,6 +486,7 @@ impl LogisticRegression {
 
     /// Predict class labels.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

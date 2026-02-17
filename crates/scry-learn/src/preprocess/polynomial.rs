@@ -30,6 +30,8 @@ pub struct PolynomialFeatures {
     /// Stored combo descriptors: each is a Vec of (original_col_idx, power) pairs.
     combos: Vec<Vec<(usize, usize)>>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl PolynomialFeatures {
@@ -41,6 +43,7 @@ impl PolynomialFeatures {
             include_bias: true,
             combos: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -146,6 +149,7 @@ fn enumerate_combos(
 
 impl Transformer for PolynomialFeatures {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -160,6 +164,7 @@ impl Transformer for PolynomialFeatures {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

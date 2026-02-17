@@ -41,6 +41,8 @@ pub struct Pca {
     explained_variance_ratio: Vec<f64>,
     total_variance: f64,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 // ── Builder ───────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ impl Pca {
             explained_variance_ratio: Vec::new(),
             total_variance: 0.0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -107,6 +110,7 @@ impl Default for Pca {
 
 impl Transformer for Pca {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -180,6 +184,7 @@ impl Transformer for Pca {
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
         const BLOCK: usize = 32;
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

@@ -10,6 +10,9 @@ pub enum ScryLearnError {
     /// The dataset contains no samples.
     EmptyDataset,
 
+    /// The input data contains NaN, Inf, or other non-finite values.
+    InvalidData(String),
+
     /// A referenced column does not exist.
     InvalidColumn(String),
 
@@ -52,6 +55,7 @@ impl fmt::Display for ScryLearnError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyDataset => f.write_str("dataset is empty — no samples to train on"),
+            Self::InvalidData(msg) => write!(f, "invalid data: {msg}"),
             Self::InvalidColumn(col) => write!(f, "column not found: {col}"),
             Self::ShapeMismatch { expected, got } => {
                 write!(f, "shape mismatch: expected {expected} features, got {got}")

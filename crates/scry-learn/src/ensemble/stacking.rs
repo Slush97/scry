@@ -398,6 +398,7 @@ impl StackingClassifier {
     /// 4. Train the final estimator on meta-features.
     /// 5. Re-train all base learners on the full dataset for prediction.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }

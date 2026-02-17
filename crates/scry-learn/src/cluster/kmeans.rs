@@ -42,6 +42,8 @@ pub struct KMeans {
     inertia: f64,
     n_iter: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl KMeans {
@@ -58,6 +60,7 @@ impl KMeans {
             inertia: f64::INFINITY,
             n_iter: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -97,6 +100,7 @@ impl KMeans {
     ///
     /// When `n_init > 1`, runs K-Means multiple times and keeps the best.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -210,6 +214,7 @@ impl KMeans {
 
     /// Predict cluster assignments for new data.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<usize>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

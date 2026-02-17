@@ -64,6 +64,7 @@ pub mod split;
 pub mod svm;
 pub mod text;
 pub mod tree;
+pub mod version;
 pub mod viz;
 pub mod weights;
 

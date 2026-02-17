@@ -62,6 +62,8 @@ pub struct RandomForestClassifier {
     n_features: usize,
     feature_importances_: Vec<f64>,
     oob_score_: Option<f64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl RandomForestClassifier {
@@ -81,6 +83,7 @@ impl RandomForestClassifier {
             n_features: 0,
             feature_importances_: Vec::new(),
             oob_score_: None,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -139,6 +142,7 @@ impl RandomForestClassifier {
     /// Dataset indices are pre-sorted once and shared across all trees to avoid
     /// per-tree `sorted_by_feature` allocation (~6 MB savings with 16 threads).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         use std::sync::atomic::{AtomicU32, Ordering};
 
         if data.n_samples() == 0 {
@@ -310,6 +314,7 @@ impl RandomForestClassifier {
     /// Uses `FlatTree::predict_sample` for cache-optimal traversal.
     /// Parallelized across samples via rayon.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if self.trees.is_empty() {
             return Err(ScryLearnError::NotFitted);
         }
@@ -432,6 +437,8 @@ pub struct RandomForestRegressor {
     trees: Vec<DecisionTreeRegressor>,
     n_features: usize,
     feature_importances_: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl RandomForestRegressor {
@@ -448,6 +455,7 @@ impl RandomForestRegressor {
             trees: Vec::new(),
             n_features: 0,
             feature_importances_: Vec::new(),
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -477,6 +485,7 @@ impl RandomForestRegressor {
 
     /// Train the forest.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -537,6 +546,7 @@ impl RandomForestRegressor {
     ///
     /// Parallelized across samples via rayon.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if self.trees.is_empty() {
             return Err(ScryLearnError::NotFitted);
         }

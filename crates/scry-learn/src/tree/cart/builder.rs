@@ -118,6 +118,8 @@ pub struct DecisionTreeClassifier {
     n_classes: usize,
     n_features: usize,
     pub(crate) feature_importances_: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl DecisionTreeClassifier {
@@ -136,6 +138,7 @@ impl DecisionTreeClassifier {
             n_classes: 0,
             n_features: 0,
             feature_importances_: Vec::new(),
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -207,6 +210,7 @@ impl DecisionTreeClassifier {
 
     /// Train the decision tree on a dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let indices: Vec<usize> = (0..data.n_samples()).collect();
         self.fit_on_indices(data, &indices)
     }
@@ -324,6 +328,7 @@ impl DecisionTreeClassifier {
     ///
     /// `features` is row-major: `features[sample_idx][feature_idx]`.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         let ft = self.flat_tree.as_ref().ok_or(ScryLearnError::NotFitted)?;
         Ok(ft.predict(features))
     }
@@ -846,6 +851,8 @@ pub struct DecisionTreeRegressor {
     pub(crate) flat_tree: Option<FlatTree>,
     n_features: usize,
     pub(crate) feature_importances_: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl DecisionTreeRegressor {
@@ -860,6 +867,7 @@ impl DecisionTreeRegressor {
             flat_tree: None,
             n_features: 0,
             feature_importances_: Vec::new(),
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -899,6 +907,7 @@ impl DecisionTreeRegressor {
 
     /// Train on a dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let indices: Vec<usize> = (0..data.n_samples()).collect();
         self.fit_on_indices(data, &indices)
     }
@@ -1009,6 +1018,7 @@ impl DecisionTreeRegressor {
 
     /// Predict values.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         let ft = self.flat_tree.as_ref().ok_or(ScryLearnError::NotFitted)?;
         Ok(ft.predict(features))
     }

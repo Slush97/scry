@@ -50,6 +50,8 @@ pub struct BernoulliNB {
     log_priors: Vec<f64>,
     n_classes: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl BernoulliNB {
@@ -63,6 +65,7 @@ impl BernoulliNB {
             log_priors: Vec::new(),
             n_classes: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -88,6 +91,7 @@ impl BernoulliNB {
 
     /// Train the model on a dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -138,6 +142,7 @@ impl BernoulliNB {
 
     /// Predict class labels.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

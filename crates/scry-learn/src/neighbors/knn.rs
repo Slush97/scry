@@ -139,6 +139,8 @@ pub struct KnnClassifier {
     /// Sparse training data (CSR) for sparse-native distance computation.
     train_sparse: Option<CsrMatrix>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl KnnClassifier {
@@ -157,6 +159,7 @@ impl KnnClassifier {
             kdtree: None,
             train_sparse: None,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -205,6 +208,7 @@ impl KnnClassifier {
     /// If the dataset uses sparse storage, the CSR representation is stored
     /// for efficient sparse distance computation in [`predict_sparse`].
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -241,6 +245,7 @@ impl KnnClassifier {
     /// in O(n) instead of full O(n·log n) sort. Euclidean distances skip sqrt
     /// since we only need relative ordering (unless distance weighting is on).
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
@@ -484,6 +489,8 @@ pub struct KnnRegressor {
     /// Sparse training data (CSR) for sparse-native distance computation.
     train_sparse: Option<CsrMatrix>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl KnnRegressor {
@@ -499,6 +506,7 @@ impl KnnRegressor {
             kdtree: None,
             train_sparse: None,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -536,6 +544,7 @@ impl KnnRegressor {
     /// If the dataset uses sparse storage, the CSR representation is stored
     /// for efficient sparse distance computation in [`predict_sparse`].
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -571,6 +580,7 @@ impl KnnRegressor {
     /// are computed in a single batch via [`ComputeBackend`].
     #[allow(clippy::option_if_let_else)]
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

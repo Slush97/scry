@@ -660,6 +660,8 @@ pub struct HistGradientBoostingRegressor {
     init_prediction: f64,
     n_features: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl HistGradientBoostingRegressor {
@@ -688,6 +690,7 @@ impl HistGradientBoostingRegressor {
             init_prediction: 0.0,
             n_features: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -743,6 +746,7 @@ impl HistGradientBoostingRegressor {
 
     /// Train the histogram-based gradient boosting regressor.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_no_inf()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -805,6 +809,7 @@ impl HistGradientBoostingRegressor {
     ///
     /// `features` is row-major: `features[sample_idx][feature_idx]`.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
@@ -929,6 +934,8 @@ pub struct HistGradientBoostingClassifier {
     n_classes: usize,
     n_features: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl HistGradientBoostingClassifier {
@@ -958,6 +965,7 @@ impl HistGradientBoostingClassifier {
             n_classes: 0,
             n_features: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -1011,6 +1019,7 @@ impl HistGradientBoostingClassifier {
 
     /// Train the histogram-based gradient boosting classifier.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_no_inf()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -1175,6 +1184,7 @@ impl HistGradientBoostingClassifier {
 
     /// Predict class labels for new samples.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

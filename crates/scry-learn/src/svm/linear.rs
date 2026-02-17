@@ -57,6 +57,8 @@ pub struct LinearSVC {
     platt_params: Vec<(f64, f64)>,
     n_classes: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl LinearSVC {
@@ -74,6 +76,7 @@ impl LinearSVC {
             platt_params: Vec::new(),
             n_classes: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -118,6 +121,7 @@ impl LinearSVC {
     /// multiclass problems (≥ 3 classes). Auto-dispatches to sparse
     /// kernels when the dataset uses sparse storage.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc, &data.target);
         }
@@ -283,6 +287,7 @@ impl LinearSVC {
     ///
     /// Returns the class whose OVR decision function is largest.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         let scores = self.decision_function(features)?;
         Ok(scores
             .into_iter()
@@ -416,6 +421,8 @@ pub struct LinearSVR {
     /// `w[0..m]` = feature weights, `w[m]` = bias.
     weights: Vec<f64>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl LinearSVR {
@@ -430,6 +437,7 @@ impl LinearSVR {
             tol: 1e-4,
             weights: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -463,6 +471,7 @@ impl LinearSVR {
     ///
     /// Auto-dispatches to sparse kernels when the dataset uses sparse storage.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc, &data.target);
         }
@@ -595,6 +604,7 @@ impl LinearSVR {
 
     /// Predict continuous target values.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

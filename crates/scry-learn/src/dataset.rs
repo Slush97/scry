@@ -4,8 +4,8 @@
 //! [`Dataset`] provides a lightweight, column-major representation of
 //! features + target, with CSV loading and basic column access.
 
-#[cfg(feature = "csv")]
 use crate::error::{Result, ScryLearnError};
+
 use crate::matrix::DenseMatrix;
 use crate::sparse::CscMatrix;
 
@@ -341,6 +341,92 @@ impl Dataset {
     pub fn sync_matrix(&mut self) {
         self.matrix = DenseMatrix::from_col_major(self.features.clone()).ok();
         self.row_major_cache = None;
+    }
+
+    /// Returns `Err(InvalidData)` if any feature or target value is NaN or ±Inf.
+    pub fn validate_finite(&self) -> Result<()> {
+        // Check sparse storage values if present.
+        if let Storage::Sparse(csc) = &self.storage {
+            for j in 0..csc.n_cols() {
+                for (i, v) in csc.col(j).iter() {
+                    if !v.is_finite() {
+                        let name = self.feature_names.get(j).map_or_else(
+                            || format!("feature[{j}]"),
+                            |n| n.clone(),
+                        );
+                        return Err(ScryLearnError::InvalidData(format!(
+                            "non-finite value ({v}) in {name} at sample {i}"
+                        )));
+                    }
+                }
+            }
+        } else {
+            for (j, col) in self.features.iter().enumerate() {
+                for (i, &v) in col.iter().enumerate() {
+                    if !v.is_finite() {
+                        let name = self.feature_names.get(j).map_or_else(
+                            || format!("feature[{j}]"),
+                            |n| n.clone(),
+                        );
+                        return Err(ScryLearnError::InvalidData(format!(
+                            "non-finite value ({v}) in {name} at sample {i}"
+                        )));
+                    }
+                }
+            }
+        }
+        for (i, &v) in self.target.iter().enumerate() {
+            if !v.is_finite() {
+                return Err(ScryLearnError::InvalidData(format!(
+                    "non-finite value ({v}) in target at sample {i}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns `Err(InvalidData)` if any feature or target value is ±Inf.
+    ///
+    /// Unlike [`validate_finite`](Self::validate_finite), this allows NaN
+    /// values (useful for imputers that intentionally handle NaN).
+    pub fn validate_no_inf(&self) -> Result<()> {
+        if let Storage::Sparse(csc) = &self.storage {
+            for j in 0..csc.n_cols() {
+                for (i, v) in csc.col(j).iter() {
+                    if v.is_infinite() {
+                        let name = self.feature_names.get(j).map_or_else(
+                            || format!("feature[{j}]"),
+                            |n| n.clone(),
+                        );
+                        return Err(ScryLearnError::InvalidData(format!(
+                            "infinite value ({v}) in {name} at sample {i}"
+                        )));
+                    }
+                }
+            }
+        } else {
+            for (j, col) in self.features.iter().enumerate() {
+                for (i, &v) in col.iter().enumerate() {
+                    if v.is_infinite() {
+                        let name = self.feature_names.get(j).map_or_else(
+                            || format!("feature[{j}]"),
+                            |n| n.clone(),
+                        );
+                        return Err(ScryLearnError::InvalidData(format!(
+                            "infinite value ({v}) in {name} at sample {i}"
+                        )));
+                    }
+                }
+            }
+        }
+        for (i, &v) in self.target.iter().enumerate() {
+            if v.is_infinite() {
+                return Err(ScryLearnError::InvalidData(format!(
+                    "infinite value ({v}) in target at sample {i}"
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Attach class labels for classification.

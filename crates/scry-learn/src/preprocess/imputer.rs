@@ -53,6 +53,8 @@ pub struct SimpleImputer {
     strategy: Strategy,
     fill_values: Vec<f64>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl SimpleImputer {
@@ -62,6 +64,7 @@ impl SimpleImputer {
             strategy: Strategy::default(),
             fill_values: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -144,6 +147,7 @@ fn mode_ignore_nan(col: &[f64]) -> f64 {
 
 impl Transformer for SimpleImputer {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_no_inf()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -164,6 +168,7 @@ impl Transformer for SimpleImputer {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

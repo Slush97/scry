@@ -17,6 +17,8 @@ pub struct StandardScaler {
     means: Vec<f64>,
     stds: Vec<f64>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl StandardScaler {
@@ -26,6 +28,7 @@ impl StandardScaler {
             means: Vec::new(),
             stds: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 }
@@ -114,6 +117,7 @@ impl Default for StandardScaler {
 
 impl Transformer for StandardScaler {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc);
         }
@@ -137,6 +141,7 @@ impl Transformer for StandardScaler {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
@@ -184,6 +189,8 @@ pub struct MinMaxScaler {
     mins: Vec<f64>,
     maxs: Vec<f64>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl MinMaxScaler {
@@ -193,6 +200,7 @@ impl MinMaxScaler {
             mins: Vec::new(),
             maxs: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 }
@@ -276,6 +284,7 @@ impl Default for MinMaxScaler {
 
 impl Transformer for MinMaxScaler {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if let Some(csc) = data.sparse_csc() {
             return self.fit_sparse(csc);
         }
@@ -298,6 +307,7 @@ impl Transformer for MinMaxScaler {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
@@ -370,6 +380,8 @@ pub struct RobustScaler {
     medians: Vec<f64>,
     iqrs: Vec<f64>,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl RobustScaler {
@@ -379,6 +391,7 @@ impl RobustScaler {
             medians: Vec::new(),
             iqrs: Vec::new(),
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 }
@@ -391,6 +404,7 @@ impl Default for RobustScaler {
 
 impl Transformer for RobustScaler {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -413,6 +427,7 @@ impl Transformer for RobustScaler {
     }
 
     fn transform(&self, data: &mut Dataset) -> Result<()> {
+        crate::version::check_schema_version(self._schema_version)?;
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }

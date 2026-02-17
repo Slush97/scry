@@ -221,6 +221,8 @@ pub struct IsolationForest {
     threshold: f64,
     /// The subsample size used during training (for normalization constant).
     training_sub_size: usize,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl IsolationForest {
@@ -236,6 +238,7 @@ impl IsolationForest {
             trees: Vec::new(),
             threshold: 0.5,
             training_sub_size: 0,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -279,6 +282,15 @@ impl IsolationForest {
     /// Returns [`ScryLearnError::EmptyDataset`] if `features` is empty.
     /// Returns [`ScryLearnError::InvalidParameter`] if `contamination` is out of range.
     pub fn fit(&mut self, features: &[Vec<f64>]) -> Result<()> {
+        for (i, row) in features.iter().enumerate() {
+            for (j, &v) in row.iter().enumerate() {
+                if !v.is_finite() {
+                    return Err(ScryLearnError::InvalidData(format!(
+                        "non-finite value ({v}) in feature[{j}] at sample {i}"
+                    )));
+                }
+            }
+        }
         if features.is_empty() {
             return Err(ScryLearnError::EmptyDataset);
         }

@@ -164,6 +164,8 @@ pub struct KernelSVC {
     platt_params: Vec<(f64, f64)>,
     n_classes: usize,
     fitted: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 /// Internal binary SMO model for one OVR sub-problem.
@@ -199,6 +201,7 @@ impl KernelSVC {
             platt_params: Vec::new(),
             n_classes: 0,
             fitted: false,
+            _schema_version: crate::version::SCHEMA_VERSION,
         }
     }
 
@@ -252,6 +255,7 @@ impl KernelSVC {
 
     /// Train the kernel SVM using SMO (one-vs-rest for multiclass).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n = data.n_samples();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -315,6 +319,7 @@ impl KernelSVC {
 
     /// Predict class labels.
     pub fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> {
+        crate::version::check_schema_version(self._schema_version)?;
         let scores = self.decision_function(features)?;
         Ok(scores
             .into_iter()

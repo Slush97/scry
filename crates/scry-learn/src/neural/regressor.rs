@@ -192,6 +192,7 @@ impl MLPRegressor {
 
     /// Train the regressor on a dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        data.validate_finite()?;
         let n_samples = data.n_samples();
         let n_features = data.n_features();
 
