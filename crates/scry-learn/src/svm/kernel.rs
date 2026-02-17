@@ -453,9 +453,12 @@ pub(crate) fn smo_train(
     }
 
     let mut passes = 0_usize;
+    let mut total_iter = 0_usize;
+    let hard_cap = max_passes * n;
 
-    while passes < max_passes {
+    while passes < max_passes && total_iter < hard_cap {
         let mut num_changed = 0_usize;
+        total_iter += 1;
 
         for i in 0..n {
             // Error for sample i.

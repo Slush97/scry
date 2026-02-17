@@ -190,9 +190,12 @@ impl KernelSVR {
         let mut b = 0.0_f64;
 
         let mut passes = 0_usize;
+        let mut total_iter = 0_usize;
+        let hard_cap = self.max_iter * n;
 
-        while passes < self.max_iter {
+        while passes < self.max_iter && total_iter < hard_cap {
             let mut num_changed = 0_usize;
+            total_iter += 1;
 
             for i in 0..n {
                 // Prediction for sample i.
