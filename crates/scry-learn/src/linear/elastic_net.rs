@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ElasticNet regression via coordinate descent (L1 + L2 regularization).
 //!
 //! Combines L1 (Lasso) and L2 (Ridge) penalties, controlled by `l1_ratio`:
@@ -7,6 +8,7 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
+use crate::sparse::{CscMatrix, CsrMatrix};
 
 /// ElasticNet regression (mixed L1 + L2 regularization).
 ///
@@ -88,6 +90,9 @@ impl ElasticNet {
 
     /// Fit the ElasticNet model using coordinate descent.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        if let Some(csc) = data.sparse_csc() {
+            return self.fit_sparse(csc, &data.target);
+        }
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -196,6 +201,114 @@ impl ElasticNet {
             .collect())
     }
 
+    /// Fit on sparse features using coordinate descent.
+    #[allow(clippy::needless_range_loop)]
+    pub fn fit_sparse(&mut self, features: &CscMatrix, target: &[f64]) -> Result<()> {
+        let n = features.n_rows();
+        let m = features.n_cols();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        if target.len() != n {
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "target length {} != n_rows {}", target.len(), n
+            )));
+        }
+        if self.alpha < 0.0 {
+            return Err(ScryLearnError::InvalidParameter("alpha must be >= 0".into()));
+        }
+        if !(0.0..=1.0).contains(&self.l1_ratio) {
+            return Err(ScryLearnError::InvalidParameter("l1_ratio must be in [0, 1]".into()));
+        }
+
+        let n_f64 = n as f64;
+        let l1_pen = self.alpha * self.l1_ratio;
+        let l2_pen = self.alpha * (1.0 - self.l1_ratio);
+
+        let mut beta = vec![0.0; m];
+        let mut intercept = target.iter().sum::<f64>() / n_f64;
+
+        let mut col_norm_sq = vec![0.0; m];
+        for j in 0..m {
+            let mut sq_sum = 0.0;
+            for (_, val) in features.col(j).iter() {
+                sq_sum += val * val;
+            }
+            col_norm_sq[j] = sq_sum / n_f64;
+        }
+
+        let mut residuals: Vec<f64> = target.iter().map(|&y| y - intercept).collect();
+
+        for _iter in 0..self.max_iter {
+            let mut max_change = 0.0_f64;
+
+            let r_mean = residuals.iter().sum::<f64>() / n_f64;
+            let new_intercept = intercept + r_mean;
+            max_change = max_change.max((new_intercept - intercept).abs());
+            for r in &mut residuals {
+                *r -= r_mean;
+            }
+            intercept = new_intercept;
+
+            for j in 0..m {
+                if col_norm_sq[j] < 1e-15 {
+                    continue;
+                }
+
+                let old_beta_j = beta[j];
+
+                if old_beta_j != 0.0 {
+                    for (row_idx, val) in features.col(j).iter() {
+                        residuals[row_idx] += val * old_beta_j;
+                    }
+                }
+
+                let mut rho = 0.0;
+                for (row_idx, val) in features.col(j).iter() {
+                    rho += val * residuals[row_idx];
+                }
+                rho /= n_f64;
+
+                let new_beta_j = soft_threshold(rho, l1_pen) / (col_norm_sq[j] + l2_pen);
+                max_change = max_change.max((new_beta_j - old_beta_j).abs());
+                beta[j] = new_beta_j;
+
+                if new_beta_j != 0.0 {
+                    for (row_idx, val) in features.col(j).iter() {
+                        residuals[row_idx] -= val * new_beta_j;
+                    }
+                }
+            }
+
+            if max_change < self.tol {
+                break;
+            }
+        }
+
+        self.coefficients = beta;
+        self.intercept = intercept;
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Predict from sparse features (CSR format).
+    pub fn predict_sparse(&self, features: &CsrMatrix) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        Ok((0..features.n_rows())
+            .map(|i| {
+                let mut y = self.intercept;
+                for (col, val) in features.row(i).iter() {
+                    if col < self.coefficients.len() {
+                        y += self.coefficients[col] * val;
+                    }
+                }
+                y
+            })
+            .collect())
+    }
+
     /// Get learned coefficients.
     pub fn coefficients(&self) -> &[f64] {
         &self.coefficients
@@ -285,5 +398,25 @@ mod tests {
     fn test_elastic_net_not_fitted() {
         let en = ElasticNet::new();
         assert!(en.predict(&[vec![1.0]]).is_err());
+    }
+
+    #[test]
+    fn test_sparse_elastic_net_matches_dense() {
+        let features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let target = vec![3.0, 5.0, 7.0, 9.0, 11.0];
+        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "y");
+
+        let mut en_dense = ElasticNet::new().alpha(0.01).l1_ratio(0.5).max_iter(5000);
+        en_dense.fit(&data).unwrap();
+
+        let csc = CscMatrix::from_dense(&features);
+        let mut en_sparse = ElasticNet::new().alpha(0.01).l1_ratio(0.5).max_iter(5000);
+        en_sparse.fit_sparse(&csc, &target).unwrap();
+
+        assert!(
+            (en_dense.coefficients()[0] - en_sparse.coefficients()[0]).abs() < 0.1,
+            "Dense={} vs Sparse={}",
+            en_dense.coefficients()[0], en_sparse.coefficients()[0]
+        );
     }
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ratatui `StatefulWidget` integration for `PixelCanvas`.
 //!
 //! This module bridges the drawing API with Ratatui's rendering model.

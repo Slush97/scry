@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Cursor crosshair, nearest-point detection, and tooltip overlay.
 //!
 //! This module provides interactive cursor features for charts:

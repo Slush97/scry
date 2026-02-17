@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Multi-layer perceptron regressor.
 //!
 //! Sklearn-compatible API with builder pattern.
@@ -17,6 +18,7 @@ use crate::neural::activation::Activation;
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};
+use crate::partial_fit::PartialFit;
 
 /// Multi-layer perceptron regressor.
 ///
@@ -338,6 +340,83 @@ impl MLPRegressor {
     }
 }
 
+impl PartialFit for MLPRegressor {
+    /// Run one epoch of mini-batch SGD (MSE loss) on the given data.
+    ///
+    /// On the first call, initializes the network architecture. Subsequent
+    /// calls preserve network weights and continue training.
+    fn partial_fit(&mut self, data: &Dataset) -> Result<()> {
+        let n_samples = data.n_samples();
+        let n_features = data.n_features();
+        if n_samples == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+
+        if !self.is_initialized() {
+            let mut sizes = Vec::with_capacity(self.hidden_layers.len() + 2);
+            sizes.push(n_features);
+            sizes.extend_from_slice(&self.hidden_layers);
+            sizes.push(1);
+
+            let net = Network::new(&sizes, self.activation, self.seed);
+            self.network_weights = net.save_weights();
+            self.network_dims = net.layer_dims();
+            self.n_features = n_features;
+            self.loss_curve.clear();
+        } else if n_features != self.n_features {
+            return Err(ScryLearnError::ShapeMismatch {
+                expected: self.n_features,
+                got: n_features,
+            });
+        }
+
+        let x = build_row_major(&data.features, n_samples, n_features);
+        let y = data.target.clone();
+
+        let mut net = self.rebuild_network();
+        let param_sizes = net.param_group_sizes();
+        let mut optimizer =
+            OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
+
+        let batch_size = self.batch_size.min(n_samples);
+        let mut rng = FastRng::new(self.seed.wrapping_add(self.loss_curve.len() as u64));
+        let mut indices: Vec<usize> = (0..n_samples).collect();
+
+        // One epoch.
+        rng.shuffle(&mut indices);
+        let mut epoch_loss = 0.0;
+        let mut n_batches = 0;
+
+        for chunk in indices.chunks(batch_size) {
+            let b = chunk.len();
+            let mut batch_x = Vec::with_capacity(b * n_features);
+            let mut batch_y = Vec::with_capacity(b);
+            for &i in chunk {
+                batch_x.extend_from_slice(&x[i * n_features..(i + 1) * n_features]);
+                batch_y.push(y[i]);
+            }
+
+            let output = net.forward(&batch_x, b, true);
+            let (loss, grad) = network::mse_loss(&output, &batch_y, b);
+            epoch_loss += loss;
+            n_batches += 1;
+
+            let layer_grads = net.backward(&grad, self.alpha);
+            optimizer.tick();
+            net.apply_gradients(&layer_grads, &mut optimizer);
+        }
+
+        self.loss_curve.push(epoch_loss / n_batches as f64);
+        self.network_weights = net.save_weights();
+        self.fitted = true;
+        Ok(())
+    }
+
+    fn is_initialized(&self) -> bool {
+        !self.network_weights.is_empty()
+    }
+}
+
 impl Default for MLPRegressor {
     fn default() -> Self {
         Self::new()
@@ -451,5 +530,38 @@ mod tests {
         let curve = reg.loss_curve();
         assert!(curve.len() >= 2);
         assert!(curve.first().unwrap() > curve.last().unwrap());
+    }
+
+    #[test]
+    fn partial_fit_is_initialized() {
+        let mut reg = MLPRegressor::new();
+        assert!(!reg.is_initialized());
+
+        let data = linear_dataset();
+        reg.partial_fit(&data).unwrap();
+        assert!(reg.is_initialized());
+    }
+
+    #[test]
+    fn partial_fit_loss_decreases() {
+        let data = linear_dataset();
+        let mut reg = MLPRegressor::new()
+            .hidden_layers(&[20])
+            .learning_rate(0.01)
+            .batch_size(32)
+            .seed(42);
+
+        for _ in 0..10 {
+            reg.partial_fit(&data).unwrap();
+        }
+
+        let curve = reg.loss_curve();
+        assert_eq!(curve.len(), 10);
+        assert!(
+            curve.first().unwrap() > curve.last().unwrap(),
+            "loss should decrease: first={} last={}",
+            curve.first().unwrap(),
+            curve.last().unwrap()
+        );
     }
 }

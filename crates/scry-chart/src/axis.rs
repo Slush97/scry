@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Axis rendering — tick marks, gridlines, minor ticks, and labels.
 //!
 //! Supports all four axis positions (Top, Bottom, Left, Right), minor tick

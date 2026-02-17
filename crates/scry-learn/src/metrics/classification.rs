@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Classification metrics: accuracy, precision, recall, F1, confusion matrix.
 
 use std::collections::HashMap;

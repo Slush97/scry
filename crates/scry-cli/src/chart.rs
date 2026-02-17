@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chart subcommand group — `scry chart render|plot|example|show`.
 //!
 //! This module wraps all chart-related CLI functionality that was previously

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Play subcommand — `scry play`.
 //!
 //! Interactive TUI animation viewer.  Runs fullscreen animations using

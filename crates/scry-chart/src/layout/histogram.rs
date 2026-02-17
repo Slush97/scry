@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Histogram rendering.
 
 use crate::chart::histogram::Histogram;

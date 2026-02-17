@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Configurable chart margins / padding.
 //!
 //! Use [`Margin`] to control the extra whitespace around the plot area,

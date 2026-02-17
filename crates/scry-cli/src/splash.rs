@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Splash subcommand — `scry splash`.
 //!
 //! Productized version of the `startup_anim` example.  Renders a sacred

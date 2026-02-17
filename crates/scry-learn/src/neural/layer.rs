@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Dense (fully-connected) neural network layer.
 //!
 //! Each layer stores weights, biases, and caches for the forward/backward pass.

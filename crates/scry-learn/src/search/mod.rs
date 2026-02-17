@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Hyperparameter search via cross-validation.
 //!
 //! [`GridSearchCV`] performs exhaustive search over a parameter grid,
@@ -53,6 +54,7 @@ use crate::split::ScoringFn;
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum ParamValue {
     /// Integer parameter (e.g. `max_depth`, `n_estimators`).
     Int(usize),

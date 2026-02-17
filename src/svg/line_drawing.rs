@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SVG line drawing animation.
 //!
 //! Extract paths from an SVG and progressively reveal them using animated
@@ -419,6 +420,7 @@ impl Default for Trail {
 
 /// Controls how multiple path segments are animated relative to each other.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DrawMode {
     /// Paths are drawn one after another, proportional to their length.
     /// A path that is 30% of total length occupies 30% of the `t` range.

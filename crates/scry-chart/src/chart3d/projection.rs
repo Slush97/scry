@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Perspective projection and depth sorting for 3D visualization.
 //!
 //! Provides [`PerspectiveProjection`] for transforming 3D world-space points

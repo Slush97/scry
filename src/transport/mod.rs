@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Terminal graphics transport layer.
 //!
 //! This module provides the [`ProtocolBackend`] trait and its implementations

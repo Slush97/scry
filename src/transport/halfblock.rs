@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Unicode halfblock fallback backend.
 //!
 //! When no graphics protocol is available, this backend renders images using

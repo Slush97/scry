@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! # scry — pixel-perfect terminal graphics
 //!
 //! Unified CLI for charts, splash animations, image rendering, and animation presets.

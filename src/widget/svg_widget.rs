@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SVG widget for Ratatui — renders SVG images via the pixel transport layer.
 //!
 //! [`SvgWidget`] is a [`StatefulWidget`] that takes a reference to a parsed

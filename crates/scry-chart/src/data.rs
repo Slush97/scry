@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Data types for chart input.
 //!
 //! Provides [`Series`] — a named sequence of values that can be fed into charts,
@@ -65,6 +66,7 @@ pub enum FillPattern {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum GapPolicy {
     /// Break the line at NaN values, leaving a visual gap (default).
     #[default]

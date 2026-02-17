@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Heatmap rendering.
 //!
 //! Uses `RenderContext` for canvas/overlay management and `add_common_overlays()`

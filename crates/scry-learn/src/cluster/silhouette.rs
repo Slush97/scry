@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Silhouette scoring for clustering quality.
 //!
 //! The silhouette coefficient measures how similar a sample is to its own cluster

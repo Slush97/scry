@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Regression metrics: MSE, RMSE, MAE, R².
 
 /// Mean Squared Error.

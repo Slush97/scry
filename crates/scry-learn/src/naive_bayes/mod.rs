@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Naive Bayes classifiers: Gaussian, Bernoulli, and Multinomial.
 
 mod gaussian;

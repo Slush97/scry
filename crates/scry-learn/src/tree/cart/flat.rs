@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Cache-optimal flat tree representation for prediction.
 //!
 //! `FlatTree` stores nodes in DFS pre-order for cache-friendly traversal.

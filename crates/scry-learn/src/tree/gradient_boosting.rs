@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Gradient Boosted Trees — sequential ensemble for classification and regression.
 //!
 //! Each boosting round fits a shallow regression tree to the negative gradient

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! CSV data ingestion for the `scry chart plot` command.
 //!
 //! Parses CSV/TSV from stdin or files, extracts columns by header name,

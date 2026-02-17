@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Linear regression via OLS (Ordinary Least Squares).
 
 use crate::accel;
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
+use crate::sparse::{CscMatrix, CsrMatrix};
 
 /// Solver strategy for linear regression.
 #[derive(Clone, Debug, Default)]
@@ -70,6 +72,9 @@ impl LinearRegression {
 
     /// Train the model on the given dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        if let Some(csc) = data.sparse_csc() {
+            return self.fit_sparse(csc, &data.target);
+        }
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -206,6 +211,111 @@ impl LinearRegression {
                 for (j, &coeff) in self.coefficients.iter().enumerate() {
                     if j < row.len() {
                         y += coeff * row[j];
+                    }
+                }
+                y
+            })
+            .collect())
+    }
+
+    /// Fit on sparse features (CSC format for column-oriented access).
+    ///
+    /// Builds XᵀX and Xᵀy by iterating only over non-zero entries.
+    pub fn fit_sparse(&mut self, features: &CscMatrix, target: &[f64]) -> Result<()> {
+        let n = features.n_rows();
+        let m = features.n_cols();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        if target.len() != n {
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "target length {} != n_rows {}", target.len(), n
+            )));
+        }
+
+        let dim = m + 1; // intercept + features
+
+        // Build XᵀX (dim×dim row-major) and Xᵀy (dim) with intercept column.
+        let mut xtx = vec![0.0; dim * dim];
+        let mut xty = vec![0.0; dim];
+
+        // Intercept-intercept: XᵀX[0][0] = n
+        xtx[0] = n as f64;
+
+        // Intercept-target: Xᵀy[0] = Σ y_i
+        xty[0] = target.iter().sum();
+
+        // Intercept-feature cross terms: XᵀX[0][j+1] = XᵀX[j+1][0] = Σ x_ij
+        for j in 0..m {
+            let col = features.col(j);
+            let sum: f64 = col.iter().map(|(_, v)| v).sum();
+            xtx[j + 1] = sum;
+            xtx[(j + 1) * dim] = sum;
+
+            // Xᵀy[j+1] = Σ x_ij * y_i
+            let mut dot = 0.0;
+            for (row_idx, val) in col.iter() {
+                dot += val * target[row_idx];
+            }
+            xty[j + 1] = dot;
+        }
+
+        // Feature-feature: XᵀX[i+1][j+1] = Σ_k x_ki * x_kj (only non-zero entries)
+        // For efficiency, use scatter approach: for each column j, scatter into a dense vector,
+        // then dot with each column i.
+        let mut dense_col = vec![0.0; n];
+        for j in 0..m {
+            // Scatter column j into dense.
+            for (row_idx, val) in features.col(j).iter() {
+                dense_col[row_idx] = val;
+            }
+
+            // Diagonal: XᵀX[j+1][j+1]
+            let mut diag = 0.0;
+            for (row_idx, val) in features.col(j).iter() {
+                diag += val * dense_col[row_idx];
+            }
+            xtx[(j + 1) * dim + j + 1] = diag;
+
+            // Off-diagonal with columns i < j.
+            for i in 0..j {
+                let mut dot = 0.0;
+                for (row_idx, val) in features.col(i).iter() {
+                    dot += val * dense_col[row_idx];
+                }
+                xtx[(i + 1) * dim + j + 1] = dot;
+                xtx[(j + 1) * dim + i + 1] = dot;
+            }
+
+            // Clear dense_col.
+            for (row_idx, _) in features.col(j).iter() {
+                dense_col[row_idx] = 0.0;
+            }
+        }
+
+        // Add Ridge regularization.
+        for j in 1..dim {
+            xtx[j * dim + j] += self.alpha;
+        }
+
+        let beta = solve_linear(dim, &mut xtx, &mut xty)?;
+        self.intercept = beta[0];
+        self.coefficients = beta[1..].to_vec();
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Predict from sparse features (CSR format for row-oriented access).
+    pub fn predict_sparse(&self, features: &CsrMatrix) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        Ok((0..features.n_rows())
+            .map(|i| {
+                let mut y = self.intercept;
+                for (col, val) in features.row(i).iter() {
+                    if col < self.coefficients.len() {
+                        y += self.coefficients[col] * val;
                     }
                 }
                 y
@@ -427,6 +537,74 @@ mod tests {
         assert!(
             (lr.coefficients()[0] - 2.0).abs() < 1e-6,
             "Auto solver coefficient should be ~2.0, got {}",
+            lr.coefficients()[0]
+        );
+    }
+
+    #[test]
+    fn test_sparse_fit_matches_dense() {
+        let features = vec![(0..20).map(|i| i as f64).collect::<Vec<f64>>()];
+        let target: Vec<f64> = (0..20).map(|i| 2.0 * i as f64 + 3.0).collect();
+        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "y");
+
+        let mut lr_dense = LinearRegression::new();
+        lr_dense.fit(&data).unwrap();
+
+        let csc = CscMatrix::from_dense(&features);
+        let mut lr_sparse = LinearRegression::new();
+        lr_sparse.fit_sparse(&csc, &target).unwrap();
+
+        assert!(
+            (lr_dense.coefficients()[0] - lr_sparse.coefficients()[0]).abs() < 1e-6,
+            "Dense={} vs Sparse={}",
+            lr_dense.coefficients()[0], lr_sparse.coefficients()[0]
+        );
+        assert!(
+            (lr_dense.intercept() - lr_sparse.intercept()).abs() < 1e-6,
+            "Dense intercept={} vs Sparse={}",
+            lr_dense.intercept(), lr_sparse.intercept()
+        );
+    }
+
+    #[test]
+    fn test_sparse_predict_matches_dense() {
+        let features = vec![(0..20).map(|i| i as f64).collect::<Vec<f64>>()];
+        let target: Vec<f64> = (0..20).map(|i| 2.0 * i as f64 + 3.0).collect();
+        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "y");
+
+        let mut lr = LinearRegression::new();
+        lr.fit(&data).unwrap();
+
+        let test_rows = vec![vec![3.0], vec![10.0], vec![15.0]];
+        let preds_dense = lr.predict(&test_rows).unwrap();
+
+        let csr = CsrMatrix::from_dense(&test_rows);
+        let preds_sparse = lr.predict_sparse(&csr).unwrap();
+
+        for (d, s) in preds_dense.iter().zip(preds_sparse.iter()) {
+            assert!(
+                (d - s).abs() < 1e-6,
+                "Dense pred={d} vs Sparse pred={s}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_auto_dispatch_sparse_fit() {
+        // Create a sparse Dataset, call fit() (not fit_sparse), verify it works.
+        let features = vec![(0..20).map(|i| i as f64).collect::<Vec<f64>>()];
+        let target: Vec<f64> = (0..20).map(|i| 2.0 * i as f64 + 3.0).collect();
+        let csc = CscMatrix::from_dense(&features);
+        let data = crate::dataset::Dataset::from_sparse(
+            csc, target, vec!["x".into()], "y",
+        );
+
+        let mut lr = LinearRegression::new();
+        lr.fit(&data).unwrap();
+
+        assert!(
+            (lr.coefficients()[0] - 2.0).abs() < 1e-4,
+            "Auto-dispatched sparse fit: coefficient should be ~2.0, got {}",
             lr.coefficients()[0]
         );
     }

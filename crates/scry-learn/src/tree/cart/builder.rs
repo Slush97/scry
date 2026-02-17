@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Decision tree classifier and regressor implementations.
 //!
 //! Contains the CART tree-building algorithm with pre-sorted indices,

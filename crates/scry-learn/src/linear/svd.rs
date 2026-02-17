@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SVD least-squares solver via one-sided Jacobi rotations.
 
 use crate::error::{Result, ScryLearnError};

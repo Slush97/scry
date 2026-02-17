@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! K-Nearest Neighbors classifier and regressor.
 //!
 //! Supports two search algorithms:
@@ -13,6 +14,7 @@ use crate::accel;
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neighbors::kdtree::KdTree;
+use crate::sparse::{CsrMatrix, SparseRow};
 use crate::weights::{ClassWeight, compute_sample_weights};
 
 /// Distance metric for KNN.
@@ -51,6 +53,7 @@ pub enum DistanceMetric {
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum WeightFunction {
     /// All neighbors have equal vote weight.
     #[default]
@@ -74,6 +77,7 @@ pub enum WeightFunction {
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Algorithm {
     /// Automatically choose the best algorithm based on data and metric.
     ///
@@ -131,6 +135,8 @@ pub struct KnnClassifier {
     train_weights: Vec<f64>,
     n_classes: usize,
     kdtree: Option<KdTree>,
+    /// Sparse training data (CSR) for sparse-native distance computation.
+    train_sparse: Option<CsrMatrix>,
     fitted: bool,
 }
 
@@ -148,6 +154,7 @@ impl KnnClassifier {
             train_weights: Vec::new(),
             n_classes: 0,
             kdtree: None,
+            train_sparse: None,
             fitted: false,
         }
     }
@@ -193,17 +200,31 @@ impl KnnClassifier {
 
     /// Store training data. Builds a KD-tree if the selected algorithm
     /// (or `Auto` heuristic) calls for it.
+    ///
+    /// If the dataset uses sparse storage, the CSR representation is stored
+    /// for efficient sparse distance computation in [`predict_sparse`].
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
-        self.train_features = data.feature_matrix();
+
+        // Store sparse training data if available.
+        if let Some(csr) = data.sparse_csr() {
+            self.train_sparse = Some(csr);
+            self.train_features = Vec::new(); // no dense copy needed
+        } else {
+            self.train_sparse = None;
+            self.train_features = data.feature_matrix();
+        }
+
         self.train_target.clone_from(&data.target);
         self.train_weights = compute_sample_weights(&data.target, &self.class_weight);
         self.n_classes = data.n_classes();
 
-        // Build KD-tree if appropriate.
-        self.kdtree = if should_use_kdtree(self.algorithm, self.metric, data.n_features()) {
+        // Build KD-tree if appropriate (only for dense data).
+        self.kdtree = if self.train_sparse.is_none()
+            && should_use_kdtree(self.algorithm, self.metric, data.n_features())
+        {
             Some(KdTree::build(&self.train_features))
         } else {
             None
@@ -354,6 +375,47 @@ impl KnnClassifier {
     }
 }
 
+impl KnnClassifier {
+    /// Predict class labels from sparse features (CSR format).
+    ///
+    /// Uses true sparse distance computation via merge-join on sorted indices,
+    /// avoiding densification. Supports Euclidean, Manhattan, and Cosine metrics.
+    pub fn predict_sparse(&self, features: &CsrMatrix) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        let n_train = self.train_target.len();
+        let k = self.k.min(n_train);
+        let use_actual_dist = matches!(self.weight_fn, WeightFunction::Distance);
+
+        Ok((0..features.n_rows())
+            .map(|i| {
+                let query = features.row(i);
+                let neighbors = if let Some(ref train_csr) = self.train_sparse {
+                    sparse_brute_force(&query, train_csr, k, self.metric, use_actual_dist)
+                } else {
+                    let dense = sparse_row_to_dense(&query, features.n_cols());
+                    scalar_brute_force(&dense, &self.train_features, k, self.metric, use_actual_dist)
+                };
+                let votes = aggregate_votes(
+                    &neighbors,
+                    &self.train_target,
+                    &self.train_weights,
+                    self.n_classes,
+                    use_actual_dist,
+                );
+                votes
+                    .iter()
+                    .enumerate()
+                    .fold((0usize, f64::NEG_INFINITY), |(best_i, best_v), (i, &v)| {
+                        if v > best_v { (i, v) } else { (best_i, best_v) }
+                    })
+                    .0 as f64
+            })
+            .collect())
+    }
+}
+
 impl Default for KnnClassifier {
     fn default() -> Self {
         Self::new()
@@ -398,6 +460,8 @@ pub struct KnnRegressor {
     train_features: Vec<Vec<f64>>, // [n_samples][n_features]
     train_target: Vec<f64>,
     kdtree: Option<KdTree>,
+    /// Sparse training data (CSR) for sparse-native distance computation.
+    train_sparse: Option<CsrMatrix>,
     fitted: bool,
 }
 
@@ -412,6 +476,7 @@ impl KnnRegressor {
             train_features: Vec::new(),
             train_target: Vec::new(),
             kdtree: None,
+            train_sparse: None,
             fitted: false,
         }
     }
@@ -446,14 +511,27 @@ impl KnnRegressor {
     }
 
     /// Store training data. Builds KD-tree if appropriate.
+    ///
+    /// If the dataset uses sparse storage, the CSR representation is stored
+    /// for efficient sparse distance computation in [`predict_sparse`].
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
-        self.train_features = data.feature_matrix();
+
+        if let Some(csr) = data.sparse_csr() {
+            self.train_sparse = Some(csr);
+            self.train_features = Vec::new();
+        } else {
+            self.train_sparse = None;
+            self.train_features = data.feature_matrix();
+        }
+
         self.train_target.clone_from(&data.target);
 
-        self.kdtree = if should_use_kdtree(self.algorithm, self.metric, data.n_features()) {
+        self.kdtree = if self.train_sparse.is_none()
+            && should_use_kdtree(self.algorithm, self.metric, data.n_features())
+        {
             Some(KdTree::build(&self.train_features))
         } else {
             None
@@ -515,6 +593,33 @@ impl KnnRegressor {
                     get_neighbors(query)
                 };
 
+                aggregate_regression(&neighbors, &self.train_target, use_actual_dist, k)
+            })
+            .collect())
+    }
+}
+
+impl KnnRegressor {
+    /// Predict from sparse features (CSR format).
+    ///
+    /// Uses true sparse distance computation via merge-join on sorted indices.
+    pub fn predict_sparse(&self, features: &CsrMatrix) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        let n_train = self.train_target.len();
+        let k = self.k.min(n_train);
+        let use_actual_dist = matches!(self.weight_fn, WeightFunction::Distance);
+
+        Ok((0..features.n_rows())
+            .map(|i| {
+                let query = features.row(i);
+                let neighbors = if let Some(ref train_csr) = self.train_sparse {
+                    sparse_brute_force(&query, train_csr, k, self.metric, use_actual_dist)
+                } else {
+                    let dense = sparse_row_to_dense(&query, features.n_cols());
+                    scalar_brute_force(&dense, &self.train_features, k, self.metric, use_actual_dist)
+                };
                 aggregate_regression(&neighbors, &self.train_target, use_actual_dist, k)
             })
             .collect())
@@ -773,6 +878,154 @@ fn cosine_distance(a: &[f64], b: &[f64]) -> f64 {
     1.0 - (dot / denom)
 }
 
+/// Convert a sparse row view to a dense vector.
+fn sparse_row_to_dense(row: &SparseRow<'_>, n_cols: usize) -> Vec<f64> {
+    let mut dense = vec![0.0; n_cols];
+    for (col, val) in row.iter() {
+        dense[col] = val;
+    }
+    dense
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Sparse distance functions (merge-join on sorted index arrays)
+// ─────────────────────────────────────────────────────────────────
+
+/// Sparse dot product via two-pointer merge on sorted indices.
+fn sparse_dot(a: &SparseRow<'_>, b: &SparseRow<'_>) -> f64 {
+    let (a_idx, a_val) = (a.indices(), a.values());
+    let (b_idx, b_val) = (b.indices(), b.values());
+    let (mut i, mut j) = (0, 0);
+    let mut dot = 0.0;
+    while i < a_idx.len() && j < b_idx.len() {
+        match a_idx[i].cmp(&b_idx[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                dot += a_val[i] * b_val[j];
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    dot
+}
+
+/// Squared L2 norm of a sparse row: `||a||² = Σ a_i²`.
+#[inline]
+fn sparse_norm_sq(a: &SparseRow<'_>) -> f64 {
+    a.values().iter().map(|v| v * v).sum()
+}
+
+/// Sparse squared Euclidean distance: `d²(a,b) = ||a||² + ||b||² - 2·a·b`.
+#[inline]
+fn sparse_euclidean_sq(a: &SparseRow<'_>, b: &SparseRow<'_>) -> f64 {
+    let d2 = sparse_norm_sq(a) + sparse_norm_sq(b) - 2.0 * sparse_dot(a, b);
+    d2.max(0.0) // Guard against floating-point rounding
+}
+
+/// Sparse Manhattan distance via merge-join.
+fn sparse_manhattan(a: &SparseRow<'_>, b: &SparseRow<'_>) -> f64 {
+    let (a_idx, a_val) = (a.indices(), a.values());
+    let (b_idx, b_val) = (b.indices(), b.values());
+    let (mut i, mut j) = (0, 0);
+    let mut dist = 0.0;
+    while i < a_idx.len() && j < b_idx.len() {
+        match a_idx[i].cmp(&b_idx[j]) {
+            std::cmp::Ordering::Less => {
+                dist += a_val[i].abs();
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                dist += b_val[j].abs();
+                j += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                dist += (a_val[i] - b_val[j]).abs();
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    while i < a_idx.len() {
+        dist += a_val[i].abs();
+        i += 1;
+    }
+    while j < b_idx.len() {
+        dist += b_val[j].abs();
+        j += 1;
+    }
+    dist
+}
+
+/// Sparse cosine distance: `1 − cos(θ)`.
+#[inline]
+fn sparse_cosine(a: &SparseRow<'_>, b: &SparseRow<'_>) -> f64 {
+    let dot = sparse_dot(a, b);
+    let norm_a = sparse_norm_sq(a).sqrt();
+    let norm_b = sparse_norm_sq(b).sqrt();
+    let denom = norm_a * norm_b;
+    if denom < f64::EPSILON {
+        return 1.0;
+    }
+    1.0 - (dot / denom)
+}
+
+/// Compute sparse distance for comparison (skips sqrt for Euclidean).
+#[inline]
+fn sparse_distance_for_compare(a: &SparseRow<'_>, b: &SparseRow<'_>, metric: DistanceMetric) -> f64 {
+    match metric {
+        DistanceMetric::Euclidean => sparse_euclidean_sq(a, b),
+        DistanceMetric::Manhattan => sparse_manhattan(a, b),
+        DistanceMetric::Cosine => sparse_cosine(a, b),
+    }
+}
+
+/// Compute actual sparse distance (with sqrt for Euclidean).
+#[inline]
+fn sparse_actual_distance(a: &SparseRow<'_>, b: &SparseRow<'_>, metric: DistanceMetric) -> f64 {
+    match metric {
+        DistanceMetric::Euclidean => sparse_euclidean_sq(a, b).sqrt(),
+        DistanceMetric::Manhattan => sparse_manhattan(a, b),
+        DistanceMetric::Cosine => sparse_cosine(a, b),
+    }
+}
+
+/// Brute-force k-nearest on sparse training data.
+fn sparse_brute_force(
+    query: &SparseRow<'_>,
+    train: &CsrMatrix,
+    k: usize,
+    metric: DistanceMetric,
+    use_actual_dist: bool,
+) -> Vec<(f64, usize)> {
+    let n = train.n_rows();
+    let mut dists: Vec<(f64, usize)> = (0..n)
+        .map(|i| {
+            let train_row = train.row(i);
+            let d = if use_actual_dist {
+                sparse_actual_distance(query, &train_row, metric)
+            } else {
+                sparse_distance_for_compare(query, &train_row, metric)
+            };
+            (d, i)
+        })
+        .collect();
+
+    if k < dists.len() {
+        dists.select_nth_unstable_by(k - 1, |a, b| {
+            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    dists.truncate(k);
+    dists.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.1.cmp(&b.1))
+    });
+    dists
+}
+
 /// Decide whether to use the KD-tree based on algorithm selection, metric, and dimensionality.
 fn should_use_kdtree(algo: Algorithm, metric: DistanceMetric, n_features: usize) -> bool {
     match algo {
@@ -917,6 +1170,154 @@ mod tests {
 
         let knn_r = KnnRegressor::new();
         assert!(knn_r.predict(&[vec![1.0]]).is_err());
+    }
+
+    #[test]
+    fn test_knn_predict_sparse_matches_dense() {
+        let features = vec![
+            vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
+            vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
+        ];
+        let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
+
+        let mut knn = KnnClassifier::new().k(3);
+        knn.fit(&data).unwrap();
+
+        let test = vec![vec![1.0, 1.0], vec![9.0, 9.0]];
+        let preds_dense = knn.predict(&test).unwrap();
+        let csr = CsrMatrix::from_dense(&test);
+        let preds_sparse = knn.predict_sparse(&csr).unwrap();
+
+        for (d, s) in preds_dense.iter().zip(preds_sparse.iter()) {
+            assert!((d - s).abs() < 1e-6, "Dense={d} vs Sparse={s}");
+        }
+    }
+
+    #[test]
+    fn test_knn_regressor_predict_sparse() {
+        let features = vec![vec![1.0, 5.0, 9.0]];
+        let target = vec![10.0, 50.0, 90.0];
+        let data = Dataset::new(features, target, vec!["x".into()], "y");
+
+        let mut knn = KnnRegressor::new().k(2);
+        knn.fit(&data).unwrap();
+
+        let test = vec![vec![3.0], vec![7.0]];
+        let preds_dense = knn.predict(&test).unwrap();
+        let csr = CsrMatrix::from_dense(&test);
+        let preds_sparse = knn.predict_sparse(&csr).unwrap();
+
+        for (d, s) in preds_dense.iter().zip(preds_sparse.iter()) {
+            assert!((d - s).abs() < 1e-6, "Dense={d} vs Sparse={s}");
+        }
+    }
+
+    #[test]
+    fn test_sparse_euclidean_matches_dense() {
+        // Dense: d²([1,0,3], [0,2,3]) = 1 + 4 + 0 = 5
+        let a = CsrMatrix::from_dense(&[vec![1.0, 0.0, 3.0]]);
+        let b = CsrMatrix::from_dense(&[vec![0.0, 2.0, 3.0]]);
+        let d2 = sparse_euclidean_sq(&a.row(0), &b.row(0));
+        assert!((d2 - 5.0).abs() < 1e-10, "Expected 5.0, got {d2}");
+    }
+
+    #[test]
+    fn test_sparse_manhattan_matches_dense() {
+        // Dense: d([1,0,3], [0,2,3]) = 1 + 2 + 0 = 3
+        let a = CsrMatrix::from_dense(&[vec![1.0, 0.0, 3.0]]);
+        let b = CsrMatrix::from_dense(&[vec![0.0, 2.0, 3.0]]);
+        let d = sparse_manhattan(&a.row(0), &b.row(0));
+        assert!((d - 3.0).abs() < 1e-10, "Expected 3.0, got {d}");
+    }
+
+    #[test]
+    fn test_sparse_cosine_matches_dense() {
+        // Same direction → distance ≈ 0
+        let a = CsrMatrix::from_dense(&[vec![1.0, 0.0]]);
+        let b = CsrMatrix::from_dense(&[vec![100.0, 0.0]]);
+        let d = sparse_cosine(&a.row(0), &b.row(0));
+        assert!(d < 1e-9, "Same direction should be ~0, got {d}");
+
+        // Orthogonal → distance ≈ 1
+        let c = CsrMatrix::from_dense(&[vec![0.0, 1.0]]);
+        let d_orth = sparse_cosine(&a.row(0), &c.row(0));
+        assert!((d_orth - 1.0).abs() < 1e-9, "Orthogonal should be ~1, got {d_orth}");
+    }
+
+    #[test]
+    fn test_sparse_knn_end_to_end() {
+        // Train on dense, predict_sparse with CSR — results should match.
+        use crate::sparse::CscMatrix;
+        let features = vec![
+            vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
+            vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
+        ];
+        let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into(), "y".into()], "class");
+
+        // Fit on dense.
+        let mut knn_dense = KnnClassifier::new().k(3);
+        knn_dense.fit(&data).unwrap();
+
+        // Fit on sparse.
+        let csc = CscMatrix::from_dense(&features);
+        let data_sparse = Dataset::from_sparse(
+            csc, target, vec!["x".into(), "y".into()], "class",
+        );
+        let mut knn_sparse = KnnClassifier::new().k(3);
+        knn_sparse.fit(&data_sparse).unwrap();
+        assert!(knn_sparse.train_sparse.is_some());
+
+        // Query with sparse input.
+        let test = vec![vec![1.0, 1.0], vec![9.0, 9.0]];
+        let preds_dense = knn_dense.predict(&test).unwrap();
+        let csr = CsrMatrix::from_dense(&test);
+        let preds_sparse = knn_sparse.predict_sparse(&csr).unwrap();
+
+        for (d, s) in preds_dense.iter().zip(preds_sparse.iter()) {
+            assert!((d - s).abs() < 1e-6, "Dense={d} vs Sparse={s}");
+        }
+    }
+
+    #[test]
+    fn test_high_dimensional_sparse_knn() {
+        // 100×5000 matrix with ~2% density — should complete without OOM.
+        // (Would require 100 × 400KB per query if densifying.)
+        use crate::sparse::CscMatrix;
+        let n_train = 100;
+        let n_feat = 5000;
+        let mut rng = crate::rng::FastRng::new(42);
+
+        // Build sparse training data as column-major.
+        let mut cols: Vec<Vec<f64>> = vec![vec![0.0; n_train]; n_feat];
+        for col in &mut cols {
+            for x in col.iter_mut() {
+                if rng.f64() < 0.02 {
+                    *x = rng.f64() * 10.0;
+                }
+            }
+        }
+        let target: Vec<f64> = (0..n_train).map(|i| (i % 3) as f64).collect();
+        let csc = CscMatrix::from_dense(&cols);
+        let names: Vec<String> = (0..n_feat).map(|j| format!("f{j}")).collect();
+        let data = Dataset::from_sparse(csc, target, names, "class");
+
+        let mut knn = KnnClassifier::new().k(5);
+        knn.fit(&data).unwrap();
+        assert!(knn.train_sparse.is_some());
+
+        // Build sparse query.
+        let mut query_row = vec![0.0; n_feat];
+        for x in &mut query_row {
+            if rng.f64() < 0.02 {
+                *x = rng.f64() * 10.0;
+            }
+        }
+        let query_csr = CsrMatrix::from_dense(&[query_row]);
+        let preds = knn.predict_sparse(&query_csr).unwrap();
+        assert_eq!(preds.len(), 1);
+        assert!(preds[0] >= 0.0 && preds[0] < 3.0);
     }
 }
 

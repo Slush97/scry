@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Scene construction and drawing API.
 //!
 //! This module provides the core drawing primitives for `scry-engine`.

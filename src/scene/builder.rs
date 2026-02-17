@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Fluent builder API for constructing a [`PixelCanvas`] scene.
 //!
 //! The builder pattern lets users construct drawing scenes without needing to

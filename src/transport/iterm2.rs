@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! iTerm2 inline image protocol backend.
 //!
 //! Implements the [iTerm2 Inline Images Protocol](https://iterm2.com/documentation-images.html)

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Isolation Forest for anomaly/outlier detection.
 //!
 //! Detects anomalies by building an ensemble of random isolation trees.

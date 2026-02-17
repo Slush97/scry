@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Histogram-based Gradient Boosted Trees — O(n) split finding.
 //!
 //! This module implements the core innovation behind XGBoost, LightGBM, and

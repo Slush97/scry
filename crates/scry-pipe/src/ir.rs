@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Intermediate representation for feature engineering pipelines.
 //!
 //! The IR captures every transform operation with all fitted parameters
@@ -14,6 +15,7 @@ use crate::error::PipeError;
 
 /// Data type of a feature column.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DType {
     /// 64-bit floating point.
     Float64,
@@ -27,6 +29,7 @@ pub enum DType {
 
 /// Strategy for imputing missing values.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ImputeStrategy {
     /// Replace with column mean.
     Mean,
@@ -44,6 +47,7 @@ pub enum ImputeStrategy {
 
 /// A single, self-contained transform operation with all fitted parameters.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum TransformOp {
     /// Z-score normalization: `(x - mean) / std_dev`.
     StandardScale {

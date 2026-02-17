@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Sparkline rendering — chrome-free inline charts.
 //!
 //! No axes, no title, no margins. The data fills the entire canvas.

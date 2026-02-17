@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! 3D chart module — interactive 3D scatter plots and scene rendering.
 //!
 //! # Architecture

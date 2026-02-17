@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Color themes and palettes for charts.
 //!
 //! Ships with dark-terminal-optimized defaults and seaborn-inspired palettes.

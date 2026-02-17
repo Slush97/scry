@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Time-aware scale for mapping Unix timestamps to pixel coordinates.
 //!
 //! Provides [`TimeScale`] — wraps a [`LinearScale`] with time-aware tick
@@ -23,6 +24,7 @@ use crate::scale::{LinearScale, Scale};
 
 /// The granularity of time ticks — auto-selected based on the span.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TimeGranularity {
     /// 1-second ticks (span < 2 minutes)
     Seconds,

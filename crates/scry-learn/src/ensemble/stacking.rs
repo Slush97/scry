@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Voting and Stacking ensemble classifiers.
 //!
 //! [`VotingClassifier`] combines multiple classifiers via hard (majority
@@ -16,6 +17,7 @@ use crate::error::{Result, ScryLearnError};
 /// Voting strategy for [`VotingClassifier`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Voting {
     /// Majority vote on predicted class labels.
     Hard,

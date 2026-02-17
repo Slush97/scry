@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! K-Nearest Neighbors classifier and regressor.
 
 mod knn;

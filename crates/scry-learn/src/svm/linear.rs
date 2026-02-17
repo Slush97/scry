@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Linear SVM classifier and regressor via Pegasos SGD.
 //!
 //! [`LinearSVC`] uses hinge loss with L2 penalty for classification.

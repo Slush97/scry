@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Line chart rendering.
 
 use crate::chart::LineChart;

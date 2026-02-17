@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GPU-accelerated 3D rasterizer using wgpu.
 //!
 //! This module provides [`WgpuRasterizer3D`], a GPU-accelerated implementation

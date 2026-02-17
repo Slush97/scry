@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Pure-Rust L-BFGS optimizer for smooth unconstrained optimization.
 //!
 //! Implements the limited-memory BFGS algorithm with two-loop recursion

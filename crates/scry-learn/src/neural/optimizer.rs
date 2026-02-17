@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Optimizers for neural network training.
 //!
 //! Provides SGD with Nesterov momentum and Adam, matching sklearn defaults.

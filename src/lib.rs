@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! # scry-engine
 //!
 //! A vector graphics engine for the terminal. Builds anti-aliased scenes with

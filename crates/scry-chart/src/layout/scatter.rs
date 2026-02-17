@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Scatter plot rendering.
 
 use scry_engine::scene::PixelCanvas;

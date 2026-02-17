@@ -92,8 +92,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Benchmark suite (`benches/`) with rasterization, efficiency, and chart benchmarks.
 - Fuzz testing harness (`fuzz/`) with 6 fuzz targets.
 
+### Added — `scry-learn`
+
+- **DenseMatrix** — contiguous column-major `Vec<f64>` storage with zero-cost
+  `col(j)` slice access. All models migrated from `Vec<Vec<f64>>`.
+- **SVD/QR solvers** — Golub-Kahan SVD and Householder QR for linear regression.
+  `LinRegSolver::Svd`, `LinRegSolver::Qr`, `LinRegSolver::Normal` selection.
+- **CART builder optimization** — pre-filtered index arrays, incremental variance
+  computation, and buffer reuse replace membership bitsets.
+- **MLP neural networks** — `MLPClassifier` and `MLPRegressor` with configurable
+  hidden layers, activations (ReLU, Sigmoid, Tanh), and optimizers (SGD, Adam).
+- **Sparse matrix support** — `CsrMatrix` and `CscMatrix` with `from_triplets`,
+  row/col views, `dot_vec`, CSR↔CSC conversion, and arithmetic ops.
+- **Sparse-aware algorithms** — `fit_sparse`/`predict_sparse` for LinearRegression,
+  LogisticRegression, Lasso, ElasticNet, GaussianNB, MultinomialNB, KNN.
+  `fit_sparse`/`transform_sparse` for StandardScaler, MinMaxScaler.
+- **Sparse dataset integration** — `Storage` enum (Dense/Sparse),
+  `Dataset::from_sparse()`, sparse-aware `subset()` and `train_test_split`.
+- **Incremental learning** — `PartialFit` trait with `partial_fit(&mut self, &Dataset)`.
+  Implemented for LogisticRegression, GaussianNB, MiniBatchKMeans, MLPClassifier,
+  MLPRegressor.
+- **Large-scale benchmarks** — Criterion benchmarks for PCA, LinearRegression, and
+  tree models at 100K/1M row scale with throughput metrics.
+
+### Added — `scry-pipe` (new crate)
+
+- **Pipeline IR** — `PipelineDef`, `PipelineStep`, `TransformOp` with JSON
+  serialization. 10 transform operations with all fitted parameters baked in.
+- **Execution engine** — `PipelineEngine` for runtime pipeline evaluation.
+- **Rust codegen** — compile pipeline definitions to standalone Rust code
+  (feature `codegen`).
+- **Fuzz targets** — `fuzz_ir_roundtrip` and `fuzz_pipeline_transform`.
+
 ### Fixed
 
+- **LineChart builder** — added missing `margin()` and `y_inverted()` methods.
+- **Axis label/tick collision** — fixed spacing in common overlays layout.
 - **`PathData` hash collisions** — hashing now includes full path geometry
   (verbs + points) instead of just bounding box and segment count.
 - **Halfblock alpha compositing** — semi-transparent pixels now correctly

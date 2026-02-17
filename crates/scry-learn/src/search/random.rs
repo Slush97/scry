@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Randomized search with cross-validation.
 
 use std::collections::HashMap;

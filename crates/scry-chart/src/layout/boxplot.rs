@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Box plot rendering.
 
 use crate::chart::boxplot::{BoxPlot, BoxStats};

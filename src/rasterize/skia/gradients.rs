@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Gradient rendering helpers.
 
 use std::hash::{Hash, Hasher};

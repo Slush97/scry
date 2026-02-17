@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Common overlay rendering: title, subtitle, footer, axis labels,
 //! categorical X labels, annotations, and trend lines.
 

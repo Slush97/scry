@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Recursive tree node representation used during construction.
 //!
 //! `TreeNode` is the recursive enum used to build the tree, which is then
@@ -9,6 +10,7 @@
 /// cache-optimal prediction. Exposed publicly for visualization.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum TreeNode {
     /// A leaf node — produces a prediction.
     Leaf {

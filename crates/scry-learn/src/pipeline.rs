@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Composable ML pipeline.
 //!
 //! Chain preprocessing steps with a final model in a single workflow.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! K-Means clustering with k-means++ initialization.
 //!
 //! # Example

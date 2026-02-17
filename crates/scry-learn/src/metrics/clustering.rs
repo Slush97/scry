@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Clustering evaluation metrics.
 //!
 //! These metrics compare cluster assignments against ground truth

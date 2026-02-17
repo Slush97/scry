@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Sixel graphics protocol backend.
 //!
 //! Implements the [DEC Sixel](https://en.wikipedia.org/wiki/Sixel) protocol for

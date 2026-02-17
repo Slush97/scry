@@ -102,20 +102,24 @@ Multiple agents may work on this repo simultaneously. Conflict zones:
 
 | Zone | Owner | Do NOT touch |
 |------|-------|-------------|
-| `crates/scry-learn/src/neural/` | Sprint 11 agent | MLP classifier/regressor |
-| `crates/scry-learn/src/tree/cart/` | 8C refactoring agent | Module decomposition |
-| `crates/scry-learn/src/search.rs` | 8C refactoring agent | Search module split |
-| `crates/scry-chart/src/formatter.rs` | 8C refactoring agent | Formatter split |
+| `src/sparse.rs` | Agent 13 (sparse polish) | Fixing from_triplets dedup bug |
+| `src/linear/*.rs` | Agent 13 (sparse polish) | Adding auto-dispatch in fit() |
+| `src/naive_bayes/gaussian.rs` | Agent 13 (sparse polish) | Adding auto-dispatch in fit() |
+| `src/preprocess/scaler.rs` | Agent 13 (sparse polish) | Adding auto-dispatch in fit() |
+| `src/neighbors/knn.rs` | Agent 13 (sparse polish) | True sparse distance + auto-dispatch |
+| `benches/predict_latency.rs` | Agent 14 (predict bench) | New benchmark file |
+| `crates/*/Cargo.toml`, `CHANGELOG.md` | Agent 15 (pre-publish) | Metadata + headers |
+| `crates/scry-chart/src/streaming.rs` | Agent 16 (streaming charts) | New module |
 
 Safe zones (no concurrent work):
 - `crates/scry-learn/tests/` — test files
-- `crates/scry-learn/benches/` — benchmark files
-- `crates/scry-learn/src/linear/` — linear models
-- `crates/scry-learn/src/preprocess/` — scalers, PCA
-- `crates/scry-learn/src/accel/` — compute backends
+- `crates/scry-learn/src/tree/` — no current agents
+- `crates/scry-learn/src/accel/` — no current agents
+- `crates/scry-learn/src/neural/` — no current agents
+- `crates/scry-pipe/src/` — no current agents
 
 ## Known Issues
 
-- `Vec<Vec<f64>>` column-major layout causes cache misses in PCA transform (4× vs linfa) and LinearRegression fit (2× vs linfa). Fix planned in Sprint 12 (DenseMatrix).
-- DTRegressor fit 2.5× slower than smartcore due to membership bitset overhead in builder. Fix planned in Sprint 12.5.
+- DenseMatrix migration done (Sprint 12B) — needs scaling benchmark validation (Sprint 12C, Agent 11).
+- CART builder optimized (Sprint 12.5) — needs scaling benchmark validation.
 - linfa-elasticnet Lasso/ElasticNet shows R²=0.249 vs scry's 0.999 — likely parameter interpretation mismatch, needs investigation.

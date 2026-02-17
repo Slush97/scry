@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Data preprocessing transformers.
 //!
 //! Provides scalers, encoders, dimensionality reduction, and a

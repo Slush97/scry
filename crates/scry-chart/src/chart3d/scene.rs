@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! 3D scene graph for visualization.
 //!
 //! Provides [`Scene3D`] — a collection of 3D drawing primitives (point clouds,

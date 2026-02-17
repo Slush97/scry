@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `Tunable` trait and implementations for all model types.
 //!
 //! Models that implement `Tunable` can participate in [`GridSearchCV`] and

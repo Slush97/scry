@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Built-in example charts for the `scry chart example` command.
 //!
 //! Each function returns a fully-configured `Chart` with realistic sample data

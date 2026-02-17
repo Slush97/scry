@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Gauge chart rendering — semicircular arc with needle indicator.
 
 use std::f64::consts::PI;

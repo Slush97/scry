@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Sparkline chart type — minimal inline data visualizations.
 //!
 //! Sparklines are chrome-free: no axes, no title, no margins. Pure data ink.

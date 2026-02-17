@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! WebAssembly bridge for rendering [`PixelCanvas`] scenes to HTML5 `<canvas>`.
 //!
 //! This module is only available when the `wasm` feature is enabled. It

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Contiguous column-major dense matrix for ML workloads.
 //!
 //! [`DenseMatrix`] stores all feature data in a single `Vec<f64>` with

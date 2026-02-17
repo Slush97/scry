@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Subplot / multi-panel grid — compose multiple charts into a single image.
 //!
 //! The [`SubplotGrid`] builder lets you place individual [`Chart`]s into a
@@ -31,6 +32,7 @@ use scry_engine::style::Color;
 /// multi-panel layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum SharedAxisMode {
     /// Each chart has independent axes (default).
     #[default]

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Violin plot chart type.
 //!
 //! Shows data distribution as mirrored KDE (kernel density estimation)

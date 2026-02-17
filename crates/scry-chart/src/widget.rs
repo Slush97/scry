@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ratatui widget integration for rendering charts.
 //!
 //! Provides [`ChartWidget`] and [`ChartState`], which coordinate pixel

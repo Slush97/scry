@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Kernel SVM classifier via Sequential Minimal Optimization (SMO).
 //!
 //! [`KernelSVC`] supports linear, RBF, and polynomial kernels. It
@@ -61,6 +62,7 @@ impl Default for Kernel {
 /// - `Value(f64)` — user-specified constant.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Gamma {
     /// `1.0 / (n_features * X.var())` — sklearn default.
     Scale,

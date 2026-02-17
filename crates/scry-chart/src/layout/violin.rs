@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Violin plot rendering — mirrored KDE curves with optional inner box-and-whisker.
 
 use crate::chart::violin::ViolinPlot;

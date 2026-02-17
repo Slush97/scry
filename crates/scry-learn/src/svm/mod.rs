@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Support Vector Machine classifiers and regressors.
 //!
 //! Provides [`LinearSVC`] and [`LinearSVR`] using Pegasos SGD, plus

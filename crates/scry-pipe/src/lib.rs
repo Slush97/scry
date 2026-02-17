@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! scry-pipe: cross-language feature engineering compiler.
 //!
 //! Define ML feature pipelines once. Execute at Rust speed.

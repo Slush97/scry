@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Feature scaling transformers.
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::preprocess::Transformer;
+use crate::sparse::CscMatrix;
 
 /// Standardize features by removing the mean and scaling to unit variance.
 ///
@@ -27,6 +29,65 @@ impl StandardScaler {
     }
 }
 
+impl StandardScaler {
+    /// Fit on sparse features.
+    ///
+    /// Computes mean and std from sparse columns, correctly accounting for
+    /// zero entries: `mean = sum_nonzero / n_total`.
+    pub fn fit_sparse(&mut self, features: &CscMatrix) -> Result<()> {
+        let n = features.n_rows();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        let n_f64 = n as f64;
+        self.means = Vec::with_capacity(features.n_cols());
+        self.stds = Vec::with_capacity(features.n_cols());
+
+        for j in 0..features.n_cols() {
+            let col = features.col(j);
+            let sum: f64 = col.iter().map(|(_, v)| v).sum();
+            let mean = sum / n_f64;
+            let mut var = 0.0;
+            let mut nnz_count = 0usize;
+            for (_, val) in col.iter() {
+                var += (val - mean).powi(2);
+                nnz_count += 1;
+            }
+            // Zero entries contribute (0 - mean)² each.
+            let n_zeros = n - nnz_count;
+            var += n_zeros as f64 * mean * mean;
+            var /= n_f64;
+            self.means.push(mean);
+            self.stds.push(var.sqrt());
+        }
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Transform sparse features, returning a new `CscMatrix`.
+    ///
+    /// Only scales by std (no centering) to preserve sparsity.
+    /// Centering would make all zeros become `-mean`, destroying sparsity.
+    pub fn transform_sparse(&self, features: &CscMatrix) -> Result<CscMatrix> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        // Build new CscMatrix with scaled values.
+        let mut cols: Vec<Vec<f64>> = Vec::with_capacity(features.n_cols());
+        for j in 0..features.n_cols() {
+            let std = self.stds[j];
+            let mut col = vec![0.0; features.n_rows()];
+            if std > 1e-12 {
+                for (row_idx, val) in features.col(j).iter() {
+                    col[row_idx] = val / std;
+                }
+            }
+            cols.push(col);
+        }
+        Ok(CscMatrix::from_dense(&cols))
+    }
+}
+
 impl Default for StandardScaler {
     fn default() -> Self {
         Self::new()
@@ -35,6 +96,9 @@ impl Default for StandardScaler {
 
 impl Transformer for StandardScaler {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        if let Some(csc) = data.sparse_csc() {
+            return self.fit_sparse(csc);
+        }
         let n = data.n_samples() as f64;
         if n == 0.0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -110,6 +174,69 @@ impl MinMaxScaler {
     }
 }
 
+impl MinMaxScaler {
+    /// Fit on sparse features.
+    ///
+    /// Computes min/max from sparse columns, accounting for implicit zeros.
+    pub fn fit_sparse(&mut self, features: &CscMatrix) -> Result<()> {
+        let n = features.n_rows();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        self.mins = Vec::with_capacity(features.n_cols());
+        self.maxs = Vec::with_capacity(features.n_cols());
+
+        for j in 0..features.n_cols() {
+            let col = features.col(j);
+            let nnz = col.nnz();
+            if nnz == 0 {
+                // All zeros.
+                self.mins.push(0.0);
+                self.maxs.push(0.0);
+            } else {
+                let mut min = f64::INFINITY;
+                let mut max = f64::NEG_INFINITY;
+                for (_, val) in col.iter() {
+                    if val < min { min = val; }
+                    if val > max { max = val; }
+                }
+                // Account for implicit zeros.
+                if nnz < n {
+                    if 0.0 < min { min = 0.0; }
+                    if 0.0 > max { max = 0.0; }
+                }
+                self.mins.push(min);
+                self.maxs.push(max);
+            }
+        }
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Transform sparse features, returning a new `CscMatrix`.
+    pub fn transform_sparse(&self, features: &CscMatrix) -> Result<CscMatrix> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        let mut cols: Vec<Vec<f64>> = Vec::with_capacity(features.n_cols());
+        for j in 0..features.n_cols() {
+            let min = self.mins[j];
+            let range = self.maxs[j] - min;
+            let mut col = vec![0.0; features.n_rows()];
+            if range > 1e-12 {
+                // Zero entries map to (0 - min) / range.
+                let zero_mapped = (0.0 - min) / range;
+                col.fill(zero_mapped);
+                for (row_idx, val) in features.col(j).iter() {
+                    col[row_idx] = (val - min) / range;
+                }
+            }
+            cols.push(col);
+        }
+        Ok(CscMatrix::from_dense(&cols))
+    }
+}
+
 impl Default for MinMaxScaler {
     fn default() -> Self {
         Self::new()
@@ -118,6 +245,9 @@ impl Default for MinMaxScaler {
 
 impl Transformer for MinMaxScaler {
     fn fit(&mut self, data: &Dataset) -> Result<()> {
+        if let Some(csc) = data.sparse_csc() {
+            return self.fit_sparse(csc);
+        }
         if data.n_samples() == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
@@ -430,5 +560,40 @@ mod tests {
         for (a, b) in ds.features[0].iter().zip(original.iter()) {
             assert!((a - b).abs() < 1e-10, "roundtrip failed: {a} != {b}");
         }
+    }
+
+    #[test]
+    fn test_standard_scaler_sparse_fit() {
+        let cols = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let csc = CscMatrix::from_dense(&cols);
+
+        let mut scaler = StandardScaler::new();
+        scaler.fit_sparse(&csc).unwrap();
+
+        // Also fit dense for comparison.
+        let mut ds = Dataset::new(
+            cols, vec![0.0; 5], vec!["x".into()], "y",
+        );
+        let mut scaler_d = StandardScaler::new();
+        scaler_d.fit(&mut ds).unwrap();
+
+        // Means should match.
+        assert!(
+            (scaler.means[0] - scaler_d.means[0]).abs() < 1e-10,
+            "Sparse mean={} vs Dense mean={}",
+            scaler.means[0], scaler_d.means[0]
+        );
+    }
+
+    #[test]
+    fn test_minmax_scaler_sparse_fit() {
+        let cols = vec![vec![0.0, 5.0, 0.0, 10.0, 0.0]];
+        let csc = CscMatrix::from_dense(&cols);
+
+        let mut scaler = MinMaxScaler::new();
+        scaler.fit_sparse(&csc).unwrap();
+
+        assert!((scaler.mins[0] - 0.0).abs() < 1e-10);
+        assert!((scaler.maxs[0] - 10.0).abs() < 1e-10);
     }
 }

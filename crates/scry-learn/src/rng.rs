@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Minimal xoshiro256** PRNG — avoids pulling in `fastrand` at runtime.
 
 use std::ops::{Range, RangeInclusive};

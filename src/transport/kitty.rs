@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Kitty graphics protocol backend.
 //!
 //! Implements the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
@@ -43,6 +44,7 @@ const CHUNK_SIZE: usize = 65_536;
 /// The default is [`ZlibRgba`](TransmitFormat::ZlibRgba), which provides
 /// the best balance of encode speed and wire size for animation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TransmitFormat {
     /// Zlib-compressed 32-bit RGBA pixels (`f=32,o=z`). Compresses raw
     /// pixels with deflate level 1 before base64 encoding, giving ~5–10×

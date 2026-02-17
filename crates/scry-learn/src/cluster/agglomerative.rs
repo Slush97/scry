@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Agglomerative (hierarchical) clustering.
 //!
 //! Bottom-up clustering that starts with each sample as its own cluster
@@ -41,6 +42,7 @@ use std::cmp::Ordering;
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Linkage {
     /// Minimum distance between any pair of points across two clusters.
     Single,

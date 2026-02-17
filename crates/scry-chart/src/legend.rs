@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Legend rendering utilities.
 //!
 //! Draws color swatches with labels to identify data series.

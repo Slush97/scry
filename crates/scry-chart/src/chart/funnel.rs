@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Funnel chart type — conversion pipeline visualization.
 //!
 //! Stages are rendered as centered horizontal bars of decreasing width,

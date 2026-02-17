@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Bernoulli Naive Bayes classifier for binary/boolean features.
 //!
 //! Each feature is modelled as a Bernoulli distribution (present/absent).

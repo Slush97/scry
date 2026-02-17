@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Macro for generating common chart builder methods.
 //!
 //! Eliminates boilerplate across chart builders by generating the

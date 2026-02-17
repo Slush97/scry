@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Compute acceleration backends for linear algebra operations.
 //!
 //! Provides a [`ComputeBackend`] abstraction with CPU and optional GPU

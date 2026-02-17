@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Waterfall chart type — financial P&L visualization.
 //!
 //! Sequential bars show how values add/subtract from a running total,

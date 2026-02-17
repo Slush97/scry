@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! KD-tree spatial index for fast k-nearest-neighbor queries.
 //!
 //! Provides O(n log n) build and O(log n) average-case query versus brute-force

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Multi-layer perceptron classifier.
 //!
 //! Sklearn-compatible API with builder pattern.
@@ -22,6 +23,7 @@ use crate::neural::activation::Activation;
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};
+use crate::partial_fit::PartialFit;
 
 /// Multi-layer perceptron classifier.
 ///
@@ -392,6 +394,111 @@ impl MLPClassifier {
     }
 }
 
+impl PartialFit for MLPClassifier {
+    /// Run one epoch of mini-batch SGD on the given data.
+    ///
+    /// On the first call, initializes the network architecture from the data
+    /// dimensions. Subsequent calls preserve network weights and continue
+    /// training.
+    fn partial_fit(&mut self, data: &Dataset) -> Result<()> {
+        let n_samples = data.n_samples();
+        let n_features = data.n_features();
+        if n_samples == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+
+        // Discover classes from this batch.
+        let mut batch_labels: Vec<f64> = data.target.clone();
+        batch_labels.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        batch_labels.dedup();
+
+        if !self.is_initialized() {
+            let n_classes = batch_labels.len();
+            if n_classes < 2 {
+                return Err(ScryLearnError::InvalidParameter(
+                    "need at least 2 classes".into(),
+                ));
+            }
+
+            // Build and initialize network.
+            let mut sizes = Vec::with_capacity(self.hidden_layers.len() + 2);
+            sizes.push(n_features);
+            sizes.extend_from_slice(&self.hidden_layers);
+            sizes.push(n_classes);
+
+            let net = Network::new(&sizes, self.activation, self.seed);
+            self.network_weights = net.save_weights();
+            self.network_dims = net.layer_dims();
+            self.n_features = n_features;
+            self.n_classes = n_classes;
+            self.class_labels = batch_labels;
+            self.loss_curve.clear();
+        } else if n_features != self.n_features {
+            return Err(ScryLearnError::ShapeMismatch {
+                expected: self.n_features,
+                got: n_features,
+            });
+        }
+
+        // Build row-major data.
+        let x = build_row_major(&data.features, n_samples, n_features);
+        let y: Vec<f64> = data
+            .target
+            .iter()
+            .map(|&t| {
+                self.class_labels
+                    .iter()
+                    .position(|&c| (c - t).abs() < f64::EPSILON)
+                    .unwrap_or(0) as f64
+            })
+            .collect();
+
+        // Rebuild network from saved weights.
+        let mut net = self.rebuild_network();
+        let param_sizes = net.param_group_sizes();
+        let mut optimizer =
+            OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
+
+        let batch_size = self.batch_size.min(n_samples);
+        let mut rng = FastRng::new(self.seed.wrapping_add(self.loss_curve.len() as u64));
+        let mut indices: Vec<usize> = (0..n_samples).collect();
+
+        // One epoch.
+        rng.shuffle(&mut indices);
+        let mut epoch_loss = 0.0;
+        let mut n_batches = 0;
+
+        for chunk in indices.chunks(batch_size) {
+            let b = chunk.len();
+            let mut batch_x = Vec::with_capacity(b * n_features);
+            let mut batch_y = Vec::with_capacity(b);
+            for &i in chunk {
+                batch_x.extend_from_slice(&x[i * n_features..(i + 1) * n_features]);
+                batch_y.push(y[i]);
+            }
+
+            let logits = net.forward(&batch_x, b, true);
+            let (loss, grad) =
+                network::cross_entropy_loss(&logits, &batch_y, b, self.n_classes);
+            epoch_loss += loss;
+            n_batches += 1;
+
+            let layer_grads = net.backward(&grad, self.alpha);
+            optimizer.tick();
+            net.apply_gradients(&layer_grads, &mut optimizer);
+        }
+
+        self.loss_curve.push(epoch_loss / n_batches as f64);
+        self.network_weights = net.save_weights();
+        self.fitted = true;
+        Ok(())
+    }
+
+    fn is_initialized(&self) -> bool {
+        !self.network_weights.is_empty()
+    }
+}
+
 impl Default for MLPClassifier {
     fn default() -> Self {
         Self::new()
@@ -568,5 +675,58 @@ mod tests {
         assert!(curve.len() >= 2);
         // First loss should be higher than last
         assert!(curve.first().unwrap() > curve.last().unwrap());
+    }
+
+    #[test]
+    fn partial_fit_is_initialized() {
+        let mut clf = MLPClassifier::new();
+        assert!(!clf.is_initialized());
+
+        let data = linearly_separable();
+        clf.partial_fit(&data).unwrap();
+        assert!(clf.is_initialized());
+    }
+
+    #[test]
+    fn partial_fit_loss_decreases() {
+        let data = linearly_separable();
+        let mut clf = MLPClassifier::new()
+            .hidden_layers(&[20])
+            .learning_rate(0.01)
+            .batch_size(32)
+            .seed(42);
+
+        // Run 10 partial_fit calls on the same data.
+        for _ in 0..10 {
+            clf.partial_fit(&data).unwrap();
+        }
+
+        let curve = clf.loss_curve();
+        assert!(curve.len() == 10);
+        // Overall trend: first loss > last loss
+        assert!(
+            curve.first().unwrap() > curve.last().unwrap(),
+            "loss should decrease: first={} last={}",
+            curve.first().unwrap(),
+            curve.last().unwrap()
+        );
+    }
+
+    #[test]
+    fn partial_fit_classifies_after_batches() {
+        let mut clf = MLPClassifier::new()
+            .hidden_layers(&[20])
+            .learning_rate(0.01)
+            .batch_size(32)
+            .seed(42);
+
+        let data = linearly_separable();
+        for _ in 0..50 {
+            clf.partial_fit(&data).unwrap();
+        }
+
+        let preds = clf.predict(&[vec![0.5, 1.0], vec![5.5, 6.0]]).unwrap();
+        assert!((preds[0] - 0.0).abs() < f64::EPSILON, "x=0.5 should be class 0");
+        assert!((preds[1] - 1.0).abs() < f64::EPSILON, "x=5.5 should be class 1");
     }
 }

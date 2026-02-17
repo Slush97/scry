@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! PNG image export for charts.
 //!
 //! Provides [`render_to_png`] and [`render_to_rgba`] functions for converting

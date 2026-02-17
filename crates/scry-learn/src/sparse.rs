@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Sparse matrix types: CSR (Compressed Sparse Row) and CSC (Compressed Sparse Column).
 //!
 //! Designed for NLP/recommender workloads with 50K+ features and >99% zeros.
@@ -27,6 +28,16 @@ impl<'a> SparseRow<'a> {
     /// Number of non-zero entries in this row.
     pub fn nnz(&self) -> usize {
         self.indices.len()
+    }
+
+    /// Column indices of non-zero entries (sorted).
+    pub fn indices(&self) -> &[usize] {
+        self.indices
+    }
+
+    /// Values of non-zero entries (parallel to `indices()`).
+    pub fn values(&self) -> &[f64] {
+        self.data
     }
 
     /// Sparse dot product with a dense vector.
@@ -161,13 +172,12 @@ impl CsrMatrix {
                 .collect();
             pairs.sort_by_key(|&(c, _)| c);
 
-            // Merge duplicates by summing.
+            // Merge duplicates by summing (only within this row).
+            let row_start = final_indices.len();
             for &(col, val) in &pairs {
-                if let Some(last) = final_indices.last() {
-                    if *last == col {
-                        *final_data.last_mut().unwrap() += val;
-                        continue;
-                    }
+                if final_indices.len() > row_start && *final_indices.last().unwrap() == col {
+                    *final_data.last_mut().unwrap() += val;
+                    continue;
                 }
                 final_indices.push(col);
                 final_data.push(val);
@@ -862,5 +872,75 @@ mod tests {
         let c = &a + &b;
         assert_eq!(c.nnz(), 0);
         assert_eq!(c.to_dense(), vec![vec![0.0, 0.0]]);
+    }
+
+    #[test]
+    fn test_from_triplets_cross_row_dedup() {
+        // Bug: rows ending with the same column as the next row's start
+        // were incorrectly merged across row boundaries.
+        // Row 0: col 2 = 1.0
+        // Row 1: col 2 = 3.0
+        // These must NOT merge.
+        let rows = vec![0, 1];
+        let cols = vec![2, 2];
+        let vals = vec![1.0, 3.0];
+
+        let csr = CsrMatrix::from_triplets(&rows, &cols, &vals, 2, 3).unwrap();
+        assert_eq!(csr.nnz(), 2);
+        assert_eq!(csr.get(0, 2), 1.0);
+        assert_eq!(csr.get(1, 2), 3.0);
+    }
+
+    #[test]
+    fn test_from_triplets_intra_row_dedup() {
+        // Duplicate entries within the same row should still be summed.
+        let rows = vec![0, 0, 1, 1];
+        let cols = vec![1, 1, 2, 2];
+        let vals = vec![1.0, 2.0, 3.0, 4.0];
+
+        let csr = CsrMatrix::from_triplets(&rows, &cols, &vals, 2, 3).unwrap();
+        assert_eq!(csr.nnz(), 2);
+        assert_eq!(csr.get(0, 1), 3.0); // 1.0 + 2.0
+        assert_eq!(csr.get(1, 2), 7.0); // 3.0 + 4.0
+    }
+
+    #[test]
+    fn test_csc_from_triplets_cross_row_dedup() {
+        // Same bug via the CscMatrix path (CSR → transpose).
+        let rows = vec![0, 1];
+        let cols = vec![2, 2];
+        let vals = vec![1.0, 3.0];
+
+        let csc = CscMatrix::from_triplets(&rows, &cols, &vals, 2, 3).unwrap();
+        assert_eq!(csc.nnz(), 2);
+        assert_eq!(csc.get(0, 2), 1.0);
+        assert_eq!(csc.get(1, 2), 3.0);
+    }
+
+    #[test]
+    fn test_csc_from_triplets_roundtrip_with_dupes() {
+        // Build CSC with duplicate entries, convert to CSR and back.
+        let rows = vec![0, 0, 1, 2, 2];
+        let cols = vec![0, 0, 1, 0, 2]; // row 0, col 0 has duplicates
+        let vals = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let csc = CscMatrix::from_triplets(&rows, &cols, &vals, 3, 3).unwrap();
+        assert_eq!(csc.get(0, 0), 3.0); // 1.0 + 2.0
+        assert_eq!(csc.get(1, 1), 3.0);
+        assert_eq!(csc.get(2, 0), 4.0);
+        assert_eq!(csc.get(2, 2), 5.0);
+
+        // Round-trip.
+        let csr = csc.to_csr();
+        let csc2 = csr.to_csc();
+        assert_eq!(csc.to_dense(), csc2.to_dense());
+    }
+
+    #[test]
+    fn test_sparse_row_accessors() {
+        let csr = CsrMatrix::from_dense(&[vec![0.0, 5.0, 0.0, 7.0]]);
+        let row = csr.row(0);
+        assert_eq!(row.indices(), &[1, 3]);
+        assert_eq!(row.values(), &[5.0, 7.0]);
     }
 }

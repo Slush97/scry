@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Animation primitives for smooth, time-based transitions.
 //!
 //! This module provides industry-standard easing curves, value interpolation,
@@ -46,6 +47,7 @@ use crate::scene::style::{Color, Point, Transform};
 /// These follow the same naming conventions as CSS easing functions and
 /// Robert Penner's easing equations.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub enum Easing {
     /// Constant velocity. `f(t) = t`.
     #[default]

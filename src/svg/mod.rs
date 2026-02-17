@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SVG rendering support via [`resvg`].
 //!
 //! This module provides [`SvgImage`], which parses SVG content and renders
@@ -175,6 +176,7 @@ impl std::fmt::Debug for SvgImage {
 
 /// Errors that can occur during SVG parsing and rendering.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SvgError {
     /// Failed to parse the SVG content.
     #[error("SVG parse error: {0}")]

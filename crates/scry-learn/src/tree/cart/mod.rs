@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! CART (Classification And Regression Trees) implementation.
 //!
 //! Implements the full CART algorithm with Gini impurity, entropy,

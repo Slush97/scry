@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Funnel chart rendering — trapezoid stages for conversion pipeline.
 
 use crate::chart::funnel::FunnelChart;

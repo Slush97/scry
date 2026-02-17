@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Bubble chart type — scatter plot with a size dimension.
 //!
 //! Each data point is plotted at (x, y) with a circle whose radius

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! # scry-chart
 //!
 //! Pixel-perfect TUI charts built on [`scry-engine`](https://docs.rs/scry-engine).
@@ -44,6 +45,7 @@ pub mod layout;
 pub mod legend;
 pub mod margin;
 pub mod scale;
+pub mod streaming;
 pub mod subplot;
 pub mod svg_export;
 pub mod theme;
@@ -78,5 +80,6 @@ pub mod prelude {
     pub use crate::theme::Theme;
     #[cfg(feature = "widget")]
     pub use crate::widget::{ChartState, ChartWidget, Chart3DState, Chart3DWidget};
+    pub use crate::streaming::StreamingChart;
     pub use crate::zoom::ZoomState;
 }

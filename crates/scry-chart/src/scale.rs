@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Scale system for mapping data domains to pixel ranges.
 //!
 //! Scales are the core arithmetic of chart rendering — they translate from

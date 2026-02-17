@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Visualization bridge: convert ML outputs into scry-chart charts.
 //!
 //! This is the unique selling point of scry-learn — every model evaluation

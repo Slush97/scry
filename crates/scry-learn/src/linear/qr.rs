@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! QR decomposition least-squares solver via Householder reflections.
 
 use crate::error::{Result, ScryLearnError};

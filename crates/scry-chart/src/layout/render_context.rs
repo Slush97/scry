@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `RenderContext` — shared rendering infrastructure for chart layout.
 
 use scry_engine::scene::PixelCanvas;

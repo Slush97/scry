@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GPU compute backend via wgpu compute shaders.
 //!
 //! Provides accelerated matrix operations using wgpu's compute pipeline.

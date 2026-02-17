@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Bubble chart rendering — scatter with variable-size markers.
 
 use crate::chart::bubble::BubbleChart;

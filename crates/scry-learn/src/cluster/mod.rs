@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Clustering algorithms: K-Means, Mini-Batch K-Means, DBSCAN,
 //! Agglomerative Clustering, and silhouette scoring.
 

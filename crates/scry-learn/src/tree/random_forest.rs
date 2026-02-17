@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Random Forest — parallel ensemble of CART decision trees.
 //!
 //! Uses bootstrap sampling and random feature subsets for each tree,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tree-based models: Decision Tree, Random Forest, Gradient Boosting, and
 //! Histogram-based Gradient Boosting.
 

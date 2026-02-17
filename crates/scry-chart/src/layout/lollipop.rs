@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Lollipop chart rendering — thin stems with dot markers.
 
 use crate::chart::lollipop::LollipopChart;

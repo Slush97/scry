@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Drawing commands that form the scene display list.
 //!
 //! Each variant of [`DrawCommand`] represents a single drawing instruction.
@@ -260,6 +261,7 @@ impl Hash for FontData {
 /// Commands are created by the fluent API on [`PixelCanvas`](crate::scene::PixelCanvas)
 /// and consumed by the rasterizer.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum DrawCommand {
     /// Fill the entire canvas with a solid color.
     Clear {

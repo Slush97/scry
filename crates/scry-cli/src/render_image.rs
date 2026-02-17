@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Render subcommand — `scry render FILE`.
 //!
 //! Display images (PNG, JPEG) inline in the terminal using the

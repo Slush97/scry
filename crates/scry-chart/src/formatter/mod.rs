@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tick formatting system for chart axes.
 //!
 //! Provides a [`TickFormatter`] trait and built-in implementations for
@@ -313,6 +314,7 @@ impl<F: TickFormatter + 'static> TickFormatter for LocaleFormatter<F> {
 /// Used by [`SemanticZoomFormatter`] to select an appropriate child
 /// formatter for the current zoom level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ZoomLevel {
     /// Very wide view (ratio ≥ 0.75) — compact summary labels.
     Overview,

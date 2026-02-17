@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Class weighting for imbalanced datasets.
 //!
 //! Provides the [`ClassWeight`] enum and [`compute_sample_weights`] function
@@ -34,6 +35,7 @@ use std::collections::HashMap;
 /// ```
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum ClassWeight {
     /// All classes weighted equally (weight = 1.0). This is the default.
     #[default]

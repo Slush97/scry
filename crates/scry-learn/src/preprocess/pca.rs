@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Principal Component Analysis (PCA) — pure-Rust eigendecomposition.
 //!
 //! Reduces dimensionality by projecting data onto the directions of

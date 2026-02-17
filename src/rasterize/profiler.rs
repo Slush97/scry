@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Per-stage pipeline profiling for bottleneck identification.
 //!
 //! This module provides zero-overhead instrumentation that can be
@@ -31,6 +32,7 @@ use crate::scene::PixelCanvas;
 /// Index into the per-command-type timing array.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum CommandType {
     /// `DrawCommand::Clear`
     Clear = 0,

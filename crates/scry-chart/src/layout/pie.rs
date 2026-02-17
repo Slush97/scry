@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Pie / donut chart rendering.
 
 use crate::chart::pie::PieChart;

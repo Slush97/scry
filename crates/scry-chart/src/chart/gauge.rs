@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Gauge chart type — KPI speedometer visualization.
 //!
 //! Renders a semicircular arc with colored threshold bands and a needle

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-hot encoding for categorical features.
 //!
 //! Expands integer-encoded categorical columns into binary indicator
@@ -25,6 +26,7 @@ use crate::preprocess::Transformer;
 /// Strategy for dropping one-hot columns to avoid multicollinearity.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum DropStrategy {
     /// Keep all categories (default).
     #[default]
@@ -38,6 +40,7 @@ pub enum DropStrategy {
 /// Strategy for handling categories seen at transform time but not at fit time.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum UnknownStrategy {
     /// Raise an error (default).
     #[default]

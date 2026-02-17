@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Zoom and pan state management for interactive charts.
 //!
 //! Stores the current viewport as data-space x/y ranges and provides

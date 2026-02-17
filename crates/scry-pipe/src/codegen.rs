@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Rust source code generator for compiled feature pipelines.
 //!
 //! [`RustCodegen`] takes a [`PipelineDef`](crate::ir::PipelineDef) and emits a

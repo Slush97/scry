@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Style primitives for drawing commands.
 //!
 //! This module defines the color, fill, stroke, and gradient types used to
@@ -372,6 +373,7 @@ impl From<Color> for ratatui::style::Color {
 /// How the ends of a stroked line are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum LineCap {
     /// Flat edge at the endpoint.
     #[default]
@@ -385,6 +387,7 @@ pub enum LineCap {
 /// How corners in a stroked path are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum LineJoin {
     /// Sharp corner.
     #[default]
@@ -525,6 +528,7 @@ pub struct GradientDef {
 
 /// Whether a gradient is linear or radial.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum GradientKind {
     /// A gradient interpolated along a line between two points.
     Linear {
@@ -566,6 +570,7 @@ impl Hash for GradientKind {
 
 /// Describes how the interior of a shape is filled.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum FillStyle {
     /// A single solid color.
     Solid(Color),
@@ -733,6 +738,7 @@ impl Rect {
 /// Used on [`Group`](crate::scene::command::DrawCommand::Group) to clip
 /// all child drawing commands.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ClipRegion {
     /// Clip to a rectangle.
     Rect(Rect),
@@ -748,6 +754,7 @@ pub enum ClipRegion {
 ///
 /// Determines how source pixels are combined with destination pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BlendMode {
     /// Normal alpha compositing (default).
     #[default]

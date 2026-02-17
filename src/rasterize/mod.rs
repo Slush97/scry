@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Rasterization of scenes into pixel buffers.
 //!
 //! This module provides [`Rasterizer`] which translates a scene display list

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Activation functions for neural network layers.
 //!
 //! Each activation provides element-wise `forward()` and `backward()` methods.

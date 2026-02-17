@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ensemble meta-learning methods.
 //!
 //! Provides [`VotingClassifier`] for majority/soft voting across multiple

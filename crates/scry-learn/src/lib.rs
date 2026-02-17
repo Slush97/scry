@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! # scry-learn
 //!
 //! Production-grade machine learning toolkit with built-in
@@ -61,6 +62,7 @@ pub mod weights;
 pub mod viz;
 pub mod accel;
 pub mod neural;
+pub mod partial_fit;
 pub mod sparse;
 
 /// Convenience re-exports for common usage.
@@ -120,6 +122,7 @@ pub mod prelude {
     pub use crate::ensemble::{VotingClassifier, StackingClassifier, Voting};
     pub use crate::neural::{MLPClassifier, MLPRegressor, Activation, OptimizerKind};
     pub use crate::error::ScryLearnError;
+    pub use crate::partial_fit::PartialFit;
     pub use crate::weights::ClassWeight;
     pub use crate::sparse::{CsrMatrix, CscMatrix};
 }

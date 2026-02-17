@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! JSON chart specification types.
 //!
 //! These structs define the JSON schema that AI models and users produce

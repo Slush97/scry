@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! POSIX shared memory buffer for zero-copy Kitty protocol transmission.
 //!
 //! When the terminal and the application share a filesystem (the common

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ROC and Precision-Recall curve computation.
 
 /// A receiver operating characteristic curve.

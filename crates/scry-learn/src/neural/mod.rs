@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Neural network module — Multi-Layer Perceptron (MLP).
 //!
 //! Provides [`MLPClassifier`] and [`MLPRegressor`] with an sklearn-compatible

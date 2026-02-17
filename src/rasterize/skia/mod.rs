@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Rasterization of scenes into pixel buffers via `tiny-skia`.
 //!
 //! The rasterizer walks the [`DrawCommand`] list

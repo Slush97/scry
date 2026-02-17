@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Shape building helpers: rounded rectangles, arcs, and bounding box estimation.
 
 use tiny_skia::PathBuilder;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GPU-accelerated 2D rasterizer using wgpu.
 //!
 //! [`WgpuRasterizer`] provides the same public API as the CPU

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Lollipop chart type — bar chart variant with thin stems and dot markers.
 //!
 //! Each category gets a thin vertical (or horizontal) line from the baseline

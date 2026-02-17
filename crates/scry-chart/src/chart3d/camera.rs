@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! 3D camera with arcball quaternion rotation.
 //!
 //! Provides [`Camera3D`] for positioning and orienting a virtual camera in 3D

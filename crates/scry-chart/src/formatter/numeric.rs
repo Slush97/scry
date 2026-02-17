@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Numeric formatting: SI prefixes, binary SI, fixed decimal, scientific,
 //! engineering notation, and thousands separators.
 

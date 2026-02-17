@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Row-wise sample normalization.
 
 use crate::dataset::Dataset;
@@ -7,6 +8,7 @@ use crate::preprocess::Transformer;
 /// Norm type for row-wise normalization.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Norm {
     /// Divide each row by the sum of absolute values.
     L1,

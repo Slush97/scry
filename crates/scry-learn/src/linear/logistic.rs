@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Logistic regression via L-BFGS (default) or gradient descent.
 //!
 //! Supports configurable [`Penalty`] regularization: `None`, `L1`, `L2` (default),
@@ -6,6 +7,8 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
+use crate::partial_fit::PartialFit;
+use crate::sparse::{CscMatrix, CsrMatrix};
 use crate::weights::{ClassWeight, compute_sample_weights};
 
 use super::lbfgs;
@@ -29,6 +32,7 @@ use super::lbfgs;
 /// | `ElasticNet` | ✓ | ✗ (error) |
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Penalty {
     /// No regularization.
     None,
@@ -47,6 +51,7 @@ pub enum Penalty {
 /// iterations vs 200+ for gradient descent, matching scikit-learn's default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Solver {
     /// L-BFGS quasi-Newton optimizer (default). Fast, recommended.
     #[default]
@@ -161,6 +166,9 @@ impl LogisticRegression {
     /// Returns `InvalidParameter` if `Penalty::L1` or `Penalty::ElasticNet` is used
     /// with the `Lbfgs` solver (L-BFGS requires a differentiable objective).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        if let Some(csc) = data.sparse_csc() {
+            return self.fit_sparse(csc, &data.target);
+        }
         // Classification requires at least 2 distinct classes.
         if data.n_classes() < 2 {
             return Err(ScryLearnError::InvalidParameter(
@@ -513,6 +521,169 @@ impl LogisticRegression {
             .collect())
     }
 
+    /// Fit on sparse features using gradient descent.
+    ///
+    /// Accepts `CscMatrix` (column-oriented) for efficient gradient computation.
+    /// Only supports L2 penalty (or None). Uses gradient descent (not L-BFGS).
+    #[allow(clippy::needless_range_loop)]
+    pub fn fit_sparse(&mut self, features: &CscMatrix, target: &[f64]) -> Result<()> {
+        let n = features.n_rows();
+        let m = features.n_cols();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        if target.len() != n {
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "target length {} != n_rows {}", target.len(), n
+            )));
+        }
+
+        // Determine n_classes from target.
+        let max_class = target.iter().map(|&t| t as usize).max().unwrap_or(0);
+        self.n_classes = max_class + 1;
+        if self.n_classes < 2 {
+            return Err(ScryLearnError::InvalidParameter(
+                "LogisticRegression requires at least 2 distinct classes.".into(),
+            ));
+        }
+
+        let k = self.n_classes;
+        let dim = m + 1;
+        let sample_weights = compute_sample_weights(target, &self.class_weight);
+        let target_class: Vec<usize> = target.iter().map(|&t| t as usize).collect();
+
+        self.weights = vec![vec![0.0; dim]; k];
+
+        let mut probs = vec![0.0; k];
+        let inv_n = 1.0 / n as f64;
+
+        for _epoch in 0..self.max_iter {
+            let mut max_grad = 0.0_f64;
+            let mut gradient = vec![vec![0.0; dim]; k];
+
+            for i in 0..n {
+                let tc = target_class[i];
+                let sw = sample_weights[i];
+
+                // Compute logits: bias + sparse dot.
+                for c in 0..k {
+                    probs[c] = self.weights[c][0]; // bias
+                }
+                // Accumulate feature contributions from sparse row.
+                // We need row access, so iterate all columns and check if row i has an entry.
+                // More efficient: convert to CSR, but for fit we iterate columns.
+                // Actually, build logits by iterating columns of CSC.
+                // But per-sample approach requires iterating all columns for each sample.
+                // Better: precompute logits for all samples using column iteration.
+                // For simplicity in the per-sample loop, use CSC get which is log(nnz_col).
+                for j in 0..m {
+                    let xij = features.get(i, j);
+                    if xij != 0.0 {
+                        for c in 0..k {
+                            probs[c] += self.weights[c][j + 1] * xij;
+                        }
+                    }
+                }
+
+                // Softmax.
+                let max_s = probs[..k].iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let mut sum = 0.0;
+                for p in &mut probs[..k] {
+                    *p = (*p - max_s).exp();
+                    sum += *p;
+                }
+                for p in &mut probs[..k] {
+                    *p /= sum;
+                }
+
+                // Gradient.
+                for c in 0..k {
+                    let y_i = if tc == c { 1.0 } else { 0.0 };
+                    let error = sw * (probs[c] - y_i);
+                    gradient[c][0] += error; // bias
+                    for j in 0..m {
+                        let xij = features.get(i, j);
+                        if xij != 0.0 {
+                            gradient[c][j + 1] += error * xij;
+                        }
+                    }
+                }
+            }
+
+            // Update weights.
+            for c in 0..k {
+                for j in 0..dim {
+                    gradient[c][j] *= inv_n;
+                    if j > 0 && self.alpha > 0.0 {
+                        gradient[c][j] += self.alpha * inv_n * self.weights[c][j];
+                    }
+                    max_grad = max_grad.max(gradient[c][j].abs());
+                    self.weights[c][j] -= self.learning_rate * gradient[c][j];
+                }
+            }
+
+            if max_grad < self.tolerance {
+                break;
+            }
+        }
+
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Predict class labels from sparse features (CSR format).
+    pub fn predict_sparse(&self, features: &CsrMatrix) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        let probas = self.predict_proba_sparse(features)?;
+        Ok(probas
+            .iter()
+            .map(|probs| {
+                probs
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map_or(0.0, |(idx, _)| idx as f64)
+            })
+            .collect())
+    }
+
+    /// Predict class probabilities from sparse features (CSR format).
+    pub fn predict_proba_sparse(&self, features: &CsrMatrix) -> Result<Vec<Vec<f64>>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        Ok((0..features.n_rows())
+            .map(|i| {
+                let row = features.row(i);
+                let mut scores: Vec<f64> = self.weights.iter()
+                    .map(|w| {
+                        let mut z = w[0]; // bias
+                        for (col, val) in row.iter() {
+                            if col + 1 < w.len() {
+                                z += w[col + 1] * val;
+                            }
+                        }
+                        z
+                    })
+                    .collect();
+
+                // Softmax.
+                let max_s = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let mut sum = 0.0;
+                for s in &mut scores {
+                    *s = (*s - max_s).exp();
+                    sum += *s;
+                }
+                for s in &mut scores {
+                    *s /= sum;
+                }
+                scores
+            })
+            .collect())
+    }
+
     /// Get learned weights (coefficients + bias) for each class.
     pub fn weights(&self) -> &[Vec<f64>] {
         &self.weights
@@ -522,6 +693,119 @@ impl LogisticRegression {
 impl Default for LogisticRegression {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl PartialFit for LogisticRegression {
+    /// Run one pass of gradient descent on the given batch.
+    ///
+    /// On the first call, initializes weights from the data dimensions and
+    /// class count. Subsequent calls preserve weights and continue updating.
+    #[allow(clippy::needless_range_loop)]
+    fn partial_fit(&mut self, data: &Dataset) -> Result<()> {
+        let n = data.n_samples();
+        let m = data.n_features();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+
+        if !self.is_initialized() {
+            if data.n_classes() < 2 {
+                return Err(ScryLearnError::InvalidParameter(
+                    "LogisticRegression requires at least 2 distinct classes.".into(),
+                ));
+            }
+            self.n_classes = data.n_classes();
+            let dim = m + 1;
+            self.weights = vec![vec![0.0; dim]; self.n_classes];
+        }
+
+        let dim = m + 1;
+        let sample_weights = compute_sample_weights(&data.target, &self.class_weight);
+
+        // Pre-scan for new classes and grow weights if needed.
+        let max_class = data.target.iter().map(|&t| t as usize).max().unwrap_or(0);
+        if max_class >= self.n_classes {
+            let new_n = max_class + 1;
+            self.weights.resize(new_n, vec![0.0; dim]);
+            self.n_classes = new_n;
+        }
+
+        let mut probs = vec![0.0; self.n_classes];
+        let mut gradient = vec![vec![0.0; dim]; self.n_classes];
+
+        for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate() {
+            let target_class = target_val as usize;
+
+            // Compute logits for all classes.
+            for (c, prob) in probs.iter_mut().enumerate().take(self.n_classes) {
+                let mut z = self.weights[c][0]; // bias
+                for j in 0..m {
+                    z += self.weights[c][j + 1] * data.features[j][i];
+                }
+                *prob = z;
+            }
+
+            // Softmax.
+            let max_s = probs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let mut sum = 0.0;
+            for p in &mut probs[..self.n_classes] {
+                *p = (*p - max_s).exp();
+                sum += *p;
+            }
+            for p in &mut probs[..self.n_classes] {
+                *p /= sum;
+            }
+
+            // Accumulate gradient.
+            for (c, (&pc, gc)) in probs.iter().zip(gradient.iter_mut()).enumerate().take(self.n_classes) {
+                let y_i = if target_class == c { 1.0 } else { 0.0 };
+                let error = sw * (pc - y_i);
+                gc[0] += error;
+                for j in 0..m {
+                    gc[j + 1] += error * data.features[j][i];
+                }
+            }
+        }
+
+        // Penalty ratios.
+        let (l1_ratio, l2_ratio) = match &self.penalty {
+            Penalty::None => (0.0, 0.0),
+            Penalty::L1 => (1.0, 0.0),
+            Penalty::L2 => (0.0, 1.0),
+            Penalty::ElasticNet(r) => (*r, 1.0 - *r),
+        };
+
+        let inv_n = 1.0 / n as f64;
+
+        // Update weights with L2 gradient and learning rate.
+        for (c_grad, c_w) in gradient.iter_mut().zip(self.weights.iter_mut()).take(self.n_classes) {
+            for (j, (g, w)) in c_grad.iter_mut().zip(c_w.iter_mut()).enumerate().take(dim) {
+                *g *= inv_n;
+                if j > 0 {
+                    *g += self.alpha * inv_n * l2_ratio * *w;
+                }
+                *w -= self.learning_rate * *g;
+            }
+        }
+
+        // Proximal step for L1 component (soft-thresholding).
+        if l1_ratio > 0.0 {
+            let threshold = self.learning_rate * self.alpha * inv_n * l1_ratio;
+            for c_w in self.weights.iter_mut().take(self.n_classes) {
+                for w in c_w.iter_mut().skip(1) {
+                    let sign = w.signum();
+                    *w = sign * (*w * sign - threshold).max(0.0);
+                }
+            }
+        }
+
+        self.fitted = true;
+        Ok(())
+    }
+
+    fn is_initialized(&self) -> bool {
+        !self.weights.is_empty()
     }
 }
 
@@ -769,5 +1053,122 @@ mod tests {
             result2.is_err(),
             "L-BFGS should reject ElasticNet penalty"
         );
+    }
+
+    #[test]
+    fn test_partial_fit_is_initialized() {
+        let mut lr = LogisticRegression::new()
+            .solver(Solver::GradientDescent)
+            .learning_rate(0.1);
+        assert!(!lr.is_initialized());
+
+        let features = vec![(0..20).map(|i| i as f64).collect()];
+        let target: Vec<f64> = (0..20).map(|i| if i < 10 { 0.0 } else { 1.0 }).collect();
+        let data = Dataset::new(features, target, vec!["x".into()], "class");
+        lr.partial_fit(&data).unwrap();
+        assert!(lr.is_initialized());
+    }
+
+    #[test]
+    fn test_partial_fit_convergence_10_batches() {
+        // Linearly separable: class 0 = low x, class 1 = high x.
+        // 10 batches of 100 samples each.
+        let mut lr = LogisticRegression::new()
+            .solver(Solver::GradientDescent)
+            .learning_rate(0.1)
+            .alpha(0.0);
+
+        let mut rng = fastrand::Rng::with_seed(42);
+        for _ in 0..10 {
+            let mut feats = Vec::with_capacity(100);
+            let mut tgt = Vec::with_capacity(100);
+            for _ in 0..50 {
+                feats.push(rng.f64() * 3.0); // class 0: [0, 3)
+                tgt.push(0.0);
+            }
+            for _ in 0..50 {
+                feats.push(7.0 + rng.f64() * 3.0); // class 1: [7, 10)
+                tgt.push(1.0);
+            }
+            let batch = Dataset::new(vec![feats], tgt, vec!["x".into()], "class");
+            lr.partial_fit(&batch).unwrap();
+        }
+
+        // Test on held-out points.
+        let preds = lr.predict(&[vec![1.0], vec![9.0]]).unwrap();
+        assert!((preds[0] - 0.0).abs() < f64::EPSILON, "expected class 0 for x=1");
+        assert!((preds[1] - 1.0).abs() < f64::EPSILON, "expected class 1 for x=9");
+    }
+
+    #[test]
+    fn test_partial_fit_single_batch_approximates_fit() {
+        // Normalized features to avoid large gradient magnitudes.
+        let features = vec![(0..40).map(|i| i as f64 / 40.0).collect()];
+        let target: Vec<f64> = (0..40).map(|i| if i < 20 { 0.0 } else { 1.0 }).collect();
+        let data = Dataset::new(features, target, vec!["x".into()], "class");
+
+        // partial_fit many passes on same data
+        let mut lr_partial = LogisticRegression::new()
+            .solver(Solver::GradientDescent)
+            .learning_rate(1.0)
+            .alpha(0.0);
+        for _ in 0..500 {
+            lr_partial.partial_fit(&data).unwrap();
+        }
+
+        // Full fit with same settings
+        let mut lr_full = LogisticRegression::new()
+            .solver(Solver::GradientDescent)
+            .learning_rate(1.0)
+            .alpha(0.0)
+            .max_iter(500);
+        lr_full.fit(&data).unwrap();
+
+        // Both should classify correctly
+        let matrix = data.feature_matrix();
+        let preds_partial = lr_partial.predict(&matrix).unwrap();
+        let preds_full = lr_full.predict(&matrix).unwrap();
+
+        let acc_partial = preds_partial.iter().zip(data.target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count() as f64 / 40.0;
+        let acc_full = preds_full.iter().zip(data.target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count() as f64 / 40.0;
+
+        assert!(acc_partial >= 0.85, "partial_fit accuracy {:.1}% too low", acc_partial * 100.0);
+        assert!(acc_full >= 0.85, "full fit accuracy {:.1}% too low", acc_full * 100.0);
+    }
+
+    #[test]
+    fn test_sparse_fit_predict_matches_dense() {
+        let features = vec![(0..20).map(|i| i as f64).collect()];
+        let target: Vec<f64> = (0..20).map(|i| if i < 10 { 0.0 } else { 1.0 }).collect();
+        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "class");
+
+        let mut lr_dense = LogisticRegression::new()
+            .solver(Solver::GradientDescent)
+            .alpha(0.0)
+            .learning_rate(0.1)
+            .max_iter(500);
+        lr_dense.fit(&data).unwrap();
+
+        let csc = CscMatrix::from_dense(&features);
+        let mut lr_sparse = LogisticRegression::new()
+            .alpha(0.0)
+            .learning_rate(0.1)
+            .max_iter(500);
+        lr_sparse.fit_sparse(&csc, &target).unwrap();
+
+        let matrix = data.feature_matrix();
+        let preds_dense = lr_dense.predict(&matrix).unwrap();
+        let csr = CsrMatrix::from_dense(&matrix);
+        let preds_sparse = lr_sparse.predict_sparse(&csr).unwrap();
+
+        let acc_dense: usize = preds_dense.iter().zip(target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count();
+        let acc_sparse: usize = preds_sparse.iter().zip(target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count();
+
+        assert!(acc_dense >= 17, "Dense accuracy too low: {acc_dense}/20");
+        assert!(acc_sparse >= 17, "Sparse accuracy too low: {acc_sparse}/20");
     }
 }

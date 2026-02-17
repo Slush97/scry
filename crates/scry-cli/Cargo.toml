@@ -9,14 +9,15 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/Slush97/scry"
 keywords = ["chart", "cli", "kitty", "graphics", "terminal"]
 categories = ["command-line-utilities", "visualization"]
+readme = "README.md"
 
 [[bin]]
 name = "scry"
 path = "src/main.rs"
 
 [dependencies]
-scry-chart = { path = "../scry-chart", features = ["widget"] }
-scry-engine = { path = "../..", features = ["kitty", "text"] }
+scry-chart = { version = "0.7.0", path = "../scry-chart", features = ["widget"] }
+scry-engine = { version = "0.7.0", path = "../..", features = ["kitty", "text"] }
 
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

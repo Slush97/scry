@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Model-level `.viz()` interface — every fitted model gets visualization methods.
 //!
 //! The [`Visualize`] trait provides a `.viz()` entry point that returns a

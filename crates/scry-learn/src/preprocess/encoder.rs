@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Label encoding for categorical variables.
 
 use crate::error::{Result, ScryLearnError};

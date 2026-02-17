@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `StatefulWidget` implementation for pixel canvas rendering.
 //!
 //! This module provides [`PixelCanvasWidget`] and [`PixelCanvasState`] which

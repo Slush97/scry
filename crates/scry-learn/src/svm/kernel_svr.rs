@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Kernel Support Vector Regressor via SMO.
 //!
 //! [`KernelSVR`] uses ε-insensitive loss with kernel functions, solved

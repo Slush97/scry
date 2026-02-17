@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Auto-detection of the best available graphics protocol.
 //!
 //! The [`Picker`] queries the terminal environment to determine which graphics

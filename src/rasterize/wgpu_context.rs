@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Reusable GPU context for 2D rasterization.
 //!
 //! [`WgpuContext2D`] holds the expensive-to-create wgpu device, queue, and

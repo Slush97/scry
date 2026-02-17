@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Visualization subcommand group — `scry viz 3d-scatter`.
 //!
 //! 3D visualization commands that use the `Chart3D` pipeline directly,

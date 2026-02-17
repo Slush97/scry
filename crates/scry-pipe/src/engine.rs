@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Runtime transform engine for executing feature pipelines.
 //!
 //! [`PipelineEngine`] takes a [`PipelineDef`](crate::ir::PipelineDef) and

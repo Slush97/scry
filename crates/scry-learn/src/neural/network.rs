@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Neural network engine — chains layers for forward/backward propagation.
 //!
 //! The [`Network`] struct manages a stack of [`DenseLayer`]s and provides

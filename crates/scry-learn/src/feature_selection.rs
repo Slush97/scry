@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Feature selection transformers.
 //!
 //! Remove low-information features before training to reduce
@@ -144,6 +145,7 @@ impl Transformer for VarianceThreshold {
 /// Determines how each feature is scored relative to the target.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum ScoreFn {
     /// ANOVA F-value: ratio of between-group variance to within-group variance.
     ///

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Waterfall chart rendering — sequential bars with running totals.
 
 use crate::chart::waterfall::WaterfallChart;

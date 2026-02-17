@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Perceptual colormaps for heatmaps and continuous data visualization.
 //!
 //! Provides a [`Colormap`] trait and built-in implementations for

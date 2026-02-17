@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Inline terminal image display.
 //!
 //! Displays PNG images directly in the terminal using Kitty, iTerm2,

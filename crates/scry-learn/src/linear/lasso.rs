@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Lasso regression via coordinate descent (L1 regularization).
 //!
 //! Coordinate descent iteratively optimizes one coefficient at a time,
@@ -6,6 +7,7 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
+use crate::sparse::{CscMatrix, CsrMatrix};
 
 /// Lasso regression (L1-regularized linear regression).
 ///
@@ -80,6 +82,9 @@ impl LassoRegression {
 
     /// Fit the Lasso model using coordinate descent.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
+        if let Some(csc) = data.sparse_csc() {
+            return self.fit_sparse(csc, &data.target);
+        }
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -177,6 +182,117 @@ impl LassoRegression {
                     .map(|(x, b)| x * b)
                     .sum::<f64>()
                     + self.intercept
+            })
+            .collect())
+    }
+
+    /// Fit on sparse features using coordinate descent.
+    ///
+    /// Accepts `CscMatrix` for efficient column-oriented coordinate descent.
+    #[allow(clippy::needless_range_loop)]
+    pub fn fit_sparse(&mut self, features: &CscMatrix, target: &[f64]) -> Result<()> {
+        let n = features.n_rows();
+        let m = features.n_cols();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        if target.len() != n {
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "target length {} != n_rows {}", target.len(), n
+            )));
+        }
+        if self.alpha < 0.0 {
+            return Err(ScryLearnError::InvalidParameter("alpha must be >= 0".into()));
+        }
+
+        let n_f64 = n as f64;
+        let mut beta = vec![0.0; m];
+        let mut intercept = target.iter().sum::<f64>() / n_f64;
+
+        // Precompute ‖X_j‖² / n from sparse columns.
+        let mut col_norm_sq = vec![0.0; m];
+        for j in 0..m {
+            let mut sq_sum = 0.0;
+            for (_, val) in features.col(j).iter() {
+                sq_sum += val * val;
+            }
+            col_norm_sq[j] = sq_sum / n_f64;
+        }
+
+        // Residuals: r_i = y_i - intercept
+        let mut residuals: Vec<f64> = target.iter().map(|&y| y - intercept).collect();
+
+        for _iter in 0..self.max_iter {
+            let mut max_change = 0.0_f64;
+
+            // Update intercept.
+            let r_mean = residuals.iter().sum::<f64>() / n_f64;
+            let new_intercept = intercept + r_mean;
+            max_change = max_change.max((new_intercept - intercept).abs());
+            for r in &mut residuals {
+                *r -= r_mean;
+            }
+            intercept = new_intercept;
+
+            // Coordinate descent.
+            for j in 0..m {
+                if col_norm_sq[j] < 1e-15 {
+                    continue;
+                }
+
+                let old_beta_j = beta[j];
+
+                // Add back current j contribution to residuals.
+                if old_beta_j != 0.0 {
+                    for (row_idx, val) in features.col(j).iter() {
+                        residuals[row_idx] += val * old_beta_j;
+                    }
+                }
+
+                // ρ = (1/n) Σ x_ij * r_i (only non-zero x_ij entries)
+                let mut rho = 0.0;
+                for (row_idx, val) in features.col(j).iter() {
+                    rho += val * residuals[row_idx];
+                }
+                rho /= n_f64;
+
+                let new_beta_j = soft_threshold(rho, self.alpha) / col_norm_sq[j];
+                max_change = max_change.max((new_beta_j - old_beta_j).abs());
+                beta[j] = new_beta_j;
+
+                // Remove new j contribution from residuals.
+                if new_beta_j != 0.0 {
+                    for (row_idx, val) in features.col(j).iter() {
+                        residuals[row_idx] -= val * new_beta_j;
+                    }
+                }
+            }
+
+            if max_change < self.tol {
+                break;
+            }
+        }
+
+        self.coefficients = beta;
+        self.intercept = intercept;
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Predict from sparse features (CSR format).
+    pub fn predict_sparse(&self, features: &CsrMatrix) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(ScryLearnError::NotFitted);
+        }
+        Ok((0..features.n_rows())
+            .map(|i| {
+                let mut y = self.intercept;
+                for (col, val) in features.row(i).iter() {
+                    if col < self.coefficients.len() {
+                        y += self.coefficients[col] * val;
+                    }
+                }
+                y
             })
             .collect())
     }
@@ -286,5 +402,34 @@ mod tests {
     fn test_lasso_not_fitted() {
         let lasso = LassoRegression::new();
         assert!(lasso.predict(&[vec![1.0]]).is_err());
+    }
+
+    #[test]
+    fn test_sparse_lasso_matches_dense() {
+        let features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let target = vec![3.0, 5.0, 7.0, 9.0, 11.0];
+        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "y");
+
+        let mut lasso_dense = LassoRegression::new().alpha(0.01).max_iter(5000);
+        lasso_dense.fit(&data).unwrap();
+
+        let csc = CscMatrix::from_dense(&features);
+        let mut lasso_sparse = LassoRegression::new().alpha(0.01).max_iter(5000);
+        lasso_sparse.fit_sparse(&csc, &target).unwrap();
+
+        assert!(
+            (lasso_dense.coefficients()[0] - lasso_sparse.coefficients()[0]).abs() < 0.1,
+            "Dense={} vs Sparse={}",
+            lasso_dense.coefficients()[0], lasso_sparse.coefficients()[0]
+        );
+
+        let test = vec![vec![3.0]];
+        let csr = CsrMatrix::from_dense(&test);
+        let pred_d = lasso_dense.predict(&test).unwrap()[0];
+        let pred_s = lasso_sparse.predict_sparse(&csr).unwrap()[0];
+        assert!(
+            (pred_d - pred_s).abs() < 0.5,
+            "Dense pred={pred_d} vs Sparse pred={pred_s}"
+        );
     }
 }

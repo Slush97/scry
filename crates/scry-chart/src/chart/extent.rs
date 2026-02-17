@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Extract data extents from [`Chart`] enum variants.
 //!
 //! Provides a utility function to compute the (x_min, x_max, y_min, y_max)

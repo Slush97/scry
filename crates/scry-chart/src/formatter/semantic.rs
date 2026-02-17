@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Semantic formatters: percent and currency.
 
 use super::numeric::format_si;

@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Crate-specific error types for scry-pipe.
 
 use thiserror::Error;
 
 /// All errors produced by scry-pipe operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum PipeError {
     /// Schema validation failure (e.g. wrong input length).
     #[error("schema error: {0}")]

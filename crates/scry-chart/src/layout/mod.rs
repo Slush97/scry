@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Layout engine — translates chart specs into `PixelCanvas` scenes.
 //!
 //! This is the core rendering layer. It takes a fully-configured [`Chart`],

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Feature binning for histogram-based gradient boosting.
 //!
 //! [`FeatureBinner`] quantile-bins continuous `f64` features into `u8`

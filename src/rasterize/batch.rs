@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Command batching for reduced `fill_path`/`stroke_path` call overhead.
 //!
 //! When multiple consecutive commands share the same [`ShapeStyle`] and are

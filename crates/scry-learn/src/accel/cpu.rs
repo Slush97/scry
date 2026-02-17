@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! CPU compute backend — pure Rust, always available.
 
 use super::ComputeBackend;

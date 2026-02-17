@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SVG export for charts.
 //!
 //! Generates standalone SVG documents from any [`Chart`] by walking the
@@ -463,6 +464,7 @@ fn svg_fill_attr(style: &ShapeStyle, defs: &mut String, grad_id: &mut u32) -> St
             let id = alloc_gradient(defs, grad_id, grad);
             format!(r#" fill="url(#{})""#, id)
         }
+        Some(_) => r#" fill="none""#.to_string(),
     }
 }
 
@@ -481,12 +483,14 @@ fn svg_stroke_style_attr(stroke: &StrokeStyle) -> String {
         LineCap::Butt => {} // SVG default
         LineCap::Round => attrs.push_str(r#" stroke-linecap="round""#),
         LineCap::Square => attrs.push_str(r#" stroke-linecap="square""#),
+        _ => {}
     }
 
     match stroke.line_join {
         LineJoin::Miter => {} // SVG default
         LineJoin::Round => attrs.push_str(r#" stroke-linejoin="round""#),
         LineJoin::Bevel => attrs.push_str(r#" stroke-linejoin="bevel""#),
+        _ => {}
     }
 
     if let Some(ref dash) = stroke.dash {
@@ -564,6 +568,7 @@ fn alloc_gradient(defs: &mut String, grad_id: &mut u32, gradient: &GradientDef) 
             }
             defs.push_str("</radialGradient>\n");
         }
+        _ => {}
     }
 
     id

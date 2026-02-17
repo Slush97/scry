@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Content-hash caching for rasterized scenes.
 //!
 //! The [`RasterCache`] stores the last rasterized result and its content hash,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Annotation system for placing labels at data coordinates.
 //!
 //! Annotations are text labels placed at specific data-space coordinates.

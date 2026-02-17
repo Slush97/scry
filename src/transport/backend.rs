@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Protocol backend trait for terminal graphics transmission.
 //!
 //! This module defines the [`ProtocolBackend`] trait that all graphics protocol

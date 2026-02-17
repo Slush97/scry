@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Text rendering via fontdue.
 
 #[cfg(feature = "text")]
