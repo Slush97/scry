@@ -43,7 +43,11 @@ fn near_singular_linear_regression() {
         assert!(model.intercept().is_finite(), "intercept is not finite");
 
         let preds = model.predict(&[vec![5.0, 5.0]]).unwrap();
-        assert!(preds[0].is_finite(), "prediction is not finite: {}", preds[0]);
+        assert!(
+            preds[0].is_finite(),
+            "prediction is not finite: {}",
+            preds[0]
+        );
     }
     // Err is also acceptable — singular matrix detection.
     println!("near_singular_linear_regression: {:?}", result.is_ok());
@@ -60,7 +64,9 @@ fn extreme_scale_disparity() {
     // Feature 1: ~1e-10 scale, Feature 2: ~1e10 scale
     let tiny: Vec<f64> = (0..n).map(|_| rng.f64() * 1e-10).collect();
     let huge: Vec<f64> = (0..n).map(|_| rng.f64() * 1e10).collect();
-    let target: Vec<f64> = tiny.iter().zip(huge.iter())
+    let target: Vec<f64> = tiny
+        .iter()
+        .zip(huge.iter())
         .map(|(&t, &h)| t * 1e10 + h * 1e-10)
         .collect();
 
@@ -70,7 +76,11 @@ fn extreme_scale_disparity() {
     let mut lr = LinearRegression::new();
     if let Ok(()) = lr.fit(&ds) {
         let preds = lr.predict(&[vec![5e-11, 5e9]]).unwrap();
-        assert!(preds[0].is_finite(), "LR prediction not finite: {}", preds[0]);
+        assert!(
+            preds[0].is_finite(),
+            "LR prediction not finite: {}",
+            preds[0]
+        );
     }
 
     // DecisionTree should handle scale-invariant splitting
@@ -79,7 +89,15 @@ fn extreme_scale_disparity() {
     let ds_cls = make_dataset(
         vec![
             (0..n).map(|_| rng.f64() * 1e-10).collect(),
-            (0..n).map(|i| if i < half { rng.f64() } else { rng.f64() + 1e10 }).collect(),
+            (0..n)
+                .map(|i| {
+                    if i < half {
+                        rng.f64()
+                    } else {
+                        rng.f64() + 1e10
+                    }
+                })
+                .collect(),
         ],
         cls_target,
     );
@@ -124,16 +142,19 @@ fn severe_class_imbalance() {
     // DT
     let mut dt = DecisionTreeClassifier::new();
     dt.fit(&ds).unwrap();
-    let rows: Vec<Vec<f64>> = (0..n).map(|i| {
-        (0..n_features).map(|j| ds.features[j][i]).collect()
-    }).collect();
+    let rows: Vec<Vec<f64>> = (0..n)
+        .map(|i| (0..n_features).map(|j| ds.features[j][i]).collect())
+        .collect();
     let preds = dt.predict(&rows).unwrap();
 
     // Report F1-macro, not accuracy (accuracy is meaningless at 99:1)
     let f1 = f1_score(&target, &preds, Average::Macro);
     println!("severe_class_imbalance DT F1-macro: {:.4}", f1);
     // DT should be able to find the cluster — F1 > 0 at minimum
-    assert!(f1 > 0.0, "F1-macro should be > 0 on separable imbalanced data");
+    assert!(
+        f1 > 0.0,
+        "F1-macro should be > 0 on separable imbalanced data"
+    );
 
     // RF
     let mut rf = RandomForestClassifier::new().n_estimators(50).max_depth(5);
@@ -170,7 +191,10 @@ fn single_class_input() {
     // LogReg on single-class: should return Err (need >= 2 classes).
     let mut lr = LogisticRegression::new().max_iter(50);
     let lr_result = lr.fit(&ds);
-    assert!(lr_result.is_err(), "LogReg on single-class should return Err");
+    assert!(
+        lr_result.is_err(),
+        "LogReg on single-class should return Err"
+    );
     println!("single_class LogReg fit: Err — correct behavior");
 }
 
@@ -185,9 +209,9 @@ fn zero_variance_columns() {
     let half = n / 2;
 
     let constant_col = vec![42.0; n]; // zero variance
-    let normal_col: Vec<f64> = (0..n).map(|i| {
-        if i < half { rng.f64() } else { rng.f64() + 5.0 }
-    }).collect();
+    let normal_col: Vec<f64> = (0..n)
+        .map(|i| if i < half { rng.f64() } else { rng.f64() + 5.0 })
+        .collect();
     let target: Vec<f64> = (0..n).map(|i| if i < half { 0.0 } else { 1.0 }).collect();
 
     let ds = make_dataset(vec![constant_col.clone(), normal_col], target);
@@ -230,7 +254,10 @@ fn near_zero_variance() {
     let mut ds_scaled = ds.clone();
     scaler.transform(&mut ds_scaled).unwrap();
     for &v in &ds_scaled.features[0] {
-        assert!(v.is_finite(), "near-zero-variance scaled value not finite: {v}");
+        assert!(
+            v.is_finite(),
+            "near-zero-variance scaled value not finite: {v}"
+        );
     }
 
     println!("near_zero_variance: passed");
@@ -246,9 +273,9 @@ fn high_dimensional_p_gt_n() {
     let n = 50;
     let p = 1000;
 
-    let cols: Vec<Vec<f64>> = (0..p).map(|_| {
-        (0..n).map(|_| rng.f64()).collect()
-    }).collect();
+    let cols: Vec<Vec<f64>> = (0..p)
+        .map(|_| (0..n).map(|_| rng.f64()).collect())
+        .collect();
     let target: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
 
     let ds = make_dataset(cols, target);
@@ -261,7 +288,10 @@ fn high_dimensional_p_gt_n() {
     if result.is_ok() {
         let coeffs = lr_ridge.coefficients();
         let finite_count = coeffs.iter().filter(|c| c.is_finite()).count();
-        assert_eq!(finite_count, p, "all coefficients should be finite with regularization");
+        assert_eq!(
+            finite_count, p,
+            "all coefficients should be finite with regularization"
+        );
     }
 
     // Lasso on p >> n should produce sparse solution
@@ -271,7 +301,10 @@ fn high_dimensional_p_gt_n() {
     if lasso_result.is_ok() {
         let coeffs = lasso.coefficients();
         let zero_count = coeffs.iter().filter(|&&c| c.abs() < 1e-10).count();
-        println!("  Lasso sparsity: {}/{} coefficients are zero", zero_count, p);
+        println!(
+            "  Lasso sparsity: {}/{} coefficients are zero",
+            zero_count, p
+        );
         for &c in coeffs {
             assert!(c.is_finite(), "Lasso coefficient not finite: {c}");
         }

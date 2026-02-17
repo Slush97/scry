@@ -88,12 +88,12 @@ pub(crate) fn render_waterfall(wc: &WaterfallChart, w: u32, h: u32) -> RenderedC
     }
 
     // Colors
-    let increase_color = wc.increase_color.unwrap_or_else(|| {
-        theme.resolve_series_color(0, &crate::data::SeriesStyle::default())
-    });
-    let decrease_color = wc.decrease_color.unwrap_or_else(|| {
-        theme.resolve_series_color(1, &crate::data::SeriesStyle::default())
-    });
+    let increase_color = wc
+        .increase_color
+        .unwrap_or_else(|| theme.resolve_series_color(0, &crate::data::SeriesStyle::default()));
+    let decrease_color = wc
+        .decrease_color
+        .unwrap_or_else(|| theme.resolve_series_color(1, &crate::data::SeriesStyle::default()));
     // ── Neutral total bar: gray instead of palette color ──
     let total_color = wc
         .total_color

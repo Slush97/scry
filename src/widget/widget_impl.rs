@@ -19,9 +19,9 @@ use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
 
 use crate::rasterize::{RasterCache, Rasterizer};
-use crate::scene::PixelCanvas;
 #[cfg(feature = "gpu")]
 use crate::rasterize::{WgpuContext2D, WgpuRasterizer};
+use crate::scene::PixelCanvas;
 use crate::transport::backend::{
     FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
 };
@@ -153,8 +153,9 @@ pub struct PixelCanvasState {
     /// Reusable flat buffer for halfblock cell rendering (avoids per-frame Vec<Vec<>> allocation).
     halfblock_buf: Vec<HalfblockCell>,
     /// Cached GPU context for accelerated rasterization (lazy-initialized).
+    /// `None` = not yet tried, `Some(None)` = tried and failed, `Some(Some(_))` = ready.
     #[cfg(feature = "gpu")]
-    gpu_ctx: Option<WgpuContext2D>,
+    gpu_ctx: Option<Option<WgpuContext2D>>,
 }
 
 impl PixelCanvasState {
@@ -403,11 +404,11 @@ impl StatefulWidget for PixelCanvasWidget {
         #[cfg(feature = "gpu")]
         {
             if canvas.gpu_suitable() {
-                // Lazily initialize GPU context on first render
+                // Lazily initialize GPU context on first render; record failure permanently
                 if state.gpu_ctx.is_none() {
-                    state.gpu_ctx = WgpuContext2D::new().ok();
+                    state.gpu_ctx = Some(WgpuContext2D::new().ok());
                 }
-                if let Some(ref ctx) = state.gpu_ctx {
+                if let Some(Some(ref ctx)) = state.gpu_ctx {
                     if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, &canvas) {
                         pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
                     } else {

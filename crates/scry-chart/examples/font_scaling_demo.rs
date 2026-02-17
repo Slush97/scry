@@ -27,7 +27,11 @@ fn main() {
         for &(w, h) in sizes {
             let path = out_dir.join(format!("{name}_{w}x{h}.png"));
             export::save_png(chart, w, h, &path).expect("export failed");
-            println!("✓ {} ({} bytes)", path.display(), std::fs::metadata(&path).unwrap().len());
+            println!(
+                "✓ {} ({} bytes)",
+                path.display(),
+                std::fs::metadata(&path).unwrap().len()
+            );
         }
     }
 

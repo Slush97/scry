@@ -4,7 +4,7 @@ description: Handoff instructions for the next agent — current state, what's d
 
 # Next Agent Handoff — Full Status & Instructions
 
-> **Last updated**: 2026-02-16 03:49 PST
+> **Last updated**: 2026-02-16 22:03 PST
 
 ---
 
@@ -22,147 +22,108 @@ description: Handoff instructions for the next agent — current state, what's d
 
 ---
 
-## 2. What Is Complete (Sprints 1–7 + 8A + 8.5A–D + 8C + 9B + 9C + 9D-1 + 9D-2)
+## 2. What Was Just Completed — Gap Analysis
 
-**Everything through Sprint 9D-2 GPU Compute Wiring is done.**
+A deep code-validated analysis of 6 honest gaps was completed. Full report at: **`.gemini/antigravity/brain/6f9ada49-436d-4867-8561-857a2a180a75/gap_analysis.md`**
 
-### Sprint 8.5A ✅ 3D Scene Graph & Camera
+### Summary of Findings
 
-- `Camera3D` with arcball quaternion rotation (gimbal-lock-free orbit/pan/zoom)
-- `Camera3D::orbiting()` — spherical coordinate constructor for interactive loops
-- `PerspectiveProjection` with depth sorting (painter's algorithm)
-- `Scene3D` with point clouds, axis lines, grid planes, billboard labels
-- `Rasterizer3D` trait (architecture boundary for backend swaps)
-- `SkiaRasterizer3D` v1 backend (tiny-skia + fontdue)
-- `Chart3D::scatter()` builder with `render_to_png()` / `save_png()`
+| # | Gap | Severity | Validated? | Key Discovery |
+|---|-----|----------|:----------:|---------------|
+| 1 | No BLAS/LAPACK (custom DenseMatrix) | High | ✅ | `accel` module is architecturally ready — new backend slots in with zero model changes |
+| 2 | Pipeline manual PipelineModel impls | Medium | ✅ | **22** identical impls (not 15) — macro or supertrait fixes it |
+| 3 | `Vec<Vec<f64>>` predict API surface | Medium | ✅ | `Dataset` has `from_matrix()` + `flat_feature_matrix()`, but predict bypasses it |
+| 4 | Simplified SMO (j-index heuristic) | Medium | ✅ | Deterministic rotation at line 456, no shrinking, O(n²) precomputed kernel matrix |
+| 5 | polars/mmap not wired into public API | Medium | ✅ | Both modules fully built+tested, just not exported from `lib.rs` |
+| 6 | f64-only (no generic numerics) | Low | ✅ | Intentional for v1 — sklearn is also f64 internally |
 
-### Sprint 8.5B ✅ Two Rendering Frontends (Terminal Integration)
+### Previous Audit Fixes (All Complete)
 
-| Mode | API | Dependency | How to use |
-|------|-----|------------|------------|
-| **Inline** | `Chart3D::show()` | `widget` feature (crossterm) | Renders directly to stdout via Kitty/Sixel/halfblock. Scoped raw mode for keyboard controls (WASD/arrows rotate, +/- zoom, Q quit). |
-| **TUI** | `Chart3DWidget` + `Chart3DState` | `widget` feature (ratatui) | `StatefulWidget` — compose with other ratatui widgets. Same camera controls in your event loop. |
-
-**Bridge method:** `Chart3D::render_to_canvas(w, h)` — converts RGBA output to `PixelCanvas` via `ImageData`. Used by both modes internally.
-
-**Example:** `cargo run --example scatter3d` (inline) or `cargo run --example scatter3d -- --tui` (TUI)
-
-### Sprint 8.5C ✅ CLI Integration & ML Hooks
-
-- `scry viz 3d-scatter` subcommand with `--x`, `--y`, `--z`, `--color-by`, `--output`
-- `Chart3D::color_by_labels()` and `color_by_class()` builder methods
-- `default_palette()` shared 6-color palette function
-- `scatter3d_data()` and `scatter3d_chart()` in scry-learn `viz.rs`
-
-### Sprint 8C ✅ ratatui Feature-Gated
-
-- `ratatui` + `crossterm` moved to optional deps behind `widget` feature flag (default-on)
-- `pub mod widget` gated with `#[cfg(feature = "widget")]`
-- `Chart3D::show()` gated with `#[cfg(feature = "widget")]`
-- Prelude re-exports (`ChartWidget`, `ChartState`, `Chart3DWidget`, `Chart3DState`) conditional
-- Headless users: `cargo add scry-chart --no-default-features` drops ~30 transitive deps
-
-### Sprint 8.5D ✅ Performance Targets
-
-| Scenario | Target | Actual Mean |
-|----------|--------|:-----------:|
-| 1K pts, 800×600 | 16.7ms (60fps) | **1.21ms** (~827fps) |
-| 5K pts, 1080p | 33.3ms (30fps) | **4.96ms** (~202fps) |
-| 10K pts, 1080p | 66.7ms (15fps) | **10.4ms** (~96fps) |
-
-### Sprint 9B ✅ GPU Acceleration v1 (wgpu)
-
-Implemented `WgpuRasterizer3D` — a GPU-accelerated backend behind `gpu` feature flag (opt-in, NOT default).
-
-**Architecture:**
-- `WgpuRasterizer3D` implements `Rasterizer3D` trait — drop-in swap for `SkiaRasterizer3D`
-- `Chart3D::render_gpu(w, h)` convenience method (feature-gated)
-- Headless wgpu: `Instance → Adapter → Device` (no Surface/window needed)
-- Deferred batching: all `draw_*` calls record batches, `finish()` submits one render pass + readback
-- WGSL shaders: instanced circle SDF (points) + anti-aliased line quads (segments)
-- Text stays CPU-side: fontdue rasterizes, blits to GPU output after readback
-
-**Dependencies added (all optional, behind `gpu` feature):**
-- `wgpu = "24"`, `pollster = "0.4"`, `bytemuck = "1"`
-
-**Benchmark results (RTX 5070 Ti, 1080p):**
-
-| Scenario | CPU (tiny-skia) | GPU (wgpu v1) | Notes |
-|----------|----------------|---------------|-------|
-| 50K pts | 21.9ms | 104ms | GPU slower due to per-call device init overhead |
-| 100K pts | ~44ms | 107ms | GPU rendering scales flat (+3ms for 2× points) |
-
-**Key insight:** The ~100ms constant overhead is `request_adapter` + `request_device` + pipeline creation + readback sync. The actual GPU rendering at 100K points is only ~7ms. Sprint 9C caches the device.
-
-**Test results:** 304/304 scry-learn tests passing. 172/172 scry-chart tests passing. Clippy clean `--all-features`.
-
-### Sprint 9C ✅ GPU Device Caching (scry-chart 3D)
-
-Extracted wgpu device, queue, and pipelines into a reusable `WgpuContext` struct.
-
-**New APIs:**
-- `WgpuContext::new()` — one-time expensive init (~100ms)
-- `WgpuRasterizer3D::with_context(&ctx, w, h, bg)` — fast per-frame rasterizer
-- `Chart3D::render_gpu_with_context(&ctx, w, h)` — convenience method
-
-**Architecture:**
-- `DeviceRef` / `QueueRef` / `PipelineRef` enums — owned (one-shot) or borrowed (cached)
-- `create_frame_resources()` — creates only per-frame texture + uniform buffer
-- Existing `WgpuRasterizer3D::new()` and `Chart3D::render_gpu()` still work unchanged
-
-**Benchmark results (RTX 5070 Ti, 1080p):**
-
-| Scenario | CPU (tiny-skia) | GPU uncached | GPU **cached** | vs uncached | vs CPU |
-|----------|:-:|:-:|:-:|:-:|:-:|
-| 50K pts | 22.2ms | 107ms | **3.46ms** | **31×** | **6.4×** |
-| 100K pts | 45.6ms | 109ms | **6.59ms** | **17×** | **6.9×** |
-
-**Test results:** 172/172 tests passing (164 existing + 8 GPU). Clippy clean `--all-features`.
-
-### Sprint 9D-1 ✅ GPU Compute Backend for scry-learn
-
-Implemented `ComputeBackend` trait with CPU and wgpu GPU implementations for accelerated linear algebra.
-
-**Architecture:**
-- `ComputeBackend` trait — matmul, XᵀX/Xᵀy, pairwise distances
-- `CpuBackend` — pure Rust (always available)
-- `GpuBackend` — wgpu compute shaders (behind `gpu` feature flag)
-- `accel::auto()` — runtime auto-detection (GPU → CPU fallback)
-- Size thresholds: GPU only used when matrices are large enough to offset overhead
-
-**WGSL Compute Shaders:**
-- `matmul.wgsl` — tiled 16×16 matrix multiply with shared memory
-- `distance.wgsl` — pairwise squared Euclidean distance (256-thread workgroups)
-
-**Dependencies added (all optional, behind `gpu` feature):**
-- `wgpu = "24"`, `pollster = "0.4"`, `bytemuck = "1"`
-
-**Test results:** 304/304 tests passing (297 existing + 4 GPU compute + 3 GPU wiring). Clippy clean `--all-features`.
-
-### Sprint 9D-2 ✅ Wire GPU into Model Training
-
-Replaced manual linear algebra loops with `ComputeBackend` calls in all three models:
-
-**LinearRegression.fit():**
-- Replaced 24-line XᵀX/Xᵀy loop with `accel::auto().xtx_xty()` (1 line)
-- `data.features` is already column-major — zero conversion needed
-
-**KnnClassifier.compute_votes():**
-- Batched brute-force distances via `pairwise_distances_squared()` for Euclidean metric
-- Gated on: Euclidean metric, no KD-tree, `n_q × n_t ≥ 256`
-
-**KnnRegressor.predict():**
-- Same batched distance refactoring as classifier
-
-**Extracted shared helpers:** `scalar_brute_force()`, `batched_brute_force_neighbors()`, `aggregate_votes()`, `aggregate_regression()`
-
-**Test results:** 304/304 scry-learn tests passing (301 existing + 3 GPU wiring). Clippy clean `--all-features`.
+All 8 engineering audit findings (P1 + P2) resolved:
+- Wire `stream` module, width/height args, ragged CSV rows, division-by-zero guards
+- Multi-series bar, candlestick x=0, Cargo.toml docs
+- **`cargo test -p scry-pipe`** — 74/74 pass ✅
+- **`cargo check -p scry-cli`** — compiles clean ✅
 
 ---
 
 ## 3. What To Do Next
 
-> **Read `.agent/ROADMAP.md` for the full plan.**
+> **Read `.agent/ROADMAP.md` for the full sprint plan.**
+
+### IMMEDIATE: Quick Wins from Gap Analysis (< 1 hour total)
+
+These are mechanical fixes that dramatically improve surface quality:
+
+#### Quick Win 1: Wire polars/mmap into `lib.rs` (~15 min)
+
+**File:** `crates/scry-learn/src/lib.rs`
+
+Add at the end of the module declarations (after line 66):
+
+```rust
+#[cfg(feature = "polars")]
+pub mod polars_interop;
+
+#[cfg(feature = "mmap")]
+pub mod mmap;
+```
+
+Also add to prelude (behind feature gates):
+```rust
+#[cfg(feature = "mmap")]
+pub use crate::mmap::MmapDataset;
+```
+
+**Verify:** `cargo check -p scry-learn --all-features` compiles. Check that `polars` and `mmap` features exist in `crates/scry-learn/Cargo.toml` — if not, add them with the appropriate deps (`polars`, `memmap2`).
+
+#### Quick Win 2: Macro for PipelineModel impls (~30 min)
+
+**File:** `crates/scry-learn/src/pipeline.rs`
+
+Replace the 22 identical impl blocks (lines 50-157) with a declarative macro:
+
+```rust
+macro_rules! impl_pipeline_model {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl PipelineModel for $ty {
+                fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
+                fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
+            }
+        )*
+    };
+}
+
+impl_pipeline_model! {
+    crate::tree::DecisionTreeClassifier,
+    crate::tree::RandomForestClassifier,
+    crate::linear::LinearRegression,
+    crate::linear::LogisticRegression,
+    crate::neighbors::KnnClassifier,
+    crate::naive_bayes::GaussianNb,
+    crate::tree::DecisionTreeRegressor,
+    crate::tree::RandomForestRegressor,
+    crate::tree::GradientBoostingClassifier,
+    crate::tree::GradientBoostingRegressor,
+    crate::linear::LassoRegression,
+    crate::linear::ElasticNet,
+    crate::svm::LinearSVC,
+    crate::svm::LinearSVR,
+    crate::svm::KernelSVC,
+    crate::svm::KernelSVR,
+    crate::naive_bayes::BernoulliNB,
+    crate::naive_bayes::MultinomialNB,
+    crate::tree::HistGradientBoostingClassifier,
+    crate::tree::HistGradientBoostingRegressor,
+    crate::neural::MLPClassifier,
+    crate::neural::MLPRegressor,
+}
+```
+
+**Verify:** `cargo test -p scry-learn --lib --all-features --release`
+
+---
 
 ### PRIORITY 1: Sprint 9C — scry-engine GPU 2D Rasterizer
 
@@ -219,12 +180,19 @@ Add a GPU-accelerated 2D rasterizer to scry-engine. The current `Rasterizer` in 
 
 **Target:** ≥10× throughput improvement at 4K resolution for 2D charts
 
-### PRIORITY 2: Housekeeping (P2)
+### PRIORITY 2: Sprint 10 Gap Fixes (from Gap Analysis)
+
+| Fix | Effort | Impact | Details |
+|-----|--------|--------|---------|
+| BLAS backend via `ComputeBackend` trait | 2 days | Closes ~1.7% R² gap + 2-4× speed | Add `faer` or `openblas-src` behind `blas` feature flag |
+| MVP working-set selection for SMO | 1 day | Major convergence improvement | Replace line 456 heuristic in `kernel.rs` with max-violating-pair scan |
+| `predict_matrix()` zero-copy path | 1 day | Eliminates allocation-per-sample | Add overloaded predict accepting `&DenseMatrix` |
+
+### PRIORITY 3: Housekeeping
 
 - Git commit workflow → `.agent/workflows/git-commit.md` (conventional commits)
 - `cargo-semver-checks` → add to CI + Sprint 13A
 - `cargo-audit` → add to CI alongside `cargo deny`
-- Remove `suggestions.md` before publishing (internal audit)
 
 ---
 
@@ -232,11 +200,13 @@ Add a GPU-accelerated 2D rasterizer to scry-engine. The current `Rasterizer` in 
 
 | Issue | Severity | Details |
 |-------|----------|---------|
-| ~~GPU v1 per-call overhead~~ | ~~High~~ | ~~Fixed in Sprint 9C — cached: 3.5ms/6.6ms (was 107ms/109ms)~~ |
 | Gaussian NB digits gap | Medium | −2.2% vs sklearn (improved from −3.3% with var_smoothing fix) |
 | KNN iris gap | Low | −2.7% — inherent to 150-sample dataset, not a bug |
 | `determinism_rf_same_seed` flaky | Low | Passes reliably in `--release`; debug-only thread scheduling |
 | 8 bench tests `#[ignore]`d | Info | Run: `--release -- --ignored` |
+| Full workspace clippy not run | Low | Audit fixes session didn't run full clippy due to compile time |
+| 22 manual PipelineModel impls | Medium | Quick fix: macro (see Quick Win 2 above) |
+| polars/mmap not exported | Medium | Quick fix: 2 lines in lib.rs (see Quick Win 1 above) |
 
 ---
 
@@ -246,6 +216,7 @@ Add a GPU-accelerated 2D rasterizer to scry-engine. The current `Rasterizer` in 
 |---------|------|
 | Product roadmap | `.agent/ROADMAP.md` |
 | Agent context | `.agent/CONTEXT.md` |
+| **Gap analysis report** | `.gemini/antigravity/.../gap_analysis.md` |
 | **2D rasterizer (CPU)** | `src/rasterize/skia.rs` (1187 lines) |
 | **2D rasterize module** | `src/rasterize/mod.rs` |
 | **Command batching** | `src/rasterize/batch.rs` |
@@ -255,12 +226,18 @@ Add a GPU-accelerated 2D rasterizer to scry-engine. The current `Rasterizer` in 
 | **Scene canvas** | `src/scene/mod.rs` (PixelCanvas builder) |
 | **Style types** | `src/scene/style.rs` (Color, Rect, ShapeStyle, GradientDef, etc.) |
 | Engine Cargo.toml | `Cargo.toml` (workspace root = scry-engine) |
+| **Pipeline (22 manual impls)** | `crates/scry-learn/src/pipeline.rs` |
+| **DenseMatrix** | `crates/scry-learn/src/matrix.rs` (333 lines) |
+| **Compute backend trait** | `crates/scry-learn/src/accel/mod.rs` |
+| **GPU backend (wgpu)** | `crates/scry-learn/src/accel/gpu.rs` |
+| **CPU backend** | `crates/scry-learn/src/accel/cpu.rs` |
+| **SMO solver** | `crates/scry-learn/src/svm/kernel.rs` (lines 409-544) |
+| **polars interop (not exported)** | `crates/scry-learn/src/polars_interop.rs` |
+| **mmap dataset (not exported)** | `crates/scry-learn/src/mmap.rs` (595 lines) |
+| **lib.rs (module exports)** | `crates/scry-learn/src/lib.rs` |
 | **3D wgpu backend (reference)** | `crates/scry-chart/src/chart3d/wgpu_backend.rs` |
 | **3D point shader (reference)** | `crates/scry-chart/src/chart3d/shaders/point.wgsl` |
 | **3D line shader (reference)** | `crates/scry-chart/src/chart3d/shaders/line.wgsl` |
-| GPU compute backend | `crates/scry-learn/src/accel/mod.rs` |
-| GPU backend (wgpu) | `crates/scry-learn/src/accel/gpu.rs` |
-| CPU backend | `crates/scry-learn/src/accel/cpu.rs` |
 | Linear regression (GPU-wired) | `crates/scry-learn/src/linear/regression.rs` |
 | KNN (GPU-wired) | `crates/scry-learn/src/neighbors/knn.rs` |
 | Benchmarks doc | `BENCHMARKS.md` |
@@ -277,6 +254,8 @@ Add a GPU-accelerated 2D rasterizer to scry-engine. The current `Rasterizer` in 
 | `scry-chart` | `widget` (default) | `ratatui` + `crossterm` deps, `mod widget`, `Chart3D::show()` |
 | `scry-chart` | **`gpu`** (opt-in) | **`wgpu` + `pollster` + `bytemuck`, `WgpuRasterizer3D`, `Chart3D::render_gpu()`** |
 | `scry-learn` | **`gpu`** (opt-in) | **`wgpu` + `pollster` + `bytemuck`, `GpuBackend`, `accel::auto()`** |
+| `scry-learn` | `polars` (opt-in) | polars interop (module exists, **not yet exported**) |
+| `scry-learn` | `mmap` (opt-in) | memmap2 dataset (module exists, **not yet exported**) |
 | `scry-chart` | `serde` | Serialize/Deserialize derives |
 
 ## 7. Verification Commands
@@ -307,6 +286,9 @@ cargo test -p scry-chart --lib --all-features
 
 # All scry-learn tests — USE --release for speed
 cargo test -p scry-learn --lib --all-features --release
+
+# scry-pipe tests (fast, no GPU deps)
+cargo test -p scry-pipe
 ```
 
 ## 8. Code Quality Rules
@@ -320,3 +302,22 @@ cargo test -p scry-learn --lib --all-features --release
 - **Doc comments** — all public APIs need `///` doc comments
 - **Error handling** — `Result<T, E>` with crate-specific error types, never panic
 - **Pure Rust** — no BLAS, nalgebra, or ndarray in default dependencies (optional feature only)
+
+## 9. Architecture Insight: ComputeBackend as BLAS Gateway
+
+The `accel` module in scry-learn already provides the abstraction layer for plugging in optimized backends:
+
+```
+ComputeBackend (trait)
+├── CpuBackend       ← current default (scalar loops)
+├── GpuBackend       ← wgpu compute shaders (exists, feature-gated)
+└── BlasBackend      ← TODO: faer/openblas (would slot in here)
+```
+
+**Key methods:** `matmul()`, `xtx_xty()`, `pairwise_distances_squared()`, `xtx_xty_contiguous()`
+
+Models call `accel::auto()` which returns the best available backend. Adding BLAS requires:
+1. New `BlasBackend` struct implementing `ComputeBackend`
+2. Update `auto()` priority: GPU → BLAS → CPU
+3. Feature flag: `blas` in `Cargo.toml`
+4. **Zero model code changes** — the trait abstraction handles it

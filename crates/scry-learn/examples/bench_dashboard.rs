@@ -166,13 +166,12 @@ fn bench_decision_tree() -> Vec<BenchResult> {
 
     // ── smartcore ──
     let x = DenseMatrix::from_2d_vec(&features).unwrap();
-    let smart_dt =
-        smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-            &x,
-            &target_i32,
-            smartcore::tree::decision_tree_classifier::DecisionTreeClassifierParameters::default(),
-        )
-        .unwrap();
+    let smart_dt = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
+        &x,
+        &target_i32,
+        smartcore::tree::decision_tree_classifier::DecisionTreeClassifierParameters::default(),
+    )
+    .unwrap();
     let smart_preds_i32: Vec<i32> = smart_dt.predict(&x).unwrap();
     let smart_preds: Vec<f64> = smart_preds_i32.iter().map(|&p| p as f64).collect();
     let smart_acc = accuracy_f64(&target, &smart_preds);
@@ -207,9 +206,27 @@ fn bench_decision_tree() -> Vec<BenchResult> {
     let (linfa_us, linfa_std) = mean_std(&linfa_times);
 
     vec![
-        BenchResult { algorithm: "DT Predict", library: "scry-learn", time_us: scry_us, time_std: scry_std, accuracy: Some(scry_acc) },
-        BenchResult { algorithm: "DT Predict", library: "smartcore", time_us: smart_us, time_std: smart_std, accuracy: Some(smart_acc) },
-        BenchResult { algorithm: "DT Predict", library: "linfa", time_us: linfa_us, time_std: linfa_std, accuracy: Some(linfa_acc) },
+        BenchResult {
+            algorithm: "DT Predict",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: Some(scry_acc),
+        },
+        BenchResult {
+            algorithm: "DT Predict",
+            library: "smartcore",
+            time_us: smart_us,
+            time_std: smart_std,
+            accuracy: Some(smart_acc),
+        },
+        BenchResult {
+            algorithm: "DT Predict",
+            library: "linfa",
+            time_us: linfa_us,
+            time_std: linfa_std,
+            accuracy: Some(linfa_acc),
+        },
     ]
 }
 
@@ -223,21 +240,27 @@ fn bench_random_forest() -> Vec<BenchResult> {
     // Warmup
     for _ in 0..WARMUP_ITERS {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(n_trees).max_depth(8);
+            .n_estimators(n_trees)
+            .max_depth(8);
         rf.fit(std::hint::black_box(&d)).unwrap();
     }
     let mut scry_times = Vec::with_capacity(n_train_iters);
     for _ in 0..n_train_iters {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(n_trees).max_depth(8);
+            .n_estimators(n_trees)
+            .max_depth(8);
         let t0 = Instant::now();
         rf.fit(std::hint::black_box(&d)).unwrap();
         scry_times.push(t0.elapsed().as_micros() as f64);
@@ -246,11 +269,14 @@ fn bench_random_forest() -> Vec<BenchResult> {
 
     // Get accuracy
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_rf = scry_learn::prelude::RandomForestClassifier::new()
-        .n_estimators(n_trees).max_depth(8);
+        .n_estimators(n_trees)
+        .max_depth(8);
     scry_rf.fit(&data).unwrap();
     let scry_preds = scry_rf.predict(&features).unwrap();
     let scry_acc = accuracy_f64(&target, &scry_preds);
@@ -261,8 +287,11 @@ fn bench_random_forest() -> Vec<BenchResult> {
         let p = smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
             .with_n_trees(n_trees as u16).with_max_depth(8);
         let _ = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-            std::hint::black_box(&x2), std::hint::black_box(&target_i32), p,
-        ).unwrap();
+            std::hint::black_box(&x2),
+            std::hint::black_box(&target_i32),
+            p,
+        )
+        .unwrap();
     }
     let mut smart_times = Vec::with_capacity(n_train_iters);
     for _ in 0..n_train_iters {
@@ -271,18 +300,26 @@ fn bench_random_forest() -> Vec<BenchResult> {
             .with_n_trees(n_trees as u16).with_max_depth(8);
         let t0 = Instant::now();
         let _ = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-            std::hint::black_box(&x2), std::hint::black_box(&target_i32), p,
-        ).unwrap();
+            std::hint::black_box(&x2),
+            std::hint::black_box(&target_i32),
+            p,
+        )
+        .unwrap();
         smart_times.push(t0.elapsed().as_micros() as f64);
     }
     let (smart_train_us, smart_train_std) = mean_std(&smart_times);
 
     let x = DenseMatrix::from_2d_vec(&features).unwrap();
-    let smart_params = smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
-        .with_n_trees(n_trees as u16).with_max_depth(8);
+    let smart_params =
+        smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
+            .with_n_trees(n_trees as u16)
+            .with_max_depth(8);
     let smart_rf = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-        &x, &target_i32, smart_params,
-    ).unwrap();
+        &x,
+        &target_i32,
+        smart_params,
+    )
+    .unwrap();
     let smart_preds_i32: Vec<i32> = smart_rf.predict(&x).unwrap();
     let smart_preds: Vec<f64> = smart_preds_i32.iter().map(|&p| p as f64).collect();
     let smart_acc = accuracy_f64(&target, &smart_preds);
@@ -329,9 +366,27 @@ fn bench_random_forest() -> Vec<BenchResult> {
     let linfa_acc = accuracy_f64(&target, &linfa_preds);
 
     vec![
-        BenchResult { algorithm: "RF Train",  library: "scry-learn", time_us: scry_train_us,  time_std: scry_train_std,  accuracy: Some(scry_acc) },
-        BenchResult { algorithm: "RF Train",  library: "smartcore",  time_us: smart_train_us, time_std: smart_train_std, accuracy: Some(smart_acc) },
-        BenchResult { algorithm: "RF Train",  library: "linfa",      time_us: linfa_train_us, time_std: linfa_train_std, accuracy: Some(linfa_acc) },
+        BenchResult {
+            algorithm: "RF Train",
+            library: "scry-learn",
+            time_us: scry_train_us,
+            time_std: scry_train_std,
+            accuracy: Some(scry_acc),
+        },
+        BenchResult {
+            algorithm: "RF Train",
+            library: "smartcore",
+            time_us: smart_train_us,
+            time_std: smart_train_std,
+            accuracy: Some(smart_acc),
+        },
+        BenchResult {
+            algorithm: "RF Train",
+            library: "linfa",
+            time_us: linfa_train_us,
+            time_std: linfa_train_std,
+            accuracy: Some(linfa_acc),
+        },
     ]
 }
 
@@ -342,29 +397,39 @@ fn bench_gbt_regressor() -> Vec<BenchResult> {
 
     // ── scry-learn (exclusive — no competitor has GBT) ──
     let scry_ds = scry_learn::dataset::Dataset::new(
-        col_major, target,
-        (0..10).map(|i| format!("f{i}")).collect(), "y",
+        col_major,
+        target,
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "y",
     );
 
     // Warmup
     for _ in 0..WARMUP_ITERS {
         let mut gbr = scry_learn::tree::GradientBoostingRegressor::new()
-            .n_estimators(n_estimators).learning_rate(0.1).max_depth(3);
+            .n_estimators(n_estimators)
+            .learning_rate(0.1)
+            .max_depth(3);
         gbr.fit(std::hint::black_box(&scry_ds)).unwrap();
     }
     let mut scry_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let mut gbr = scry_learn::tree::GradientBoostingRegressor::new()
-            .n_estimators(n_estimators).learning_rate(0.1).max_depth(3);
+            .n_estimators(n_estimators)
+            .learning_rate(0.1)
+            .max_depth(3);
         let t0 = Instant::now();
         gbr.fit(std::hint::black_box(&scry_ds)).unwrap();
         scry_times.push(t0.elapsed().as_micros() as f64);
     }
     let (scry_us, scry_std) = mean_std(&scry_times);
 
-    vec![
-        BenchResult { algorithm: "GBT Train", library: "scry-learn", time_us: scry_us, time_std: scry_std, accuracy: None },
-    ]
+    vec![BenchResult {
+        algorithm: "GBT Train",
+        library: "scry-learn",
+        time_us: scry_us,
+        time_std: scry_std,
+        accuracy: None,
+    }]
 }
 
 fn bench_hist_gbt() -> Vec<BenchResult> {
@@ -373,29 +438,37 @@ fn bench_hist_gbt() -> Vec<BenchResult> {
     let (col_major, target, _row_major) = gen_regression(2000, 10);
 
     let scry_ds = scry_learn::dataset::Dataset::new(
-        col_major, target,
-        (0..10).map(|i| format!("f{i}")).collect(), "y",
+        col_major,
+        target,
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "y",
     );
 
     // Warmup
     for _ in 0..WARMUP_ITERS {
         let mut hgbt = scry_learn::tree::HistGradientBoostingRegressor::new()
-            .n_estimators(n_estimators).learning_rate(0.1);
+            .n_estimators(n_estimators)
+            .learning_rate(0.1);
         hgbt.fit(std::hint::black_box(&scry_ds)).unwrap();
     }
     let mut scry_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let mut hgbt = scry_learn::tree::HistGradientBoostingRegressor::new()
-            .n_estimators(n_estimators).learning_rate(0.1);
+            .n_estimators(n_estimators)
+            .learning_rate(0.1);
         let t0 = Instant::now();
         hgbt.fit(std::hint::black_box(&scry_ds)).unwrap();
         scry_times.push(t0.elapsed().as_micros() as f64);
     }
     let (scry_us, scry_std) = mean_std(&scry_times);
 
-    vec![
-        BenchResult { algorithm: "HistGBT Train", library: "scry-learn", time_us: scry_us, time_std: scry_std, accuracy: None },
-    ]
+    vec![BenchResult {
+        algorithm: "HistGBT Train",
+        library: "scry-learn",
+        time_us: scry_us,
+        time_std: scry_std,
+        accuracy: None,
+    }]
 }
 
 fn bench_logistic_regression() -> Vec<BenchResult> {
@@ -408,21 +481,23 @@ fn bench_logistic_regression() -> Vec<BenchResult> {
     // Warmup
     for _ in 0..WARMUP_ITERS {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
-        let mut lr = scry_learn::prelude::LogisticRegression::new()
-            .max_iter(200);
+        let mut lr = scry_learn::prelude::LogisticRegression::new().max_iter(200);
         lr.fit(std::hint::black_box(&d)).unwrap();
     }
     let mut scry_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
-        let mut lr = scry_learn::prelude::LogisticRegression::new()
-            .max_iter(200);
+        let mut lr = scry_learn::prelude::LogisticRegression::new().max_iter(200);
         let t0 = Instant::now();
         lr.fit(std::hint::black_box(&d)).unwrap();
         scry_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
@@ -436,7 +511,8 @@ fn bench_logistic_regression() -> Vec<BenchResult> {
             std::hint::black_box(&x2),
             std::hint::black_box(&target_i32),
             smartcore::linear::logistic_regression::LogisticRegressionParameters::default(),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let mut smart_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
@@ -446,7 +522,8 @@ fn bench_logistic_regression() -> Vec<BenchResult> {
             std::hint::black_box(&x2),
             std::hint::black_box(&target_i32),
             smartcore::linear::logistic_regression::LogisticRegressionParameters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         smart_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
     }
     let (smart_us, smart_std) = mean_std(&smart_times);
@@ -474,9 +551,27 @@ fn bench_logistic_regression() -> Vec<BenchResult> {
     let (linfa_us, linfa_std) = mean_std(&linfa_times);
 
     vec![
-        BenchResult { algorithm: "LogReg Train", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
-        BenchResult { algorithm: "LogReg Train", library: "smartcore",  time_us: smart_us, time_std: smart_std, accuracy: None },
-        BenchResult { algorithm: "LogReg Train", library: "linfa",      time_us: linfa_us, time_std: linfa_std, accuracy: None },
+        BenchResult {
+            algorithm: "LogReg Train",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "LogReg Train",
+            library: "smartcore",
+            time_us: smart_us,
+            time_std: smart_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "LogReg Train",
+            library: "linfa",
+            time_us: linfa_us,
+            time_std: linfa_std,
+            accuracy: None,
+        },
     ]
 }
 
@@ -487,8 +582,10 @@ fn bench_knn() -> Vec<BenchResult> {
 
     // ── scry-learn ──
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target,
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target,
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_knn = scry_learn::prelude::KnnClassifier::new().k(5);
     scry_knn.fit(&data).unwrap();
@@ -508,9 +605,11 @@ fn bench_knn() -> Vec<BenchResult> {
     // ── smartcore ──
     let x = DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_knn = smartcore::neighbors::knn_classifier::KNNClassifier::fit(
-        &x, &target_i32,
+        &x,
+        &target_i32,
         smartcore::neighbors::knn_classifier::KNNClassifierParameters::default().with_k(5),
-    ).unwrap();
+    )
+    .unwrap();
 
     for _ in 0..WARMUP_ITERS {
         std::hint::black_box(smart_knn.predict(std::hint::black_box(&x)).unwrap());
@@ -524,8 +623,20 @@ fn bench_knn() -> Vec<BenchResult> {
     let (smart_us, smart_std) = mean_std(&smart_times);
 
     vec![
-        BenchResult { algorithm: "KNN Predict", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
-        BenchResult { algorithm: "KNN Predict", library: "smartcore",  time_us: smart_us, time_std: smart_std, accuracy: None },
+        BenchResult {
+            algorithm: "KNN Predict",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "KNN Predict",
+            library: "smartcore",
+            time_us: smart_us,
+            time_std: smart_std,
+            accuracy: None,
+        },
     ]
 }
 
@@ -536,19 +647,29 @@ fn bench_kmeans() -> Vec<BenchResult> {
     // ── scry-learn ──
     for _ in 0..WARMUP_ITERS {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
-        let mut km = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(100).n_init(1);
+        let mut km = scry_learn::prelude::KMeans::new(3)
+            .seed(42)
+            .max_iter(100)
+            .n_init(1);
         km.fit(std::hint::black_box(&d)).unwrap();
     }
     let mut scry_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
-        let mut km = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(100).n_init(1);
+        let mut km = scry_learn::prelude::KMeans::new(3)
+            .seed(42)
+            .max_iter(100)
+            .n_init(1);
         let t0 = Instant::now();
         km.fit(std::hint::black_box(&d)).unwrap();
         scry_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
@@ -578,8 +699,20 @@ fn bench_kmeans() -> Vec<BenchResult> {
     let (linfa_us, linfa_std) = mean_std(&linfa_times);
 
     vec![
-        BenchResult { algorithm: "K-Means Train", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
-        BenchResult { algorithm: "K-Means Train", library: "linfa",      time_us: linfa_us, time_std: linfa_std, accuracy: None },
+        BenchResult {
+            algorithm: "K-Means Train",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "K-Means Train",
+            library: "linfa",
+            time_us: linfa_us,
+            time_std: linfa_std,
+            accuracy: None,
+        },
     ]
 }
 
@@ -594,8 +727,10 @@ fn bench_pca() -> Vec<BenchResult> {
 
     // ── scry-learn ──
     let scry_ds = scry_learn::prelude::Dataset::new(
-        features_col, target,
-        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        features_col,
+        target,
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     for _ in 0..WARMUP_ITERS {
         let mut pca = scry_learn::prelude::Pca::with_n_components(n_components);
@@ -612,25 +747,28 @@ fn bench_pca() -> Vec<BenchResult> {
 
     // ── smartcore ──
     let x = DenseMatrix::from_2d_vec(&features_row).unwrap();
-    let smart_params = smartcore::decomposition::pca::PCAParameters::default()
-        .with_n_components(n_components);
+    let smart_params =
+        smartcore::decomposition::pca::PCAParameters::default().with_n_components(n_components);
     for _ in 0..WARMUP_ITERS {
-        let _ = smartcore::decomposition::pca::PCA::fit(
-            std::hint::black_box(&x), smart_params.clone(),
-        ).unwrap();
+        let _ =
+            smartcore::decomposition::pca::PCA::fit(std::hint::black_box(&x), smart_params.clone())
+                .unwrap();
     }
     let mut smart_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let t0 = Instant::now();
-        let _ = smartcore::decomposition::pca::PCA::fit(
-            std::hint::black_box(&x), smart_params.clone(),
-        ).unwrap();
+        let _ =
+            smartcore::decomposition::pca::PCA::fit(std::hint::black_box(&x), smart_params.clone())
+                .unwrap();
         smart_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
     }
     let (smart_us, smart_std) = mean_std(&smart_times);
 
     // ── linfa-reduction ──
-    let flat: Vec<f64> = features_row.iter().flat_map(|r| r.iter().copied()).collect();
+    let flat: Vec<f64> = features_row
+        .iter()
+        .flat_map(|r| r.iter().copied())
+        .collect();
     let x_nd = ndarray::Array2::from_shape_vec((n_samples, n_features), flat).unwrap();
     let linfa_ds = linfa::Dataset::new(
         x_nd,
@@ -652,9 +790,27 @@ fn bench_pca() -> Vec<BenchResult> {
     let (linfa_us, linfa_std) = mean_std(&linfa_times);
 
     vec![
-        BenchResult { algorithm: "PCA Fit", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
-        BenchResult { algorithm: "PCA Fit", library: "smartcore",  time_us: smart_us, time_std: smart_std, accuracy: None },
-        BenchResult { algorithm: "PCA Fit", library: "linfa",      time_us: linfa_us, time_std: linfa_std, accuracy: None },
+        BenchResult {
+            algorithm: "PCA Fit",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "PCA Fit",
+            library: "smartcore",
+            time_us: smart_us,
+            time_std: smart_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "PCA Fit",
+            library: "linfa",
+            time_us: linfa_us,
+            time_std: linfa_std,
+            accuracy: None,
+        },
     ]
 }
 
@@ -688,8 +844,10 @@ fn bench_svm() -> Vec<BenchResult> {
 
     // scry-learn LinearSVC
     let scry_ds = scry_learn::prelude::Dataset::new(
-        col_major.clone(), target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        col_major.clone(),
+        target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     for _ in 0..WARMUP_ITERS {
         let mut m = scry_learn::prelude::LinearSVC::new();
@@ -709,29 +867,47 @@ fn bench_svm() -> Vec<BenchResult> {
     for _ in 0..WARMUP_ITERS {
         let knl = smartcore::svm::Kernels::linear();
         let params = smartcore::svm::svc::SVCParameters::default()
-            .with_c(1.0).with_kernel(knl);
+            .with_c(1.0)
+            .with_kernel(knl);
         let _ = smartcore::svm::svc::SVC::fit(
-            std::hint::black_box(&x), std::hint::black_box(&target_i32),
+            std::hint::black_box(&x),
+            std::hint::black_box(&target_i32),
             std::hint::black_box(&params),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let mut smart_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let knl = smartcore::svm::Kernels::linear();
         let params = smartcore::svm::svc::SVCParameters::default()
-            .with_c(1.0).with_kernel(knl);
+            .with_c(1.0)
+            .with_kernel(knl);
         let t0 = Instant::now();
         let _ = smartcore::svm::svc::SVC::fit(
-            std::hint::black_box(&x), std::hint::black_box(&target_i32),
+            std::hint::black_box(&x),
+            std::hint::black_box(&target_i32),
             std::hint::black_box(&params),
-        ).unwrap();
+        )
+        .unwrap();
         smart_times.push(t0.elapsed().as_nanos() as f64 / 1000.0);
     }
     let (smart_us, smart_std) = mean_std(&smart_times);
 
     vec![
-        BenchResult { algorithm: "SVM Train", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
-        BenchResult { algorithm: "SVM Train", library: "smartcore",  time_us: smart_us, time_std: smart_std, accuracy: None },
+        BenchResult {
+            algorithm: "SVM Train",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "SVM Train",
+            library: "smartcore",
+            time_us: smart_us,
+            time_std: smart_std,
+            accuracy: None,
+        },
     ]
 }
 
@@ -750,8 +926,10 @@ fn bench_lasso() -> Vec<BenchResult> {
 
     // scry-learn Lasso
     let scry_ds = scry_learn::prelude::Dataset::new(
-        col_major.clone(), target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        col_major.clone(),
+        target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     for _ in 0..WARMUP_ITERS {
         let mut m = scry_learn::prelude::LassoRegression::new().alpha(0.1);
@@ -792,8 +970,20 @@ fn bench_lasso() -> Vec<BenchResult> {
     let (linfa_us, linfa_std) = mean_std(&linfa_times);
 
     vec![
-        BenchResult { algorithm: "Lasso Train", library: "scry-learn", time_us: scry_us,  time_std: scry_std,  accuracy: None },
-        BenchResult { algorithm: "Lasso Train", library: "linfa",      time_us: linfa_us, time_std: linfa_std, accuracy: None },
+        BenchResult {
+            algorithm: "Lasso Train",
+            library: "scry-learn",
+            time_us: scry_us,
+            time_std: scry_std,
+            accuracy: None,
+        },
+        BenchResult {
+            algorithm: "Lasso Train",
+            library: "linfa",
+            time_us: linfa_us,
+            time_std: linfa_std,
+            accuracy: None,
+        },
     ]
 }
 
@@ -825,8 +1015,10 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── DecisionTreeClassifier ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut dt = scry_learn::prelude::DecisionTreeClassifier::new();
         dt.fit(&data).unwrap();
@@ -852,11 +1044,14 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── RandomForestClassifier ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(100).max_depth(8);
+            .n_estimators(100)
+            .max_depth(8);
         rf.fit(&data).unwrap();
         for _ in 0..100 {
             std::hint::black_box(rf.predict(std::hint::black_box(&sample)).unwrap());
@@ -879,11 +1074,15 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── GradientBoostingClassifier ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut gbt = scry_learn::prelude::GradientBoostingClassifier::new()
-            .n_estimators(100).learning_rate(0.1).max_depth(3);
+            .n_estimators(100)
+            .learning_rate(0.1)
+            .max_depth(3);
         gbt.fit(&data).unwrap();
         for _ in 0..100 {
             std::hint::black_box(gbt.predict(std::hint::black_box(&sample)).unwrap());
@@ -906,11 +1105,14 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── HistGradientBoostingClassifier ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut hgbt = scry_learn::prelude::HistGradientBoostingClassifier::new()
-            .n_estimators(100).learning_rate(0.1);
+            .n_estimators(100)
+            .learning_rate(0.1);
         hgbt.fit(&data).unwrap();
         for _ in 0..100 {
             std::hint::black_box(hgbt.predict(std::hint::black_box(&sample)).unwrap());
@@ -933,8 +1135,10 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── KNN ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut knn = scry_learn::prelude::KnnClassifier::new().k(5);
         knn.fit(&data).unwrap();
@@ -959,8 +1163,10 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── LogisticRegression ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut lr = scry_learn::prelude::LogisticRegression::new().max_iter(200);
         lr.fit(&data).unwrap();
@@ -985,8 +1191,10 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── GaussianNB ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut gnb = scry_learn::prelude::GaussianNb::new();
         gnb.fit(&data).unwrap();
@@ -1011,8 +1219,10 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── LinearSVC ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut lsvc = scry_learn::prelude::LinearSVC::new();
         lsvc.fit(&data).unwrap();
@@ -1037,8 +1247,10 @@ fn bench_inference_latency() -> Vec<InferenceResult> {
     // ── BernoulliNB ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major, target,
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major,
+            target,
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut bnb = scry_learn::prelude::BernoulliNB::new();
         bnb.fit(&data).unwrap();
@@ -1084,8 +1296,10 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
         // ── DT ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major.clone(),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 10 } else { 3 };
             let mut times = Vec::new();
@@ -1096,71 +1310,99 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "DT", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "DT",
+                n_samples: n,
+                train_us: mean,
+            });
         }
 
         // ── RF ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major.clone(),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 5 } else { 2 };
             let mut times = Vec::new();
             for _ in 0..n_iter {
                 let mut m = scry_learn::prelude::RandomForestClassifier::new()
-                    .n_estimators(50).max_depth(8);
+                    .n_estimators(50)
+                    .max_depth(8);
                 let t0 = Instant::now();
                 m.fit(std::hint::black_box(&data)).unwrap();
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "RF", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "RF",
+                n_samples: n,
+                train_us: mean,
+            });
         }
 
         // ── GBT ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major.clone(),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 5 } else { 2 };
             let mut times = Vec::new();
             for _ in 0..n_iter {
                 let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
-                    .n_estimators(50).learning_rate(0.1).max_depth(3);
+                    .n_estimators(50)
+                    .learning_rate(0.1)
+                    .max_depth(3);
                 let t0 = Instant::now();
                 m.fit(std::hint::black_box(&data)).unwrap();
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "GBT", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "GBT",
+                n_samples: n,
+                train_us: mean,
+            });
         }
 
         // ── HistGBT ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major.clone(),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 5 } else { 2 };
             let mut times = Vec::new();
             for _ in 0..n_iter {
                 let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
-                    .n_estimators(50).learning_rate(0.1);
+                    .n_estimators(50)
+                    .learning_rate(0.1);
                 let t0 = Instant::now();
                 m.fit(std::hint::black_box(&data)).unwrap();
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "HistGBT", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "HistGBT",
+                n_samples: n,
+                train_us: mean,
+            });
         }
 
         // ── KNN ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major.clone(),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 10 } else { 3 };
             let mut times = Vec::new();
@@ -1171,14 +1413,20 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "KNN", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "KNN",
+                n_samples: n,
+                train_us: mean,
+            });
         }
 
         // ── LogReg ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major.clone(),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 10 } else { 3 };
             let mut times = Vec::new();
@@ -1189,14 +1437,20 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "LogReg", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "LogReg",
+                n_samples: n,
+                train_us: mean,
+            });
         }
 
         // ── LinearSVC ──
         {
             let data = scry_learn::prelude::Dataset::new(
-                col_major, target,
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                col_major,
+                target,
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let n_iter = if n <= 1000 { 10 } else { 3 };
             let mut times = Vec::new();
@@ -1207,7 +1461,11 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
                 times.push(t0.elapsed().as_micros() as f64);
             }
             let (mean, _) = mean_std(&times);
-            points.push(ScalingPoint { model: "LinearSVC", n_samples: n, train_us: mean });
+            points.push(ScalingPoint {
+                model: "LinearSVC",
+                n_samples: n,
+                train_us: mean,
+            });
         }
     }
 
@@ -1223,11 +1481,15 @@ fn bench_scaling() -> (Vec<ScalingPoint>, String) {
         .with_points();
 
     for model in &models {
-        let values: Vec<f64> = sizes.iter().map(|&n| {
-            points.iter()
-                .find(|p| p.model == *model && p.n_samples == n)
-                .map_or(0.0, |p| p.train_us)
-        }).collect();
+        let values: Vec<f64> = sizes
+            .iter()
+            .map(|&n| {
+                points
+                    .iter()
+                    .find(|p| p.model == *model && p.n_samples == n)
+                    .map_or(0.0, |p| p.train_us)
+            })
+            .collect();
         chart = chart.add_named_series(*model, &values);
     }
 
@@ -1253,100 +1515,144 @@ fn bench_model_size() -> Vec<MemoryResult> {
     // ── DT ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::DecisionTreeClassifier::new();
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "DecisionTree", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "DecisionTree",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── RF ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(100).max_depth(8);
+            .n_estimators(100)
+            .max_depth(8);
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "RandomForest", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "RandomForest",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── GBT ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
-            .n_estimators(100).learning_rate(0.1).max_depth(3);
+            .n_estimators(100)
+            .learning_rate(0.1)
+            .max_depth(3);
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "GBT", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "GBT",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── HistGBT ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
-            .n_estimators(100).learning_rate(0.1);
+            .n_estimators(100)
+            .learning_rate(0.1);
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "HistGBT", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "HistGBT",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── KNN ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "KNN (k=5)", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "KNN (k=5)",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── LogReg ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::LogisticRegression::new().max_iter(200);
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "LogisticReg", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "LogisticReg",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── GaussianNB ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::GaussianNb::new();
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "GaussianNB", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "GaussianNB",
+            serialized_bytes: json.len(),
+        });
     }
 
     // ── LinearSVC ──
     {
         let data = scry_learn::prelude::Dataset::new(
-            col_major, target,
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major,
+            target,
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut m = scry_learn::prelude::LinearSVC::new();
         m.fit(&data).unwrap();
         let json = serde_json::to_string(&m).unwrap();
-        results.push(MemoryResult { model: "LinearSVC", serialized_bytes: json.len() });
+        results.push(MemoryResult {
+            model: "LinearSVC",
+            serialized_bytes: json.len(),
+        });
     }
 
     results
@@ -1388,13 +1694,18 @@ fn bench_pipeline() -> PipelineBenchResult {
     let mut pipeline_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut pipe = scry_learn::prelude::Pipeline::new()
             .add_transformer(scry_learn::prelude::StandardScaler::new())
-            .set_model(scry_learn::prelude::RandomForestClassifier::new()
-                .n_estimators(50).max_depth(8));
+            .set_model(
+                scry_learn::prelude::RandomForestClassifier::new()
+                    .n_estimators(50)
+                    .max_depth(8),
+            );
         let t0 = Instant::now();
         pipe.fit(std::hint::black_box(&data)).unwrap();
         let _ = pipe.predict(std::hint::black_box(&data)).unwrap();
@@ -1406,11 +1717,14 @@ fn bench_pipeline() -> PipelineBenchResult {
     let mut raw_times = Vec::with_capacity(n_iters);
     for _ in 0..n_iters {
         let data = scry_learn::prelude::Dataset::new(
-            col_major.clone(), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            col_major.clone(),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(50).max_depth(8);
+            .n_estimators(50)
+            .max_depth(8);
         let t0 = Instant::now();
         rf.fit(std::hint::black_box(&data)).unwrap();
         let _ = rf.predict(std::hint::black_box(&features)).unwrap();
@@ -1418,7 +1732,11 @@ fn bench_pipeline() -> PipelineBenchResult {
     }
     let (raw_us, raw_std) = mean_std(&raw_times);
 
-    let overhead = if raw_us > 0.0 { ((pipe_us - raw_us) / raw_us) * 100.0 } else { 0.0 };
+    let overhead = if raw_us > 0.0 {
+        ((pipe_us - raw_us) / raw_us) * 100.0
+    } else {
+        0.0
+    };
 
     PipelineBenchResult {
         pipeline_us: pipe_us,
@@ -1534,10 +1852,8 @@ fn make_speedup_chart(results: &[BenchResult]) -> String {
 
 /// Build a grouped bar chart showing accuracy comparison.
 fn make_accuracy_chart(results: &[BenchResult]) -> String {
-    let accuracy_results: Vec<&BenchResult> = results
-        .iter()
-        .filter(|r| r.accuracy.is_some())
-        .collect();
+    let accuracy_results: Vec<&BenchResult> =
+        results.iter().filter(|r| r.accuracy.is_some()).collect();
 
     if accuracy_results.is_empty() {
         return String::new();
@@ -1638,7 +1954,9 @@ fn kfold_accuracy(
         // Split features (column-major)
         let mut train_features: Vec<Vec<f64>> = Vec::new();
         for col in features_col_major {
-            let train_col: Vec<f64> = col.iter().zip(&test_mask)
+            let train_col: Vec<f64> = col
+                .iter()
+                .zip(&test_mask)
                 .filter(|(_, &is_test)| !is_test)
                 .map(|(&v, _)| v)
                 .collect();
@@ -1651,11 +1969,15 @@ fn kfold_accuracy(
             .map(|i| features_col_major.iter().map(|col| col[i]).collect())
             .collect();
 
-        let train_target: Vec<f64> = target.iter().zip(&test_mask)
+        let train_target: Vec<f64> = target
+            .iter()
+            .zip(&test_mask)
             .filter(|(_, &is_test)| !is_test)
             .map(|(&t, _)| t)
             .collect();
-        let test_target: Vec<f64> = target.iter().zip(&test_mask)
+        let test_target: Vec<f64> = target
+            .iter()
+            .zip(&test_mask)
             .filter(|(_, &is_test)| is_test)
             .map(|(&t, _)| t)
             .collect();
@@ -1663,12 +1985,8 @@ fn kfold_accuracy(
         let feat_names: Vec<String> = (0..features_col_major.len())
             .map(|j| format!("f{j}"))
             .collect();
-        let train_ds = scry_learn::dataset::Dataset::new(
-            train_features,
-            train_target,
-            feat_names,
-            "target",
-        );
+        let train_ds =
+            scry_learn::dataset::Dataset::new(train_features, train_target, feat_names, "target");
 
         let preds = fit_predict(&train_ds, &test_features_rows);
         let correct = preds
@@ -1680,8 +1998,8 @@ fn kfold_accuracy(
     }
 
     let mean = fold_accs.iter().sum::<f64>() / fold_accs.len() as f64;
-    let variance = fold_accs.iter().map(|a| (a - mean).powi(2)).sum::<f64>()
-        / fold_accs.len() as f64;
+    let variance =
+        fold_accs.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / fold_accs.len() as f64;
     (mean, variance.sqrt())
 }
 
@@ -1758,7 +2076,10 @@ fn compute_parity_table() -> Vec<ParityRow> {
         rows.push(ParityRow {
             dataset: dataset_label,
             model: "DecisionTree",
-            scry_mean, scry_std, sklearn_mean: sk_mean, sklearn_std: sk_std,
+            scry_mean,
+            scry_std,
+            sklearn_mean: sk_mean,
+            sklearn_std: sk_std,
         });
 
         // KNN
@@ -1771,14 +2092,38 @@ fn compute_parity_table() -> Vec<ParityRow> {
         rows.push(ParityRow {
             dataset: dataset_label,
             model: "KNN (k=5)",
-            scry_mean, scry_std, sklearn_mean: sk_mean, sklearn_std: sk_std,
+            scry_mean,
+            scry_std,
+            sklearn_mean: sk_mean,
+            sklearn_std: sk_std,
         });
     }
 
     // ── Original 5 datasets ──
-    add_dt_knn_rows(&mut rows, "Iris",          "iris_features.csv",          "iris_target.csv",          "cv_dt_iris",       "cv_knn_iris");
-    add_dt_knn_rows(&mut rows, "Wine",          "wine_features.csv",          "wine_target.csv",          "cv_dt_wine",       "cv_knn_wine");
-    add_dt_knn_rows(&mut rows, "Breast Cancer", "breast_cancer_features.csv", "breast_cancer_target.csv", "cv_dt_bc",         "cv_knn_bc");
+    add_dt_knn_rows(
+        &mut rows,
+        "Iris",
+        "iris_features.csv",
+        "iris_target.csv",
+        "cv_dt_iris",
+        "cv_knn_iris",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Wine",
+        "wine_features.csv",
+        "wine_target.csv",
+        "cv_dt_wine",
+        "cv_knn_wine",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Breast Cancer",
+        "breast_cancer_features.csv",
+        "breast_cancer_target.csv",
+        "cv_dt_bc",
+        "cv_knn_bc",
+    );
 
     // Digits: use DT with max_depth=15 matching sklearn fixture
     {
@@ -1792,8 +2137,12 @@ fn compute_parity_table() -> Vec<ParityRow> {
             dt.predict(test).unwrap()
         });
         rows.push(ParityRow {
-            dataset: "Digits", model: "DecisionTree (d=15)",
-            scry_mean, scry_std, sklearn_mean: sk_mean, sklearn_std: sk_std,
+            dataset: "Digits",
+            model: "DecisionTree (d=15)",
+            scry_mean,
+            scry_std,
+            sklearn_mean: sk_mean,
+            sklearn_std: sk_std,
         });
 
         let (sk_mean, sk_std) = load_sklearn_cv("cv_knn_digits");
@@ -1803,22 +2152,96 @@ fn compute_parity_table() -> Vec<ParityRow> {
             knn.predict(test).unwrap()
         });
         rows.push(ParityRow {
-            dataset: "Digits", model: "KNN (k=5)",
-            scry_mean, scry_std, sklearn_mean: sk_mean, sklearn_std: sk_std,
+            dataset: "Digits",
+            model: "KNN (k=5)",
+            scry_mean,
+            scry_std,
+            sklearn_mean: sk_mean,
+            sklearn_std: sk_std,
         });
     }
 
     // ── 10 new OpenML datasets ──
-    add_dt_knn_rows(&mut rows, "Adult Census",  "adult_features.csv",        "adult_target.csv",        "cv_dt_adult",       "cv_knn_adult");
-    add_dt_knn_rows(&mut rows, "Spambase",      "spambase_features.csv",     "spambase_target.csv",     "cv_dt_spambase",    "cv_knn_spambase");
-    add_dt_knn_rows(&mut rows, "Wine Quality",  "wine_quality_features.csv", "wine_quality_target.csv", "cv_dt_wine_quality", "cv_knn_wine_quality");
-    add_dt_knn_rows(&mut rows, "Glass",         "glass_features.csv",        "glass_target.csv",        "cv_dt_glass",       "cv_knn_glass");
-    add_dt_knn_rows(&mut rows, "Ionosphere",    "ionosphere_features.csv",   "ionosphere_target.csv",   "cv_dt_ionosphere",  "cv_knn_ionosphere");
-    add_dt_knn_rows(&mut rows, "Vehicle",       "vehicle_features.csv",      "vehicle_target.csv",      "cv_dt_vehicle",     "cv_knn_vehicle");
-    add_dt_knn_rows(&mut rows, "Segment",       "segment_features.csv",      "segment_target.csv",      "cv_dt_segment",     "cv_knn_segment");
-    add_dt_knn_rows(&mut rows, "Sonar",         "sonar_features.csv",        "sonar_target.csv",        "cv_dt_sonar",       "cv_knn_sonar");
-    add_dt_knn_rows(&mut rows, "Haberman",      "haberman_features.csv",     "haberman_target.csv",     "cv_dt_haberman",    "cv_knn_haberman");
-    add_dt_knn_rows(&mut rows, "Ecoli",         "ecoli_features.csv",        "ecoli_target.csv",        "cv_dt_ecoli",       "cv_knn_ecoli");
+    add_dt_knn_rows(
+        &mut rows,
+        "Adult Census",
+        "adult_features.csv",
+        "adult_target.csv",
+        "cv_dt_adult",
+        "cv_knn_adult",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Spambase",
+        "spambase_features.csv",
+        "spambase_target.csv",
+        "cv_dt_spambase",
+        "cv_knn_spambase",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Wine Quality",
+        "wine_quality_features.csv",
+        "wine_quality_target.csv",
+        "cv_dt_wine_quality",
+        "cv_knn_wine_quality",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Glass",
+        "glass_features.csv",
+        "glass_target.csv",
+        "cv_dt_glass",
+        "cv_knn_glass",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Ionosphere",
+        "ionosphere_features.csv",
+        "ionosphere_target.csv",
+        "cv_dt_ionosphere",
+        "cv_knn_ionosphere",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Vehicle",
+        "vehicle_features.csv",
+        "vehicle_target.csv",
+        "cv_dt_vehicle",
+        "cv_knn_vehicle",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Segment",
+        "segment_features.csv",
+        "segment_target.csv",
+        "cv_dt_segment",
+        "cv_knn_segment",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Sonar",
+        "sonar_features.csv",
+        "sonar_target.csv",
+        "cv_dt_sonar",
+        "cv_knn_sonar",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Haberman",
+        "haberman_features.csv",
+        "haberman_target.csv",
+        "cv_dt_haberman",
+        "cv_knn_haberman",
+    );
+    add_dt_knn_rows(
+        &mut rows,
+        "Ecoli",
+        "ecoli_features.csv",
+        "ecoli_target.csv",
+        "cv_dt_ecoli",
+        "cv_knn_ecoli",
+    );
 
     rows
 }
@@ -1826,7 +2249,6 @@ fn compute_parity_table() -> Vec<ParityRow> {
 // ═══════════════════════════════════════════════════════════════════════════
 // HTML generation
 // ═══════════════════════════════════════════════════════════════════════════
-
 
 fn generate_html(
     timing_svg: &str,
@@ -1855,9 +2277,7 @@ fn generate_html(
     let accuracy_section = if accuracy_svg.is_empty() {
         String::new()
     } else {
-        format!(
-            r#"  <div class="chart-grid"><div class="chart-card">{accuracy_svg}</div></div>"#,
-        )
+        format!(r#"  <div class="chart-grid"><div class="chart-card">{accuracy_svg}</div></div>"#,)
     };
 
     // Build parity table rows.
@@ -1914,7 +2334,8 @@ fn generate_html(
             let _ = writeln!(
                 memory_rows,
                 "        <tr><td>{}</td><td>{}</td></tr>",
-                r.model, format_bytes(r.serialized_bytes)
+                r.model,
+                format_bytes(r.serialized_bytes)
             );
         }
     }
@@ -2196,12 +2617,20 @@ fn generate_html(
 "#,
         warmup = WARMUP_ITERS,
         parity_table_rows = parity_table_rows,
-        n_inf = if inference_results.is_empty() { 0 } else { inference_results[0].iterations },
+        n_inf = if inference_results.is_empty() {
+            0
+        } else {
+            inference_results[0].iterations
+        },
         n_parity = parity_rows.len(),
         pipeline_us = pipeline_result.pipeline_us,
         raw_us = pipeline_result.raw_us,
         overhead = pipeline_result.overhead_pct,
-        overhead_color = if pipeline_result.overhead_pct < 10.0 { "var(--green)" } else { "var(--yellow)" },
+        overhead_color = if pipeline_result.overhead_pct < 10.0 {
+            "var(--green)"
+        } else {
+            "var(--yellow)"
+        },
     )
 }
 
@@ -2248,15 +2677,22 @@ fn main() {
     let inference = bench_inference_latency();
     println!("    {:>14} {:>10} {:>10}", "Model", "p50", "p99");
     for r in &inference {
-        println!("    {:>14} {:>10} {:>10}", r.model,
-            format!("{} ns", r.p50_ns), format!("{} ns", r.p99_ns));
+        println!(
+            "    {:>14} {:>10} {:>10}",
+            r.model,
+            format!("{} ns", r.p50_ns),
+            format!("{} ns", r.p99_ns)
+        );
     }
 
     // NEW: Scaling curves
     println!("\n📈 Measuring training time scaling (N=100, 1K, 10K)...");
     let (scaling_points, scaling_svg) = bench_scaling();
     for p in &scaling_points {
-        println!("    {:>8} N={:>5}: {:.0} µs", p.model, p.n_samples, p.train_us);
+        println!(
+            "    {:>8} N={:>5}: {:.0} µs",
+            p.model, p.n_samples, p.train_us
+        );
     }
 
     // NEW: Memory footprint
@@ -2273,19 +2709,31 @@ fn main() {
     // NEW: Pipeline benchmark
     println!("\n🔗 Running pipeline benchmark (StandardScaler → RF 50 trees)...");
     let pipeline = bench_pipeline();
-    println!("    Pipeline: {:.0} ± {:.0} µs", pipeline.pipeline_us, pipeline.pipeline_std);
-    println!("    Raw RF:   {:.0} ± {:.0} µs", pipeline.raw_us, pipeline.raw_std);
+    println!(
+        "    Pipeline: {:.0} ± {:.0} µs",
+        pipeline.pipeline_us, pipeline.pipeline_std
+    );
+    println!(
+        "    Raw RF:   {:.0} ± {:.0} µs",
+        pipeline.raw_us, pipeline.raw_std
+    );
     println!("    Overhead: {:+.1}%", pipeline.overhead_pct);
 
     // Print summary table
     println!("\n{}", "─".repeat(75));
-    println!("{:<18} {:<14} {:>12}  {:>10}  {:>8}", "Algorithm", "Library", "Time (µs)", "± σ", "Accuracy");
+    println!(
+        "{:<18} {:<14} {:>12}  {:>10}  {:>8}",
+        "Algorithm", "Library", "Time (µs)", "± σ", "Accuracy"
+    );
     println!("{}", "─".repeat(75));
     for r in &all_results {
         let acc = r
             .accuracy
             .map_or_else(|| "—".to_string(), |a| format!("{:.1}%", a * 100.0));
-        println!("{:<18} {:<14} {:>12.1}  {:>10.1}  {:>8}", r.algorithm, r.library, r.time_us, r.time_std, acc);
+        println!(
+            "{:<18} {:<14} {:>12.1}  {:>10.1}  {:>8}",
+            r.algorithm, r.library, r.time_us, r.time_std, acc
+        );
     }
     println!("{}", "─".repeat(75));
 
@@ -2299,15 +2747,21 @@ fn main() {
     println!("\n🎯 Computing sklearn parity table (5-fold CV on 15 UCI datasets)...");
     let parity = compute_parity_table();
     println!("\n{}", "─".repeat(90));
-    println!("{:<15} {:<20} {:>18} {:>18} {:>8}", "Dataset", "Model", "scry-learn", "sklearn", "Δ");
+    println!(
+        "{:<15} {:<20} {:>18} {:>18} {:>8}",
+        "Dataset", "Model", "scry-learn", "sklearn", "Δ"
+    );
     println!("{}", "─".repeat(90));
     for row in &parity {
         let delta = (row.scry_mean - row.sklearn_mean) * 100.0;
         println!(
             "{:<15} {:<20} {:>7.1}% ± {:<7.1}% {:>7.1}% ± {:<7.1}% {:>+6.1}%",
-            row.dataset, row.model,
-            row.scry_mean * 100.0, row.scry_std * 100.0,
-            row.sklearn_mean * 100.0, row.sklearn_std * 100.0,
+            row.dataset,
+            row.model,
+            row.scry_mean * 100.0,
+            row.scry_std * 100.0,
+            row.sklearn_mean * 100.0,
+            row.sklearn_std * 100.0,
             delta
         );
     }
@@ -2316,9 +2770,15 @@ fn main() {
     // Generate HTML
     println!("\n📄 Generating HTML dashboard...");
     let html = generate_html(
-        &timing_svg, &speedup_svg, &accuracy_svg,
-        &all_results, &parity,
-        &inference, &scaling_svg, &memory, &pipeline,
+        &timing_svg,
+        &speedup_svg,
+        &accuracy_svg,
+        &all_results,
+        &parity,
+        &inference,
+        &scaling_svg,
+        &memory,
+        &pipeline,
     );
 
     let output_path = "bench_dashboard.html";
@@ -2327,4 +2787,3 @@ fn main() {
     println!("   Open in a browser to view the benchmark comparison charts.");
     println!("   File size: {:.1} KB", html.len() as f64 / 1024.0);
 }
-

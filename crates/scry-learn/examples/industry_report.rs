@@ -98,11 +98,10 @@ fn run_cv<M: scry_learn::pipeline::PipelineModel + Clone>(
 ) -> ModelResult {
     let scorer: ScoringFn = accuracy;
     let start = Instant::now();
-    let scores = cross_val_score_stratified(model, data, 5, scorer, 42)
-        .unwrap_or_else(|e| {
-            eprintln!("  WARN: {name} failed: {e}");
-            vec![0.0; 5]
-        });
+    let scores = cross_val_score_stratified(model, data, 5, scorer, 42).unwrap_or_else(|e| {
+        eprintln!("  WARN: {name} failed: {e}");
+        vec![0.0; 5]
+    });
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
     cv_result(name, scores, elapsed)
 }
@@ -175,11 +174,7 @@ fn main() {
                 &LogisticRegression::new().max_iter(500).learning_rate(0.01),
                 &scaled,
             ),
-            run_cv(
-                "KNN (k=5)",
-                &KnnClassifier::new().k(5),
-                &scaled,
-            ),
+            run_cv("KNN (k=5)", &KnnClassifier::new().k(5), &scaled),
             run_cv("Gaussian NB", &GaussianNb::new(), &data),
             run_cv(
                 "LinearSVC",

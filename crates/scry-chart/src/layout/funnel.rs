@@ -46,7 +46,11 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
             // Alpha-based gradient: later stages become more transparent,
             // letting the background show through for a natural lightening
             // effect that works with any theme palette.
-            let t = if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 };
+            let t = if n > 1 {
+                i as f32 / (n - 1) as f32
+            } else {
+                0.0
+            };
             let alpha = 1.0 - t * 0.55; // 1.0 → 0.45
             scry_engine::style::Color {
                 r: base_color.r,
@@ -80,7 +84,11 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
 
         // ── Trapezoid: top edge = this stage's width, bottom edge = next stage's width ──
         let top_w = widths[i];
-        let bottom_w = if i + 1 < n { widths[i + 1] } else { top_w * 0.3 }; // last stage tapers
+        let bottom_w = if i + 1 < n {
+            widths[i + 1]
+        } else {
+            top_w * 0.3
+        }; // last stage tapers
 
         let top_left = center_x - top_w / 2.0;
         let top_right = center_x + top_w / 2.0;
@@ -100,7 +108,12 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
 
         // Stroke outline
         let stroke_color = {
-            let (r, g, b, _) = ((color.r * 255.0) as u8, (color.g * 255.0) as u8, (color.b * 255.0) as u8, (color.a * 255.0) as u8);
+            let (r, g, b, _) = (
+                (color.r * 255.0) as u8,
+                (color.g * 255.0) as u8,
+                (color.b * 255.0) as u8,
+                (color.a * 255.0) as u8,
+            );
             scry_engine::style::Color::from_rgba8(r, g, b, 255)
         };
         ctx.draw(|c| c.polygon(trapezoid).stroke(stroke_color, 1.0).done());

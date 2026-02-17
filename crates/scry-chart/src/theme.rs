@@ -431,13 +431,13 @@ impl Theme {
             foreground: text_color,
             palette: vec![
                 Color::from_rgba8(230, 159, 0, 255),   // orange
-                Color::from_rgba8(86, 180, 233, 255),   // sky blue
-                Color::from_rgba8(0, 158, 115, 255),    // bluish green
-                Color::from_rgba8(240, 228, 66, 255),   // yellow
-                Color::from_rgba8(0, 114, 178, 255),    // blue
-                Color::from_rgba8(213, 94, 0, 255),     // vermillion
-                Color::from_rgba8(204, 121, 167, 255),  // reddish purple
-                Color::from_rgba8(176, 176, 176, 255),  // gray (replaces black for dark bg)
+                Color::from_rgba8(86, 180, 233, 255),  // sky blue
+                Color::from_rgba8(0, 158, 115, 255),   // bluish green
+                Color::from_rgba8(240, 228, 66, 255),  // yellow
+                Color::from_rgba8(0, 114, 178, 255),   // blue
+                Color::from_rgba8(213, 94, 0, 255),    // vermillion
+                Color::from_rgba8(204, 121, 167, 255), // reddish purple
+                Color::from_rgba8(176, 176, 176, 255), // gray (replaces black for dark bg)
             ],
             title_style: TextStyle {
                 color: text_color,
@@ -577,11 +577,11 @@ impl Theme {
     #[must_use]
     pub fn series_dash(&self, index: usize) -> Option<DashPattern> {
         match index % 5 {
-            1 => Some(DashPattern::new(vec![8.0, 4.0], 0.0)),            // dashed
-            2 => Some(DashPattern::new(vec![2.0, 3.0], 0.0)),            // dotted
+            1 => Some(DashPattern::new(vec![8.0, 4.0], 0.0)), // dashed
+            2 => Some(DashPattern::new(vec![2.0, 3.0], 0.0)), // dotted
             3 => Some(DashPattern::new(vec![10.0, 3.0, 2.0, 3.0], 0.0)), // dash-dot
-            4 => Some(DashPattern::new(vec![16.0, 6.0], 0.0)),           // long-dash
-            _ => None,                                                   // solid (0 and any)
+            4 => Some(DashPattern::new(vec![16.0, 6.0], 0.0)), // long-dash
+            _ => None,                                        // solid (0 and any)
         }
     }
 
@@ -591,11 +591,7 @@ impl Theme {
     /// override and falling back to the theme palette.
     #[inline]
     #[must_use]
-    pub fn resolve_series_color(
-        &self,
-        index: usize,
-        style: &crate::data::SeriesStyle,
-    ) -> Color {
+    pub fn resolve_series_color(&self, index: usize, style: &crate::data::SeriesStyle) -> Color {
         style.color.unwrap_or_else(|| self.series_color(index))
     }
 
@@ -619,9 +615,7 @@ impl Theme {
     #[inline]
     #[must_use]
     pub fn resolve_fill_opacity(&self, style: &crate::data::SeriesStyle) -> f32 {
-        style
-            .fill_opacity
-            .unwrap_or(self.series.fill_opacity)
+        style.fill_opacity.unwrap_or(self.series.fill_opacity)
     }
 
     /// Resolve the effective dash pattern for a series.
@@ -637,7 +631,13 @@ impl Theme {
         use_theme_dash: bool,
     ) -> Option<DashPattern> {
         style.dash.as_ref().map_or_else(
-            || if use_theme_dash { self.series_dash(index) } else { None },
+            || {
+                if use_theme_dash {
+                    self.series_dash(index)
+                } else {
+                    None
+                }
+            },
             |dash| Some(dash.clone()),
         )
     }
@@ -805,4 +805,3 @@ mod tests {
         }
     }
 }
-

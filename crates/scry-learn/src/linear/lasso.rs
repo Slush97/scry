@@ -34,6 +34,7 @@ use crate::sparse::{CscMatrix, CsrMatrix};
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct LassoRegression {
     /// L1 regularization strength.
     alpha: f64,
@@ -115,17 +116,19 @@ impl LassoRegression {
 
         let n_f64 = n as f64;
 
+        // Initialize residuals: r_i = y_i - intercept
+        let mut residuals: Vec<f64> = y.iter().map(|&yi| yi - intercept).collect();
+
         for _iter in 0..self.max_iter {
             let mut max_change = 0.0_f64;
 
-            // Update intercept: mean of residuals.
-            let mut r_sum = 0.0;
-            for (i, row) in rows.iter().enumerate() {
-                let pred: f64 = row.iter().zip(beta.iter()).map(|(x, b)| x * b).sum::<f64>() + intercept;
-                r_sum += y[i] - pred;
-            }
-            let new_intercept = intercept + r_sum / n_f64;
+            // Update intercept: shift by mean of residuals.
+            let r_mean = residuals.iter().sum::<f64>() / n_f64;
+            let new_intercept = intercept + r_mean;
             max_change = max_change.max((new_intercept - intercept).abs());
+            for r in &mut residuals {
+                *r -= r_mean;
+            }
             intercept = new_intercept;
 
             // Coordinate descent over each feature.
@@ -134,19 +137,19 @@ impl LassoRegression {
                     continue; // skip constant features
                 }
 
-                // Compute partial residual dot product: (1/n) Σ (r_i * x_ij)
-                // where r_i = y_i - (Σ_{k≠j} x_ik β_k + β₀)
                 let old_beta_j = beta[j];
+
+                // Add back current j contribution to residuals.
+                if old_beta_j != 0.0 {
+                    for (i, row) in rows.iter().enumerate() {
+                        residuals[i] += row[j] * old_beta_j;
+                    }
+                }
+
+                // ρ = (1/n) Σ x_ij * r_i
                 let mut rho = 0.0;
                 for (i, row) in rows.iter().enumerate() {
-                    let pred_without_j: f64 = intercept
-                        + row.iter()
-                            .zip(beta.iter())
-                            .enumerate()
-                            .filter(|&(k, _)| k != j)
-                            .map(|(_, (x, b))| x * b)
-                            .sum::<f64>();
-                    rho += row[j] * (y[i] - pred_without_j);
+                    rho += row[j] * residuals[i];
                 }
                 rho /= n_f64;
 
@@ -154,6 +157,13 @@ impl LassoRegression {
                 let new_beta_j = soft_threshold(rho, self.alpha) / col_norm_sq[j];
                 max_change = max_change.max((new_beta_j - old_beta_j).abs());
                 beta[j] = new_beta_j;
+
+                // Remove new j contribution from residuals.
+                if new_beta_j != 0.0 {
+                    for (i, row) in rows.iter().enumerate() {
+                        residuals[i] -= row[j] * new_beta_j;
+                    }
+                }
             }
 
             if max_change < self.tol {
@@ -198,11 +208,15 @@ impl LassoRegression {
         }
         if target.len() != n {
             return Err(ScryLearnError::InvalidParameter(format!(
-                "target length {} != n_rows {}", target.len(), n
+                "target length {} != n_rows {}",
+                target.len(),
+                n
             )));
         }
         if self.alpha < 0.0 {
-            return Err(ScryLearnError::InvalidParameter("alpha must be >= 0".into()));
+            return Err(ScryLearnError::InvalidParameter(
+                "alpha must be >= 0".into(),
+            ));
         }
 
         let n_f64 = n as f64;
@@ -420,7 +434,8 @@ mod tests {
         assert!(
             (lasso_dense.coefficients()[0] - lasso_sparse.coefficients()[0]).abs() < 0.1,
             "Dense={} vs Sparse={}",
-            lasso_dense.coefficients()[0], lasso_sparse.coefficients()[0]
+            lasso_dense.coefficients()[0],
+            lasso_sparse.coefficients()[0]
         );
 
         let test = vec![vec![3.0]];

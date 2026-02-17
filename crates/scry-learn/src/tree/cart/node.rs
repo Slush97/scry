@@ -102,9 +102,7 @@ impl TreeNode {
     pub fn depth(&self) -> usize {
         match self {
             TreeNode::Leaf { .. } => 1,
-            TreeNode::Split { left, right, .. } => {
-                1 + left.depth().max(right.depth())
-            }
+            TreeNode::Split { left, right, .. } => 1 + left.depth().max(right.depth()),
         }
     }
 
@@ -112,9 +110,7 @@ impl TreeNode {
     pub fn n_leaves(&self) -> usize {
         match self {
             TreeNode::Leaf { .. } => 1,
-            TreeNode::Split { left, right, .. } => {
-                left.n_leaves() + right.n_leaves()
-            }
+            TreeNode::Split { left, right, .. } => left.n_leaves() + right.n_leaves(),
         }
     }
 
@@ -130,7 +126,11 @@ impl TreeNode {
     /// This is R(T_t) in the cost-complexity pruning literature.
     pub fn total_leaf_impurity(&self) -> f64 {
         match self {
-            TreeNode::Leaf { impurity, n_samples, .. } => *impurity * (*n_samples as f64),
+            TreeNode::Leaf {
+                impurity,
+                n_samples,
+                ..
+            } => *impurity * (*n_samples as f64),
             TreeNode::Split { left, right, .. } => {
                 left.total_leaf_impurity() + right.total_leaf_impurity()
             }
@@ -231,7 +231,11 @@ impl TreeNode {
         match node {
             TreeNode::Leaf { .. } => None,
             TreeNode::Split {
-                left, right, n_samples, impurity, ..
+                left,
+                right,
+                n_samples,
+                impurity,
+                ..
             } => {
                 let n_leaves = node.n_leaves();
                 let r_node = impurity * (*n_samples as f64);

@@ -2,8 +2,8 @@
 //! Train/test splitting and cross-validation utilities.
 
 use crate::dataset::Dataset;
-use crate::pipeline::PipelineModel;
 use crate::error::Result;
+use crate::pipeline::PipelineModel;
 
 /// Scoring function signature: `(y_true, y_pred) -> score`.
 ///
@@ -46,8 +46,13 @@ pub fn stratified_split(data: &Dataset, test_ratio: f64, seed: u64) -> (Dataset,
     let mut train_indices = Vec::new();
     let mut test_indices = Vec::new();
 
+    // Sort class keys for deterministic iteration order.
+    let mut sorted_classes: Vec<i64> = class_map.keys().copied().collect();
+    sorted_classes.sort_unstable();
+
     let mut rng = crate::rng::FastRng::new(seed);
-    for (_class, mut indices) in class_map {
+    for class in sorted_classes {
+        let mut indices = class_map.remove(&class).unwrap();
         // Shuffle within each class.
         for i in (1..indices.len()).rev() {
             let j = rng.usize(0..=i);
@@ -100,8 +105,13 @@ pub fn stratified_k_fold(data: &Dataset, k: usize, seed: u64) -> Vec<(Dataset, D
         class_map.entry(key).or_default().push(i);
     }
 
+    // Sort class keys for deterministic iteration order.
+    let mut sorted_classes: Vec<i64> = class_map.keys().copied().collect();
+    sorted_classes.sort_unstable();
+
     let mut rng = crate::rng::FastRng::new(seed);
-    for indices in class_map.values_mut() {
+    for class in &sorted_classes {
+        let indices = class_map.get_mut(class).unwrap();
         for i in (1..indices.len()).rev() {
             let j = rng.usize(0..=i);
             indices.swap(i, j);
@@ -110,7 +120,8 @@ pub fn stratified_k_fold(data: &Dataset, k: usize, seed: u64) -> Vec<(Dataset, D
 
     // Round-robin assign samples to folds.
     let mut fold_indices: Vec<Vec<usize>> = vec![Vec::new(); k];
-    for indices in class_map.values() {
+    for class in &sorted_classes {
+        let indices = &class_map[class];
         for (i, &idx) in indices.iter().enumerate() {
             fold_indices[i % k].push(idx);
         }
@@ -215,6 +226,7 @@ fn shuffle(arr: &mut [usize], seed: u64) {
 /// let folds = rkf.folds(&data); // 15 (train, test) pairs
 /// ```
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RepeatedKFold {
     /// Number of folds per repetition.
     pub n_splits: usize,
@@ -227,7 +239,11 @@ pub struct RepeatedKFold {
 impl RepeatedKFold {
     /// Create a new `RepeatedKFold` splitter.
     pub fn new(n_splits: usize, n_repeats: usize, seed: u64) -> Self {
-        Self { n_splits, n_repeats, seed }
+        Self {
+            n_splits,
+            n_repeats,
+            seed,
+        }
     }
 
     /// Generate all `n_splits × n_repeats` (train, test) pairs.
@@ -333,7 +349,11 @@ pub fn time_series_split(data: &Dataset, n_splits: usize) -> Vec<(Dataset, Datas
 
     for i in 0..n_splits {
         let train_end = (i + 1) * chunk;
-        let test_end = if i == n_splits - 1 { n } else { (i + 2) * chunk };
+        let test_end = if i == n_splits - 1 {
+            n
+        } else {
+            (i + 2) * chunk
+        };
         let train_indices: Vec<usize> = (0..train_end).collect();
         let test_indices: Vec<usize> = (train_end..test_end).collect();
         folds.push((data.subset(&train_indices), data.subset(&test_indices)));
@@ -405,9 +425,7 @@ mod tests {
     use crate::tree::DecisionTreeClassifier;
 
     fn dummy_dataset(n: usize) -> Dataset {
-        let features = vec![
-            (0..n).map(|i| i as f64).collect(),
-        ];
+        let features = vec![(0..n).map(|i| i as f64).collect()];
         let target = (0..n).map(|i| (i % 3) as f64).collect();
         Dataset::new(features, target, vec!["x".into()], "y")
     }
@@ -506,7 +524,9 @@ mod tests {
 
     #[test]
     fn test_cross_val_score_custom_scorer() {
-        fn always_one(_true: &[f64], _pred: &[f64]) -> f64 { 1.0 }
+        fn always_one(_true: &[f64], _pred: &[f64]) -> f64 {
+            1.0
+        }
         let ds = separable_dataset();
         let model = DecisionTreeClassifier::new();
         let scores = cross_val_score(&model, &ds, 3, always_one, 42).unwrap();
@@ -533,8 +553,7 @@ mod tests {
     fn test_repeated_cross_val_score() {
         let ds = separable_dataset();
         let model = DecisionTreeClassifier::new();
-        let scores =
-            repeated_cross_val_score(&model, &ds, 5, 3, accuracy, 42).unwrap();
+        let scores = repeated_cross_val_score(&model, &ds, 5, 3, accuracy, 42).unwrap();
         assert_eq!(scores.len(), 15);
         for &s in &scores {
             assert!(s >= 0.5, "repeated CV fold accuracy {s} too low");
@@ -567,10 +586,7 @@ mod tests {
         for (fold_idx, (_train, test)) in folds.iter().enumerate() {
             // Reconstruct test indices from target values (unique due to dummy_dataset)
             // Just verify sizes are correct.
-            assert!(
-                !test.target.is_empty(),
-                "fold {fold_idx} test set is empty"
-            );
+            assert!(!test.target.is_empty(), "fold {fold_idx} test set is empty");
         }
     }
 

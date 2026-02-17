@@ -314,12 +314,18 @@ fn main() {
 
             // For XGBoost/LightGBM, only HistGBT comparison is meaningful
             let xgb_acc = if r.name == "hist_gbt" {
-                xgboost.get(ds_name).and_then(|m| m.get("default")).map(|a| a.mean)
+                xgboost
+                    .get(ds_name)
+                    .and_then(|m| m.get("default"))
+                    .map(|a| a.mean)
             } else {
                 None
             };
             let lgb_acc = if r.name == "hist_gbt" {
-                lightgbm.get(ds_name).and_then(|m| m.get("default")).map(|a| a.mean)
+                lightgbm
+                    .get(ds_name)
+                    .and_then(|m| m.get("default"))
+                    .map(|a| a.mean)
             } else {
                 None
             };
@@ -453,11 +459,36 @@ fn main() {
     println!("  {}", "-".repeat(55));
 
     let models_latency: Vec<(&str, Box<dyn Fn()>)> = vec![
-        ("Decision Tree", Box::new(|| { dt.predict(&single_row).unwrap(); })),
-        ("Random Forest", Box::new(|| { rf.predict(&single_row).unwrap(); })),
-        ("HistGBT", Box::new(|| { hgbt.predict(&single_row).unwrap(); })),
-        ("Gaussian NB", Box::new(|| { nb.predict(&single_row).unwrap(); })),
-        ("KNN (k=5)", Box::new(|| { knn.predict(&scaled_row).unwrap(); })),
+        (
+            "Decision Tree",
+            Box::new(|| {
+                dt.predict(&single_row).unwrap();
+            }),
+        ),
+        (
+            "Random Forest",
+            Box::new(|| {
+                rf.predict(&single_row).unwrap();
+            }),
+        ),
+        (
+            "HistGBT",
+            Box::new(|| {
+                hgbt.predict(&single_row).unwrap();
+            }),
+        ),
+        (
+            "Gaussian NB",
+            Box::new(|| {
+                nb.predict(&single_row).unwrap();
+            }),
+        ),
+        (
+            "KNN (k=5)",
+            Box::new(|| {
+                knn.predict(&scaled_row).unwrap();
+            }),
+        ),
     ];
 
     for (name, predict_fn) in &models_latency {
@@ -477,7 +508,11 @@ fn main() {
     println!("╚═══════════════════════════════════════════════════════════════════════════╝");
 
     if let Some(rss) = peak_rss_kb() {
-        println!("\n  Process peak RSS (VmHWM): {} KB ({:.1} MB)", rss, rss as f64 / 1024.0);
+        println!(
+            "\n  Process peak RSS (VmHWM): {} KB ({:.1} MB)",
+            rss,
+            rss as f64 / 1024.0
+        );
     } else {
         println!("\n  Peak RSS: not available (Linux /proc/self/status required)");
     }

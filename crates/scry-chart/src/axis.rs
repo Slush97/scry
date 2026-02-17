@@ -556,7 +556,10 @@ fn auto_skip_labels(
     // Use actual pixel positions from the scale to determine minimum spacing.
     // This handles non-uniform tick spacing (e.g., endpoint insertion by nice_ticks)
     // that the old `axis_length / count` average couldn't catch.
-    let pixel_positions: Vec<f32> = pairs.iter().map(|(v, _)| scale.to_pixel(*v) as f32).collect();
+    let pixel_positions: Vec<f32> = pairs
+        .iter()
+        .map(|(v, _)| scale.to_pixel(*v) as f32)
+        .collect();
     let min_spacing = pixel_positions
         .windows(2)
         .map(|w| (w[1] - w[0]).abs())
@@ -569,7 +572,9 @@ fn auto_skip_labels(
 
     // Calculate skip factor based on the worst-case spacing
     let avg_spacing = axis_length / pairs.len().max(1) as f32;
-    let skip = (label_span / avg_spacing).ceil().max(label_span / min_spacing.max(0.1)) as usize;
+    let skip = (label_span / avg_spacing)
+        .ceil()
+        .max(label_span / min_spacing.max(0.1)) as usize;
     let skip = skip.max(2); // must skip at least every other
 
     // Always preserve first and last labels so readers can see the domain extent.
@@ -897,7 +902,13 @@ mod tests {
             .map(|i| (i as f64, format!("long_label_{i}")))
             .collect();
         let scale = crate::scale::LinearScale::new((0.0, 9.0), (0.0, 300.0));
-        let result_horiz = auto_skip_labels(pairs.clone(), 300.0, true, LabelRotation::Horizontal, &scale);
+        let result_horiz = auto_skip_labels(
+            pairs.clone(),
+            300.0,
+            true,
+            LabelRotation::Horizontal,
+            &scale,
+        );
         let result_angle = auto_skip_labels(pairs, 300.0, true, LabelRotation::Angle(60.0), &scale);
         // Angled labels take less horizontal space, so should skip fewer (or equal)
         assert!(

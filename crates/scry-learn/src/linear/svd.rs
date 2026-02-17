@@ -17,12 +17,7 @@ pub(crate) struct SvdResult {
 ///
 /// `x` is column-major contiguous: `x[col * n_rows + row]`.
 /// Returns coefficients `b` such that `Xb ≈ y`.
-pub(crate) fn svd_solve(
-    x: &[f64],
-    y: &[f64],
-    n_rows: usize,
-    n_cols: usize,
-) -> Result<SvdResult> {
+pub(crate) fn svd_solve(x: &[f64], y: &[f64], n_rows: usize, n_cols: usize) -> Result<SvdResult> {
     if n_rows == 0 || n_cols == 0 {
         return Err(ScryLearnError::EmptyDataset);
     }
@@ -259,7 +254,10 @@ mod tests {
                 c
             );
         }
-        assert!(result.condition_number > 1e4, "Hilbert should be ill-conditioned");
+        assert!(
+            result.condition_number > 1e4,
+            "Hilbert should be ill-conditioned"
+        );
     }
 
     #[test]
@@ -290,7 +288,11 @@ mod tests {
         let y = vec![1.0, 2.0, 3.0];
         let result = svd_solve(&x, &y, n, n).unwrap();
         for sv in &result.singular_values {
-            assert!((sv - 1.0).abs() < 1e-10, "singular value {} should be 1.0", sv);
+            assert!(
+                (sv - 1.0).abs() < 1e-10,
+                "singular value {} should be 1.0",
+                sv
+            );
         }
         assert!((result.condition_number - 1.0).abs() < 1e-10);
     }
@@ -305,11 +307,15 @@ mod tests {
         assert_eq!(result.rank, 1, "duplicate columns -> rank 1");
         let err: f64 = (0..3)
             .map(|i| {
-                let pred = result.coefficients[0] * rows[i][0]
-                    + result.coefficients[1] * rows[i][1];
+                let pred =
+                    result.coefficients[0] * rows[i][0] + result.coefficients[1] * rows[i][1];
                 (pred - y[i]).powi(2)
             })
             .sum();
-        assert!(err < 1e-10, "reconstruction error should be tiny, got {}", err);
+        assert!(
+            err < 1e-10,
+            "reconstruction error should be tiny, got {}",
+            err
+        );
     }
 }

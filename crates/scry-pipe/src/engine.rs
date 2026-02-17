@@ -103,10 +103,7 @@ impl PipelineEngine {
     }
 
     /// Transform a batch of rows sequentially.
-    pub fn transform_batch(
-        &self,
-        inputs: &[Vec<f64>],
-    ) -> Result<Vec<Vec<f64>>, PipeError> {
+    pub fn transform_batch(&self, inputs: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, PipeError> {
         inputs.iter().map(|row| self.transform_row(row)).collect()
     }
 
@@ -140,13 +137,26 @@ fn apply_op(
 ) {
     match op {
         TransformOp::StandardScale { mean, std_dev } => {
-            row[idx] = (row[idx] - mean) / std_dev;
+            row[idx] = if *std_dev == 0.0 {
+                0.0
+            } else {
+                (row[idx] - mean) / std_dev
+            };
         }
         TransformOp::MinMaxScale { min, max } => {
-            row[idx] = (row[idx] - min) / (max - min);
+            let range = max - min;
+            row[idx] = if range == 0.0 {
+                0.0
+            } else {
+                (row[idx] - min) / range
+            };
         }
         TransformOp::RobustScale { median, iqr } => {
-            row[idx] = (row[idx] - median) / iqr;
+            row[idx] = if *iqr == 0.0 {
+                0.0
+            } else {
+                (row[idx] - median) / iqr
+            };
         }
         TransformOp::Clip { lower, upper } => {
             row[idx] = row[idx].clamp(*lower, *upper);
@@ -229,10 +239,7 @@ mod tests {
             name: "test".into(),
             version: "0.1.0".into(),
             created_at: "2026-01-01".into(),
-            steps: vec![PipelineStep {
-                feature_idx: 0,
-                op,
-            }],
+            steps: vec![PipelineStep { feature_idx: 0, op }],
             input_schema: vec![FeatureSpec {
                 name: "x".into(),
                 dtype: DType::Float64,
@@ -566,34 +573,38 @@ mod tests {
 
     #[test]
     fn standard_scale_division_by_zero() {
-        // std_dev=0 causes division by zero → produces inf, not a panic.
+        // std_dev=0 → should return 0.0 (not inf/NaN).
         let e = single_step_pipeline(TransformOp::StandardScale {
             mean: 0.0,
             std_dev: 0.0,
         });
         let out = e.transform_row(&[5.0]).unwrap();
-        assert!(out[0].is_infinite() || out[0].is_nan());
+        assert!(
+            (out[0] - 0.0).abs() < 1e-10,
+            "zero std_dev should yield 0.0"
+        );
     }
 
     #[test]
     fn min_max_scale_identical_bounds() {
-        // min == max → division by zero → inf/nan, not a panic.
+        // min == max → zero range → should return 0.0.
         let e = single_step_pipeline(TransformOp::MinMaxScale {
             min: 10.0,
             max: 10.0,
         });
         let out = e.transform_row(&[10.0]).unwrap();
-        assert!(out[0].is_nan() || out[0].is_infinite());
+        assert!((out[0] - 0.0).abs() < 1e-10, "zero range should yield 0.0");
     }
 
     #[test]
     fn robust_scale_zero_iqr() {
+        // iqr=0 → should return 0.0.
         let e = single_step_pipeline(TransformOp::RobustScale {
             median: 5.0,
             iqr: 0.0,
         });
         let out = e.transform_row(&[10.0]).unwrap();
-        assert!(out[0].is_infinite());
+        assert!((out[0] - 0.0).abs() < 1e-10, "zero iqr should yield 0.0");
     }
 
     #[test]
@@ -607,9 +618,7 @@ mod tests {
     #[test]
     fn bin_discretize_empty_edges() {
         // No edges → partition_point returns 0 for everything.
-        let e = single_step_pipeline(TransformOp::BinDiscretize {
-            bin_edges: vec![],
-        });
+        let e = single_step_pipeline(TransformOp::BinDiscretize { bin_edges: vec![] });
         let out = e.transform_row(&[42.0]).unwrap();
         assert!((out[0] - 0.0).abs() < 1e-10);
     }
@@ -652,16 +661,30 @@ mod tests {
             steps: vec![
                 PipelineStep {
                     feature_idx: 0,
-                    op: TransformOp::StandardScale { mean: 10.0, std_dev: 5.0 },
+                    op: TransformOp::StandardScale {
+                        mean: 10.0,
+                        std_dev: 5.0,
+                    },
                 },
                 PipelineStep {
                     feature_idx: 1,
-                    op: TransformOp::Clip { lower: 0.0, upper: 1.0 },
+                    op: TransformOp::Clip {
+                        lower: 0.0,
+                        upper: 1.0,
+                    },
                 },
             ],
             input_schema: vec![
-                FeatureSpec { name: "a".into(), dtype: DType::Float64, index: 0 },
-                FeatureSpec { name: "b".into(), dtype: DType::Float64, index: 1 },
+                FeatureSpec {
+                    name: "a".into(),
+                    dtype: DType::Float64,
+                    index: 0,
+                },
+                FeatureSpec {
+                    name: "b".into(),
+                    dtype: DType::Float64,
+                    index: 1,
+                },
             ],
         };
 
@@ -691,12 +714,23 @@ mod tests {
                 },
                 PipelineStep {
                     feature_idx: 1,
-                    op: TransformOp::StandardScale { mean: 0.0, std_dev: 2.0 },
+                    op: TransformOp::StandardScale {
+                        mean: 0.0,
+                        std_dev: 2.0,
+                    },
                 },
             ],
             input_schema: vec![
-                FeatureSpec { name: "x".into(), dtype: DType::Float64, index: 0 },
-                FeatureSpec { name: "y".into(), dtype: DType::Float64, index: 1 },
+                FeatureSpec {
+                    name: "x".into(),
+                    dtype: DType::Float64,
+                    index: 0,
+                },
+                FeatureSpec {
+                    name: "y".into(),
+                    dtype: DType::Float64,
+                    index: 1,
+                },
             ],
         });
         // x=2, y=6 → poly: [2, 4, 8, 6] → scale y: 6/2=3
@@ -743,9 +777,7 @@ mod tests {
                 },
             ],
         });
-        let inputs: Vec<Vec<f64>> = (0..1000)
-            .map(|i| vec![i as f64, (i * 2) as f64])
-            .collect();
+        let inputs: Vec<Vec<f64>> = (0..1000).map(|i| vec![i as f64, (i * 2) as f64]).collect();
         let seq = engine.transform_batch(&inputs).unwrap();
         let par = engine.transform_batch_parallel(&inputs).unwrap();
         assert_eq!(seq, par);

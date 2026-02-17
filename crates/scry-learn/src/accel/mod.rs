@@ -44,11 +44,7 @@ pub trait ComputeBackend {
     /// - Returns: row-major `(n_features+1) × (n_features+1)` matrix (with intercept column)
     ///
     /// This is the dominant cost in linear regression fitting.
-    fn xtx_xty(
-        &self,
-        features: &[Vec<f64>],
-        target: &[f64],
-    ) -> (Vec<f64>, Vec<f64>);
+    fn xtx_xty(&self, features: &[Vec<f64>], target: &[f64]) -> (Vec<f64>, Vec<f64>);
 
     /// Pairwise Euclidean distances between query points and training points.
     ///

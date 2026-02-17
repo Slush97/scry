@@ -15,7 +15,7 @@ use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neighbors::kdtree::KdTree;
 use crate::sparse::{CsrMatrix, SparseRow};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 /// Distance metric for KNN.
 ///
@@ -124,6 +124,7 @@ pub enum Algorithm {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct KnnClassifier {
     k: usize,
     metric: DistanceMetric,
@@ -243,6 +244,11 @@ impl KnnClassifier {
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
+        if self.train_features.is_empty() && self.train_sparse.is_some() {
+            return Err(ScryLearnError::InvalidParameter(
+                "model was trained on sparse data; use predict_sparse() instead".into(),
+            ));
+        }
         let probas = self.compute_votes(features);
         Ok(probas
             .into_iter()
@@ -253,7 +259,11 @@ impl KnnClassifier {
                     .iter()
                     .enumerate()
                     .fold((0usize, f64::NEG_INFINITY), |(best_i, best_v), (i, &v)| {
-                        if v > best_v { (i, v) } else { (best_i, best_v) }
+                        if v > best_v {
+                            (i, v)
+                        } else {
+                            (best_i, best_v)
+                        }
                     })
                     .0 as f64
             })
@@ -290,6 +300,11 @@ impl KnnClassifier {
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
+        if self.train_features.is_empty() && self.train_sparse.is_some() {
+            return Err(ScryLearnError::InvalidParameter(
+                "model was trained on sparse data; use predict_sparse() instead".into(),
+            ));
+        }
         let votes = self.compute_votes(features);
         Ok(votes
             .into_iter()
@@ -322,12 +337,7 @@ impl KnnClassifier {
 
         // Try batched backend path for Euclidean brute-force.
         let batched = if self.kdtree.is_none() && matches!(metric, DistanceMetric::Euclidean) {
-            batched_brute_force_neighbors(
-                features,
-                &self.train_features,
-                k,
-                use_actual_dist,
-            )
+            batched_brute_force_neighbors(features, &self.train_features, k, use_actual_dist)
         } else {
             None
         };
@@ -395,7 +405,13 @@ impl KnnClassifier {
                     sparse_brute_force(&query, train_csr, k, self.metric, use_actual_dist)
                 } else {
                     let dense = sparse_row_to_dense(&query, features.n_cols());
-                    scalar_brute_force(&dense, &self.train_features, k, self.metric, use_actual_dist)
+                    scalar_brute_force(
+                        &dense,
+                        &self.train_features,
+                        k,
+                        self.metric,
+                        use_actual_dist,
+                    )
                 };
                 let votes = aggregate_votes(
                     &neighbors,
@@ -408,7 +424,11 @@ impl KnnClassifier {
                     .iter()
                     .enumerate()
                     .fold((0usize, f64::NEG_INFINITY), |(best_i, best_v), (i, &v)| {
-                        if v > best_v { (i, v) } else { (best_i, best_v) }
+                        if v > best_v {
+                            (i, v)
+                        } else {
+                            (best_i, best_v)
+                        }
                     })
                     .0 as f64
             })
@@ -452,6 +472,7 @@ impl Default for KnnClassifier {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct KnnRegressor {
     k: usize,
     metric: DistanceMetric,
@@ -553,6 +574,11 @@ impl KnnRegressor {
         if !self.fitted {
             return Err(ScryLearnError::NotFitted);
         }
+        if self.train_features.is_empty() && self.train_sparse.is_some() {
+            return Err(ScryLearnError::InvalidParameter(
+                "model was trained on sparse data; use predict_sparse() instead".into(),
+            ));
+        }
 
         let k = self.k.min(self.train_features.len());
         let use_actual_dist = matches!(self.weight_fn, WeightFunction::Distance);
@@ -560,12 +586,7 @@ impl KnnRegressor {
 
         // Try batched backend path for Euclidean brute-force.
         let batched = if self.kdtree.is_none() && matches!(metric, DistanceMetric::Euclidean) {
-            batched_brute_force_neighbors(
-                features,
-                &self.train_features,
-                k,
-                use_actual_dist,
-            )
+            batched_brute_force_neighbors(features, &self.train_features, k, use_actual_dist)
         } else {
             None
         };
@@ -618,7 +639,13 @@ impl KnnRegressor {
                     sparse_brute_force(&query, train_csr, k, self.metric, use_actual_dist)
                 } else {
                     let dense = sparse_row_to_dense(&query, features.n_cols());
-                    scalar_brute_force(&dense, &self.train_features, k, self.metric, use_actual_dist)
+                    scalar_brute_force(
+                        &dense,
+                        &self.train_features,
+                        k,
+                        self.metric,
+                        use_actual_dist,
+                    )
                 };
                 aggregate_regression(&neighbors, &self.train_target, use_actual_dist, k)
             })
@@ -794,14 +821,19 @@ fn aggregate_regression(
         let has_exact = neighbors.iter().any(|&(d, _)| d < f64::EPSILON);
         if has_exact {
             let (sum, count) = neighbors.iter().fold((0.0, 0usize), |(s, c), &(d, idx)| {
-                if d < f64::EPSILON { (s + target[idx], c + 1) } else { (s, c) }
+                if d < f64::EPSILON {
+                    (s + target[idx], c + 1)
+                } else {
+                    (s, c)
+                }
             });
             sum / count as f64
         } else {
-            let (weighted_sum, total_w) = neighbors.iter().fold((0.0, 0.0), |(ws, tw), &(d, idx)| {
-                let w = 1.0 / d;
-                (ws + w * target[idx], tw + w)
-            });
+            let (weighted_sum, total_w) =
+                neighbors.iter().fold((0.0, 0.0), |(ws, tw), &(d, idx)| {
+                    let w = 1.0 / d;
+                    (ws + w * target[idx], tw + w)
+                });
             weighted_sum / total_w
         }
     } else {
@@ -827,11 +859,7 @@ fn distance_for_compare(a: &[f64], b: &[f64], metric: DistanceMetric) -> f64 {
             .map(|(x, y)| (x - y).powi(2))
             .sum::<f64>(),
         // No sqrt — squared distance preserves ordering.
-        DistanceMetric::Manhattan => a
-            .iter()
-            .zip(b.iter())
-            .map(|(x, y)| (x - y).abs())
-            .sum(),
+        DistanceMetric::Manhattan => a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum(),
         DistanceMetric::Cosine => cosine_distance(a, b),
     }
 }
@@ -849,11 +877,7 @@ fn actual_distance(a: &[f64], b: &[f64], metric: DistanceMetric) -> f64 {
             .map(|(x, y)| (x - y).powi(2))
             .sum::<f64>()
             .sqrt(),
-        DistanceMetric::Manhattan => a
-            .iter()
-            .zip(b.iter())
-            .map(|(x, y)| (x - y).abs())
-            .sum(),
+        DistanceMetric::Manhattan => a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum(),
         DistanceMetric::Cosine => cosine_distance(a, b),
     }
 }
@@ -973,7 +997,11 @@ fn sparse_cosine(a: &SparseRow<'_>, b: &SparseRow<'_>) -> f64 {
 
 /// Compute sparse distance for comparison (skips sqrt for Euclidean).
 #[inline]
-fn sparse_distance_for_compare(a: &SparseRow<'_>, b: &SparseRow<'_>, metric: DistanceMetric) -> f64 {
+fn sparse_distance_for_compare(
+    a: &SparseRow<'_>,
+    b: &SparseRow<'_>,
+    metric: DistanceMetric,
+) -> f64 {
     match metric {
         DistanceMetric::Euclidean => sparse_euclidean_sq(a, b),
         DistanceMetric::Manhattan => sparse_manhattan(a, b),
@@ -1031,9 +1059,7 @@ fn should_use_kdtree(algo: Algorithm, metric: DistanceMetric, n_features: usize)
     match algo {
         Algorithm::BruteForce => false,
         Algorithm::KDTree => matches!(metric, DistanceMetric::Euclidean),
-        Algorithm::Auto => {
-            matches!(metric, DistanceMetric::Euclidean) && n_features < 20
-        }
+        Algorithm::Auto => matches!(metric, DistanceMetric::Euclidean) && n_features < 20,
     }
 }
 
@@ -1071,29 +1097,37 @@ mod tests {
         let mut knn_dist = KnnClassifier::new().k(5).weights(WeightFunction::Distance);
         knn_dist.fit(&data).unwrap();
         let preds_d = knn_dist.predict(&[vec![0.15]]).unwrap();
-        assert_eq!(preds_d[0] as usize, 1, "Distance-weighted should pick closer class 1");
+        assert_eq!(
+            preds_d[0] as usize, 1,
+            "Distance-weighted should pick closer class 1"
+        );
     }
 
     #[test]
     fn test_knn_predict_proba() {
-        let features = vec![
-            vec![0.0, 0.0, 10.0, 10.0],
-            vec![0.0, 0.0, 10.0, 10.0],
-        ];
+        let features = vec![vec![0.0, 0.0, 10.0, 10.0], vec![0.0, 0.0, 10.0, 10.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
         let mut knn = KnnClassifier::new().k(4);
         knn.fit(&data).unwrap();
 
-        let probas = knn.predict_proba(&[vec![1.0, 1.0], vec![5.0, 5.0]]).unwrap();
+        let probas = knn
+            .predict_proba(&[vec![1.0, 1.0], vec![5.0, 5.0]])
+            .unwrap();
         for p in &probas {
             let sum: f64 = p.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-9, "Probabilities must sum to 1.0, got {sum}");
+            assert!(
+                (sum - 1.0).abs() < 1e-9,
+                "Probabilities must sum to 1.0, got {sum}"
+            );
         }
 
         // Point near class 0 should have higher probability for class 0.
-        assert!(probas[0][0] > 0.4, "Expected high prob for class 0 at (1,1)");
+        assert!(
+            probas[0][0] > 0.4,
+            "Expected high prob for class 0 at (1,1)"
+        );
     }
 
     #[test]
@@ -1103,14 +1137,17 @@ mod tests {
         // [1, 0] and [0, 1] are orthogonal → distance ≈ 1.
         let d_same = cosine_distance(&[1.0, 0.0], &[100.0, 0.0]);
         let d_orth = cosine_distance(&[1.0, 0.0], &[0.0, 1.0]);
-        assert!(d_same < 1e-9, "Same direction should have ~0 distance, got {d_same}");
-        assert!((d_orth - 1.0).abs() < 1e-9, "Orthogonal should have distance ~1, got {d_orth}");
+        assert!(
+            d_same < 1e-9,
+            "Same direction should have ~0 distance, got {d_same}"
+        );
+        assert!(
+            (d_orth - 1.0).abs() < 1e-9,
+            "Orthogonal should have distance ~1, got {d_orth}"
+        );
 
         // Use cosine metric in classifier.
-        let features = vec![
-            vec![1.0, 100.0, 0.0, 0.0],
-            vec![0.0, 0.0, 1.0, 100.0],
-        ];
+        let features = vec![vec![1.0, 100.0, 0.0, 0.0], vec![0.0, 0.0, 1.0, 100.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
@@ -1119,7 +1156,10 @@ mod tests {
 
         // Query [50, 0] has same direction as class 0.
         let preds = knn.predict(&[vec![50.0, 0.0]]).unwrap();
-        assert_eq!(preds[0] as usize, 0, "Cosine metric should match class 0 by direction");
+        assert_eq!(
+            preds[0] as usize, 0,
+            "Cosine metric should match class 0 by direction"
+        );
     }
 
     #[test]
@@ -1134,11 +1174,19 @@ mod tests {
 
         // Query x=3: nearest are x=1(y=10) and x=5(y=50) → mean=30
         let preds = knn.predict(&[vec![3.0]]).unwrap();
-        assert!((preds[0] - 30.0).abs() < 1e-9, "Expected 30.0, got {}", preds[0]);
+        assert!(
+            (preds[0] - 30.0).abs() < 1e-9,
+            "Expected 30.0, got {}",
+            preds[0]
+        );
 
         // Query x=7: nearest are x=5(y=50) and x=9(y=90) → mean=70
         let preds2 = knn.predict(&[vec![7.0]]).unwrap();
-        assert!((preds2[0] - 70.0).abs() < 1e-9, "Expected 70.0, got {}", preds2[0]);
+        assert!(
+            (preds2[0] - 70.0).abs() < 1e-9,
+            "Expected 70.0, got {}",
+            preds2[0]
+        );
     }
 
     #[test]
@@ -1159,7 +1207,10 @@ mod tests {
         knn_d.fit(&data).unwrap();
         let pred_d = knn_d.predict(&[vec![1.0]]).unwrap()[0];
         // 1/1 * 0 + 1/9 * 100 = 11.11... / (1 + 0.111...) = ~10
-        assert!(pred_d < 20.0, "Distance-weighted should favor x=0, got {pred_d}");
+        assert!(
+            pred_d < 20.0,
+            "Distance-weighted should favor x=0, got {pred_d}"
+        );
     }
 
     #[test]
@@ -1242,7 +1293,10 @@ mod tests {
         // Orthogonal → distance ≈ 1
         let c = CsrMatrix::from_dense(&[vec![0.0, 1.0]]);
         let d_orth = sparse_cosine(&a.row(0), &c.row(0));
-        assert!((d_orth - 1.0).abs() < 1e-9, "Orthogonal should be ~1, got {d_orth}");
+        assert!(
+            (d_orth - 1.0).abs() < 1e-9,
+            "Orthogonal should be ~1, got {d_orth}"
+        );
     }
 
     #[test]
@@ -1254,7 +1308,12 @@ mod tests {
             vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
         ];
         let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into(), "y".into()], "class");
+        let data = Dataset::new(
+            features.clone(),
+            target.clone(),
+            vec!["x".into(), "y".into()],
+            "class",
+        );
 
         // Fit on dense.
         let mut knn_dense = KnnClassifier::new().k(3);
@@ -1262,9 +1321,7 @@ mod tests {
 
         // Fit on sparse.
         let csc = CscMatrix::from_dense(&features);
-        let data_sparse = Dataset::from_sparse(
-            csc, target, vec!["x".into(), "y".into()], "class",
-        );
+        let data_sparse = Dataset::from_sparse(csc, target, vec!["x".into(), "y".into()], "class");
         let mut knn_sparse = KnnClassifier::new().k(3);
         knn_sparse.fit(&data_sparse).unwrap();
         assert!(knn_sparse.train_sparse.is_some());
@@ -1332,16 +1389,16 @@ mod gpu_tests {
         let n_feat = 5;
         let mut features_col: Vec<Vec<f64>> = Vec::with_capacity(n_feat);
         for j in 0..n_feat {
-            let col: Vec<f64> = (0..n_train).map(|i| ((i * (j + 3)) % 37) as f64 * 0.5).collect();
+            let col: Vec<f64> = (0..n_train)
+                .map(|i| ((i * (j + 3)) % 37) as f64 * 0.5)
+                .collect();
             features_col.push(col);
         }
         let target: Vec<f64> = (0..n_train).map(|i| (i % 3) as f64).collect();
         let names: Vec<String> = (0..n_feat).map(|j| format!("f{j}")).collect();
         let data = Dataset::new(features_col, target, names, "class");
 
-        let mut knn = KnnClassifier::new()
-            .k(5)
-            .algorithm(Algorithm::BruteForce);
+        let mut knn = KnnClassifier::new().k(5).algorithm(Algorithm::BruteForce);
         knn.fit(&data).unwrap();
 
         // 10 queries — enough to trigger batched path
@@ -1352,7 +1409,10 @@ mod gpu_tests {
         let preds = knn.predict(&queries).unwrap();
         assert_eq!(preds.len(), 10);
         for p in &preds {
-            assert!(*p >= 0.0 && *p < 3.0, "prediction must be a valid class: {p}");
+            assert!(
+                *p >= 0.0 && *p < 3.0,
+                "prediction must be a valid class: {p}"
+            );
         }
     }
 
@@ -1362,16 +1422,16 @@ mod gpu_tests {
         let n_feat = 5;
         let mut features_col: Vec<Vec<f64>> = Vec::with_capacity(n_feat);
         for j in 0..n_feat {
-            let col: Vec<f64> = (0..n_train).map(|i| ((i * (j + 2)) % 41) as f64 * 0.2).collect();
+            let col: Vec<f64> = (0..n_train)
+                .map(|i| ((i * (j + 2)) % 41) as f64 * 0.2)
+                .collect();
             features_col.push(col);
         }
         let target: Vec<f64> = (0..n_train).map(|i| (i % 50) as f64).collect();
         let names: Vec<String> = (0..n_feat).map(|j| format!("f{j}")).collect();
         let data = Dataset::new(features_col, target, names, "y");
 
-        let mut knn = KnnRegressor::new()
-            .k(5)
-            .algorithm(Algorithm::BruteForce);
+        let mut knn = KnnRegressor::new().k(5).algorithm(Algorithm::BruteForce);
         knn.fit(&data).unwrap();
 
         let queries: Vec<Vec<f64>> = (0..10)

@@ -67,9 +67,8 @@ impl OptimizerState {
     /// each with the given sizes.
     pub fn new(kind: OptimizerKind, lr: f64, group_sizes: &[usize]) -> Self {
         let n = group_sizes.len();
-        let zeros = |sizes: &[usize]| -> Vec<Vec<f64>> {
-            sizes.iter().map(|&s| vec![0.0; s]).collect()
-        };
+        let zeros =
+            |sizes: &[usize]| -> Vec<Vec<f64>> { sizes.iter().map(|&s| vec![0.0; s]).collect() };
 
         Self {
             kind,
@@ -100,7 +99,11 @@ impl OptimizerState {
             OptimizerKind::Sgd { momentum, nesterov } => {
                 self.step_sgd(idx, params, grads, momentum, nesterov);
             }
-            OptimizerKind::Adam { beta1, beta2, epsilon } => {
+            OptimizerKind::Adam {
+                beta1,
+                beta2,
+                epsilon,
+            } => {
                 self.step_adam(idx, params, grads, beta1, beta2, epsilon);
             }
         }
@@ -177,7 +180,10 @@ mod tests {
 
     #[test]
     fn sgd_no_momentum() {
-        let kind = OptimizerKind::Sgd { momentum: 0.0, nesterov: false };
+        let kind = OptimizerKind::Sgd {
+            momentum: 0.0,
+            nesterov: false,
+        };
         let mut opt = OptimizerState::new(kind, 0.1, &[3]);
         let mut params = vec![1.0, 2.0, 3.0];
         let grads = vec![0.5, -0.5, 1.0];
@@ -190,7 +196,10 @@ mod tests {
 
     #[test]
     fn sgd_with_momentum() {
-        let kind = OptimizerKind::Sgd { momentum: 0.9, nesterov: false };
+        let kind = OptimizerKind::Sgd {
+            momentum: 0.9,
+            nesterov: false,
+        };
         let mut opt = OptimizerState::new(kind, 0.01, &[2]);
         let mut params = vec![1.0, 2.0];
         let grads = vec![1.0, -1.0];
@@ -226,7 +235,11 @@ mod tests {
             opt.tick();
             opt.step(0, &mut params, &grads);
         }
-        assert!(params[0].abs() < 0.1, "should converge near 0, got {}", params[0]);
+        assert!(
+            params[0].abs() < 0.1,
+            "should converge near 0, got {}",
+            params[0]
+        );
     }
 
     #[test]

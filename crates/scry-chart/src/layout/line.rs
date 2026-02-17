@@ -147,7 +147,6 @@ fn build_segments(
     segments
 }
 
-
 pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
     let config = &lc.config;
     let theme = &config.theme;
@@ -156,8 +155,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
 
     // Classify series into primary (left Y) and secondary (right Y)
     let sec_indices = &lc.config.secondary_series_indices;
-    let has_secondary = !sec_indices.is_empty()
-        && config.secondary_y_range.is_some();
+    let has_secondary = !sec_indices.is_empty() && config.secondary_y_range.is_some();
 
     // Pre-compute Y extent for primary series only
     let (y_lo, y_hi) = if lc.stacked {
@@ -176,9 +174,13 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         let hi = cumsum.iter().copied().reduce(f64::max).unwrap_or(1.0);
         (0.0, hi)
     } else {
-        let primary_series = lc.series.iter().enumerate()
+        let primary_series = lc
+            .series
+            .iter()
+            .enumerate()
             .filter(|(i, _)| !sec_indices.contains(i));
-        let lo = primary_series.clone()
+        let lo = primary_series
+            .clone()
             .filter_map(|(_, s)| s.min())
             .reduce(f64::min)
             .unwrap_or(0.0);
@@ -231,17 +233,12 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
     // Build secondary Y scale if configured
     let secondary_y_scale = if has_secondary {
         let (sy_lo, sy_hi) = config.secondary_y_range.unwrap();
-        let sy_scale = LinearScale::nice(
-            (sy_lo, sy_hi),
-            ((py + ph) as f64, py as f64),
-        );
+        let sy_scale = LinearScale::nice((sy_lo, sy_hi), ((py + ph) as f64, py as f64));
 
         // Draw secondary (right) Y axis ticks
         let sy_cfg = super::axis_config_from_theme_secondary(config);
         let plot = ctx.plot;
-        let sy_ticks = ctx.draw_with(|c| {
-            crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg)
-        });
+        let sy_ticks = ctx.draw_with(|c| crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg));
 
         // Add right-side tick overlays
         let y_off = super::y_tick_label_offset(w);
@@ -310,23 +307,18 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                         .collect();
 
                     // Build polygon: top line forward + bottom line reversed
-                    let mut path_pts: Vec<(f32, f32)> =
-                        Vec::with_capacity(points.len() * 2);
+                    let mut path_pts: Vec<(f32, f32)> = Vec::with_capacity(points.len() * 2);
                     path_pts.extend_from_slice(points);
                     for &pt in prev_points.iter().rev() {
                         path_pts.push(pt);
                     }
 
                     let opacity = theme.resolve_fill_opacity(sty);
-                    ctx.draw(|c| {
-                        c.polygon(path_pts).fill(color.with_alpha(opacity)).done()
-                    });
+                    ctx.draw(|c| c.polygon(path_pts).fill(color.with_alpha(opacity)).done());
                 } else {
                     // Non-stacked fill or first stacked series: fill to baseline
-                    let baseline_y =
-                        active_y_scale.to_pixel(active_y_scale.domain().0) as f32;
-                    let mut path_points: Vec<(f32, f32)> =
-                        Vec::with_capacity(points.len() + 2);
+                    let baseline_y = active_y_scale.to_pixel(active_y_scale.domain().0) as f32;
+                    let mut path_points: Vec<(f32, f32)> = Vec::with_capacity(points.len() + 2);
                     path_points.push((points[0].0, baseline_y));
                     path_points.extend_from_slice(points);
                     path_points.push((points.last().unwrap().0, baseline_y));
@@ -357,9 +349,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                                 },
                             ],
                         },
-                        Some(crate::data::GradientFill::Custom(stops))
-                            if stops.len() >= 2 =>
-                        {
+                        Some(crate::data::GradientFill::Custom(stops)) if stops.len() >= 2 => {
                             GradientDef {
                                 kind: GradientKind::Linear {
                                     start: Point::new(start_x, top_y),
@@ -393,11 +383,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                         },
                     };
 
-                    ctx.draw(|c| {
-                        c.polygon(path_points)
-                            .fill_linear_gradient(gradient)
-                            .done()
-                    });
+                    ctx.draw(|c| c.polygon(path_points).fill_linear_gradient(gradient).done());
                 }
             }
 
@@ -412,11 +398,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                             .done()
                     });
                 } else {
-                    ctx.draw(|c| {
-                        c.polyline(points.clone())
-                            .stroke(color, line_width)
-                            .done()
-                    });
+                    ctx.draw(|c| c.polyline(points.clone()).stroke(color, line_width).done());
                 }
             }
 
@@ -441,14 +423,13 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                     if !yv.is_finite() {
                         continue;
                     }
-                    let label =
-                        if yv.abs() >= 1000.0 || (yv.abs() < 0.01 && yv != 0.0) {
-                            format!("{yv:.2e}")
-                        } else if yv.fract().abs() < 1e-9 {
-                            format!("{}", yv as i64)
-                        } else {
-                            format!("{yv:.1}")
-                        };
+                    let label = if yv.abs() >= 1000.0 || (yv.abs() < 0.01 && yv != 0.0) {
+                        format!("{yv:.2e}")
+                    } else if yv.fract().abs() < 1e-9 {
+                        format!("{}", yv as i64)
+                    } else {
+                        format!("{yv:.1}")
+                    };
                     ctx.overlays.push(super::TextOverlay {
                         x_px: sx,
                         y_px: sy - offset,

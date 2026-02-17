@@ -27,7 +27,11 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
     }
 
     let range = gc.max - gc.min;
-    let range_safe = if range.abs() < f64::EPSILON { 1.0 } else { range };
+    let range_safe = if range.abs() < f64::EPSILON {
+        1.0
+    } else {
+        range
+    };
 
     // Draw threshold bands (or single track if no thresholds)
     let arc = ArcParams {
@@ -47,7 +51,13 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
         for &(upper, color) in &gc.thresholds {
             let t = ((upper - gc.min) / range_safe).clamp(0.0, 1.0);
             if t > prev_t {
-                draw_arc_band(&mut ctx, &arc, prev_t as f32, t as f32, color.with_alpha(0.6));
+                draw_arc_band(
+                    &mut ctx,
+                    &arc,
+                    prev_t as f32,
+                    t as f32,
+                    color.with_alpha(0.6),
+                );
                 prev_t = t;
             }
         }
@@ -71,11 +81,7 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
     });
 
     // Needle hub circle
-    ctx.draw(|c| {
-        c.circle(center_x, center_y, 4.0)
-            .fill(needle_color)
-            .done()
-    });
+    ctx.draw(|c| c.circle(center_x, center_y, 4.0).fill(needle_color).done());
 
     // Value label below center
     let label_text = gc.label.clone().unwrap_or_else(|| {
@@ -137,7 +143,8 @@ struct ArcParams {
 fn draw_arc_band(
     ctx: &mut RenderContext,
     arc: &ArcParams,
-    t_start: f32, t_end: f32,
+    t_start: f32,
+    t_end: f32,
     color: scry_engine::style::Color,
 ) {
     let r_outer = arc.radius + arc.width / 2.0;
@@ -150,14 +157,20 @@ fn draw_arc_band(
     for i in 0..=seg_count {
         let t = t_start + (t_end - t_start) * i as f32 / seg_count as f32;
         let angle = (PI as f32) * (1.0 - t); // π (left) to 0 (right)
-        pts.push((arc.cx + r_outer * angle.cos(), arc.cy - r_outer * angle.sin()));
+        pts.push((
+            arc.cx + r_outer * angle.cos(),
+            arc.cy - r_outer * angle.sin(),
+        ));
     }
 
     // Inner arc (right to left)
     for i in (0..=seg_count).rev() {
         let t = t_start + (t_end - t_start) * i as f32 / seg_count as f32;
         let angle = (PI as f32) * (1.0 - t);
-        pts.push((arc.cx + r_inner * angle.cos(), arc.cy - r_inner * angle.sin()));
+        pts.push((
+            arc.cx + r_inner * angle.cos(),
+            arc.cy - r_inner * angle.sin(),
+        ));
     }
 
     ctx.draw(|c| c.polygon(pts).fill(color).done());

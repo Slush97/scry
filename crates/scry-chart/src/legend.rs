@@ -224,6 +224,9 @@ pub fn measure_legend(
 /// the least overlap. Pass `None` or `&[]` if unavailable; `Best` then
 /// falls back to `TopRight`.
 ///
+/// Automatically promotes to multi-column layout when a single column
+/// would exceed 40% of the plot height, keeping the legend compact.
+///
 /// Returns `(canvas, text_entries)` where text_entries is `Vec<(x, y, label)>`.
 #[must_use]
 pub fn draw_positioned_legend(
@@ -239,26 +242,49 @@ pub fn draw_positioned_legend(
         return (canvas, Vec::new());
     }
 
+    let (_px, _py, _pw, ph) = plot;
+
+    // --- Auto-column: keep legend from dwarfing the plot ---
+    let effective_config = if config.columns == 1
+        && config.orientation == LegendOrientation::Vertical
+        && entries.len() > 4
+    {
+        let single_h = measure_legend(entries, swatch_size, config).1;
+        if single_h > ph * 0.4 {
+            let mut c = config.clone();
+            c.columns = 2;
+            let two_h = measure_legend(entries, swatch_size, &c).1;
+            if two_h > ph * 0.4 && entries.len() > 8 {
+                c.columns = 3;
+            }
+            c
+        } else {
+            config.clone()
+        }
+    } else {
+        config.clone()
+    };
+
     let (px, py, pw, ph) = plot;
 
     // Auto-measure legend size
-    let (legend_w, legend_h) = measure_legend(entries, swatch_size, config);
+    let (legend_w, legend_h) = measure_legend(entries, swatch_size, &effective_config);
 
     // Position based on config
     let (lx, ly) = compute_position(
-        config.position,
+        effective_config.position,
         px,
         py,
         pw,
         ph,
         legend_w,
         legend_h,
-        config.padding,
+        effective_config.padding,
         data_points,
     );
 
     // Draw background
-    if let Some(bg) = config.background {
+    if let Some(bg) = effective_config.background {
         canvas = canvas
             .rect(lx - 4.0, ly - 4.0, legend_w + 8.0, legend_h + 8.0)
             .fill(bg)
@@ -267,7 +293,7 @@ pub fn draw_positioned_legend(
     }
 
     // Draw border
-    if let Some(border_color) = config.border {
+    if let Some(border_color) = effective_config.border {
         canvas = canvas
             .rect(lx - 4.0, ly - 4.0, legend_w + 8.0, legend_h + 8.0)
             .stroke(border_color, 1.0)
@@ -278,12 +304,12 @@ pub fn draw_positioned_legend(
     draw_legend_entries(
         canvas,
         entries,
-        lx + config.padding,
-        ly + config.padding,
+        lx + effective_config.padding,
+        ly + effective_config.padding,
         swatch_size,
         spacing,
-        config.swatch_shape,
-        config,
+        effective_config.swatch_shape,
+        &effective_config,
     )
 }
 

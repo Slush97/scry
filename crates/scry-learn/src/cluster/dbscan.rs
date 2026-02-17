@@ -42,6 +42,7 @@ const KDTREE_MAX_DIM: usize = 20;
 /// assert_eq!(db.n_clusters(), 2);
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct Dbscan {
     eps: f64,
     min_samples: usize,
@@ -99,8 +100,8 @@ impl Dbscan {
         let n_features = data.n_features();
         let eps_sq = self.eps * self.eps;
 
-        let use_kdtree = matches!(self.metric, DistanceMetric::Euclidean)
-            && n_features <= KDTREE_MAX_DIM;
+        let use_kdtree =
+            matches!(self.metric, DistanceMetric::Euclidean) && n_features <= KDTREE_MAX_DIM;
 
         let kdtree = if use_kdtree {
             Some(KdTree::build(&rows))
@@ -125,10 +126,7 @@ impl Dbscan {
 
             // Start a new cluster.
             labels[i] = cluster_id;
-            let mut queue: Vec<usize> = neighbors
-                .into_iter()
-                .filter(|&j| j != i)
-                .collect();
+            let mut queue: Vec<usize> = neighbors.into_iter().filter(|&j| j != i).collect();
             let mut qi = 0;
 
             while qi < queue.len() {
@@ -312,7 +310,6 @@ fn cosine_distance(a: &[f64], b: &[f64]) -> f64 {
     1.0 - (dot / denom)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +465,10 @@ mod tests {
         let mut db = Dbscan::new(5.0, 3).metric(DistanceMetric::Manhattan);
         db.fit(&data).unwrap();
 
-        assert_eq!(db.n_clusters(), 2, "Manhattan DBSCAN should find 2 clusters");
+        assert_eq!(
+            db.n_clusters(),
+            2,
+            "Manhattan DBSCAN should find 2 clusters"
+        );
     }
 }

@@ -3,7 +3,7 @@ source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
 canvas: 400x300, 52 commands
-overlays: 12
+overlays: 18
   [0] (58, 262) Center "0"
   [1] (141, 262) Center "50"
   [2] (223, 262) Center "100"
@@ -13,6 +13,12 @@ overlays: 12
   [6] (53, 182) Right "10"
   [7] (53, 106) Right "20"
   [8] (53, 30) Right "30"
-  [9] (223, 16) Center "Distribution"
-  [10] (223, 288) Center "Value"
-  [11] (23, 144) Center rot=90° "Frequency"
+  [9] (64, 170) Center "11"
+  [10] (75, 224) Center "4"
+  [11] (97, 239) Center "2"
+  [12] (108, 208) Center "6"
+  [13] (185, 193) Center "8"
+  [14] (218, 102) Center "20"
+  [15] (223, 16) Center "Distribution"
+  [16] (223, 288) Center "Value"
+  [17] (23, 144) Center rot=90° "Frequency"

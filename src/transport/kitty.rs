@@ -451,7 +451,8 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         };
 
         // Write pixels into shared memory
-        buf.write(raw_data);
+        buf.write(raw_data)
+            .map_err(|e| PixelCanvasError::Rasterization(format!("shm write failed: {e}")))?;
         let name = buf.name().to_string();
 
         // Begin synchronized update

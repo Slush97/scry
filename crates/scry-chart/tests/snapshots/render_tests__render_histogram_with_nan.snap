@@ -3,7 +3,7 @@ source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
 canvas: 400x300, 27 commands
-overlays: 8
+overlays: 11
   [0] (39, 278) Center "0.8"
   [1] (120, 278) Center "2.0"
   [2] (254, 278) Center "4.0"
@@ -12,3 +12,6 @@ overlays: 8
   [5] (35, 186) Right "1"
   [6] (35, 99) Right "2"
   [7] (35, 12) Right "3"
+  [8] (80, 95) Center "2"
+  [9] (133, 182) Center "1"
+  [10] (294, 182) Center "1"

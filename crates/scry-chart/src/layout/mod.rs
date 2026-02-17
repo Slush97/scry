@@ -462,7 +462,12 @@ pub(crate) fn compute_plot_area(
         0.0
     };
 
-    let y_label_w = estimate_y_label_width(config.y_label.as_deref(), w, h, config.theme.label_style.font_size);
+    let y_label_w = estimate_y_label_width(
+        config.y_label.as_deref(),
+        w,
+        h,
+        config.theme.label_style.font_size,
+    );
     let x_tick_h = proportional_x_tick_height(h, config.x_tick_rotation);
     let x_label_h = if config.x_label.is_some() {
         proportional_x_label_height(h)
@@ -476,7 +481,12 @@ pub(crate) fn compute_plot_area(
         || config.secondary_y_range.is_some()
         || config.secondary_y_formatter.is_some();
     let secondary_y_w = if has_secondary {
-        let sec_label_w = estimate_y_label_width(config.secondary_y_label.as_deref(), w, h, config.theme.label_style.font_size);
+        let sec_label_w = estimate_y_label_width(
+            config.secondary_y_label.as_deref(),
+            w,
+            h,
+            config.theme.label_style.font_size,
+        );
         let sec_ticks_w = proportional_y_axis_width(w);
         sec_label_w + sec_ticks_w
     } else {
@@ -557,12 +567,13 @@ pub(crate) fn axis_config_from_theme(config: &ChartConfig, side: AxisSide) -> Ax
 /// and picks up `secondary_y_formatter` if set.
 pub(crate) fn axis_config_from_theme_secondary(config: &ChartConfig) -> AxisConfig {
     let theme = &config.theme;
-    let tick_formatter = match (&config.secondary_y_formatter, &config.locale) {
-        (Some(f), _) => Some(f.clone()),
-        (None, Some(loc)) => Some(Arc::new(LocaleFormatter::new(AutoFormatter, loc.clone()))
-            as Arc<dyn TickFormatter>),
-        _ => None,
-    };
+    let tick_formatter =
+        match (&config.secondary_y_formatter, &config.locale) {
+            (Some(f), _) => Some(f.clone()),
+            (None, Some(loc)) => Some(Arc::new(LocaleFormatter::new(AutoFormatter, loc.clone()))
+                as Arc<dyn TickFormatter>),
+            _ => None,
+        };
     AxisConfig {
         side: AxisSide::Right,
         axis_color: theme.axis.color,

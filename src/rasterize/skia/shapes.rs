@@ -207,7 +207,13 @@ impl Rasterizer {
 
     /// Build a rounded rectangle path manually.
     #[allow(clippy::many_single_char_names)]
-    pub(super) fn build_round_rect(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<tiny_skia::Path> {
+    pub(super) fn build_round_rect(
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+    ) -> Option<tiny_skia::Path> {
         // Clamp radius to half the smaller dimension
         let r = r.min(w / 2.0).min(h / 2.0);
 

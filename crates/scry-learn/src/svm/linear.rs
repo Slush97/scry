@@ -8,7 +8,7 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 // ─────────────────────────────────────────────────────────────────
 // LinearSVC
@@ -42,6 +42,7 @@ use crate::weights::{ClassWeight, compute_sample_weights};
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct LinearSVC {
     c: f64,
     max_iter: usize,
@@ -120,9 +121,9 @@ impl LinearSVC {
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
-        if self.c <= 0.0 {
+        if self.c <= 0.0 || !self.c.is_finite() {
             return Err(ScryLearnError::InvalidParameter(
-                "C must be positive".into(),
+                "C must be finite and positive".into(),
             ));
         }
 
@@ -154,13 +155,15 @@ impl LinearSVC {
 
             // Platt scaling: fit sigmoid on decision values.
             let ab = if self.probability {
-                let dvals: Vec<f64> = (0..n).map(|i| {
-                    let mut score = w[m]; // bias
-                    for (j, feat_col) in data.features.iter().enumerate().take(m) {
-                        score += w[j] * feat_col[i];
-                    }
-                    score
-                }).collect();
+                let dvals: Vec<f64> = (0..n)
+                    .map(|i| {
+                        let mut score = w[m]; // bias
+                        for (j, feat_col) in data.features.iter().enumerate().take(m) {
+                            score += w[j] * feat_col[i];
+                        }
+                        score
+                    })
+                    .collect();
                 platt_fit(&dvals, &binary_target)
             } else {
                 (0.0, 0.0)
@@ -252,7 +255,8 @@ impl LinearSVC {
         Ok(scores
             .into_iter()
             .map(|row| {
-                let raw: Vec<f64> = row.iter()
+                let raw: Vec<f64> = row
+                    .iter()
                     .zip(self.platt_params.iter())
                     .map(|(&dv, &(a, b))| platt_predict(dv, a, b))
                     .collect();
@@ -300,6 +304,7 @@ impl Default for LinearSVC {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct LinearSVR {
     c: f64,
     epsilon: f64,
@@ -358,9 +363,9 @@ impl LinearSVR {
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
-        if self.c <= 0.0 {
+        if self.c <= 0.0 || !self.c.is_finite() {
             return Err(ScryLearnError::InvalidParameter(
-                "C must be positive".into(),
+                "C must be finite and positive".into(),
             ));
         }
 
@@ -396,13 +401,14 @@ impl LinearSVR {
                     0.0
                 };
 
-                // Update weights: w ← (1 - η·λ)·w - η·C·sign·x
+                // Update weights: w ← (1 - η·λ)·w - η·sign·x
+                // (Pegasos step size η = 1/(λ·t) already encodes the
+                //  regularisation-vs-loss tradeoff, so no extra C or /n.)
                 for (wj, feat_col) in w.iter_mut().zip(data.features.iter()) {
-                    *wj = (1.0 - eta * lambda) * *wj
-                        - eta * self.c * sign * feat_col[i] / n as f64;
+                    *wj = (1.0 - eta * lambda) * *wj - eta * sign * feat_col[i];
                 }
-                // Bias (no regularisation).
-                w[m] -= eta * self.c * sign / n as f64;
+                // Bias (no regularisation decay, same gradient scale).
+                w[m] -= eta * sign;
             }
 
             // Convergence check: max absolute weight change.
@@ -458,11 +464,11 @@ impl Default for LinearSVR {
 /// Returns weight vector of length `m + 1` (last = bias).
 #[allow(clippy::too_many_arguments)]
 fn pegasos_train(
-    features: &[Vec<f64>],   // [n_features][n_samples] (column-major)
-    binary_target: &[f64],   // [n_samples], +1/-1
-    sample_weights: &[f64],  // [n_samples]
-    m: usize,                // n_features
-    n: usize,                // n_samples
+    features: &[Vec<f64>],  // [n_features][n_samples] (column-major)
+    binary_target: &[f64],  // [n_samples], +1/-1
+    sample_weights: &[f64], // [n_samples]
+    m: usize,               // n_features
+    n: usize,               // n_samples
     c: f64,
     max_iter: usize,
     tol: f64,
@@ -514,8 +520,8 @@ fn pegasos_train(
         }
 
         // Track best weights by total loss.
-        let total_loss = hinge_loss / n as f64
-            + 0.5 * lambda * w.iter().take(m).map(|x| x * x).sum::<f64>();
+        let total_loss =
+            hinge_loss / n as f64 + 0.5 * lambda * w.iter().take(m).map(|x| x * x).sum::<f64>();
         if total_loss < best_loss {
             best_loss = total_loss;
             best_w.copy_from_slice(&w);
@@ -552,7 +558,8 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
 
     let t_pos = (n_pos + 1.0) / (n_pos + 2.0);
     let t_neg = 1.0 / (n_neg + 2.0);
-    let targets: Vec<f64> = labels.iter()
+    let targets: Vec<f64> = labels
+        .iter()
         .map(|&y| if y > 0.0 { t_pos } else { t_neg })
         .collect();
 
@@ -628,10 +635,7 @@ mod tests {
 
     #[test]
     fn test_linear_svc_decision_function() {
-        let features = vec![
-            vec![0.0, 0.0, 10.0, 10.0],
-            vec![0.0, 0.0, 10.0, 10.0],
-        ];
+        let features = vec![vec![0.0, 0.0, 10.0, 10.0], vec![0.0, 0.0, 10.0, 10.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
@@ -670,8 +674,16 @@ mod tests {
         svr.fit(&data).unwrap();
 
         let preds = svr.predict(&[vec![3.0], vec![5.0]]).unwrap();
-        assert!((preds[0] - 6.0).abs() < 2.0, "Expected ~6.0, got {}", preds[0]);
-        assert!((preds[1] - 10.0).abs() < 2.0, "Expected ~10.0, got {}", preds[1]);
+        assert!(
+            (preds[0] - 6.0).abs() < 2.0,
+            "Expected ~6.0, got {}",
+            preds[0]
+        );
+        assert!(
+            (preds[1] - 10.0).abs() < 2.0,
+            "Expected ~10.0, got {}",
+            preds[1]
+        );
     }
 
     #[test]
@@ -692,10 +704,15 @@ mod tests {
         let mut svc = LinearSVC::new().c(1.0).max_iter(500).probability(true);
         svc.fit(&data).unwrap();
 
-        let proba = svc.predict_proba(&[vec![1.0, 1.0], vec![9.0, 9.0]]).unwrap();
+        let proba = svc
+            .predict_proba(&[vec![1.0, 1.0], vec![9.0, 9.0]])
+            .unwrap();
         for row in &proba {
             let sum: f64 = row.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-6, "probabilities should sum to 1, got {sum}");
+            assert!(
+                (sum - 1.0).abs() < 1e-6,
+                "probabilities should sum to 1, got {sum}"
+            );
             for &p in row {
                 assert!(p >= 0.0 && p <= 1.0, "probability out of range: {p}");
             }
@@ -704,10 +721,7 @@ mod tests {
 
     #[test]
     fn test_linear_svc_predict_proba_not_enabled() {
-        let features = vec![
-            vec![0.0, 0.0, 10.0, 10.0],
-            vec![0.0, 0.0, 10.0, 10.0],
-        ];
+        let features = vec![vec![0.0, 0.0, 10.0, 10.0], vec![0.0, 0.0, 10.0, 10.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 

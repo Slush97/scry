@@ -33,10 +33,14 @@ fn gen_classification(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>) 
 }
 
 fn transpose(rows: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    if rows.is_empty() { return vec![]; }
+    if rows.is_empty() {
+        return vec![];
+    }
     let n_cols = rows[0].len();
     let n_rows = rows.len();
-    (0..n_cols).map(|j| (0..n_rows).map(|i| rows[i][j]).collect()).collect()
+    (0..n_cols)
+        .map(|j| (0..n_rows).map(|i| rows[i][j]).collect())
+        .collect()
 }
 
 // ── Benchmarks ───────────────────────────────────────────────────
@@ -52,8 +56,10 @@ fn bench_dt_training(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("scry-learn", n), &n, |b, _| {
             b.iter(|| {
                 let data = scry_learn::prelude::Dataset::new(
-                    transpose(&features), target.clone(),
-                    (0..10).map(|i| format!("f{i}")).collect(), "target",
+                    transpose(&features),
+                    target.clone(),
+                    (0..10).map(|i| format!("f{i}")).collect(),
+                    "target",
                 );
                 let mut dt = scry_learn::prelude::DecisionTreeClassifier::new();
                 dt.fit(black_box(&data)).unwrap();
@@ -62,10 +68,14 @@ fn bench_dt_training(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("smartcore", n), &n, |b, _| {
             b.iter(|| {
-                let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+                let x =
+                    smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
                 let _ = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-                    black_box(&x), black_box(&target_i32), Default::default(),
-                ).unwrap();
+                    black_box(&x),
+                    black_box(&target_i32),
+                    Default::default(),
+                )
+                .unwrap();
             });
         });
     }
@@ -81,16 +91,21 @@ fn bench_dt_predict(c: &mut Criterion) {
     let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
 
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_dt = scry_learn::prelude::DecisionTreeClassifier::new();
     scry_dt.fit(&data).unwrap();
 
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_dt = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-        &x, &target_i32, Default::default(),
-    ).unwrap();
+        &x,
+        &target_i32,
+        Default::default(),
+    )
+    .unwrap();
 
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| scry_dt.predict(black_box(&features)).unwrap());
@@ -110,17 +125,24 @@ fn bench_rf_training(c: &mut Criterion) {
     let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
 
     for &n_trees in &[10usize, 50, 100] {
-        group.bench_with_input(BenchmarkId::new("scry-learn", n_trees), &n_trees, |b, &nt| {
-            b.iter(|| {
-                let data = scry_learn::prelude::Dataset::new(
-                    transpose(&features), target.clone(),
-                    (0..10).map(|i| format!("f{i}")).collect(), "target",
-                );
-                let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-                    .n_estimators(nt).max_depth(8);
-                rf.fit(black_box(&data)).unwrap();
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("scry-learn", n_trees),
+            &n_trees,
+            |b, &nt| {
+                b.iter(|| {
+                    let data = scry_learn::prelude::Dataset::new(
+                        transpose(&features),
+                        target.clone(),
+                        (0..10).map(|i| format!("f{i}")).collect(),
+                        "target",
+                    );
+                    let mut rf = scry_learn::prelude::RandomForestClassifier::new()
+                        .n_estimators(nt)
+                        .max_depth(8);
+                    rf.fit(black_box(&data)).unwrap();
+                });
+            },
+        );
 
         group.bench_with_input(BenchmarkId::new("smartcore", n_trees), &n_trees, |b, &nt| {
             b.iter(|| {
@@ -148,11 +170,14 @@ fn bench_rf_predict(c: &mut Criterion) {
     for &n_trees in &[10usize, 50, 100] {
         // scry-learn
         let data = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut scry_rf = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(n_trees).max_depth(8);
+            .n_estimators(n_trees)
+            .max_depth(8);
         scry_rf.fit(&data).unwrap();
 
         // smartcore
@@ -161,8 +186,11 @@ fn bench_rf_predict(c: &mut Criterion) {
             .with_n_trees(n_trees as u16)
             .with_max_depth(8);
         let smart_rf = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-            &x, &target_i32, params,
-        ).unwrap();
+            &x,
+            &target_i32,
+            params,
+        )
+        .unwrap();
 
         group.bench_with_input(BenchmarkId::new("scry-learn", n_trees), &n_trees, |b, _| {
             b.iter(|| scry_rf.predict(black_box(&features)).unwrap());
@@ -210,16 +238,21 @@ fn bench_dt_predict_deep(c: &mut Criterion) {
     let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
 
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_dt = scry_learn::prelude::DecisionTreeClassifier::new();
     scry_dt.fit(&data).unwrap();
 
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_dt = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-        &x, &target_i32, Default::default(),
-    ).unwrap();
+        &x,
+        &target_i32,
+        Default::default(),
+    )
+    .unwrap();
 
     let scry_depth = scry_dt.flat_tree().map(|ft| ft.depth()).unwrap_or(0);
     let scry_leaves = scry_dt.flat_tree().map(|ft| ft.n_leaves()).unwrap_or(0);
@@ -242,7 +275,8 @@ fn bench_confusion_matrix(c: &mut Criterion) {
     let n = 10_000;
     let mut rng = fastrand::Rng::with_seed(42);
     let y_true: Vec<f64> = (0..n).map(|i| if i < n / 2 { 0.0 } else { 1.0 }).collect();
-    let y_pred: Vec<f64> = y_true.iter()
+    let y_pred: Vec<f64> = y_true
+        .iter()
         .map(|&t| if rng.f64() < 0.9 { t } else { 1.0 - t })
         .collect();
 
@@ -266,8 +300,10 @@ fn bench_logreg_training(c: &mut Criterion) {
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| {
             let data = scry_learn::prelude::Dataset::new(
-                transpose(&features), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                transpose(&features),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let mut lr = scry_learn::prelude::LogisticRegression::new()
                 .max_iter(200)
@@ -280,8 +316,11 @@ fn bench_logreg_training(c: &mut Criterion) {
         b.iter(|| {
             let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
             let _ = smartcore::linear::logistic_regression::LogisticRegression::fit(
-                black_box(&x), black_box(&target_i32), Default::default(),
-            ).unwrap();
+                black_box(&x),
+                black_box(&target_i32),
+                Default::default(),
+            )
+            .unwrap();
         });
     });
 
@@ -313,8 +352,10 @@ fn bench_knn_predict(c: &mut Criterion) {
 
     // scry-learn
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_knn = scry_learn::prelude::KnnClassifier::new().k(5);
     scry_knn.fit(&data).unwrap();
@@ -322,9 +363,11 @@ fn bench_knn_predict(c: &mut Criterion) {
     // smartcore
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_knn = smartcore::neighbors::knn_classifier::KNNClassifier::fit(
-        &x, &target_i32,
+        &x,
+        &target_i32,
         smartcore::neighbors::knn_classifier::KNNClassifierParameters::default().with_k(5),
-    ).unwrap();
+    )
+    .unwrap();
 
     let test_features = data.feature_matrix();
 
@@ -350,8 +393,10 @@ fn bench_kmeans_training(c: &mut Criterion) {
     group.bench_function("scry-learn/2k", |b| {
         b.iter(|| {
             let data = scry_learn::prelude::Dataset::new(
-                transpose(&features), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                transpose(&features),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let mut km = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(100);
             km.fit(black_box(&data)).unwrap();
@@ -386,8 +431,10 @@ fn bench_svm_training(c: &mut Criterion) {
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| {
             let data = scry_learn::prelude::Dataset::new(
-                transpose(&features), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                transpose(&features),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let mut svc = scry_learn::prelude::LinearSVC::new();
             svc.fit(black_box(&data)).unwrap();
@@ -402,8 +449,11 @@ fn bench_svm_training(c: &mut Criterion) {
                 .with_c(1.0)
                 .with_kernel(knl);
             let _ = smartcore::svm::svc::SVC::fit(
-                black_box(&x), black_box(&target_i32), black_box(&params),
-            ).unwrap();
+                black_box(&x),
+                black_box(&target_i32),
+                black_box(&params),
+            )
+            .unwrap();
         });
     });
 
@@ -419,8 +469,10 @@ fn bench_svm_predict(c: &mut Criterion) {
 
     // scry-learn
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_svc = scry_learn::prelude::LinearSVC::new();
     scry_svc.fit(&data).unwrap();
@@ -475,8 +527,10 @@ fn bench_lasso_training(c: &mut Criterion) {
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| {
             let data = scry_learn::prelude::Dataset::new(
-                transpose(&features), target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(), "target",
+                transpose(&features),
+                target.clone(),
+                (0..10).map(|i| format!("f{i}")).collect(),
+                "target",
             );
             let mut lasso = scry_learn::prelude::LassoRegression::new().alpha(0.1);
             lasso.fit(black_box(&data)).unwrap();
@@ -516,4 +570,3 @@ criterion_group!(
     bench_lasso_training,
 );
 criterion_main!(benches);
-

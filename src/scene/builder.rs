@@ -112,9 +112,16 @@ impl PixelCanvas {
     fn all_gpu_native(cmds: &[DrawCommand]) -> bool {
         for cmd in cmds {
             match cmd {
-                DrawCommand::Line { .. }
-                | DrawCommand::Gradient { .. }
-                | DrawCommand::Clear { .. } => {}
+                DrawCommand::Line { stroke, .. } => {
+                    // Dashed lines and non-Butt caps fall back to CPU in the
+                    // GPU rasterizer, so they break z-ordering in the hybrid path.
+                    if stroke.dash.is_some()
+                        || stroke.line_cap != crate::scene::style::LineCap::Butt
+                    {
+                        return false;
+                    }
+                }
+                DrawCommand::Gradient { .. } | DrawCommand::Clear { .. } => {}
 
                 // Shapes are GPU-native only with solid or no fill.
                 // Gradient fills silently render transparent on GPU.
@@ -138,9 +145,9 @@ impl PixelCanvas {
                 }
 
                 // Always CPU-only
-                DrawCommand::Path { .. }
-                | DrawCommand::Arc { .. }
-                | DrawCommand::Image { .. } => return false,
+                DrawCommand::Path { .. } | DrawCommand::Arc { .. } | DrawCommand::Image { .. } => {
+                    return false
+                }
 
                 #[cfg(feature = "text")]
                 DrawCommand::Text { .. } => return false,
@@ -155,9 +162,7 @@ impl PixelCanvas {
                     let needs_compositing = *opacity < 1.0
                         || clip.is_some()
                         || *blend_mode != crate::scene::style::BlendMode::SrcOver;
-                    if needs_compositing
-                        || *transform != crate::scene::style::Transform::IDENTITY
-                    {
+                    if needs_compositing || *transform != crate::scene::style::Transform::IDENTITY {
                         return false;
                     }
                     if !Self::all_gpu_native(commands) {
@@ -1118,12 +1123,7 @@ mod tests {
     fn gpu_suitable_false_with_transform_group() {
         let canvas = PixelCanvas::new(100, 100)
             .group(crate::scene::style::Transform::rotate_at(0.5, 50.0, 50.0))
-            .canvas(|inner| {
-                inner
-                    .rect(20.0, 20.0, 60.0, 60.0)
-                    .fill(Color::GREEN)
-                    .done()
-            })
+            .canvas(|inner| inner.rect(20.0, 20.0, 60.0, 60.0).fill(Color::GREEN).done())
             .done();
         assert!(!canvas.gpu_suitable());
     }

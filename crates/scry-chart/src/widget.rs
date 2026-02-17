@@ -247,8 +247,7 @@ impl StatefulWidget for ChartWidget<'_> {
                 }
 
                 // Draw cursor overlay (crosshair, tooltip, highlight)
-                let crosshair_color =
-                    scry_engine::style::Color::from_rgba8(200, 200, 220, 160);
+                let crosshair_color = scry_engine::style::Color::from_rgba8(200, 200, 220, 160);
                 let (canvas, cursor_overlays) =
                     state
                         .cursor

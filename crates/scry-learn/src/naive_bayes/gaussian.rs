@@ -5,13 +5,14 @@ use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::partial_fit::PartialFit;
 use crate::sparse::{CscMatrix, CsrMatrix};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 /// Gaussian Naive Bayes — assumes features follow a normal distribution per class.
 ///
 /// Fast to train (single pass), good baseline classifier.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct GaussianNb {
     /// Per-class means: `means[class][feature]`.
     means: Vec<Vec<f64>>,
@@ -88,7 +89,9 @@ impl GaussianNb {
         // Compute weighted means.
         for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate() {
             let c = target_val as usize;
-            if c >= self.n_classes { continue; }
+            if c >= self.n_classes {
+                continue;
+            }
             w_sums[c] += sw;
             for j in 0..m {
                 self.means[c][j] += sw * mat.get(i, j);
@@ -105,7 +108,9 @@ impl GaussianNb {
         // Compute weighted variances.
         for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate() {
             let c = target_val as usize;
-            if c >= self.n_classes { continue; }
+            if c >= self.n_classes {
+                continue;
+            }
             for j in 0..m {
                 let diff = mat.get(i, j) - self.means[c][j];
                 self.variances[c][j] += sw * diff * diff;
@@ -120,7 +125,9 @@ impl GaussianNb {
         }
 
         // Compute max variance across all classes and features (sklearn-style).
-        let max_var = self.variances.iter()
+        let max_var = self
+            .variances
+            .iter()
             .flat_map(|cv| cv.iter())
             .copied()
             .fold(0.0_f64, f64::max);
@@ -168,7 +175,9 @@ impl GaussianNb {
         }
         if target.len() != n {
             return Err(ScryLearnError::InvalidParameter(format!(
-                "target length {} != n_rows {}", target.len(), n
+                "target length {} != n_rows {}",
+                target.len(),
+                n
             )));
         }
 
@@ -241,7 +250,9 @@ impl GaussianNb {
         }
 
         // Variance smoothing.
-        let max_var = self.variances.iter()
+        let max_var = self
+            .variances
+            .iter()
             .flat_map(|cv| cv.iter())
             .copied()
             .fold(0.0_f64, f64::max);
@@ -298,7 +309,8 @@ impl GaussianNb {
                         for j in 0..n_feat {
                             let mean = self.means[c][j];
                             let var = self.variances[c][j];
-                            log_p += -0.5 * (mean * mean / var + var.ln() + std::f64::consts::TAU.ln());
+                            log_p +=
+                                -0.5 * (mean * mean / var + var.ln() + std::f64::consts::TAU.ln());
                         }
                         log_p
                     })
@@ -306,14 +318,18 @@ impl GaussianNb {
 
                 // Correct for non-zero features: subtract zero contribution, add actual.
                 for (col, val) in row.iter() {
-                    if col >= n_feat { continue; }
+                    if col >= n_feat {
+                        continue;
+                    }
                     for c in 0..self.n_classes {
                         let mean = self.means[c][col];
                         let var = self.variances[c][col];
                         // Remove zero contribution.
-                        log_probs[c] -= -0.5 * (mean * mean / var + var.ln() + std::f64::consts::TAU.ln());
+                        log_probs[c] -=
+                            -0.5 * (mean * mean / var + var.ln() + std::f64::consts::TAU.ln());
                         // Add actual contribution.
-                        log_probs[c] += -0.5 * ((val - mean).powi(2) / var + var.ln() + std::f64::consts::TAU.ln());
+                        log_probs[c] += -0.5
+                            * ((val - mean).powi(2) / var + var.ln() + std::f64::consts::TAU.ln());
                     }
                 }
 
@@ -363,7 +379,10 @@ impl GaussianNb {
                                 let mean = self.means[c][j];
                                 let var = self.variances[c][j];
                                 // Gaussian log-likelihood.
-                                log_p += -0.5 * ((x - mean).powi(2) / var + var.ln() + std::f64::consts::TAU.ln());
+                                log_p += -0.5
+                                    * ((x - mean).powi(2) / var
+                                        + var.ln()
+                                        + std::f64::consts::TAU.ln());
                             }
                         }
                         log_p
@@ -398,6 +417,9 @@ impl PartialFit for GaussianNb {
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
+            if self.is_initialized() {
+                return Ok(());
+            }
             return Err(ScryLearnError::EmptyDataset);
         }
 
@@ -453,7 +475,9 @@ impl PartialFit for GaussianNb {
         }
 
         // Variance smoothing (matching sklearn).
-        let max_var = self.variances.iter()
+        let max_var = self
+            .variances
+            .iter()
             .flat_map(|cv| cv.iter())
             .copied()
             .fold(0.0_f64, f64::max);
@@ -505,7 +529,12 @@ mod tests {
             vec![1.0, 1.5, 2.0, 8.0, 8.5, 9.0],
         ];
         let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into(), "y".into()], "class");
+        let data = Dataset::new(
+            features.clone(),
+            target.clone(),
+            vec!["x".into(), "y".into()],
+            "class",
+        );
 
         let mut nb_dense = GaussianNb::new();
         nb_dense.fit(&data).unwrap();
@@ -626,21 +655,27 @@ mod tests {
     fn test_auto_dispatch_sparse_fit() {
         use crate::sparse::CscMatrix;
         // Create sparse Dataset, call fit() (not fit_sparse).
-        let features = vec![
-            vec![1.0, 2.0, 8.0, 9.0],
-            vec![1.0, 2.0, 8.0, 9.0],
-        ];
+        let features = vec![vec![1.0, 2.0, 8.0, 9.0], vec![1.0, 2.0, 8.0, 9.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let csc = CscMatrix::from_dense(&features);
         let data = crate::dataset::Dataset::from_sparse(
-            csc, target, vec!["x".into(), "y".into()], "class",
+            csc,
+            target,
+            vec!["x".into(), "y".into()],
+            "class",
         );
 
         let mut nb = GaussianNb::new();
         nb.fit(&data).unwrap();
 
         let preds = nb.predict(&[vec![1.5, 1.5], vec![8.5, 8.5]]).unwrap();
-        assert!((preds[0] - 0.0).abs() < 1e-6, "Auto-dispatch sparse: x=1.5 should be class 0");
-        assert!((preds[1] - 1.0).abs() < 1e-6, "Auto-dispatch sparse: x=8.5 should be class 1");
+        assert!(
+            (preds[0] - 0.0).abs() < 1e-6,
+            "Auto-dispatch sparse: x=1.5 should be class 0"
+        );
+        assert!(
+            (preds[1] - 1.0).abs() < 1e-6,
+            "Auto-dispatch sparse: x=8.5 should be class 1"
+        );
     }
 }

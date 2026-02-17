@@ -1548,68 +1548,92 @@ fn bar_show_values_vertical() {
     .build();
     let r = render_transparent(&chart, "bar_show_values_v");
     let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
-    assert!(value_texts.contains(&"10"), "Should contain '10', got: {value_texts:?}");
-    assert!(value_texts.contains(&"25"), "Should contain '25', got: {value_texts:?}");
-    assert!(value_texts.contains(&"15"), "Should contain '15', got: {value_texts:?}");
+    assert!(
+        value_texts.contains(&"10"),
+        "Should contain '10', got: {value_texts:?}"
+    );
+    assert!(
+        value_texts.contains(&"25"),
+        "Should contain '25', got: {value_texts:?}"
+    );
+    assert!(
+        value_texts.contains(&"15"),
+        "Should contain '15', got: {value_texts:?}"
+    );
 }
 
 #[test]
 fn bar_show_values_horizontal() {
-    let chart = Chart::bar(
-        vec!["X".into(), "Y".into()],
-        &[100.0, 200.0],
-    )
-    .theme(transparent_theme())
-    .horizontal()
-    .show_values()
-    .build();
+    let chart = Chart::bar(vec!["X".into(), "Y".into()], &[100.0, 200.0])
+        .theme(transparent_theme())
+        .horizontal()
+        .show_values()
+        .build();
     let r = render_transparent(&chart, "bar_show_values_h");
     let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
-    assert!(value_texts.contains(&"100"), "Should contain '100', got: {value_texts:?}");
-    assert!(value_texts.contains(&"200"), "Should contain '200', got: {value_texts:?}");
+    assert!(
+        value_texts.contains(&"100"),
+        "Should contain '100', got: {value_texts:?}"
+    );
+    assert!(
+        value_texts.contains(&"200"),
+        "Should contain '200', got: {value_texts:?}"
+    );
 }
 
 #[test]
 fn bar_show_values_stacked() {
-    let chart = Chart::bar(
-        vec!["A".into(), "B".into()],
-        &[10.0, 20.0],
-    )
-    .add_named_series("S2", &[5.0, 15.0])
-    .theme(transparent_theme())
-    .stacked()
-    .show_values()
-    .build();
+    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+        .add_named_series("S2", &[5.0, 15.0])
+        .theme(transparent_theme())
+        .stacked()
+        .show_values()
+        .build();
     let r = render_transparent(&chart, "bar_show_values_stacked");
     let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
     // Stacked totals: 10+5=15, 20+15=35
-    assert!(value_texts.contains(&"15"), "Should contain '15', got: {value_texts:?}");
-    assert!(value_texts.contains(&"35"), "Should contain '35', got: {value_texts:?}");
+    assert!(
+        value_texts.contains(&"15"),
+        "Should contain '15', got: {value_texts:?}"
+    );
+    assert!(
+        value_texts.contains(&"35"),
+        "Should contain '35', got: {value_texts:?}"
+    );
 }
 
 #[test]
 fn bar_show_values_negative() {
-    let chart = Chart::bar(
-        vec!["A".into(), "B".into()],
-        &[-10.0, 20.0],
-    )
-    .theme(transparent_theme())
-    .show_values()
-    .build();
+    let chart = Chart::bar(vec!["A".into(), "B".into()], &[-10.0, 20.0])
+        .theme(transparent_theme())
+        .show_values()
+        .build();
     let r = render_transparent(&chart, "bar_show_values_neg");
     let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
-    assert!(value_texts.contains(&"-10"), "Should contain '-10', got: {value_texts:?}");
-    assert!(value_texts.contains(&"20"), "Should contain '20', got: {value_texts:?}");
+    assert!(
+        value_texts.contains(&"-10"),
+        "Should contain '-10', got: {value_texts:?}"
+    );
+    assert!(
+        value_texts.contains(&"20"),
+        "Should contain '20', got: {value_texts:?}"
+    );
 }
 
 #[test]
 fn colorblind_theme_renders() {
     let theme = Theme::colorblind();
     let charts: Vec<Chart> = vec![
-        Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0]).theme(theme.clone()).build(),
+        Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
+            .theme(theme.clone())
+            .build(),
         Chart::line(&[1.0, 5.0, 3.0]).theme(theme.clone()).build(),
-        Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0]).theme(theme.clone()).build(),
-        Chart::pie(vec!["A".into(), "B".into()], &[60.0, 40.0]).theme(theme).build(),
+        Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+            .theme(theme.clone())
+            .build(),
+        Chart::pie(vec!["A".into(), "B".into()], &[60.0, 40.0])
+            .theme(theme)
+            .build(),
     ];
     for (i, chart) in charts.iter().enumerate() {
         assert_render(chart, 400, 300, &format!("colorblind_{i}"));

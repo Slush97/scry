@@ -17,9 +17,7 @@ use tiny_skia::{
 };
 
 use crate::scene::command::DrawCommand;
-use crate::scene::style::{
-    Color, FillStyle, LineCap, LineJoin, ShapeStyle, StrokeStyle,
-};
+use crate::scene::style::{Color, FillStyle, LineCap, LineJoin, ShapeStyle, StrokeStyle};
 use crate::scene::PixelCanvas;
 use crate::PixelCanvasError;
 

@@ -14,8 +14,8 @@
 //!   plane distance exceeds the current worst distance in the k-neighbor heap,
 //!   the far subtree is skipped entirely.
 
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// A KD-tree for fast nearest-neighbor lookup in Euclidean space.
 ///
@@ -43,6 +43,7 @@ use std::cmp::Ordering;
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct KdTree {
     nodes: Vec<KdNode>,
     n_dims: usize,
@@ -220,13 +221,13 @@ impl KdTree {
         let mut best_spread = -1.0_f64;
 
         for d in 0..n_dims {
-            let (min_v, max_v) = indices.iter().fold(
-                (f64::INFINITY, f64::NEG_INFINITY),
-                |(lo, hi), &idx| {
-                    let v = points[idx][d];
-                    (lo.min(v), hi.max(v))
-                },
-            );
+            let (min_v, max_v) =
+                indices
+                    .iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &idx| {
+                        let v = points[idx][d];
+                        (lo.min(v), hi.max(v))
+                    });
             let spread = max_v - min_v;
             if spread > best_spread {
                 best_spread = spread;
@@ -261,11 +262,14 @@ impl KdTree {
         self.search(0, query, k, points, &mut heap);
 
         // Drain heap into sorted result (nearest first).
-        let mut result: Vec<(f64, usize)> = heap
-            .into_iter()
-            .map(|e| (e.dist_sq, e.idx))
-            .collect();
-        result.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+        let mut result: Vec<(f64, usize)> = heap.into_iter().map(|e| (e.dist_sq, e.idx)).collect();
+        // Sort by (distance, index) — lower index wins on ties, matching
+        // brute-force tie-breaking and sklearn behavior.
+        result.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(Ordering::Equal)
+                .then(a.1.cmp(&b.1))
+        });
         result
     }
 
@@ -349,12 +353,7 @@ impl KdTree {
     /// let within = tree.query_radius(&[0.5, 0.0], 4.0, &points);
     /// assert_eq!(within.len(), 2); // indices 0 and 1
     /// ```
-    pub fn query_radius(
-        &self,
-        query: &[f64],
-        radius_sq: f64,
-        points: &[Vec<f64>],
-    ) -> Vec<usize> {
+    pub fn query_radius(&self, query: &[f64], radius_sq: f64, points: &[Vec<f64>]) -> Vec<usize> {
         let mut result = Vec::new();
         if !self.nodes.is_empty() {
             self.search_radius(0, query, radius_sq, points, &mut result);
@@ -416,10 +415,7 @@ impl KdTree {
 /// Squared Euclidean distance between two slices.
 #[inline]
 fn squared_euclidean(a: &[f64], b: &[f64]) -> f64 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - y).powi(2))
-        .sum()
+    a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum()
 }
 
 #[cfg(test)]
@@ -481,11 +477,7 @@ mod tests {
 
     #[test]
     fn test_kdtree_sorted_nearest_first() {
-        let points = vec![
-            vec![0.0, 0.0],
-            vec![5.0, 0.0],
-            vec![2.0, 0.0],
-        ];
+        let points = vec![vec![0.0, 0.0], vec![5.0, 0.0], vec![2.0, 0.0]];
         let tree = KdTree::build(&points);
         let result = tree.query_k_nearest(&[1.0, 0.0], 3, &points);
         // Distances: 0→1, 2→1, 5→16
@@ -614,6 +606,9 @@ mod tests {
             .map(|(i, _)| i)
             .collect();
 
-        assert_eq!(kd_result, brute, "KD-tree radius and brute-force should agree");
+        assert_eq!(
+            kd_result, brute,
+            "KD-tree radius and brute-force should agree"
+        );
     }
 }

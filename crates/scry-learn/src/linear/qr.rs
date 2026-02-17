@@ -7,12 +7,7 @@ use crate::error::{Result, ScryLearnError};
 ///
 /// `x` is column-major contiguous: `x[col * n_rows + row]`.
 /// Requires `n_rows >= n_cols` (overdetermined or square).
-pub(crate) fn qr_solve(
-    x: &[f64],
-    y: &[f64],
-    n_rows: usize,
-    n_cols: usize,
-) -> Result<Vec<f64>> {
+pub(crate) fn qr_solve(x: &[f64], y: &[f64], n_rows: usize, n_cols: usize) -> Result<Vec<f64>> {
     if n_rows == 0 || n_cols == 0 {
         return Err(ScryLearnError::EmptyDataset);
     }
@@ -193,12 +188,7 @@ mod tests {
     #[test]
     fn test_qr_matches_svd() {
         use super::super::svd::svd_solve;
-        let rows: &[&[f64]] = &[
-            &[1.0, 2.0],
-            &[3.0, 4.0],
-            &[5.0, 6.0],
-            &[7.0, 8.0],
-        ];
+        let rows: &[&[f64]] = &[&[1.0, 2.0], &[3.0, 4.0], &[5.0, 6.0], &[7.0, 8.0]];
         let y = vec![1.0, 2.0, 3.0, 4.0];
         let x = to_col_major(rows, 4, 2);
         let qr_b = qr_solve(&x, &y, 4, 2).unwrap();

@@ -10,8 +10,8 @@
 #[path = "tracking_alloc.rs"]
 mod tracking_alloc;
 
-use tracking_alloc::{TrackingAllocator, AllocSnapshot, format_bytes, format_count};
 use std::time::Instant;
+use tracking_alloc::{format_bytes, format_count, AllocSnapshot, TrackingAllocator};
 
 #[global_allocator]
 static ALLOC: TrackingAllocator = TrackingAllocator::new();
@@ -255,7 +255,10 @@ fn test_peak_heap_per_model() {
         let ds = make_dataset(col_cls.clone(), target_cls.clone(), d);
         let before = AllocSnapshot::now();
         let t0 = Instant::now();
-        let mut m = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(30).n_init(1);
+        let mut m = scry_learn::prelude::KMeans::new(3)
+            .seed(42)
+            .max_iter(30)
+            .n_init(1);
         m.fit(&ds).unwrap();
         let elapsed = t0.elapsed();
         let after = AllocSnapshot::now();
@@ -415,7 +418,9 @@ fn test_peak_heap_per_model() {
         let ds = make_dataset(col_reg_saved, target_reg_saved, d);
         let before = AllocSnapshot::now();
         let t0 = Instant::now();
-        let mut m = scry_learn::prelude::ElasticNet::new().alpha(0.1).l1_ratio(0.5);
+        let mut m = scry_learn::prelude::ElasticNet::new()
+            .alpha(0.1)
+            .l1_ratio(0.5);
         m.fit(&ds).unwrap();
         let elapsed = t0.elapsed();
         let after = AllocSnapshot::now();
@@ -450,7 +455,8 @@ fn test_peak_heap_per_model() {
 
     // ── MultinomialNB (needs non-negative features) ──
     {
-        let col_abs: Vec<Vec<f64>> = col_cls.iter()
+        let col_abs: Vec<Vec<f64>> = col_cls
+            .iter()
             .map(|c| c.iter().map(|v| v.abs()).collect())
             .collect();
         let ds = make_dataset(col_abs, target_cls.clone(), d);
@@ -574,90 +580,122 @@ fn test_alloc_count_per_model() {
     println!("  {}", "─".repeat(68));
 
     let models: Vec<(&str, Box<dyn FnOnce()>)> = vec![
-        ("DecisionTree", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::DecisionTreeClassifier::new();
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("RandomForest(20t)", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::RandomForestClassifier::new()
-                    .n_estimators(20).max_depth(8);
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("GBT(20t)", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
-                    .n_estimators(20).learning_rate(0.1).max_depth(3);
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("HistGBT(20t)", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
-                    .n_estimators(20).learning_rate(0.1);
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("KNN(k=5)", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("LogisticReg", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::LogisticRegression::new()
-                    .max_iter(50).learning_rate(0.1);
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("KMeans(k=3)", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(30).n_init(1);
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
-        ("GaussianNB", Box::new({
-            let col = col.clone();
-            let target = target.clone();
-            move || {
-                let ds = make_dataset(col, target, d);
-                let mut m = scry_learn::prelude::GaussianNb::new();
-                m.fit(&ds).unwrap();
-                std::hint::black_box(&m);
-            }
-        })),
+        (
+            "DecisionTree",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::DecisionTreeClassifier::new();
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "RandomForest(20t)",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::RandomForestClassifier::new()
+                        .n_estimators(20)
+                        .max_depth(8);
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "GBT(20t)",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
+                        .n_estimators(20)
+                        .learning_rate(0.1)
+                        .max_depth(3);
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "HistGBT(20t)",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
+                        .n_estimators(20)
+                        .learning_rate(0.1);
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "KNN(k=5)",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "LogisticReg",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::LogisticRegression::new()
+                        .max_iter(50)
+                        .learning_rate(0.1);
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "KMeans(k=3)",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::KMeans::new(3)
+                        .seed(42)
+                        .max_iter(30)
+                        .n_init(1);
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
+        (
+            "GaussianNB",
+            Box::new({
+                let col = col.clone();
+                let target = target.clone();
+                move || {
+                    let ds = make_dataset(col, target, d);
+                    let mut m = scry_learn::prelude::GaussianNb::new();
+                    m.fit(&ds).unwrap();
+                    std::hint::black_box(&m);
+                }
+            }),
+        ),
     ];
 
     for (name, run) in models {
@@ -699,88 +737,111 @@ fn test_memory_scaling_by_n() {
     }
 
     let model_configs: Vec<(&str, Box<dyn Fn(usize) -> (usize, f64)>)> = vec![
-        ("RandomForest(20t)", Box::new(move |n| {
-            let (col, tgt) = gen_classification(n, d);
-            let ds = make_dataset(col, tgt, d);
-            let before = AllocSnapshot::now();
-            let t0 = Instant::now();
-            let mut m = scry_learn::prelude::RandomForestClassifier::new()
-                .n_estimators(20).max_depth(8);
-            m.fit(&ds).unwrap();
-            let elapsed = t0.elapsed();
-            let after = AllocSnapshot::now();
-            let delta = after.delta_from(before);
-            std::hint::black_box(&m);
-            (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
-        })),
-        ("GBT(20t)", Box::new(move |n| {
-            let (col, tgt) = gen_classification(n, d);
-            let ds = make_dataset(col, tgt, d);
-            let before = AllocSnapshot::now();
-            let t0 = Instant::now();
-            let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
-                .n_estimators(20).learning_rate(0.1).max_depth(3);
-            m.fit(&ds).unwrap();
-            let elapsed = t0.elapsed();
-            let after = AllocSnapshot::now();
-            let delta = after.delta_from(before);
-            std::hint::black_box(&m);
-            (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
-        })),
-        ("HistGBT(20t)", Box::new(move |n| {
-            let (col, tgt) = gen_classification(n, d);
-            let ds = make_dataset(col, tgt, d);
-            let before = AllocSnapshot::now();
-            let t0 = Instant::now();
-            let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
-                .n_estimators(20).learning_rate(0.1);
-            m.fit(&ds).unwrap();
-            let elapsed = t0.elapsed();
-            let after = AllocSnapshot::now();
-            let delta = after.delta_from(before);
-            std::hint::black_box(&m);
-            (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
-        })),
-        ("KNN(k=5)", Box::new(move |n| {
-            let (col, tgt) = gen_classification(n, d);
-            let ds = make_dataset(col, tgt, d);
-            let before = AllocSnapshot::now();
-            let t0 = Instant::now();
-            let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
-            m.fit(&ds).unwrap();
-            let elapsed = t0.elapsed();
-            let after = AllocSnapshot::now();
-            let delta = after.delta_from(before);
-            std::hint::black_box(&m);
-            (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
-        })),
-        ("LogisticReg", Box::new(move |n| {
-            let (col, tgt) = gen_classification(n, d);
-            let ds = make_dataset(col, tgt, d);
-            let before = AllocSnapshot::now();
-            let t0 = Instant::now();
-            let mut m = scry_learn::prelude::LogisticRegression::new()
-                .max_iter(50).learning_rate(0.1);
-            m.fit(&ds).unwrap();
-            let elapsed = t0.elapsed();
-            let after = AllocSnapshot::now();
-            let delta = after.delta_from(before);
-            std::hint::black_box(&m);
-            (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
-        })),
-        ("LinearSVC", Box::new(move |n| {
-            let (col, tgt) = gen_classification(n, d);
-            let ds = make_dataset(col, tgt, d);
-            let before = AllocSnapshot::now();
-            let t0 = Instant::now();
-            let mut m = scry_learn::prelude::LinearSVC::new();
-            m.fit(&ds).unwrap();
-            let elapsed = t0.elapsed();
-            let after = AllocSnapshot::now();
-            let delta = after.delta_from(before);
-            std::hint::black_box(&m);
-            (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
-        })),
+        (
+            "RandomForest(20t)",
+            Box::new(move |n| {
+                let (col, tgt) = gen_classification(n, d);
+                let ds = make_dataset(col, tgt, d);
+                let before = AllocSnapshot::now();
+                let t0 = Instant::now();
+                let mut m = scry_learn::prelude::RandomForestClassifier::new()
+                    .n_estimators(20)
+                    .max_depth(8);
+                m.fit(&ds).unwrap();
+                let elapsed = t0.elapsed();
+                let after = AllocSnapshot::now();
+                let delta = after.delta_from(before);
+                std::hint::black_box(&m);
+                (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
+            }),
+        ),
+        (
+            "GBT(20t)",
+            Box::new(move |n| {
+                let (col, tgt) = gen_classification(n, d);
+                let ds = make_dataset(col, tgt, d);
+                let before = AllocSnapshot::now();
+                let t0 = Instant::now();
+                let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
+                    .n_estimators(20)
+                    .learning_rate(0.1)
+                    .max_depth(3);
+                m.fit(&ds).unwrap();
+                let elapsed = t0.elapsed();
+                let after = AllocSnapshot::now();
+                let delta = after.delta_from(before);
+                std::hint::black_box(&m);
+                (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
+            }),
+        ),
+        (
+            "HistGBT(20t)",
+            Box::new(move |n| {
+                let (col, tgt) = gen_classification(n, d);
+                let ds = make_dataset(col, tgt, d);
+                let before = AllocSnapshot::now();
+                let t0 = Instant::now();
+                let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
+                    .n_estimators(20)
+                    .learning_rate(0.1);
+                m.fit(&ds).unwrap();
+                let elapsed = t0.elapsed();
+                let after = AllocSnapshot::now();
+                let delta = after.delta_from(before);
+                std::hint::black_box(&m);
+                (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
+            }),
+        ),
+        (
+            "KNN(k=5)",
+            Box::new(move |n| {
+                let (col, tgt) = gen_classification(n, d);
+                let ds = make_dataset(col, tgt, d);
+                let before = AllocSnapshot::now();
+                let t0 = Instant::now();
+                let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
+                m.fit(&ds).unwrap();
+                let elapsed = t0.elapsed();
+                let after = AllocSnapshot::now();
+                let delta = after.delta_from(before);
+                std::hint::black_box(&m);
+                (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
+            }),
+        ),
+        (
+            "LogisticReg",
+            Box::new(move |n| {
+                let (col, tgt) = gen_classification(n, d);
+                let ds = make_dataset(col, tgt, d);
+                let before = AllocSnapshot::now();
+                let t0 = Instant::now();
+                let mut m = scry_learn::prelude::LogisticRegression::new()
+                    .max_iter(50)
+                    .learning_rate(0.1);
+                m.fit(&ds).unwrap();
+                let elapsed = t0.elapsed();
+                let after = AllocSnapshot::now();
+                let delta = after.delta_from(before);
+                std::hint::black_box(&m);
+                (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
+            }),
+        ),
+        (
+            "LinearSVC",
+            Box::new(move |n| {
+                let (col, tgt) = gen_classification(n, d);
+                let ds = make_dataset(col, tgt, d);
+                let before = AllocSnapshot::now();
+                let t0 = Instant::now();
+                let mut m = scry_learn::prelude::LinearSVC::new();
+                m.fit(&ds).unwrap();
+                let elapsed = t0.elapsed();
+                let after = AllocSnapshot::now();
+                let delta = after.delta_from(before);
+                std::hint::black_box(&m);
+                (delta.peak_increase, elapsed.as_secs_f64() * 1000.0)
+            }),
+        ),
     ];
 
     let mut all_results: Vec<ScalingResult> = Vec::new();
@@ -1006,22 +1067,27 @@ fn test_predict_allocations() {
     dt.fit(&ds).unwrap();
 
     let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-        .n_estimators(20).max_depth(8);
+        .n_estimators(20)
+        .max_depth(8);
     rf.fit(&ds).unwrap();
 
     let mut gbt = scry_learn::prelude::GradientBoostingClassifier::new()
-        .n_estimators(20).learning_rate(0.1).max_depth(3);
+        .n_estimators(20)
+        .learning_rate(0.1)
+        .max_depth(3);
     gbt.fit(&ds).unwrap();
 
     let mut hgbt = scry_learn::prelude::HistGradientBoostingClassifier::new()
-        .n_estimators(20).learning_rate(0.1);
+        .n_estimators(20)
+        .learning_rate(0.1);
     hgbt.fit(&ds).unwrap();
 
     let mut knn = scry_learn::prelude::KnnClassifier::new().k(5);
     knn.fit(&ds).unwrap();
 
     let mut lr = scry_learn::prelude::LogisticRegression::new()
-        .max_iter(50).learning_rate(0.1);
+        .max_iter(50)
+        .learning_rate(0.1);
     lr.fit(&ds).unwrap();
 
     let mut nb = scry_learn::prelude::GaussianNb::new();
@@ -1050,17 +1116,50 @@ fn test_predict_allocations() {
 
     // Measure predict costs
     let predictors: Vec<(&str, Box<dyn Fn() -> Vec<f64>>)> = vec![
-        ("DecisionTree", Box::new(|| dt.predict(&single_sample).unwrap())),
-        ("RandomForest(20t)", Box::new(|| rf.predict(&single_sample).unwrap())),
-        ("GBT(20t)", Box::new(|| gbt.predict(&single_sample).unwrap())),
-        ("HistGBT(20t)", Box::new(|| hgbt.predict(&single_sample).unwrap())),
-        ("KNN(k=5)", Box::new(|| knn.predict(&single_sample).unwrap())),
-        ("LogisticReg", Box::new(|| lr.predict(&single_sample).unwrap())),
-        ("GaussianNB", Box::new(|| nb.predict(&single_sample).unwrap())),
-        ("LinearSVC", Box::new(|| lsvc.predict(&single_sample).unwrap())),
-        ("KernelSVC", Box::new(|| ksvc.predict(&single_sample).unwrap())),
-        ("BernoulliNB", Box::new(|| bnb.predict(&single_sample).unwrap())),
-        ("LassoRegression", Box::new(|| lasso.predict(&reg_single).unwrap())),
+        (
+            "DecisionTree",
+            Box::new(|| dt.predict(&single_sample).unwrap()),
+        ),
+        (
+            "RandomForest(20t)",
+            Box::new(|| rf.predict(&single_sample).unwrap()),
+        ),
+        (
+            "GBT(20t)",
+            Box::new(|| gbt.predict(&single_sample).unwrap()),
+        ),
+        (
+            "HistGBT(20t)",
+            Box::new(|| hgbt.predict(&single_sample).unwrap()),
+        ),
+        (
+            "KNN(k=5)",
+            Box::new(|| knn.predict(&single_sample).unwrap()),
+        ),
+        (
+            "LogisticReg",
+            Box::new(|| lr.predict(&single_sample).unwrap()),
+        ),
+        (
+            "GaussianNB",
+            Box::new(|| nb.predict(&single_sample).unwrap()),
+        ),
+        (
+            "LinearSVC",
+            Box::new(|| lsvc.predict(&single_sample).unwrap()),
+        ),
+        (
+            "KernelSVC",
+            Box::new(|| ksvc.predict(&single_sample).unwrap()),
+        ),
+        (
+            "BernoulliNB",
+            Box::new(|| bnb.predict(&single_sample).unwrap()),
+        ),
+        (
+            "LassoRegression",
+            Box::new(|| lasso.predict(&reg_single).unwrap()),
+        ),
     ];
 
     for (name, predict_fn) in &predictors {
@@ -1152,7 +1251,9 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_multiclass(1000, 10, 100);
         let ds = make_dataset(col, tgt, 10);
         let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
-            .n_estimators(10).learning_rate(0.1).max_depth(3);
+            .n_estimators(10)
+            .learning_rate(0.1)
+            .max_depth(3);
         m.fit(&ds).unwrap();
     });
 
@@ -1161,7 +1262,8 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_classification(50, 500);
         let ds = make_dataset(col, tgt, 500);
         let mut m = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(10).max_depth(5);
+            .n_estimators(10)
+            .max_depth(5);
         m.fit(&ds).unwrap();
     });
 
@@ -1169,8 +1271,7 @@ fn test_stress_edge_cases() {
     stress_test!("DT: deep tree (max_depth=50, N=2K)", {
         let (col, tgt) = gen_classification(2_000, 10);
         let ds = make_dataset(col, tgt, 10);
-        let mut m = scry_learn::prelude::DecisionTreeClassifier::new()
-            .max_depth(50);
+        let mut m = scry_learn::prelude::DecisionTreeClassifier::new().max_depth(50);
         m.fit(&ds).unwrap();
     });
 
@@ -1178,7 +1279,10 @@ fn test_stress_edge_cases() {
     stress_test!("KMeans: k=100 on N=200", {
         let (col, tgt) = gen_classification(200, 5);
         let ds = make_dataset(col, tgt, 5);
-        let mut m = scry_learn::prelude::KMeans::new(100).seed(42).max_iter(50).n_init(1);
+        let mut m = scry_learn::prelude::KMeans::new(100)
+            .seed(42)
+            .max_iter(50)
+            .n_init(1);
         m.fit(&ds).unwrap();
     });
 
@@ -1195,7 +1299,8 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_classification(500, 10);
         let ds = make_dataset(col, tgt, 10);
         let mut m = scry_learn::prelude::LogisticRegression::new()
-            .max_iter(500).learning_rate(0.01);
+            .max_iter(500)
+            .learning_rate(0.01);
         m.fit(&ds).unwrap();
     });
 
@@ -1204,7 +1309,8 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_classification(500, 10);
         let ds = make_dataset(col, tgt, 10);
         let mut m = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(50).max_depth(8);
+            .n_estimators(50)
+            .max_depth(8);
         m.fit(&ds).unwrap();
     });
 
@@ -1222,7 +1328,8 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_classification(2_000, 10);
         let ds = make_dataset(col, tgt, 10);
         let mut m = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(20).max_depth(10);
+            .n_estimators(20)
+            .max_depth(10);
         m.fit(&ds).unwrap();
     });
 
@@ -1231,7 +1338,8 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_classification(5_000, 10);
         let ds = make_dataset(col, tgt, 10);
         let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
-            .n_estimators(20).learning_rate(0.1);
+            .n_estimators(20)
+            .learning_rate(0.1);
         m.fit(&ds).unwrap();
     });
 
@@ -1250,7 +1358,8 @@ fn test_stress_edge_cases() {
         let (col, tgt) = gen_classification(2_000, 10);
         let ds = make_dataset(col.clone(), tgt, 10);
         let mut m = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(20).max_depth(8);
+            .n_estimators(20)
+            .max_depth(8);
         m.fit(&ds).unwrap();
         let rows = to_row_major(&col);
         let _ = m.predict(&rows).unwrap();
@@ -1276,7 +1385,7 @@ fn test_throughput_scaling() {
 
     struct ThroughputRow {
         model: &'static str,
-        train_sps: Vec<f64>,   // samples/sec per size
+        train_sps: Vec<f64>, // samples/sec per size
         predict_sps: Vec<f64>,
     }
 
@@ -1317,65 +1426,112 @@ fn test_throughput_scaling() {
         }};
     }
 
-    bench_model!("DecisionTree", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::DecisionTreeClassifier::new();
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::DecisionTreeClassifier, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "DecisionTree",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::DecisionTreeClassifier::new();
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::DecisionTreeClassifier, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
-    bench_model!("RandomForest(20t)", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(20).max_depth(8);
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::RandomForestClassifier, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "RandomForest(20t)",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::RandomForestClassifier::new()
+                .n_estimators(20)
+                .max_depth(8);
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::RandomForestClassifier, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
-    bench_model!("GBT(20t)", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
-            .n_estimators(20).learning_rate(0.1).max_depth(3);
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::GradientBoostingClassifier, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "GBT(20t)",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::GradientBoostingClassifier::new()
+                .n_estimators(20)
+                .learning_rate(0.1)
+                .max_depth(3);
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::GradientBoostingClassifier, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
-    bench_model!("HistGBT(20t)", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
-            .n_estimators(20).learning_rate(0.1);
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::HistGradientBoostingClassifier, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "HistGBT(20t)",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::HistGradientBoostingClassifier::new()
+                .n_estimators(20)
+                .learning_rate(0.1);
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::HistGradientBoostingClassifier, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
-    bench_model!("KNN(k=5)", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::KnnClassifier, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "KNN(k=5)",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::KnnClassifier::new().k(5);
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::KnnClassifier, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
-    bench_model!("LogisticReg", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::LogisticRegression::new()
-            .max_iter(50).learning_rate(0.1);
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::LogisticRegression, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "LogisticReg",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::LogisticRegression::new()
+                .max_iter(50)
+                .learning_rate(0.1);
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::LogisticRegression, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
-    bench_model!("LinearSVC", &sizes, |ds: &scry_learn::dataset::Dataset| {
-        let mut m = scry_learn::prelude::LinearSVC::new();
-        m.fit(ds).unwrap();
-        m
-    }, |m: &scry_learn::prelude::LinearSVC, rows: &Vec<Vec<f64>>| {
-        std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
-    }, 2_000);
+    bench_model!(
+        "LinearSVC",
+        &sizes,
+        |ds: &scry_learn::dataset::Dataset| {
+            let mut m = scry_learn::prelude::LinearSVC::new();
+            m.fit(ds).unwrap();
+            m
+        },
+        |m: &scry_learn::prelude::LinearSVC, rows: &Vec<Vec<f64>>| {
+            std::hint::black_box(m.predict(std::hint::black_box(rows)).unwrap());
+        },
+        2_000
+    );
 
     // KernelSVC removed from throughput test — O(n²) training is tested in test_peak_heap
 
@@ -1395,24 +1551,32 @@ fn test_throughput_scaling() {
     // Print train throughput table
     println!("\n  TRAIN throughput (samples/second):");
     print!("  {:<20}", "Model");
-    for &n in &sizes { print!(" {:>14}", format!("N={n}")); }
+    for &n in &sizes {
+        print!(" {:>14}", format!("N={n}"));
+    }
     println!();
     println!("  {}", "─".repeat(20 + sizes.len() * 15));
     for r in &results {
         print!("  {:<20}", r.model);
-        for &sps in &r.train_sps { print!(" {:>14}", fmt_sps(sps)); }
+        for &sps in &r.train_sps {
+            print!(" {:>14}", fmt_sps(sps));
+        }
         println!();
     }
 
     // Print predict throughput table
     println!("\n  PREDICT throughput (samples/second):");
     print!("  {:<20}", "Model");
-    for &n in &sizes { print!(" {:>14}", format!("N={n}")); }
+    for &n in &sizes {
+        print!(" {:>14}", format!("N={n}"));
+    }
     println!();
     println!("  {}", "─".repeat(20 + sizes.len() * 15));
     for r in &results {
         print!("  {:<20}", r.model);
-        for &sps in &r.predict_sps { print!(" {:>14}", fmt_sps(sps)); }
+        for &sps in &r.predict_sps {
+            print!(" {:>14}", fmt_sps(sps));
+        }
         println!();
     }
     println!();
@@ -1423,7 +1587,8 @@ fn test_throughput_scaling() {
             assert!(
                 r.train_sps[0] > 50.0,
                 "{} train throughput at N=200 is too low: {:.0} sps",
-                r.model, r.train_sps[0],
+                r.model,
+                r.train_sps[0],
             );
         }
     }
@@ -1469,10 +1634,18 @@ fn test_competitor_memory_comparison() {
         if scry == 0 && other == 0 {
             "tie".to_string()
         } else if scry <= other {
-            let ratio = if scry > 0 { other as f64 / scry as f64 } else { f64::INFINITY };
+            let ratio = if scry > 0 {
+                other as f64 / scry as f64
+            } else {
+                f64::INFINITY
+            };
             format!("scry {:.1}×", ratio)
         } else {
-            let ratio = if other > 0 { scry as f64 / other as f64 } else { f64::INFINITY };
+            let ratio = if other > 0 {
+                scry as f64 / other as f64
+            } else {
+                f64::INFINITY
+            };
             format!("comp {:.1}×", ratio)
         }
     }
@@ -1489,8 +1662,11 @@ fn test_competitor_memory_comparison() {
         let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&rows).unwrap();
         let (smart_peak, _) = measure(|| {
             let m = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-                &x, &target_i32, Default::default(),
-            ).unwrap();
+                &x,
+                &target_i32,
+                Default::default(),
+            )
+            .unwrap();
             std::hint::black_box(&m);
         });
 
@@ -1509,7 +1685,8 @@ fn test_competitor_memory_comparison() {
         let ds = make_dataset(col.clone(), target.clone(), d);
         let (scry_peak, _) = measure(|| {
             let mut m = scry_learn::prelude::RandomForestClassifier::new()
-                .n_estimators(20).max_depth(8);
+                .n_estimators(20)
+                .max_depth(8);
             m.fit(&ds).unwrap();
             std::hint::black_box(&m);
         });
@@ -1520,8 +1697,11 @@ fn test_competitor_memory_comparison() {
                 .with_n_trees(20_u16)
                 .with_max_depth(8);
             let m = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-                &x, &target_i32, params,
-            ).unwrap();
+                &x,
+                &target_i32,
+                params,
+            )
+            .unwrap();
             std::hint::black_box(&m);
         });
 
@@ -1533,13 +1713,13 @@ fn test_competitor_memory_comparison() {
         let linfa_ds = linfa::Dataset::new(linfa_x, linfa_y);
         let (linfa_peak, _) = measure(|| {
             let m = linfa_ensemble::RandomForestParams::new(
-                linfa_trees::DecisionTree::params().max_depth(Some(8))
+                linfa_trees::DecisionTree::params().max_depth(Some(8)),
             )
-                .ensemble_size(20)
-                .bootstrap_proportion(0.7)
-                .feature_proportion(0.3)
-                .fit(&linfa_ds)
-                .unwrap();
+            .ensemble_size(20)
+            .bootstrap_proportion(0.7)
+            .feature_proportion(0.3)
+            .fit(&linfa_ds)
+            .unwrap();
             std::hint::black_box(&m);
         });
         println!("  Note: linfa uses bootstrap=0.7, features=0.3 (non-default, differs from scry/smartcore)");
@@ -1566,9 +1746,11 @@ fn test_competitor_memory_comparison() {
         let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&rows).unwrap();
         let (smart_peak, _) = measure(|| {
             let m = smartcore::neighbors::knn_classifier::KNNClassifier::fit(
-                &x, &target_i32,
+                &x,
+                &target_i32,
                 smartcore::neighbors::knn_classifier::KNNClassifierParameters::default().with_k(5),
-            ).unwrap();
+            )
+            .unwrap();
             std::hint::black_box(&m);
         });
 
@@ -1587,7 +1769,8 @@ fn test_competitor_memory_comparison() {
         let ds = make_dataset(col.clone(), target.clone(), d);
         let (scry_peak, _) = measure(|| {
             let mut m = scry_learn::prelude::LogisticRegression::new()
-                .max_iter(200).learning_rate(0.1);
+                .max_iter(200)
+                .learning_rate(0.1);
             m.fit(&ds).unwrap();
             std::hint::black_box(&m);
         });
@@ -1595,8 +1778,11 @@ fn test_competitor_memory_comparison() {
         let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&rows).unwrap();
         let (smart_peak, _) = measure(|| {
             let m = smartcore::linear::logistic_regression::LogisticRegression::fit(
-                &x, &target_i32, Default::default(),
-            ).unwrap();
+                &x,
+                &target_i32,
+                Default::default(),
+            )
+            .unwrap();
             std::hint::black_box(&m);
         });
 
@@ -1621,8 +1807,8 @@ fn test_competitor_memory_comparison() {
 
         let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&rows).unwrap();
         let (smart_peak, _) = measure(|| {
-            let smart_params = smartcore::decomposition::pca::PCAParameters::default()
-                .with_n_components(5);
+            let smart_params =
+                smartcore::decomposition::pca::PCAParameters::default().with_n_components(5);
             let m = smartcore::decomposition::pca::PCA::fit(&x, smart_params).unwrap();
             std::hint::black_box(&m);
         });
@@ -1630,7 +1816,8 @@ fn test_competitor_memory_comparison() {
         use linfa::prelude::Fit;
         let flat: Vec<f64> = rows.iter().flat_map(|r| r.iter().copied()).collect();
         let linfa_x = ndarray::Array2::from_shape_vec((n, d), flat).unwrap();
-        let linfa_y = ndarray::Array1::<usize>::from_vec(target.iter().map(|&t| t as usize).collect());
+        let linfa_y =
+            ndarray::Array1::<usize>::from_vec(target.iter().map(|&t| t as usize).collect());
         let linfa_ds = linfa::Dataset::new(linfa_x, linfa_y);
         let (linfa_peak, _) = measure(|| {
             let m = linfa_reduction::Pca::params(5).fit(&linfa_ds).unwrap();
@@ -1651,7 +1838,10 @@ fn test_competitor_memory_comparison() {
     {
         let ds = make_dataset(col.clone(), target.clone(), d);
         let (scry_peak, _) = measure(|| {
-            let mut m = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(100).n_init(1);
+            let mut m = scry_learn::prelude::KMeans::new(3)
+                .seed(42)
+                .max_iter(100)
+                .n_init(1);
             m.fit(&ds).unwrap();
             std::hint::black_box(&m);
         });
@@ -1764,4 +1954,3 @@ fn test_competitor_memory_comparison() {
     println!("  measurement closures to isolate model-fitting memory.");
     println!();
 }
-

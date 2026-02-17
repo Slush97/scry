@@ -13,12 +13,7 @@ fn empty_dataset() -> Dataset {
 }
 
 fn single_sample_clf() -> Dataset {
-    Dataset::new(
-        vec![vec![1.0]],
-        vec![0.0],
-        vec!["f".into()],
-        "t",
-    )
+    Dataset::new(vec![vec![1.0]], vec![0.0], vec!["f".into()], "t")
 }
 
 fn single_feature_clf() -> Dataset {
@@ -50,7 +45,10 @@ fn nan_dataset() -> Dataset {
 
 fn inf_dataset() -> Dataset {
     Dataset::new(
-        vec![vec![1.0, f64::INFINITY, 3.0], vec![4.0, f64::NEG_INFINITY, 6.0]],
+        vec![
+            vec![1.0, f64::INFINITY, 3.0],
+            vec![4.0, f64::NEG_INFINITY, 6.0],
+        ],
         vec![0.0, 1.0, 0.0],
         vec!["f1".into(), "f2".into()],
         "t",
@@ -105,7 +103,8 @@ fn linreg_extreme_scales() {
     let data = Dataset::new(
         vec![vec![1e-10, 1e10, 1.0, 0.5]],
         vec![1.0, 2.0, 3.0, 4.0],
-        vec!["f".into()], "t",
+        vec!["f".into()],
+        "t",
     );
     let mut model = scry_learn::linear::LinearRegression::new();
     let _ = model.fit(&data); // Should not panic
@@ -269,7 +268,9 @@ fn rfc_single_sample() {
 #[test]
 fn rfc_all_same_class() {
     let data = all_same_class();
-    let mut model = scry_learn::tree::RandomForestClassifier::new().n_estimators(5).seed(42);
+    let mut model = scry_learn::tree::RandomForestClassifier::new()
+        .n_estimators(5)
+        .seed(42);
     model.fit(&data).unwrap();
     let preds = model.predict(&data.feature_matrix()).unwrap();
     for p in &preds {
@@ -312,7 +313,8 @@ fn gbc_empty() {
 fn gbc_all_same_class() {
     let data = all_same_class();
     let mut model = scry_learn::tree::GradientBoostingClassifier::new()
-        .n_estimators(5).max_depth(2);
+        .n_estimators(5)
+        .max_depth(2);
     // GBC requires ≥2 classes — correctly returns InvalidParameter
     let result = model.fit(&data);
     assert!(result.is_err(), "GBC should reject single-class data");
@@ -353,7 +355,8 @@ fn histgbc_empty() {
 fn histgbc_single_feature() {
     let data = single_feature_clf();
     let mut model = scry_learn::tree::HistGradientBoostingClassifier::new()
-        .n_estimators(5).max_depth(3);
+        .n_estimators(5)
+        .max_depth(3);
     let _ = model.fit(&data); // Should not panic
 }
 
@@ -537,12 +540,7 @@ fn bernoullinb_empty() {
 
 #[test]
 fn bernoullinb_single_sample() {
-    let data = Dataset::new(
-        vec![vec![1.0]],
-        vec![0.0],
-        vec!["f".into()],
-        "t",
-    );
+    let data = Dataset::new(vec![vec![1.0]], vec![0.0], vec!["f".into()], "t");
     let mut model = scry_learn::naive_bayes::BernoulliNB::new();
     let _ = model.fit(&data);
 }
@@ -561,12 +559,7 @@ fn multinomialnb_empty() {
 
 #[test]
 fn multinomialnb_single_sample() {
-    let data = Dataset::new(
-        vec![vec![1.0]],
-        vec![0.0],
-        vec!["f".into()],
-        "t",
-    );
+    let data = Dataset::new(vec![vec![1.0]], vec![0.0], vec!["f".into()], "t");
     let mut model = scry_learn::naive_bayes::MultinomialNB::new();
     let _ = model.fit(&data);
 }
@@ -629,7 +622,9 @@ fn extreme_scale_dtc() {
 fn extreme_scale_rfc() {
     let data = extreme_scale_dataset();
     let mut model = scry_learn::tree::RandomForestClassifier::new()
-        .n_estimators(3).seed(42).max_depth(3);
+        .n_estimators(3)
+        .seed(42)
+        .max_depth(3);
     model.fit(&data).unwrap();
     let _ = model.predict(&data.feature_matrix()).unwrap();
 }
@@ -693,7 +688,10 @@ fn nan_knn_no_panic() {
 #[test]
 fn nan_kmeans_no_panic() {
     let data = nan_dataset();
-    let mut model = scry_learn::cluster::KMeans::new(2).max_iter(5).n_init(1).seed(42);
+    let mut model = scry_learn::cluster::KMeans::new(2)
+        .max_iter(5)
+        .n_init(1)
+        .seed(42);
     let _ = model.fit(&data);
 }
 
@@ -730,4 +728,144 @@ fn not_fitted_knn() {
     let model = scry_learn::neighbors::KnnClassifier::new();
     let result = model.predict(&[vec![1.0]]);
     assert!(result.is_err());
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// MLPClassifier edge cases
+// ═════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn mlp_empty() {
+    let data = empty_dataset();
+    let mut model = scry_learn::neural::MLPClassifier::new()
+        .hidden_layers(&[4])
+        .max_iter(5);
+    let result = model.fit(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn mlp_single_sample() {
+    let data = single_sample_clf();
+    let mut model = scry_learn::neural::MLPClassifier::new()
+        .hidden_layers(&[4])
+        .max_iter(5)
+        .seed(42);
+    let _ = model.fit(&data); // Should not panic
+}
+
+#[test]
+fn mlp_extreme_scales() {
+    let data = extreme_scale_dataset();
+    let mut model = scry_learn::neural::MLPClassifier::new()
+        .hidden_layers(&[4])
+        .max_iter(5)
+        .learning_rate(0.001)
+        .seed(42);
+    let _ = model.fit(&data); // Should not panic
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// MLPRegressor edge cases
+// ═════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn mlp_regressor_empty() {
+    let data = empty_regression();
+    let mut model = scry_learn::neural::MLPRegressor::new()
+        .hidden_layers(&[4])
+        .max_iter(5);
+    let result = model.fit(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn mlp_regressor_single_sample() {
+    let data = Dataset::new(vec![vec![1.0]], vec![5.0], vec!["f".into()], "t");
+    let mut model = scry_learn::neural::MLPRegressor::new()
+        .hidden_layers(&[4])
+        .max_iter(5)
+        .seed(42);
+    let _ = model.fit(&data); // Should not panic
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// IsolationForest edge cases
+// ═════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn iforest_empty() {
+    let features: Vec<Vec<f64>> = Vec::new();
+    let mut model = scry_learn::anomaly::IsolationForest::new();
+    let result = model.fit(&features);
+    assert!(result.is_err());
+}
+
+#[test]
+fn iforest_single_sample() {
+    let features = vec![vec![1.0]];
+    let mut model = scry_learn::anomaly::IsolationForest::new().n_estimators(5);
+    let _ = model.fit(&features); // Should not panic
+}
+
+#[test]
+fn iforest_extreme_scales() {
+    let features = vec![vec![1e-10, 1e10, 0.0, 1.0], vec![1e10, 1e-10, 1.0, 0.0]];
+    let mut model = scry_learn::anomaly::IsolationForest::new().n_estimators(5);
+    let _ = model.fit(&features); // Should not panic
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// KernelSVR edge cases
+// ═════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn kernel_svr_empty() {
+    let data = empty_regression();
+    let mut model = scry_learn::svm::KernelSVR::new();
+    let result = model.fit(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn kernel_svr_single_sample() {
+    let data = Dataset::new(vec![vec![1.0]], vec![5.0], vec!["f".into()], "t");
+    let mut model = scry_learn::svm::KernelSVR::new().max_iter(10);
+    let _ = model.fit(&data); // Should not panic
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Feature dimension mismatch — predict with wrong number of features
+// ═════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn dimension_mismatch_dt() {
+    let data = Dataset::new(
+        vec![vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, 7.0, 8.0]],
+        vec![0.0, 1.0, 0.0, 1.0],
+        vec!["f1".into(), "f2".into()],
+        "t",
+    );
+    let mut model = scry_learn::tree::DecisionTreeClassifier::new();
+    model.fit(&data).unwrap();
+    // Predict with 3 features instead of 2
+    let result = model.predict(&[vec![1.0, 2.0, 3.0]]);
+    // Should either error or handle gracefully — must not panic
+    let _ = result;
+}
+
+#[test]
+fn dimension_mismatch_knn() {
+    let data = Dataset::new(
+        vec![vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, 7.0, 8.0]],
+        vec![0.0, 1.0, 0.0, 1.0],
+        vec!["f1".into(), "f2".into()],
+        "t",
+    );
+    let mut model = scry_learn::neighbors::KnnClassifier::new().k(2);
+    model.fit(&data).unwrap();
+    // Predict with 1 feature instead of 2
+    let result = model.predict(&[vec![1.0]]);
+    // Should either error or handle gracefully — must not panic
+    let _ = result;
 }

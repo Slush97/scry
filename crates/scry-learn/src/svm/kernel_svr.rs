@@ -25,9 +25,9 @@
 //! assert!((preds[0] - 6.0).abs() < 2.0);
 //! ```
 
+use super::kernel::{Gamma, Kernel};
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use super::kernel::{Kernel, Gamma};
 
 // ─────────────────────────────────────────────────────────────────
 // KernelSVR
@@ -59,6 +59,7 @@ use super::kernel::{Kernel, Gamma};
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct KernelSVR {
     kernel: Kernel,
     c: f64,
@@ -97,7 +98,13 @@ impl KernelSVR {
     }
 
     /// Set the kernel function.
+    ///
+    /// Setting a non-RBF kernel clears any gamma strategy so it is not
+    /// silently overwritten to RBF during [`fit`](Self::fit).
     pub fn kernel(mut self, k: Kernel) -> Self {
+        if !matches!(k, Kernel::RBF { .. }) {
+            self.gamma_strategy = None;
+        }
         self.kernel = k;
         self
     }
@@ -143,9 +150,9 @@ impl KernelSVR {
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
-        if self.c <= 0.0 {
+        if self.c <= 0.0 || !self.c.is_finite() {
             return Err(ScryLearnError::InvalidParameter(
-                "C must be positive".into(),
+                "C must be finite and positive".into(),
             ));
         }
 
@@ -253,10 +260,10 @@ impl KernelSVR {
                 a[j] = a[j].clamp(-self.c, self.c);
 
                 // Update bias.
-                let b1 = y[i] - self.epsilon * a[i].signum()
-                    - svr_predict_raw_no_b(&a, &k_matrix[i]);
-                let b2 = y[j] - self.epsilon * a[j].signum()
-                    - svr_predict_raw_no_b(&a, &k_matrix[j]);
+                let b1 =
+                    y[i] - self.epsilon * a[i].signum() - svr_predict_raw_no_b(&a, &k_matrix[i]);
+                let b2 =
+                    y[j] - self.epsilon * a[j].signum() - svr_predict_raw_no_b(&a, &k_matrix[j]);
                 b = (b1 + b2) / 2.0;
 
                 num_changed += 1;
@@ -365,15 +372,25 @@ mod tests {
         svr.fit(&data).unwrap();
 
         let preds = svr.predict(&[vec![3.0], vec![5.0]]).unwrap();
-        assert!((preds[0] - 6.0).abs() < 3.0, "Expected ~6.0, got {}", preds[0]);
-        assert!((preds[1] - 10.0).abs() < 3.0, "Expected ~10.0, got {}", preds[1]);
+        assert!(
+            (preds[0] - 6.0).abs() < 3.0,
+            "Expected ~6.0, got {}",
+            preds[0]
+        );
+        assert!(
+            (preds[1] - 10.0).abs() < 3.0,
+            "Expected ~10.0, got {}",
+            preds[1]
+        );
     }
 
     #[test]
     fn test_kernel_svr_rbf() {
         // Non-linear: y = x^2 on [-3, 3]
         let n = 30;
-        let x: Vec<f64> = (0..n).map(|i| -3.0 + 6.0 * i as f64 / (n - 1) as f64).collect();
+        let x: Vec<f64> = (0..n)
+            .map(|i| -3.0 + 6.0 * i as f64 / (n - 1) as f64)
+            .collect();
         let y: Vec<f64> = x.iter().map(|&xi| xi * xi).collect();
         let data = Dataset::new(vec![x.clone()], y, vec!["x".into()], "y");
 
@@ -391,8 +408,16 @@ mod tests {
         // y = x^2: 0^2=0, 1^2=1, (-1)^2=1
         // Allow tolerance of 2.0 since this is a small dataset.
         assert!(preds[0].abs() < 2.0, "Expected ~0, got {}", preds[0]);
-        assert!((preds[1] - 1.0).abs() < 2.0, "Expected ~1, got {}", preds[1]);
-        assert!((preds[2] - 1.0).abs() < 2.0, "Expected ~1, got {}", preds[2]);
+        assert!(
+            (preds[1] - 1.0).abs() < 2.0,
+            "Expected ~1, got {}",
+            preds[1]
+        );
+        assert!(
+            (preds[2] - 1.0).abs() < 2.0,
+            "Expected ~1, got {}",
+            preds[2]
+        );
     }
 
     #[test]
@@ -413,10 +438,7 @@ mod tests {
 
     #[test]
     fn test_kernel_svr_gamma_auto() {
-        let features = vec![
-            vec![1.0, 2.0, 3.0, 4.0, 5.0],
-            vec![2.0, 3.0, 4.0, 5.0, 6.0],
-        ];
+        let features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![2.0, 3.0, 4.0, 5.0, 6.0]];
         let target = vec![2.0, 4.0, 6.0, 8.0, 10.0];
         let data = Dataset::new(features, target, vec!["a".into(), "b".into()], "y");
 

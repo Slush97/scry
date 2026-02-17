@@ -7,9 +7,7 @@
 use proptest::prelude::*;
 
 use scry_engine::rasterize::Rasterizer;
-use scry_engine::scene::animation::{
-    AnimationState, Easing, Keyframe, Keyframes, Transition,
-};
+use scry_engine::scene::animation::{AnimationState, Easing, Keyframe, Keyframes, Transition};
 use scry_engine::scene::{Color, PixelCanvas};
 
 use std::time::Duration;

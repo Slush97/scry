@@ -46,7 +46,12 @@ const SOFT_PEACH: C = C::from_rgb8(244, 192, 149); // #F4C095
 const SOFT_CREAM: C = C::from_rgb8(243, 231, 179); // #F3E7B3
 
 const PALETTE: [C; 6] = [
-    SOFT_BLUE, SOFT_PINK, SOFT_PURPLE, SOFT_GREEN, SOFT_PEACH, SOFT_CREAM,
+    SOFT_BLUE,
+    SOFT_PINK,
+    SOFT_PURPLE,
+    SOFT_GREEN,
+    SOFT_PEACH,
+    SOFT_CREAM,
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -89,7 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let area = frame.area();
 
             // Layout: [animation | spacing | text]
-            let logo_cols = (info_height as u16).saturating_mul(2).min(area.width / 3).max(14);
+            let logo_cols = (info_height as u16)
+                .saturating_mul(2)
+                .min(area.width / 3)
+                .max(14);
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
@@ -185,7 +193,10 @@ fn build_styled_text<'a>(lines: &[&str], t: f32) -> Vec<Line<'a>> {
             continue;
         }
 
-        let color = colors.get(i).copied().unwrap_or(ratatui::style::Color::Rgb(232, 226, 215));
+        let color = colors
+            .get(i)
+            .copied()
+            .unwrap_or(ratatui::style::Color::Rgb(232, 226, 215));
 
         // The separator from fastfetch config
         let sep_color = ratatui::style::Color::Rgb(203, 182, 255);
@@ -223,10 +234,7 @@ fn build_styled_text<'a>(lines: &[&str], t: f32) -> Vec<Line<'a>> {
             result.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(" ▎", Style::default().fg(sep_color)),
-                Span::styled(
-                    format!(" {line}"),
-                    Style::default().fg(color),
-                ),
+                Span::styled(format!(" {line}"), Style::default().fg(color)),
             ]));
         }
     }
@@ -300,10 +308,7 @@ fn build_anim_scene(area: Rect, px_state: &PixelCanvasState, t: f32) -> PixelCan
             let ring_r = radius * (1.0 - i as f32 * 0.08) * breath;
             let alpha = intro * (0.4 - i as f32 * 0.1);
             let color = palette_color(i, t).with_alpha(alpha);
-            canvas = canvas
-                .circle(cx, cy, ring_r)
-                .stroke(color, 1.2)
-                .done();
+            canvas = canvas.circle(cx, cy, ring_r).stroke(color, 1.2).done();
         }
     }
 

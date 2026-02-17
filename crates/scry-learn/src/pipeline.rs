@@ -17,6 +17,7 @@ use crate::preprocess::Transformer;
 /// pipeline.fit(&train)?;
 /// let preds = pipeline.predict(&test)?;
 /// ```
+#[non_exhaustive]
 pub struct Pipeline {
     transformers: Vec<Box<dyn TransformerBox>>,
     model: Option<Box<dyn PipelineModel>>,
@@ -46,114 +47,40 @@ pub trait PipelineModel {
 }
 
 // Implement PipelineModel for all classifier/regressor types.
-impl PipelineModel for crate::tree::DecisionTreeClassifier {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
+macro_rules! impl_pipeline_model {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl PipelineModel for $ty {
+                fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
+                fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
+            }
+        )*
+    };
 }
 
-impl PipelineModel for crate::tree::RandomForestClassifier {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::linear::LinearRegression {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::linear::LogisticRegression {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::neighbors::KnnClassifier {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::naive_bayes::GaussianNb {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::tree::DecisionTreeRegressor {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::tree::RandomForestRegressor {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::tree::GradientBoostingClassifier {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::tree::GradientBoostingRegressor {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::linear::LassoRegression {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::linear::ElasticNet {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::svm::LinearSVC {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::svm::LinearSVR {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::svm::KernelSVC {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::svm::KernelSVR {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::naive_bayes::BernoulliNB {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::naive_bayes::MultinomialNB {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::tree::HistGradientBoostingClassifier {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::tree::HistGradientBoostingRegressor {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::neural::MLPClassifier {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
-}
-
-impl PipelineModel for crate::neural::MLPRegressor {
-    fn fit(&mut self, data: &Dataset) -> Result<()> { self.fit(data) }
-    fn predict(&self, features: &[Vec<f64>]) -> Result<Vec<f64>> { self.predict(features) }
+impl_pipeline_model! {
+    crate::tree::DecisionTreeClassifier,
+    crate::tree::RandomForestClassifier,
+    crate::linear::LinearRegression,
+    crate::linear::LogisticRegression,
+    crate::neighbors::KnnClassifier,
+    crate::naive_bayes::GaussianNb,
+    crate::tree::DecisionTreeRegressor,
+    crate::tree::RandomForestRegressor,
+    crate::tree::GradientBoostingClassifier,
+    crate::tree::GradientBoostingRegressor,
+    crate::linear::LassoRegression,
+    crate::linear::ElasticNet,
+    crate::svm::LinearSVC,
+    crate::svm::LinearSVR,
+    crate::svm::KernelSVC,
+    crate::svm::KernelSVR,
+    crate::naive_bayes::BernoulliNB,
+    crate::naive_bayes::MultinomialNB,
+    crate::tree::HistGradientBoostingClassifier,
+    crate::tree::HistGradientBoostingRegressor,
+    crate::neural::MLPClassifier,
+    crate::neural::MLPRegressor,
 }
 
 impl Pipeline {

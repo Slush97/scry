@@ -5,9 +5,7 @@
 //! Run: `cargo run -p scry-learn --example ml_viz_showcase`
 
 use scry_chart::export::save_png;
-use scry_learn::metrics::{
-    confusion_matrix, classification_report, RocCurve, PrCurve,
-};
+use scry_learn::metrics::{classification_report, confusion_matrix, PrCurve, RocCurve};
 use scry_learn::viz;
 
 fn main() {
@@ -26,22 +24,28 @@ fn main() {
 
     // 2. Confusion Matrix (normalized)
     let chart = viz::confusion_matrix_chart(&cm, true);
-    save_png(&chart, 600, 500, &format!("{out}/confusion_matrix_norm.png")).unwrap();
+    save_png(
+        &chart,
+        600,
+        500,
+        &format!("{out}/confusion_matrix_norm.png"),
+    )
+    .unwrap();
     println!("✓ confusion_matrix_norm.png");
 
     // 3. ROC Curve
-    let roc_a = RocCurve {
-        fpr: vec![0.0, 0.1, 0.2, 0.5, 1.0],
-        tpr: vec![0.0, 0.4, 0.7, 0.9, 1.0],
-        thresholds: vec![0.9, 0.7, 0.5, 0.3],
-        auc: 0.87,
-    };
-    let roc_b = RocCurve {
-        fpr: vec![0.0, 0.2, 0.4, 0.6, 1.0],
-        tpr: vec![0.0, 0.3, 0.5, 0.7, 1.0],
-        thresholds: vec![0.9, 0.7, 0.5, 0.3],
-        auc: 0.72,
-    };
+    let roc_a = RocCurve::new(
+        vec![0.0, 0.1, 0.2, 0.5, 1.0],
+        vec![0.0, 0.4, 0.7, 0.9, 1.0],
+        vec![0.9, 0.7, 0.5, 0.3],
+        0.87,
+    );
+    let roc_b = RocCurve::new(
+        vec![0.0, 0.2, 0.4, 0.6, 1.0],
+        vec![0.0, 0.3, 0.5, 0.7, 1.0],
+        vec![0.9, 0.7, 0.5, 0.3],
+        0.72,
+    );
     let chart = viz::roc_chart(&[("Model A", &roc_a), ("Model B", &roc_b)]);
     save_png(&chart, 700, 500, &format!("{out}/roc_curve.png")).unwrap();
     println!("✓ roc_curve.png");
@@ -69,7 +73,11 @@ fn main() {
         vec![0.3, -0.1, 0.1],
         vec![0.05, -0.01, 0.01],
     ];
-    let coef_names = vec!["Weight".to_string(), "Height".to_string(), "Age".to_string()];
+    let coef_names = vec![
+        "Weight".to_string(),
+        "Height".to_string(),
+        "Age".to_string(),
+    ];
     let chart = viz::regularization_path_chart(&lambdas, &coefficients, &coef_names);
     save_png(&chart, 700, 500, &format!("{out}/regularization_path.png")).unwrap();
     println!("✓ regularization_path.png");
@@ -77,12 +85,12 @@ fn main() {
     // --- Phase 2: Classification & Regression ---
 
     // 7. PR Curve
-    let pr_a = PrCurve {
-        recall: vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        precision: vec![1.0, 0.95, 0.9, 0.8, 0.6, 0.4],
-        thresholds: vec![0.9, 0.8, 0.6, 0.4, 0.2],
-        avg_precision: 0.78,
-    };
+    let pr_a = PrCurve::new(
+        vec![1.0, 0.95, 0.9, 0.8, 0.6, 0.4],
+        vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        vec![0.9, 0.8, 0.6, 0.4, 0.2],
+        0.78,
+    );
     let chart = viz::pr_chart(&[("Classifier", &pr_a)]);
     save_png(&chart, 700, 500, &format!("{out}/pr_curve.png")).unwrap();
     println!("✓ pr_curve.png");
@@ -103,8 +111,16 @@ fn main() {
 
     // 10. Calibration Curve
     let chart = viz::calibration_chart(&[
-        ("Logistic Regression", &[0.1, 0.3, 0.5, 0.7, 0.9][..], &[0.12, 0.28, 0.52, 0.68, 0.88][..]),
-        ("Random Forest",       &[0.15, 0.35, 0.55, 0.75, 0.95][..], &[0.1, 0.3, 0.5, 0.7, 0.9][..]),
+        (
+            "Logistic Regression",
+            &[0.1, 0.3, 0.5, 0.7, 0.9][..],
+            &[0.12, 0.28, 0.52, 0.68, 0.88][..],
+        ),
+        (
+            "Random Forest",
+            &[0.15, 0.35, 0.55, 0.75, 0.95][..],
+            &[0.1, 0.3, 0.5, 0.7, 0.9][..],
+        ),
     ]);
     save_png(&chart, 700, 500, &format!("{out}/calibration.png")).unwrap();
     println!("✓ calibration.png");
@@ -122,10 +138,10 @@ fn main() {
     let chart = viz::metric_comparison_chart(
         &model_names,
         &[
-            ("Accuracy",  &[0.82, 0.91, 0.87, 0.84][..]),
+            ("Accuracy", &[0.82, 0.91, 0.87, 0.84][..]),
             ("Precision", &[0.80, 0.89, 0.85, 0.83][..]),
-            ("Recall",    &[0.78, 0.88, 0.84, 0.81][..]),
-            ("F1",        &[0.79, 0.88, 0.84, 0.82][..]),
+            ("Recall", &[0.78, 0.88, 0.84, 0.81][..]),
+            ("F1", &[0.79, 0.88, 0.84, 0.82][..]),
         ],
     );
     save_png(&chart, 800, 500, &format!("{out}/metric_comparison.png")).unwrap();

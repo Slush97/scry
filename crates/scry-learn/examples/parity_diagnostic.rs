@@ -20,7 +20,12 @@ fn main() {
     {
         let (features, target) = load_csv(&fixtures, "iris");
         let feat_names: Vec<String> = (0..features.len()).map(|i| format!("f{i}")).collect();
-        let ds = scry_learn::dataset::Dataset::new(features.clone(), target.clone(), feat_names, "target");
+        let ds = scry_learn::dataset::Dataset::new(
+            features.clone(),
+            target.clone(),
+            feat_names,
+            "target",
+        );
 
         let mut dt = scry_learn::tree::DecisionTreeClassifier::new().max_depth(5);
         dt.fit(&ds).unwrap();
@@ -30,18 +35,32 @@ fn main() {
         let preds = dt.predict(&test_rows).unwrap();
 
         let sklearn_preds: Vec<f64> = json["dt_iris"]["predictions"]
-            .as_array().unwrap()
-            .iter().map(|v| v.as_f64().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
         let sklearn_acc: f64 = json["dt_iris"]["accuracy"].as_f64().unwrap();
 
-        compare("Iris DT (max_depth=5)", &preds, &sklearn_preds, &target, sklearn_acc);
+        compare(
+            "Iris DT (max_depth=5)",
+            &preds,
+            &sklearn_preds,
+            &target,
+            sklearn_acc,
+        );
     }
 
     // ── Iris KNN ──
     {
         let (features, target) = load_csv(&fixtures, "iris");
         let feat_names: Vec<String> = (0..features.len()).map(|i| format!("f{i}")).collect();
-        let ds = scry_learn::dataset::Dataset::new(features.clone(), target.clone(), feat_names, "target");
+        let ds = scry_learn::dataset::Dataset::new(
+            features.clone(),
+            target.clone(),
+            feat_names,
+            "target",
+        );
 
         let mut knn = scry_learn::neighbors::KnnClassifier::new().k(5);
         knn.fit(&ds).unwrap();
@@ -50,18 +69,32 @@ fn main() {
         let preds = knn.predict(&test_rows).unwrap();
 
         let sklearn_preds: Vec<f64> = json["knn_iris"]["predictions"]
-            .as_array().unwrap()
-            .iter().map(|v| v.as_f64().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
         let sklearn_acc: f64 = json["knn_iris"]["accuracy"].as_f64().unwrap();
 
-        compare("Iris KNN (k=5)", &preds, &sklearn_preds, &target, sklearn_acc);
+        compare(
+            "Iris KNN (k=5)",
+            &preds,
+            &sklearn_preds,
+            &target,
+            sklearn_acc,
+        );
     }
 
     // ── Wine DecisionTree ──
     {
         let (features, target) = load_csv(&fixtures, "wine");
         let feat_names: Vec<String> = (0..features.len()).map(|i| format!("f{i}")).collect();
-        let ds = scry_learn::dataset::Dataset::new(features.clone(), target.clone(), feat_names, "target");
+        let ds = scry_learn::dataset::Dataset::new(
+            features.clone(),
+            target.clone(),
+            feat_names,
+            "target",
+        );
 
         let mut dt = scry_learn::tree::DecisionTreeClassifier::new().max_depth(5);
         dt.fit(&ds).unwrap();
@@ -70,11 +103,20 @@ fn main() {
         let preds = dt.predict(&test_rows).unwrap();
 
         let sklearn_preds: Vec<f64> = json["dt_wine"]["predictions"]
-            .as_array().unwrap()
-            .iter().map(|v| v.as_f64().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
         let sklearn_acc: f64 = json["dt_wine"]["accuracy"].as_f64().unwrap();
 
-        compare("Wine DT (max_depth=5)", &preds, &sklearn_preds, &target, sklearn_acc);
+        compare(
+            "Wine DT (max_depth=5)",
+            &preds,
+            &sklearn_preds,
+            &target,
+            sklearn_acc,
+        );
     }
 
     // ── Iris LogReg (with scaling) ──
@@ -83,24 +125,37 @@ fn main() {
         let feat_names: Vec<String> = (0..features.len()).map(|i| format!("f{i}")).collect();
 
         // Scale features first (sklearn used StandardScaler)
-        let mut ds = scry_learn::dataset::Dataset::new(features.clone(), target.clone(), feat_names.clone(), "target");
+        let mut ds = scry_learn::dataset::Dataset::new(
+            features.clone(),
+            target.clone(),
+            feat_names.clone(),
+            "target",
+        );
         let mut scaler = scry_learn::preprocess::StandardScaler::new();
         scry_learn::preprocess::Transformer::fit(&mut scaler, &ds).unwrap();
         scry_learn::preprocess::Transformer::transform(&scaler, &mut ds).unwrap();
 
-        let mut lr = scry_learn::linear::LogisticRegression::new()
-            .max_iter(200);
+        let mut lr = scry_learn::linear::LogisticRegression::new().max_iter(200);
         lr.fit(&ds).unwrap();
 
         let test_rows = to_rows(&ds.features);
         let preds = lr.predict(&test_rows).unwrap();
 
         let sklearn_preds: Vec<f64> = json["logreg_iris"]["predictions"]
-            .as_array().unwrap()
-            .iter().map(|v| v.as_f64().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
         let sklearn_acc: f64 = json["logreg_iris"]["accuracy"].as_f64().unwrap();
 
-        compare("Iris LogReg (max_iter=200, scaled)", &preds, &sklearn_preds, &target, sklearn_acc);
+        compare(
+            "Iris LogReg (max_iter=200, scaled)",
+            &preds,
+            &sklearn_preds,
+            &target,
+            sklearn_acc,
+        );
     }
 
     println!("\n═══════════════════════════════════════════════════════");
@@ -133,7 +188,8 @@ fn load_csv(fixtures: &std::path::Path, name: &str) -> (Vec<Vec<f64>>, Vec<f64>)
 
     // Load target
     let mut rdr = csv::Reader::from_path(&target_path).unwrap();
-    let target: Vec<f64> = rdr.records()
+    let target: Vec<f64> = rdr
+        .records()
         .map(|r| r.unwrap()[0].parse::<f64>().unwrap())
         .collect();
 
@@ -142,17 +198,37 @@ fn load_csv(fixtures: &std::path::Path, name: &str) -> (Vec<Vec<f64>>, Vec<f64>)
 
 fn to_rows(col_major: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = col_major[0].len();
-    (0..n).map(|i| col_major.iter().map(|col| col[i]).collect()).collect()
+    (0..n)
+        .map(|i| col_major.iter().map(|col| col[i]).collect())
+        .collect()
 }
 
-fn compare(label: &str, scry_preds: &[f64], sklearn_preds: &[f64], target: &[f64], sklearn_train_acc: f64) {
+fn compare(
+    label: &str,
+    scry_preds: &[f64],
+    sklearn_preds: &[f64],
+    target: &[f64],
+    sklearn_train_acc: f64,
+) {
     let n = target.len();
     assert_eq!(scry_preds.len(), n);
     assert_eq!(sklearn_preds.len(), n);
 
-    let scry_correct = scry_preds.iter().zip(target).filter(|(p, t)| (**p - **t).abs() < 0.5).count();
-    let sklearn_correct = sklearn_preds.iter().zip(target).filter(|(p, t)| (**p - **t).abs() < 0.5).count();
-    let pred_match = scry_preds.iter().zip(sklearn_preds).filter(|(s, sk)| (**s - **sk).abs() < 0.5).count();
+    let scry_correct = scry_preds
+        .iter()
+        .zip(target)
+        .filter(|(p, t)| (**p - **t).abs() < 0.5)
+        .count();
+    let sklearn_correct = sklearn_preds
+        .iter()
+        .zip(target)
+        .filter(|(p, t)| (**p - **t).abs() < 0.5)
+        .count();
+    let pred_match = scry_preds
+        .iter()
+        .zip(sklearn_preds)
+        .filter(|(s, sk)| (**s - **sk).abs() < 0.5)
+        .count();
 
     // Find divergent samples
     let divergent: Vec<usize> = (0..n)
@@ -161,19 +237,44 @@ fn compare(label: &str, scry_preds: &[f64], sklearn_preds: &[f64], target: &[f64
 
     println!("── {label} ──");
     println!("  Samples:           {n}");
-    println!("  scry-learn acc:    {:.1}% ({}/{})", scry_correct as f64 / n as f64 * 100.0, scry_correct, n);
-    println!("  sklearn acc:       {:.1}% ({}/{}) [stored: {:.1}%]", sklearn_correct as f64 / n as f64 * 100.0, sklearn_correct, n, sklearn_train_acc * 100.0);
-    println!("  Prediction match:  {:.1}% ({}/{})", pred_match as f64 / n as f64 * 100.0, pred_match, n);
+    println!(
+        "  scry-learn acc:    {:.1}% ({}/{})",
+        scry_correct as f64 / n as f64 * 100.0,
+        scry_correct,
+        n
+    );
+    println!(
+        "  sklearn acc:       {:.1}% ({}/{}) [stored: {:.1}%]",
+        sklearn_correct as f64 / n as f64 * 100.0,
+        sklearn_correct,
+        n,
+        sklearn_train_acc * 100.0
+    );
+    println!(
+        "  Prediction match:  {:.1}% ({}/{})",
+        pred_match as f64 / n as f64 * 100.0,
+        pred_match,
+        n
+    );
 
     if divergent.is_empty() {
         println!("  ✅ IDENTICAL predictions — gap is purely eval methodology");
     } else {
-        println!("  ⚠️  {} DIVERGENT samples: {:?}", divergent.len(),
-            if divergent.len() <= 20 { &divergent[..] } else { &divergent[..20] });
+        println!(
+            "  ⚠️  {} DIVERGENT samples: {:?}",
+            divergent.len(),
+            if divergent.len() <= 20 {
+                &divergent[..]
+            } else {
+                &divergent[..20]
+            }
+        );
         // Show first few divergences
         for &i in divergent.iter().take(5) {
-            println!("     sample {i}: scry={:.0} sklearn={:.0} true={:.0}",
-                scry_preds[i], sklearn_preds[i], target[i]);
+            println!(
+                "     sample {i}: scry={:.0} sklearn={:.0} true={:.0}",
+                scry_preds[i], sklearn_preds[i], target[i]
+            );
         }
     }
     println!();

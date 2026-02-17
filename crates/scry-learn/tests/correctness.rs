@@ -5,6 +5,7 @@
 
 use scry_learn::preprocess::Pca;
 
+use scry_learn::cluster::KMeans;
 use scry_learn::dataset::Dataset;
 use scry_learn::linear::{LinearRegression, LogisticRegression};
 use scry_learn::metrics::{
@@ -15,7 +16,6 @@ use scry_learn::neighbors::KnnClassifier;
 use scry_learn::preprocess::{StandardScaler, Transformer};
 use scry_learn::split::train_test_split;
 use scry_learn::tree::{DecisionTreeClassifier, RandomForestClassifier};
-use scry_learn::cluster::KMeans;
 
 // ─────────────────────────────────────────────────────────────────
 // Embedded Iris dataset (from sklearn.datasets.load_iris)
@@ -25,48 +25,48 @@ fn iris_dataset() -> Dataset {
     // 150 samples, 4 features: sepal_length, sepal_width, petal_length, petal_width
     // 3 classes: 0=setosa, 1=versicolor, 2=virginica
     let sepal_length = vec![
-        5.1, 4.9, 4.7, 4.6, 5.0, 5.4, 4.6, 5.0, 4.4, 4.9, 5.4, 4.8, 4.8, 4.3, 5.8, 5.7, 5.4,
-        5.1, 5.7, 5.1, 5.4, 5.1, 4.6, 5.1, 4.8, 5.0, 5.0, 5.2, 5.2, 4.7, 4.8, 5.4, 5.2, 5.5,
-        4.9, 5.0, 5.5, 4.9, 4.4, 5.1, 5.0, 4.5, 4.4, 5.0, 5.1, 4.8, 5.1, 4.6, 5.3, 5.0, 7.0,
-        6.4, 6.9, 5.5, 6.5, 5.7, 6.3, 4.9, 6.6, 5.2, 5.0, 5.9, 6.0, 6.1, 5.6, 6.7, 5.6, 5.8,
-        6.2, 5.6, 5.9, 6.1, 6.3, 6.1, 6.4, 6.6, 6.8, 6.7, 6.0, 5.7, 5.5, 5.5, 5.8, 6.0, 5.4,
-        6.0, 6.7, 6.3, 5.6, 5.5, 5.5, 6.1, 5.8, 5.0, 5.6, 5.7, 5.7, 6.2, 5.1, 5.7, 6.3, 5.8,
-        7.1, 6.3, 6.5, 7.6, 4.9, 7.3, 6.7, 7.2, 6.5, 6.4, 6.8, 5.7, 5.8, 6.4, 6.5, 7.7, 7.7,
-        6.0, 6.9, 5.6, 7.7, 6.3, 6.7, 7.2, 6.2, 6.1, 6.4, 7.2, 7.4, 7.9, 6.4, 6.3, 6.1, 7.7,
-        6.3, 6.4, 6.0, 6.9, 6.7, 6.9, 5.8, 6.8, 6.7, 6.7, 6.3, 6.5, 6.2, 5.9,
+        5.1, 4.9, 4.7, 4.6, 5.0, 5.4, 4.6, 5.0, 4.4, 4.9, 5.4, 4.8, 4.8, 4.3, 5.8, 5.7, 5.4, 5.1,
+        5.7, 5.1, 5.4, 5.1, 4.6, 5.1, 4.8, 5.0, 5.0, 5.2, 5.2, 4.7, 4.8, 5.4, 5.2, 5.5, 4.9, 5.0,
+        5.5, 4.9, 4.4, 5.1, 5.0, 4.5, 4.4, 5.0, 5.1, 4.8, 5.1, 4.6, 5.3, 5.0, 7.0, 6.4, 6.9, 5.5,
+        6.5, 5.7, 6.3, 4.9, 6.6, 5.2, 5.0, 5.9, 6.0, 6.1, 5.6, 6.7, 5.6, 5.8, 6.2, 5.6, 5.9, 6.1,
+        6.3, 6.1, 6.4, 6.6, 6.8, 6.7, 6.0, 5.7, 5.5, 5.5, 5.8, 6.0, 5.4, 6.0, 6.7, 6.3, 5.6, 5.5,
+        5.5, 6.1, 5.8, 5.0, 5.6, 5.7, 5.7, 6.2, 5.1, 5.7, 6.3, 5.8, 7.1, 6.3, 6.5, 7.6, 4.9, 7.3,
+        6.7, 7.2, 6.5, 6.4, 6.8, 5.7, 5.8, 6.4, 6.5, 7.7, 7.7, 6.0, 6.9, 5.6, 7.7, 6.3, 6.7, 7.2,
+        6.2, 6.1, 6.4, 7.2, 7.4, 7.9, 6.4, 6.3, 6.1, 7.7, 6.3, 6.4, 6.0, 6.9, 6.7, 6.9, 5.8, 6.8,
+        6.7, 6.7, 6.3, 6.5, 6.2, 5.9,
     ];
     let sepal_width = vec![
-        3.5, 3.0, 3.2, 3.1, 3.6, 3.9, 3.4, 3.4, 2.9, 3.1, 3.7, 3.4, 3.0, 3.0, 4.0, 4.4, 3.9,
-        3.5, 3.8, 3.8, 3.4, 3.7, 3.6, 3.3, 3.4, 3.0, 3.4, 3.5, 3.4, 3.2, 3.1, 3.4, 4.1, 4.2,
-        3.1, 3.2, 3.5, 3.6, 3.0, 3.4, 3.5, 2.3, 3.2, 3.5, 3.8, 3.0, 3.8, 3.2, 3.7, 3.3, 3.2,
-        3.2, 3.1, 2.3, 2.8, 2.8, 3.3, 2.4, 2.9, 2.7, 2.0, 3.0, 2.2, 2.9, 2.9, 3.1, 3.0, 2.7,
-        2.2, 2.5, 3.2, 2.8, 2.5, 2.8, 3.2, 3.0, 2.8, 3.0, 2.9, 2.6, 2.4, 2.4, 2.7, 2.7, 3.0,
-        3.4, 3.1, 2.3, 3.0, 2.5, 2.6, 3.0, 2.6, 2.3, 2.7, 3.0, 2.9, 2.9, 2.5, 2.8, 3.3, 2.7,
-        3.0, 2.9, 3.0, 3.0, 2.5, 2.9, 2.5, 3.6, 3.2, 2.7, 3.0, 2.5, 2.8, 3.2, 3.0, 3.8, 2.6,
-        2.2, 3.2, 2.8, 2.8, 2.7, 3.3, 3.2, 2.8, 3.0, 2.8, 3.0, 2.8, 3.8, 2.8, 2.8, 2.6, 3.0,
-        3.4, 3.1, 3.0, 3.1, 3.1, 3.1, 2.7, 3.2, 3.3, 3.0, 2.5, 3.0, 3.4, 3.0,
+        3.5, 3.0, 3.2, 3.1, 3.6, 3.9, 3.4, 3.4, 2.9, 3.1, 3.7, 3.4, 3.0, 3.0, 4.0, 4.4, 3.9, 3.5,
+        3.8, 3.8, 3.4, 3.7, 3.6, 3.3, 3.4, 3.0, 3.4, 3.5, 3.4, 3.2, 3.1, 3.4, 4.1, 4.2, 3.1, 3.2,
+        3.5, 3.6, 3.0, 3.4, 3.5, 2.3, 3.2, 3.5, 3.8, 3.0, 3.8, 3.2, 3.7, 3.3, 3.2, 3.2, 3.1, 2.3,
+        2.8, 2.8, 3.3, 2.4, 2.9, 2.7, 2.0, 3.0, 2.2, 2.9, 2.9, 3.1, 3.0, 2.7, 2.2, 2.5, 3.2, 2.8,
+        2.5, 2.8, 3.2, 3.0, 2.8, 3.0, 2.9, 2.6, 2.4, 2.4, 2.7, 2.7, 3.0, 3.4, 3.1, 2.3, 3.0, 2.5,
+        2.6, 3.0, 2.6, 2.3, 2.7, 3.0, 2.9, 2.9, 2.5, 2.8, 3.3, 2.7, 3.0, 2.9, 3.0, 3.0, 2.5, 2.9,
+        2.5, 3.6, 3.2, 2.7, 3.0, 2.5, 2.8, 3.2, 3.0, 3.8, 2.6, 2.2, 3.2, 2.8, 2.8, 2.7, 3.3, 3.2,
+        2.8, 3.0, 2.8, 3.0, 2.8, 3.8, 2.8, 2.8, 2.6, 3.0, 3.4, 3.1, 3.0, 3.1, 3.1, 3.1, 2.7, 3.2,
+        3.3, 3.0, 2.5, 3.0, 3.4, 3.0,
     ];
     let petal_length = vec![
-        1.4, 1.4, 1.3, 1.5, 1.4, 1.7, 1.4, 1.5, 1.4, 1.5, 1.5, 1.6, 1.4, 1.1, 1.2, 1.5, 1.3,
-        1.4, 1.7, 1.5, 1.7, 1.5, 1.0, 1.7, 1.9, 1.6, 1.6, 1.5, 1.4, 1.6, 1.6, 1.5, 1.5, 1.4,
-        1.5, 1.2, 1.3, 1.4, 1.3, 1.5, 1.3, 1.3, 1.3, 1.6, 1.9, 1.4, 1.6, 1.4, 1.5, 1.4, 4.7,
-        4.5, 4.9, 4.0, 4.6, 4.5, 4.7, 3.3, 4.6, 3.9, 3.5, 4.2, 4.0, 4.7, 3.6, 4.4, 4.5, 4.1,
-        4.5, 3.9, 4.8, 4.0, 4.9, 4.7, 4.3, 4.4, 4.8, 5.0, 4.5, 3.5, 3.8, 3.7, 3.9, 5.1, 4.5,
-        4.5, 4.7, 4.4, 4.1, 4.0, 4.4, 4.6, 4.0, 3.3, 4.2, 4.2, 4.2, 4.3, 3.0, 4.1, 6.0, 5.1,
-        5.9, 5.6, 5.8, 6.6, 4.5, 6.3, 5.8, 6.1, 5.1, 5.3, 5.5, 5.0, 5.1, 5.3, 5.5, 6.7, 6.9,
-        5.0, 5.7, 4.9, 6.7, 4.9, 5.7, 6.0, 4.8, 4.9, 5.6, 5.8, 6.1, 6.4, 5.6, 5.1, 5.6, 6.1,
-        5.6, 5.5, 4.8, 5.4, 5.6, 5.1, 5.1, 5.9, 5.7, 5.2, 5.0, 5.2, 5.4, 5.1,
+        1.4, 1.4, 1.3, 1.5, 1.4, 1.7, 1.4, 1.5, 1.4, 1.5, 1.5, 1.6, 1.4, 1.1, 1.2, 1.5, 1.3, 1.4,
+        1.7, 1.5, 1.7, 1.5, 1.0, 1.7, 1.9, 1.6, 1.6, 1.5, 1.4, 1.6, 1.6, 1.5, 1.5, 1.4, 1.5, 1.2,
+        1.3, 1.4, 1.3, 1.5, 1.3, 1.3, 1.3, 1.6, 1.9, 1.4, 1.6, 1.4, 1.5, 1.4, 4.7, 4.5, 4.9, 4.0,
+        4.6, 4.5, 4.7, 3.3, 4.6, 3.9, 3.5, 4.2, 4.0, 4.7, 3.6, 4.4, 4.5, 4.1, 4.5, 3.9, 4.8, 4.0,
+        4.9, 4.7, 4.3, 4.4, 4.8, 5.0, 4.5, 3.5, 3.8, 3.7, 3.9, 5.1, 4.5, 4.5, 4.7, 4.4, 4.1, 4.0,
+        4.4, 4.6, 4.0, 3.3, 4.2, 4.2, 4.2, 4.3, 3.0, 4.1, 6.0, 5.1, 5.9, 5.6, 5.8, 6.6, 4.5, 6.3,
+        5.8, 6.1, 5.1, 5.3, 5.5, 5.0, 5.1, 5.3, 5.5, 6.7, 6.9, 5.0, 5.7, 4.9, 6.7, 4.9, 5.7, 6.0,
+        4.8, 4.9, 5.6, 5.8, 6.1, 6.4, 5.6, 5.1, 5.6, 6.1, 5.6, 5.5, 4.8, 5.4, 5.6, 5.1, 5.1, 5.9,
+        5.7, 5.2, 5.0, 5.2, 5.4, 5.1,
     ];
     let petal_width = vec![
-        0.2, 0.2, 0.2, 0.2, 0.2, 0.4, 0.3, 0.2, 0.2, 0.1, 0.2, 0.2, 0.1, 0.1, 0.2, 0.4, 0.4,
-        0.3, 0.3, 0.3, 0.2, 0.4, 0.2, 0.5, 0.2, 0.2, 0.4, 0.2, 0.2, 0.2, 0.2, 0.4, 0.1, 0.2,
-        0.2, 0.2, 0.2, 0.1, 0.2, 0.2, 0.3, 0.3, 0.2, 0.6, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 1.4,
-        1.5, 1.5, 1.3, 1.5, 1.3, 1.6, 1.0, 1.3, 1.4, 1.0, 1.5, 1.0, 1.4, 1.3, 1.4, 1.5, 1.0,
-        1.5, 1.1, 1.8, 1.3, 1.5, 1.2, 1.3, 1.4, 1.4, 1.7, 1.5, 1.0, 1.1, 1.0, 1.2, 1.6, 1.5,
-        1.6, 1.5, 1.3, 1.3, 1.3, 1.2, 1.4, 1.2, 1.0, 1.3, 1.2, 1.3, 1.3, 1.1, 1.3, 2.5, 1.9,
-        2.1, 1.8, 2.2, 2.1, 1.7, 1.8, 1.8, 2.5, 2.0, 1.9, 2.1, 2.0, 2.4, 1.8, 1.8, 2.2, 2.3,
-        1.5, 2.3, 2.0, 2.0, 1.8, 2.1, 1.8, 1.8, 1.8, 2.1, 1.6, 1.9, 2.0, 2.2, 1.5, 1.4, 2.3,
-        2.4, 1.8, 1.8, 2.1, 2.4, 2.3, 1.9, 2.3, 2.5, 2.3, 1.9, 2.0, 2.3, 1.8,
+        0.2, 0.2, 0.2, 0.2, 0.2, 0.4, 0.3, 0.2, 0.2, 0.1, 0.2, 0.2, 0.1, 0.1, 0.2, 0.4, 0.4, 0.3,
+        0.3, 0.3, 0.2, 0.4, 0.2, 0.5, 0.2, 0.2, 0.4, 0.2, 0.2, 0.2, 0.2, 0.4, 0.1, 0.2, 0.2, 0.2,
+        0.2, 0.1, 0.2, 0.2, 0.3, 0.3, 0.2, 0.6, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 1.4, 1.5, 1.5, 1.3,
+        1.5, 1.3, 1.6, 1.0, 1.3, 1.4, 1.0, 1.5, 1.0, 1.4, 1.3, 1.4, 1.5, 1.0, 1.5, 1.1, 1.8, 1.3,
+        1.5, 1.2, 1.3, 1.4, 1.4, 1.7, 1.5, 1.0, 1.1, 1.0, 1.2, 1.6, 1.5, 1.6, 1.5, 1.3, 1.3, 1.3,
+        1.2, 1.4, 1.2, 1.0, 1.3, 1.2, 1.3, 1.3, 1.1, 1.3, 2.5, 1.9, 2.1, 1.8, 2.2, 2.1, 1.7, 1.8,
+        1.8, 2.5, 2.0, 1.9, 2.1, 2.0, 2.4, 1.8, 1.8, 2.2, 2.3, 1.5, 2.3, 2.0, 2.0, 1.8, 2.1, 1.8,
+        1.8, 1.8, 2.1, 1.6, 1.9, 2.0, 2.2, 1.5, 1.4, 2.3, 2.4, 1.8, 1.8, 2.1, 2.4, 2.3, 1.9, 2.3,
+        2.5, 2.3, 1.9, 2.0, 2.3, 1.8,
     ];
     let target: Vec<f64> = (0..150)
         .map(|i| {
@@ -120,9 +120,7 @@ fn prove_random_forest_iris() {
     let data = iris_dataset();
     let (train, test) = train_test_split(&data, 0.2, 42);
 
-    let mut rf = RandomForestClassifier::new()
-        .n_estimators(100)
-        .seed(42);
+    let mut rf = RandomForestClassifier::new().n_estimators(100).seed(42);
     rf.fit(&train).unwrap();
 
     let features = test.feature_matrix();
@@ -228,12 +226,7 @@ fn prove_linear_regression_known_coefficients() {
         target.push(y);
     }
 
-    let data = Dataset::new(
-        vec![f1, f2],
-        target,
-        vec!["x1".into(), "x2".into()],
-        "y",
-    );
+    let data = Dataset::new(vec![f1, f2], target, vec!["x1".into(), "x2".into()], "y");
 
     let (train, test) = train_test_split(&data, 0.2, 42);
 
@@ -246,8 +239,14 @@ fn prove_linear_regression_known_coefficients() {
     let mse = mean_squared_error(&test.target, &preds);
 
     eprintln!("Linear Regression: R²={r2:.6}, MSE={mse:.6}");
-    assert!(r2 > 0.999, "R² should be near 1.0 for known linear system (got {r2})");
-    assert!(mse < 0.01, "MSE should be near 0 for known linear system (got {mse})");
+    assert!(
+        r2 > 0.999,
+        "R² should be near 1.0 for known linear system (got {r2})"
+    );
+    assert!(
+        mse < 0.01,
+        "MSE should be near 0 for known linear system (got {mse})"
+    );
 }
 
 /// Prove K-Means finds correct cluster structure on well-separated data.
@@ -293,9 +292,18 @@ fn prove_kmeans_separation() {
     let label_c = labels[2 * third];
 
     // All 3 clusters should have different labels.
-    assert_ne!(label_a, label_b, "Clusters A and B should have different labels");
-    assert_ne!(label_b, label_c, "Clusters B and C should have different labels");
-    assert_ne!(label_a, label_c, "Clusters A and C should have different labels");
+    assert_ne!(
+        label_a, label_b,
+        "Clusters A and B should have different labels"
+    );
+    assert_ne!(
+        label_b, label_c,
+        "Clusters B and C should have different labels"
+    );
+    assert_ne!(
+        label_a, label_c,
+        "Clusters A and C should have different labels"
+    );
 
     // Check cluster purity (at least 90% of each third should share a label).
     for (start, expected) in [(0, label_a), (third, label_b), (2 * third, label_c)] {
@@ -412,7 +420,10 @@ fn prove_pca_iris_dimension_reduction() {
     }
     let rmse = (total_err / (150.0 * 4.0)).sqrt();
     eprintln!("PCA 2-component reconstruction RMSE: {rmse:.4}");
-    assert!(rmse < 0.20, "Reconstruction RMSE should be small, got {rmse}");
+    assert!(
+        rmse < 0.20,
+        "Reconstruction RMSE should be small, got {rmse}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -443,8 +454,11 @@ fn prove_gbt_classifier_iris() {
         let preds = gbc.predict(&test_features).unwrap();
 
         let acc = accuracy(&test.target, &preds);
-        eprintln!("Seed {seed:>3}: {acc:.4} ({}/{} correct)",
-            (acc * test.target.len() as f64) as usize, test.target.len());
+        eprintln!(
+            "Seed {seed:>3}: {acc:.4} ({}/{} correct)",
+            (acc * test.target.len() as f64) as usize,
+            test.target.len()
+        );
         total_acc += acc;
 
         // Verify probabilities are valid for each run.
@@ -457,7 +471,10 @@ fn prove_gbt_classifier_iris() {
     }
     let mean_acc = total_acc / seeds.len() as f64;
     eprintln!("Mean accuracy across {} seeds: {mean_acc:.4}", seeds.len());
-    assert!(mean_acc >= 0.90, "Mean GBT accuracy should be ≥ 90%, got {mean_acc:.4}");
+    assert!(
+        mean_acc >= 0.90,
+        "Mean GBT accuracy should be ≥ 90%, got {mean_acc:.4}"
+    );
 }
 
 /// Prove GBT regressor on known linear relationship.
@@ -470,14 +487,14 @@ fn prove_gbt_regressor_known_coefficients() {
     let mut rng = fastrand::Rng::with_seed(42);
     let x1: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
     let x2: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
-    let y: Vec<f64> = x1.iter().zip(x2.iter()).map(|(&a, &b)| 2.0 * a + 3.0 * b + 1.0).collect();
+    let y: Vec<f64> = x1
+        .iter()
+        .zip(x2.iter())
+        .map(|(&a, &b)| 2.0 * a + 3.0 * b + 1.0)
+        .collect();
 
-    let data = scry_learn::dataset::Dataset::new(
-        vec![x1, x2],
-        y,
-        vec!["x1".into(), "x2".into()],
-        "y",
-    );
+    let data =
+        scry_learn::dataset::Dataset::new(vec![x1, x2], y, vec!["x1".into(), "x2".into()], "y");
 
     let mut gbr = GradientBoostingRegressor::new()
         .n_estimators(200)
@@ -488,7 +505,9 @@ fn prove_gbt_regressor_known_coefficients() {
     let test = vec![vec![5.0, 5.0], vec![1.0, 1.0], vec![10.0, 0.0]];
     let preds = gbr.predict(&test).unwrap();
     // Expected: 26.0, 6.0, 21.0
-    let rmse: f64 = ((preds[0] - 26.0).powi(2) + (preds[1] - 6.0).powi(2) + (preds[2] - 21.0).powi(2)).sqrt() / 3.0_f64.sqrt();
+    let rmse: f64 =
+        ((preds[0] - 26.0).powi(2) + (preds[1] - 6.0).powi(2) + (preds[2] - 21.0).powi(2)).sqrt()
+            / 3.0_f64.sqrt();
     eprintln!("GBT Regressor RMSE on known coefficients: {rmse:.4}");
     assert!(rmse < 3.0, "RMSE should be small, got {rmse:.4}");
 }
@@ -543,8 +562,16 @@ fn prove_lasso_sparsity_on_known_system() {
     );
 
     // Relevant features should be significant.
-    assert!(coefs[0].abs() > 1.0, "x1 should be significant, got {}", coefs[0]);
-    assert!(coefs[2].abs() > 1.0, "x3 should be significant, got {}", coefs[2]);
+    assert!(
+        coefs[0].abs() > 1.0,
+        "x1 should be significant, got {}",
+        coefs[0]
+    );
+    assert!(
+        coefs[2].abs() > 1.0,
+        "x3 should be significant, got {}",
+        coefs[2]
+    );
 
     // Prediction quality.
     let test_features = test.feature_matrix();
@@ -569,12 +596,7 @@ fn prove_elastic_net_ridge_mode() {
         .map(|(&a, &b)| 2.0 * a + 3.0 * b + 1.0)
         .collect();
 
-    let data = Dataset::new(
-        vec![x1, x2],
-        y,
-        vec!["x1".into(), "x2".into()],
-        "y",
-    );
+    let data = Dataset::new(vec![x1, x2], y, vec!["x1".into(), "x2".into()], "y");
 
     let (train, test) = scry_learn::split::train_test_split(&data, 0.2, 42);
 
@@ -585,14 +607,25 @@ fn prove_elastic_net_ridge_mode() {
     eprintln!("ElasticNet (Ridge mode) coefficients: {coefs:?}");
 
     // Both coefficients should be significant (no sparsity).
-    assert!(coefs[0].abs() > 1.0, "x1 coef should be ~2, got {}", coefs[0]);
-    assert!(coefs[1].abs() > 1.0, "x2 coef should be ~3, got {}", coefs[1]);
+    assert!(
+        coefs[0].abs() > 1.0,
+        "x1 coef should be ~2, got {}",
+        coefs[0]
+    );
+    assert!(
+        coefs[1].abs() > 1.0,
+        "x2 coef should be ~3, got {}",
+        coefs[1]
+    );
 
     let test_features = test.feature_matrix();
     let preds = en.predict(&test_features).unwrap();
     let r2 = r2_score(&test.target, &preds);
     eprintln!("ElasticNet Ridge-mode R²: {r2:.4}");
-    assert!(r2 > 0.98, "ElasticNet Ridge-mode R² should be > 0.98, got {r2:.4}");
+    assert!(
+        r2 > 0.98,
+        "ElasticNet Ridge-mode R² should be > 0.98, got {r2:.4}"
+    );
 }
 
 /// Prove ElasticNet with l1_ratio=1 behaves like Lasso (drives irrelevant to zero).
@@ -606,12 +639,7 @@ fn prove_elastic_net_lasso_mode() {
     let x2: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect(); // noise
     let y: Vec<f64> = x1.iter().map(|&a| 3.0 * a + 1.0).collect();
 
-    let data = Dataset::new(
-        vec![x1, x2],
-        y,
-        vec!["x1".into(), "x2".into()],
-        "y",
-    );
+    let data = Dataset::new(vec![x1, x2], y, vec!["x1".into(), "x2".into()], "y");
 
     let mut en = ElasticNet::new().alpha(0.5).l1_ratio(1.0).max_iter(5000);
     en.fit(&data).unwrap();
@@ -624,7 +652,11 @@ fn prove_elastic_net_lasso_mode() {
         "noise x2 should be ~0 in Lasso mode, got {}",
         coefs[1]
     );
-    assert!(coefs[0].abs() > 1.0, "x1 should be significant, got {}", coefs[0]);
+    assert!(
+        coefs[0].abs() > 1.0,
+        "x1 should be significant, got {}",
+        coefs[0]
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -656,8 +688,8 @@ fn prove_class_weight_dt_imbalanced() {
 
     // Majority class (0): features centered around (3, 3) with spread.
     for _ in 0..n_majority {
-        f1.push(rng.f64() * 6.0);       // [0, 6]
-        f2.push(rng.f64() * 6.0);       // [0, 6]
+        f1.push(rng.f64() * 6.0); // [0, 6]
+        f2.push(rng.f64() * 6.0); // [0, 6]
         target.push(0.0);
     }
     // Minority class (1): features centered around (5, 5) — overlaps majority slightly.
@@ -721,9 +753,7 @@ fn prove_knn_distance_weights_iris() {
     let data = iris_dataset();
     let (train, test) = train_test_split(&data, 0.2, 42);
 
-    let mut knn = KnnClassifier::new()
-        .k(5)
-        .weights(WeightFunction::Distance);
+    let mut knn = KnnClassifier::new().k(5).weights(WeightFunction::Distance);
     knn.fit(&train).unwrap();
 
     let features = test.feature_matrix();
@@ -754,12 +784,7 @@ fn prove_knn_regressor_linear() {
         .map(|(&a, &b)| 2.0 * a + 3.0 * b + 1.0)
         .collect();
 
-    let data = Dataset::new(
-        vec![x1, x2],
-        y,
-        vec!["x1".into(), "x2".into()],
-        "y",
-    );
+    let data = Dataset::new(vec![x1, x2], y, vec!["x1".into(), "x2".into()], "y");
 
     let (train, test) = train_test_split(&data, 0.2, 42);
 
@@ -803,7 +828,10 @@ fn prove_knn_predict_proba_iris() {
         }
     }
 
-    eprintln!("predict_proba: all {} samples have valid distributions", probas.len());
+    eprintln!(
+        "predict_proba: all {} samples have valid distributions",
+        probas.len()
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -854,10 +882,7 @@ fn prove_linear_svc_iris() {
 fn prove_linear_svc_xor_fail() {
     use scry_learn::svm::LinearSVC;
 
-    let features = vec![
-        vec![0.0, 1.0, 0.0, 1.0],
-        vec![0.0, 0.0, 1.0, 1.0],
-    ];
+    let features = vec![vec![0.0, 1.0, 0.0, 1.0], vec![0.0, 0.0, 1.0, 1.0]];
     let target = vec![0.0, 1.0, 1.0, 0.0];
     let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
@@ -897,7 +922,7 @@ fn prove_linear_svc_xor_fail() {
 /// the negative proof above.
 #[test]
 fn prove_kernel_svc_xor() {
-    use scry_learn::svm::{KernelSVC, Kernel};
+    use scry_learn::svm::{Kernel, KernelSVC};
 
     // Use more training data (replicated) for a stable fit.
     let features = vec![
@@ -968,10 +993,7 @@ fn prove_imputer_fills_nan_correctly() {
     // No NaN should remain
     for (j, col) in ds.features.iter().enumerate() {
         for (i, &v) in col.iter().enumerate() {
-            assert!(
-                !v.is_nan(),
-                "NaN remains at feature {j}, sample {i}"
-            );
+            assert!(!v.is_nan(), "NaN remains at feature {j}, sample {i}");
         }
     }
 
@@ -1035,22 +1057,12 @@ fn prove_robust_scaler_outlier_tolerance() {
     let n = data.len();
 
     // StandardScaler
-    let mut ds_std = Dataset::new(
-        vec![data.clone()],
-        vec![0.0; n],
-        vec!["x".into()],
-        "y",
-    );
+    let mut ds_std = Dataset::new(vec![data.clone()], vec![0.0; n], vec!["x".into()], "y");
     let mut std_scaler = StandardScaler::new();
     std_scaler.fit_transform(&mut ds_std).unwrap();
 
     // RobustScaler
-    let mut ds_rob = Dataset::new(
-        vec![data],
-        vec![0.0; n],
-        vec!["x".into()],
-        "y",
-    );
+    let mut ds_rob = Dataset::new(vec![data], vec![0.0; n], vec!["x".into()], "y");
     let mut rob_scaler = RobustScaler::new();
     rob_scaler.fit_transform(&mut ds_rob).unwrap();
 
@@ -1087,16 +1099,14 @@ fn prove_robust_scaler_outlier_tolerance() {
 /// 2–3 should be in [0, 1].
 #[test]
 fn prove_column_transformer_composition() {
-    use scry_learn::preprocess::{
-        ColumnTransformer, MinMaxScaler, StandardScaler, Transformer,
-    };
+    use scry_learn::preprocess::{ColumnTransformer, MinMaxScaler, StandardScaler, Transformer};
 
     let mut ds = Dataset::new(
         vec![
-            vec![1.0, 2.0, 3.0, 4.0, 5.0],       // col 0
-            vec![10.0, 20.0, 30.0, 40.0, 50.0],   // col 1
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],           // col 0
+            vec![10.0, 20.0, 30.0, 40.0, 50.0],      // col 1
             vec![100.0, 200.0, 300.0, 400.0, 500.0], // col 2
-            vec![5.0, 10.0, 15.0, 20.0, 25.0],    // col 3
+            vec![5.0, 10.0, 15.0, 20.0, 25.0],       // col 3
         ],
         vec![0.0; 5],
         vec!["a".into(), "b".into(), "c".into(), "d".into()],
@@ -1114,19 +1124,37 @@ fn prove_column_transformer_composition() {
     // Columns 0, 1: StandardScaler → zero mean
     let mean_0: f64 = ds.features[0].iter().sum::<f64>() / 5.0;
     let mean_1: f64 = ds.features[1].iter().sum::<f64>() / 5.0;
-    assert!(mean_0.abs() < 1e-10, "col 0 mean should be ~0, got {mean_0}");
-    assert!(mean_1.abs() < 1e-10, "col 1 mean should be ~0, got {mean_1}");
+    assert!(
+        mean_0.abs() < 1e-10,
+        "col 0 mean should be ~0, got {mean_0}"
+    );
+    assert!(
+        mean_1.abs() < 1e-10,
+        "col 1 mean should be ~0, got {mean_1}"
+    );
 
     // Columns 2, 3: MinMaxScaler → [0, 1]
     let min_2 = ds.features[2].iter().cloned().fold(f64::INFINITY, f64::min);
-    let max_2 = ds.features[2].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let max_2 = ds.features[2]
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
     assert!(min_2.abs() < 1e-10, "col 2 min should be ~0, got {min_2}");
-    assert!((max_2 - 1.0).abs() < 1e-10, "col 2 max should be ~1, got {max_2}");
+    assert!(
+        (max_2 - 1.0).abs() < 1e-10,
+        "col 2 max should be ~1, got {max_2}"
+    );
 
     let min_3 = ds.features[3].iter().cloned().fold(f64::INFINITY, f64::min);
-    let max_3 = ds.features[3].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let max_3 = ds.features[3]
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
     assert!(min_3.abs() < 1e-10, "col 3 min should be ~0, got {min_3}");
-    assert!((max_3 - 1.0).abs() < 1e-10, "col 3 max should be ~1, got {max_3}");
+    assert!(
+        (max_3 - 1.0).abs() < 1e-10,
+        "col 3 max should be ~1, got {max_3}"
+    );
 
     eprintln!("ColumnTransformer: StandardScaler + MinMaxScaler composition verified");
 }
@@ -1214,12 +1242,7 @@ fn prove_gbt_huber_outlier_robustness() {
         y[i] += 50.0;
     }
 
-    let data = scry_learn::dataset::Dataset::new(
-        vec![x],
-        y,
-        vec!["x".into()],
-        "y",
-    );
+    let data = scry_learn::dataset::Dataset::new(vec![x], y, vec!["x".into()], "y");
 
     // GBT with squared error (sensitive to outliers).
     let mut gbr_mse = GradientBoostingRegressor::new()
@@ -1244,10 +1267,18 @@ fn prove_gbt_huber_outlier_robustness() {
     let preds_mse = gbr_mse.predict(&test_x).unwrap();
     let preds_huber = gbr_huber.predict(&test_x).unwrap();
 
-    let mae_mse: f64 = preds_mse.iter().zip(test_y.iter())
-        .map(|(&p, &t)| (p - t).abs()).sum::<f64>() / test_y.len() as f64;
-    let mae_huber: f64 = preds_huber.iter().zip(test_y.iter())
-        .map(|(&p, &t)| (p - t).abs()).sum::<f64>() / test_y.len() as f64;
+    let mae_mse: f64 = preds_mse
+        .iter()
+        .zip(test_y.iter())
+        .map(|(&p, &t)| (p - t).abs())
+        .sum::<f64>()
+        / test_y.len() as f64;
+    let mae_huber: f64 = preds_huber
+        .iter()
+        .zip(test_y.iter())
+        .map(|(&p, &t)| (p - t).abs())
+        .sum::<f64>()
+        / test_y.len() as f64;
 
     eprintln!("MAE (SquaredError): {mae_mse:.2}");
     eprintln!("MAE (Huber):        {mae_huber:.2}");
@@ -1343,7 +1374,10 @@ fn prove_bernoulli_nb_binary_features() {
     let preds = nb.predict(&features).unwrap();
     let acc = accuracy(&test.target, &preds);
 
-    eprintln!("BernoulliNB accuracy on binary features: {:.1}%", acc * 100.0);
+    eprintln!(
+        "BernoulliNB accuracy on binary features: {:.1}%",
+        acc * 100.0
+    );
     assert!(
         acc >= 0.75,
         "BernoulliNB should achieve ≥75% on binary feature data (got {:.1}%)",
@@ -1366,11 +1400,11 @@ fn prove_multinomial_nb_count_features() {
 
     for _ in 0..n / 2 {
         f0.push(5.0 + rng.f64() * 5.0); // high word_a
-        f1.push(rng.f64() * 2.0);       // low word_b
+        f1.push(rng.f64() * 2.0); // low word_b
         target.push(0.0);
     }
     for _ in 0..n / 2 {
-        f0.push(rng.f64() * 2.0);       // low word_a
+        f0.push(rng.f64() * 2.0); // low word_a
         f1.push(5.0 + rng.f64() * 5.0); // high word_b
         target.push(1.0);
     }
@@ -1390,7 +1424,10 @@ fn prove_multinomial_nb_count_features() {
     let preds = nb.predict(&features).unwrap();
     let acc = accuracy(&test.target, &preds);
 
-    eprintln!("MultinomialNB accuracy on count features: {:.1}%", acc * 100.0);
+    eprintln!(
+        "MultinomialNB accuracy on count features: {:.1}%",
+        acc * 100.0
+    );
     assert!(
         acc >= 0.75,
         "MultinomialNB should achieve ≥75% on count feature data (got {:.1}%)",
@@ -1437,15 +1474,21 @@ fn prove_dbscan_finds_clusters() {
     let mut db = Dbscan::new(5.0, 3);
     db.fit(&data).unwrap();
 
-    eprintln!("DBSCAN: {} clusters, {} noise points", db.n_clusters(), db.n_noise());
+    eprintln!(
+        "DBSCAN: {} clusters, {} noise points",
+        db.n_clusters(),
+        db.n_noise()
+    );
 
     assert_eq!(
-        db.n_clusters(), 2,
+        db.n_clusters(),
+        2,
         "DBSCAN should find exactly 2 clusters on well-separated blobs (got {})",
         db.n_clusters()
     );
     assert_eq!(
-        db.n_noise(), 0,
+        db.n_noise(),
+        0,
         "No noise points expected on dense blobs (got {})",
         db.n_noise()
     );
@@ -1455,12 +1498,21 @@ fn prove_dbscan_finds_clusters() {
     let labels = db.labels();
     let label_a = labels[0];
     let label_b = labels[n_per_cluster];
-    assert_ne!(label_a, label_b, "Two clusters should have different labels");
+    assert_ne!(
+        label_a, label_b,
+        "Two clusters should have different labels"
+    );
     for &l in &labels[..n_per_cluster] {
-        assert_eq!(l, label_a, "All cluster A points should share the same label");
+        assert_eq!(
+            l, label_a,
+            "All cluster A points should share the same label"
+        );
     }
     for &l in &labels[n_per_cluster..] {
-        assert_eq!(l, label_b, "All cluster B points should share the same label");
+        assert_eq!(
+            l, label_b,
+            "All cluster B points should share the same label"
+        );
     }
 }
 
@@ -1708,8 +1760,14 @@ fn prove_hist_gbt_missing_values() {
     let test = vec![vec![f64::NAN, 0.5], vec![5.0, f64::NAN]];
     let preds = model.predict(&test).unwrap();
     assert_eq!(preds.len(), 2);
-    assert!(preds[0] == 0.0 || preds[0] == 1.0, "prediction must be a valid class");
-    assert!(preds[1] == 0.0 || preds[1] == 1.0, "prediction must be a valid class");
+    assert!(
+        preds[0] == 0.0 || preds[0] == 1.0,
+        "prediction must be a valid class"
+    );
+    assert!(
+        preds[1] == 0.0 || preds[1] == 1.0,
+        "prediction must be a valid class"
+    );
     eprintln!("HistGBT missing values: predictions {preds:?} ✓");
 }
 
@@ -1811,12 +1869,7 @@ fn prove_mlp_regressor_sine() {
     let x: Vec<f64> = (0..n).map(|i| i as f64 * 0.1).collect();
     let y: Vec<f64> = x.iter().map(|&v| v.sin()).collect();
 
-    let data = Dataset::new(
-        vec![x],
-        y.clone(),
-        vec!["x".into()],
-        "y",
-    );
+    let data = Dataset::new(vec![x], y.clone(), vec!["x".into()], "y");
 
     let mut reg = MLPRegressor::new()
         .hidden_layers(&[32, 16])
@@ -1884,5 +1937,8 @@ fn prove_mlp_predict_proba_valid() {
         }
     }
 
-    eprintln!("MLP predict_proba: all {} samples have valid distributions", test.n_samples());
+    eprintln!(
+        "MLP predict_proba: all {} samples have valid distributions",
+        test.n_samples()
+    );
 }

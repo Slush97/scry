@@ -50,6 +50,7 @@ struct TransformerStep {
 ///     .add(&[2, 3], MinMaxScaler::new());
 /// ct.fit_transform(&mut ds)?;
 /// ```
+#[non_exhaustive]
 pub struct ColumnTransformer {
     steps: Vec<TransformerStep>,
     fitted: bool,
@@ -83,7 +84,10 @@ impl Default for ColumnTransformer {
 /// Extract a sub-dataset containing only the specified feature columns.
 fn extract_columns(data: &Dataset, cols: &[usize]) -> Dataset {
     let features: Vec<Vec<f64>> = cols.iter().map(|&c| data.features[c].clone()).collect();
-    let names: Vec<String> = cols.iter().map(|&c| data.feature_names[c].clone()).collect();
+    let names: Vec<String> = cols
+        .iter()
+        .map(|&c| data.feature_names[c].clone())
+        .collect();
     Dataset::new(features, data.target.clone(), names, &data.target_name)
 }
 
@@ -152,10 +156,10 @@ mod tests {
         // 4 features, apply StandardScaler to [0,1], MinMaxScaler to [2,3]
         let mut ds = Dataset::new(
             vec![
-                vec![1.0, 2.0, 3.0, 4.0, 5.0],   // col 0
-                vec![10.0, 20.0, 30.0, 40.0, 50.0], // col 1
+                vec![1.0, 2.0, 3.0, 4.0, 5.0],           // col 0
+                vec![10.0, 20.0, 30.0, 40.0, 50.0],      // col 1
                 vec![100.0, 200.0, 300.0, 400.0, 500.0], // col 2
-                vec![5.0, 10.0, 15.0, 20.0, 25.0],  // col 3
+                vec![5.0, 10.0, 15.0, 20.0, 25.0],       // col 3
             ],
             vec![0.0; 5],
             vec!["a".into(), "b".into(), "c".into(), "d".into()],
@@ -172,41 +176,41 @@ mod tests {
 
         // StandardScaler'd columns: mean ≈ 0
         let mean_a: f64 = ds.features[0].iter().sum::<f64>() / 5.0;
-        assert!(mean_a.abs() < 1e-10, "col 0 should be zero-mean, got {mean_a}");
+        assert!(
+            mean_a.abs() < 1e-10,
+            "col 0 should be zero-mean, got {mean_a}"
+        );
 
         let mean_b: f64 = ds.features[1].iter().sum::<f64>() / 5.0;
-        assert!(mean_b.abs() < 1e-10, "col 1 should be zero-mean, got {mean_b}");
+        assert!(
+            mean_b.abs() < 1e-10,
+            "col 1 should be zero-mean, got {mean_b}"
+        );
 
         // MinMaxScaler'd columns: min=0, max=1
         assert!(ds.features[2][0].abs() < 1e-10, "col 2 min should be 0");
-        assert!((ds.features[2][4] - 1.0).abs() < 1e-10, "col 2 max should be 1");
+        assert!(
+            (ds.features[2][4] - 1.0).abs() < 1e-10,
+            "col 2 max should be 1"
+        );
         assert!(ds.features[3][0].abs() < 1e-10, "col 3 min should be 0");
-        assert!((ds.features[3][4] - 1.0).abs() < 1e-10, "col 3 max should be 1");
+        assert!(
+            (ds.features[3][4] - 1.0).abs() < 1e-10,
+            "col 3 max should be 1"
+        );
     }
 
     #[test]
     fn test_column_transformer_not_fitted() {
-        let ct = ColumnTransformer::new()
-            .add(&[0], StandardScaler::new());
-        let mut ds = Dataset::new(
-            vec![vec![1.0, 2.0]],
-            vec![0.0; 2],
-            vec!["x".into()],
-            "y",
-        );
+        let ct = ColumnTransformer::new().add(&[0], StandardScaler::new());
+        let mut ds = Dataset::new(vec![vec![1.0, 2.0]], vec![0.0; 2], vec!["x".into()], "y");
         assert!(Transformer::transform(&ct, &mut ds).is_err());
     }
 
     #[test]
     fn test_column_transformer_invalid_column() {
-        let mut ct = ColumnTransformer::new()
-            .add(&[99], StandardScaler::new());
-        let ds = Dataset::new(
-            vec![vec![1.0, 2.0]],
-            vec![0.0; 2],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ct = ColumnTransformer::new().add(&[99], StandardScaler::new());
+        let ds = Dataset::new(vec![vec![1.0, 2.0]], vec![0.0; 2], vec!["x".into()], "y");
         assert!(Transformer::fit(&mut ct, &ds).is_err());
     }
 }

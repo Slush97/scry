@@ -5,9 +5,14 @@
 //! All data is converted f64 → f32 for GPU compute (sufficient for ML
 //! feature values which are typically in [-1e6, 1e6] range).
 
-#![allow(unsafe_code)] // bytemuck Pod derives
-
 use super::ComputeBackend;
+
+/// Maximum GPU buffer size in bytes (128 MiB).
+///
+/// wgpu's default `max_buffer_size` is 256 MiB, but we use a conservative
+/// limit so that the combined allocation of input + output buffers stays
+/// well under the adapter limit.
+const MAX_GPU_BUFFER_BYTES: u64 = 128 * 1024 * 1024;
 
 /// GPU compute context — cached wgpu device, queue, and compiled pipelines.
 ///
@@ -29,13 +34,12 @@ impl GpuContext {
             ..Default::default()
         });
 
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            }))
-            .ok_or("wgpu: no compatible GPU adapter found")?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .ok_or("wgpu: no compatible GPU adapter found")?;
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -60,11 +64,23 @@ impl GpuContext {
                 // dims uniform
                 bgl_entry(0, wgpu::BufferBindingType::Uniform, false),
                 // A storage (read)
-                bgl_entry(1, wgpu::BufferBindingType::Storage { read_only: true }, false),
+                bgl_entry(
+                    1,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                    false,
+                ),
                 // B storage (read)
-                bgl_entry(2, wgpu::BufferBindingType::Storage { read_only: true }, false),
+                bgl_entry(
+                    2,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                    false,
+                ),
                 // C storage (read_write)
-                bgl_entry(3, wgpu::BufferBindingType::Storage { read_only: false }, false),
+                bgl_entry(
+                    3,
+                    wgpu::BufferBindingType::Storage { read_only: false },
+                    false,
+                ),
             ],
         });
 
@@ -74,15 +90,14 @@ impl GpuContext {
             push_constant_ranges: &[],
         });
 
-        let matmul_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("matmul_pipeline"),
-                layout: Some(&matmul_layout),
-                module: &matmul_shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+        let matmul_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("matmul_pipeline"),
+            layout: Some(&matmul_layout),
+            module: &matmul_shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
 
         // --- Distance pipeline ---
         let distance_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -94,9 +109,21 @@ impl GpuContext {
             label: Some("distance_bgl"),
             entries: &[
                 bgl_entry(0, wgpu::BufferBindingType::Uniform, false),
-                bgl_entry(1, wgpu::BufferBindingType::Storage { read_only: true }, false),
-                bgl_entry(2, wgpu::BufferBindingType::Storage { read_only: true }, false),
-                bgl_entry(3, wgpu::BufferBindingType::Storage { read_only: false }, false),
+                bgl_entry(
+                    1,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                    false,
+                ),
+                bgl_entry(
+                    2,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                    false,
+                ),
+                bgl_entry(
+                    3,
+                    wgpu::BufferBindingType::Storage { read_only: false },
+                    false,
+                ),
             ],
         });
 
@@ -106,15 +133,14 @@ impl GpuContext {
             push_constant_ranges: &[],
         });
 
-        let distance_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("distance_pipeline"),
-                layout: Some(&distance_layout),
-                module: &distance_shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+        let distance_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("distance_pipeline"),
+            layout: Some(&distance_layout),
+            module: &distance_shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
 
         Ok(Self {
             device,
@@ -160,6 +186,7 @@ fn bgl_entry(
 /// before upload and results are cast back to f64 after readback.
 /// This is sufficient for ML feature values but may lose precision
 /// for values > 2²⁴ ≈ 16.7M.
+#[non_exhaustive]
 pub struct GpuBackend {
     ctx: GpuContext,
 }
@@ -183,8 +210,24 @@ impl ComputeBackend for GpuBackend {
         debug_assert_eq!(a.len(), m * k);
         debug_assert_eq!(b.len(), k * n);
 
+        // Zero-dimension guard — wgpu rejects 0-size buffers.
+        if m == 0 || k == 0 || n == 0 {
+            return vec![0.0; m * n];
+        }
+
         // Size threshold: GPU overhead not worth it for small matrices
         if m * k * n < 4096 {
+            return super::CpuBackend.matmul(a, b, m, k, n);
+        }
+
+        // Buffer size guard — fall back to CPU if any buffer exceeds the GPU limit.
+        let a_bytes = (m * k * std::mem::size_of::<f32>()) as u64;
+        let b_bytes = (k * n * std::mem::size_of::<f32>()) as u64;
+        let c_bytes = (m * n * std::mem::size_of::<f32>()) as u64;
+        if a_bytes > MAX_GPU_BUFFER_BYTES
+            || b_bytes > MAX_GPU_BUFFER_BYTES
+            || c_bytes > MAX_GPU_BUFFER_BYTES
+        {
             return super::CpuBackend.matmul(a, b, m, k, n);
         }
 
@@ -234,10 +277,22 @@ impl ComputeBackend for GpuBackend {
             label: Some("matmul_bg"),
             layout: &self.ctx.matmul_bgl,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: dims_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: a_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: b_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: c_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: dims_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: a_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: b_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: c_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -261,14 +316,13 @@ impl ComputeBackend for GpuBackend {
         encoder.copy_buffer_to_buffer(&c_buf, 0, &readback_buf, 0, (c_size * 4) as u64);
         queue.submit(std::iter::once(encoder.finish()));
 
-        read_buffer_f32(device, &readback_buf, c_size)
+        match read_buffer_f32(device, &readback_buf, c_size) {
+            Ok(result) => result,
+            Err(_) => super::CpuBackend.matmul(a, b, m, k, n),
+        }
     }
 
-    fn xtx_xty(
-        &self,
-        features: &[Vec<f64>],
-        target: &[f64],
-    ) -> (Vec<f64>, Vec<f64>) {
+    fn xtx_xty(&self, features: &[Vec<f64>], target: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let n_samples = target.len();
         let n_features = features.len();
 
@@ -300,14 +354,18 @@ impl ComputeBackend for GpuBackend {
         let xtx_f64 = self.matmul(
             &xt_f32.iter().map(|&v| f64::from(v)).collect::<Vec<_>>(),
             &x_f32.iter().map(|&v| f64::from(v)).collect::<Vec<_>>(),
-            dim, n_samples, dim,
+            dim,
+            n_samples,
+            dim,
         );
 
         // Xᵀy = matmul(Xᵀ, y) — dim×n_samples × n_samples×1 = dim×1
         let xty_f64 = self.matmul(
             &xt_f32.iter().map(|&v| f64::from(v)).collect::<Vec<_>>(),
             target,
-            dim, n_samples, 1,
+            dim,
+            n_samples,
+            1,
         );
 
         (xtx_f64, xty_f64)
@@ -324,14 +382,31 @@ impl ComputeBackend for GpuBackend {
         debug_assert_eq!(queries.len(), n_q * dim);
         debug_assert_eq!(train.len(), n_t * dim);
 
+        // Zero-dimension guard — wgpu rejects 0-size buffers.
+        if n_q == 0 || n_t == 0 || dim == 0 {
+            return vec![0.0; n_q * n_t];
+        }
+
         // Size threshold
         if n_q * n_t < 1024 {
             return super::CpuBackend.pairwise_distances_squared(queries, train, n_q, n_t, dim);
         }
 
+        // Buffer size / dispatch guard — fall back to CPU for huge datasets.
+        let out_size = n_q * n_t;
+        let out_bytes = (out_size * std::mem::size_of::<f32>()) as u64;
+        let q_bytes = (n_q * dim * std::mem::size_of::<f32>()) as u64;
+        let t_bytes = (n_t * dim * std::mem::size_of::<f32>()) as u64;
+        if out_bytes > MAX_GPU_BUFFER_BYTES
+            || q_bytes > MAX_GPU_BUFFER_BYTES
+            || t_bytes > MAX_GPU_BUFFER_BYTES
+            || out_size.div_ceil(256) > u32::MAX as usize
+        {
+            return super::CpuBackend.pairwise_distances_squared(queries, train, n_q, n_t, dim);
+        }
+
         let q_f32: Vec<f32> = queries.iter().map(|&v| v as f32).collect();
         let t_f32: Vec<f32> = train.iter().map(|&v| v as f32).collect();
-        let out_size = n_q * n_t;
 
         let dims = [n_q as u32, n_t as u32, dim as u32, 0u32];
         let dims_bytes = bytemuck::cast_slice(&dims);
@@ -375,10 +450,22 @@ impl ComputeBackend for GpuBackend {
             label: Some("dist_bg"),
             layout: &self.ctx.distance_bgl,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: dims_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: q_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: t_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: d_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: dims_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: q_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: t_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: d_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -401,7 +488,10 @@ impl ComputeBackend for GpuBackend {
         encoder.copy_buffer_to_buffer(&d_buf, 0, &readback_buf, 0, (out_size * 4) as u64);
         queue.submit(std::iter::once(encoder.finish()));
 
-        read_buffer_f32(device, &readback_buf, out_size)
+        match read_buffer_f32(device, &readback_buf, out_size) {
+            Ok(result) => result,
+            Err(_) => super::CpuBackend.pairwise_distances_squared(queries, train, n_q, n_t, dim),
+        }
     }
 
     fn name(&self) -> &'static str {
@@ -410,7 +500,14 @@ impl ComputeBackend for GpuBackend {
 }
 
 /// Read back f32 data from a mapped GPU buffer and convert to f64.
-fn read_buffer_f32(device: &wgpu::Device, buffer: &wgpu::Buffer, count: usize) -> Vec<f64> {
+///
+/// Returns `Err` if the GPU readback fails (device lost, mapping error, etc.)
+/// so the caller can fall back to the CPU path.
+fn read_buffer_f32(
+    device: &wgpu::Device,
+    buffer: &wgpu::Buffer,
+    count: usize,
+) -> Result<Vec<f64>, String> {
     let slice = buffer.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();
     slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -419,14 +516,14 @@ fn read_buffer_f32(device: &wgpu::Device, buffer: &wgpu::Buffer, count: usize) -
     device.poll(wgpu::Maintain::Wait);
     rx.recv()
         .unwrap_or(Err(wgpu::BufferAsyncError))
-        .expect("GPU readback failed");
+        .map_err(|_| "GPU buffer readback failed".to_string())?;
 
     let mapped = slice.get_mapped_range();
     let f32_data: &[f32] = bytemuck::cast_slice(&mapped);
     let result: Vec<f64> = f32_data[..count].iter().map(|&v| f64::from(v)).collect();
     drop(mapped);
     buffer.unmap();
-    result
+    Ok(result)
 }
 
 #[cfg(test)]

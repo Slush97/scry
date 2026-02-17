@@ -109,9 +109,17 @@ All latencies measured on a single thread with no batching overhead.
 
 ## 4. Memory Footprint
 
-| Metric | Value |
-|--------|-------|
-| Process peak RSS (all models trained) | 20.1 MB |
+RSS delta per trained model (50K samples × 10 features):
+
+| Model | RSS Δ |
+|-------|:-----:|
+| DecisionTree | 780 KB |
+| RandomForest (10 trees) | 22.8 MB |
+| GradientBoosting (20 trees) | 15.6 MB |
+| LogisticRegression | 0 KB |
+| KNN (k=5) | 0 KB |
+| GaussianNB | 0 KB |
+| LinearRegression | 0 KB |
 
 ---
 
@@ -125,28 +133,27 @@ All latencies measured on a single thread with no batching overhead.
 ### Run scry-learn benchmarks
 
 ```bash
-# Quick accuracy + latency report
-cargo run --example benchmark_comparison -p scry-learn --release
+# Quick vitals (9 sections, ~5s)
+cargo test --test quick_vitals -p scry-learn --release -- --nocapture
 
 # Formatted accuracy table
 cargo run --example industry_report -p scry-learn --release
 
-# Full Criterion benchmarks (6 groups, ~10 min)
+# Full Criterion benchmarks (~10 min)
 cargo bench --bench industry_benchmark -p scry-learn
 ```
 
 ### Run Python baselines
 
 ```bash
-# Set up Python venv (one-time)
 cd crates/scry-learn/benches/python
 python3 -m venv .venv
 .venv/bin/pip install scikit-learn==1.8.0 xgboost==3.2.0 lightgbm==4.6.0 numpy
 
-# Run baselines
-.venv/bin/python3 bench_sklearn.py      # → sklearn_cv_results.json
-.venv/bin/python3 bench_xgboost.py      # → xgboost_results.json
-.venv/bin/python3 bench_lightgbm.py     # → lightgbm_results.json
+.venv/bin/python3 bench_sklearn.py             # → sklearn_cv_results.json
+.venv/bin/python3 bench_sklearn_regression.py   # → sklearn_regression_results.json
+.venv/bin/python3 bench_xgboost.py             # → xgboost_results.json
+.venv/bin/python3 bench_lightgbm.py            # → lightgbm_results.json
 ```
 
 ### Model configurations
@@ -166,20 +173,145 @@ All models use default hyperparameters matching sklearn conventions:
 
 ### Datasets
 
-| Dataset | Samples | Features | Classes | Source |
-|---------|:-------:|:--------:|:-------:|--------|
-| Iris | 150 | 4 | 3 | `sklearn.datasets.load_iris` |
-| Wine | 178 | 13 | 3 | `sklearn.datasets.load_wine` |
-| Breast Cancer | 569 | 30 | 2 | `sklearn.datasets.load_breast_cancer` |
-| Digits | 1797 | 64 | 10 | `sklearn.datasets.load_digits` |
+| Dataset | Samples | Features | Classes / Task | Source |
+|---------|:-------:|:--------:|:--------------:|--------|
+| Iris | 150 | 4 | 3 / classification | `sklearn.datasets.load_iris` |
+| Wine | 178 | 13 | 3 / classification | `sklearn.datasets.load_wine` |
+| Breast Cancer | 569 | 30 | 2 / classification | `sklearn.datasets.load_breast_cancer` |
+| Digits | 1797 | 64 | 10 / classification | `sklearn.datasets.load_digits` |
+| California Housing | 20640 | 8 | regression | `sklearn.datasets.fetch_california_housing` |
 
 ---
 
-## 6. Known Gaps
+## 6. Regression Head-to-Head — scry vs scikit-learn (California Housing)
+
+80/20 train/test split, `random_state=42`, StandardScaler applied.
+
+| Model | scry R² | sklearn R² | Δ R² | scry RMSE | sklearn RMSE | scry MAE | sklearn MAE |
+|-------|:-------:|:----------:|:----:|:---------:|:------------:|:--------:|:-----------:|
+| LinearRegression | 0.5588 | 0.5758 | −1.7% | 0.7495 | 0.7456 | 0.5362 | 0.5332 |
+| Lasso (α=0.01) | 0.5717 | 0.5816 | −1.0% | 0.7385 | 0.7404 | 0.5370 | 0.5353 |
+| ElasticNet (α=0.01) | 0.5686 | 0.5803 | −1.2% | 0.7411 | 0.7416 | 0.5361 | 0.5341 |
+| KnnRegressor (k=5) | 0.6605 | 0.6700 | −1.0% | 0.6574 | 0.6576 | 0.4465 | 0.4462 |
+| **GBTRegressor** | **0.7879** | 0.7900 | −0.2% | 0.5197 | 0.5246 | 0.3533 | 0.3553 |
+| Ridge (α=1.0) | 0.5588 | 0.5758 | −1.7% | 0.7495 | 0.7456 | 0.5362 | 0.5332 |
+
+**Summary:** All models within 2% R² of sklearn. GBT achieves lowest RMSE and MAE for
+both libraries, with scry within 0.2% of sklearn.
+
+---
+
+## 7. Production Vitals
+
+### Prediction Latency (single row, no batching)
+
+| Model | p50 | p95 |
+|-------|:---:|:---:|
+| DecisionTree | 20 ns | 30 ns |
+| RandomForest (20 trees) | 70 ns | 70 ns |
+| LogisticRegression | 60 ns | 70 ns |
+| GaussianNB | 130 ns | 140 ns |
+| KNN (k=5) | 210 ns | 210 ns |
+
+### Concurrent Inference (4 threads × 250 ops)
+
+| Model | Total Ops | Wall Time | Throughput |
+|-------|:---------:|:---------:|:----------:|
+| DecisionTree | 1,000 | 107 µs | 9.3 M ops/sec |
+| RandomForest | 1,000 | 75 µs | 13.2 M ops/sec |
+| GaussianNB | 1,000 | 53 µs | 18.7 M ops/sec |
+
+### Cold Start (construct → fit → first predict)
+
+| Model | Cold Start |
+|-------|:----------:|
+| GaussianNB | 1.6 µs |
+| DecisionTree | 15.4 µs |
+| KNN (k=5) | 15.6 µs |
+| LogisticRegression | 134.2 µs |
+| RandomForest (20 trees) | 140.4 µs |
+| LinearRegression (CalHousing) | 491.3 µs |
+| HistGBT (50 trees) | 7.50 ms |
+
+### Training Throughput (10K samples, median of 5 runs)
+
+| Model | Fit Time |
+|-------|:--------:|
+| GaussianNB | 185 µs |
+| LinearRegression | 349 µs |
+| KNN (k=5) | 3.02 ms |
+| LogisticRegression | 3.94 ms |
+| DecisionTree | 5.12 ms |
+| RandomForest (10 trees) | 6.43 ms |
+| GradientBoosting (20 trees) | 146.2 ms |
+
+---
+
+## 8. Multi-Metric Classification (F1 / Precision / Recall / AUC-ROC)
+
+80/20 split, `seed=42`. AUC-ROC available for binary datasets (Breast Cancer).
+
+### Iris
+
+| Model | Accuracy | F1 | Precision | Recall |
+|-------|:--------:|:--:|:---------:|:------:|
+| KNN | **0.9667** | **0.9691** | **0.9744** | **0.9667** |
+| RandomForest | 0.9333 | 0.9373 | 0.9524 | 0.9333 |
+| GaussianNB | 0.9333 | 0.9389 | 0.9389 | 0.9389 |
+| DecisionTree | 0.9000 | 0.9074 | 0.9117 | 0.9056 |
+| GradientBoosting | 0.9000 | 0.9074 | 0.9117 | 0.9056 |
+| HistGBT | 0.9000 | 0.9074 | 0.9117 | 0.9056 |
+| LogisticRegression | 0.9000 | 0.9074 | 0.9117 | 0.9056 |
+| LinearSVC | 0.9000 | 0.9074 | 0.9117 | 0.9056 |
+
+### Wine
+
+| Model | Accuracy | F1 | Precision | Recall |
+|-------|:--------:|:--:|:---------:|:------:|
+| LogisticRegression | **1.0000** | **1.0000** | **1.0000** | **1.0000** |
+| GaussianNB | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| LinearSVC | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| DecisionTree | 0.9722 | 0.9696 | 0.9697 | 0.9722 |
+| GradientBoosting | 0.9722 | 0.9696 | 0.9697 | 0.9722 |
+| HistGBT | 0.9444 | 0.9423 | 0.9475 | 0.9444 |
+| RandomForest | 0.8889 | 0.8896 | 0.9078 | 0.8833 |
+| KNN | 0.7778 | 0.7641 | 0.7651 | 0.7706 |
+
+### Breast Cancer (binary — AUC-ROC available)
+
+| Model | Accuracy | F1 | Precision | Recall | AUC-ROC |
+|-------|:--------:|:--:|:---------:|:------:|:-------:|
+| LinearSVC | **0.9737** | **0.9693** | 0.9731 | 0.9658 | n/a |
+| HistGBT | 0.9649 | 0.9588 | 0.9665 | 0.9519 | 0.9861 |
+| LogisticRegression | 0.9649 | 0.9594 | 0.9594 | 0.9594 | **0.9943** |
+| RandomForest | 0.9561 | 0.9480 | 0.9602 | 0.9380 | 0.9897 |
+| GaussianNB | 0.9123 | 0.8952 | 0.9104 | 0.8835 | 0.9758 |
+| KNN | 0.9035 | 0.8857 | 0.8962 | 0.8771 | 0.9427 |
+| GradientBoosting | 0.9035 | 0.8907 | 0.8836 | 0.8996 | 0.9811 |
+| DecisionTree | 0.8947 | 0.8800 | 0.8750 | 0.8857 | 0.8843 |
+
+### Digits
+
+| Model | Accuracy | F1 | Precision | Recall |
+|-------|:--------:|:--:|:---------:|:------:|
+| KNN | **0.9805** | **0.9802** | **0.9819** | **0.9793** |
+| HistGBT | 0.9694 | 0.9681 | 0.9695 | 0.9676 |
+| LogisticRegression | 0.9582 | 0.9569 | 0.9574 | 0.9569 |
+| LinearSVC | 0.9499 | 0.9479 | 0.9500 | 0.9472 |
+| RandomForest | 0.9443 | 0.9428 | 0.9441 | 0.9428 |
+| GradientBoosting | 0.9387 | 0.9373 | 0.9387 | 0.9378 |
+| DecisionTree | 0.8524 | 0.8511 | 0.8576 | 0.8546 |
+| GaussianNB | 0.8134 | 0.8156 | 0.8558 | 0.8140 |
+
+---
+
+## 9. Known Gaps
 
 | Area | Gap | Notes |
 |------|-----|-------|
 | Gaussian NB digits | −2.2% vs sklearn | Improved by var_smoothing fix (was −3.3%); remaining gap likely var_smoothing differences in weighted variance |
 | KNN iris | −2.7% | Inherent to 150-sample dataset (1 misclass per fold = 2.7%) |
+| LinearRegression R² | −1.7% vs sklearn | Solver differences (normal eq vs. LAPACK); functionally equivalent |
 | No MLP/neural networks | Feature gap | Planned for Sprint 11 |
 | No GPU acceleration | Performance ceiling | Planned for Sprint 9 |
+

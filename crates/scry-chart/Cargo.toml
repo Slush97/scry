@@ -7,6 +7,7 @@ authors = ["esoc"]
 description = "Pixel-perfect TUI charts built on scry-engine"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Slush97/scry"
+documentation = "https://docs.rs/scry-chart"
 keywords = ["ratatui", "tui", "charts", "visualization", "plotting"]
 categories = ["command-line-interface", "graphics", "visualization"]
 readme = "README.md"

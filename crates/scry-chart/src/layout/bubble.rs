@@ -6,7 +6,9 @@ use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
 
 use super::scatter::draw_marker;
-use super::{resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{
+    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay,
+};
 
 pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
     let config = &bc.config;
@@ -21,8 +23,12 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
 
     let x_extent = resolve_x_extent(config, bc.x.extent().unwrap_or((0.0, 1.0)));
 
-    let x_exact = config.x_range.is_some_and(|(a, b)| a.is_finite() && b.is_finite());
-    let y_exact = config.y_range.is_some_and(|(a, b)| a.is_finite() && b.is_finite());
+    let x_exact = config
+        .x_range
+        .is_some_and(|(a, b)| a.is_finite() && b.is_finite());
+    let y_exact = config
+        .y_range
+        .is_some_and(|(a, b)| a.is_finite() && b.is_finite());
     let x_scale = if x_exact {
         LinearScale::new(x_extent, (px as f64, (px + pw) as f64))
     } else {
@@ -55,7 +61,11 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
                 }
             }
         }
-        if lo > hi { (0.0, 1.0) } else { (lo, hi) }
+        if lo > hi {
+            (0.0, 1.0)
+        } else {
+            (lo, hi)
+        }
     };
 
     let min_r = bc.min_radius;
@@ -75,7 +85,9 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
     let opacity = bc.opacity;
 
     // Draw main series
-    let color0 = theme.resolve_series_color(0, bc.y.series_style()).with_alpha(opacity);
+    let color0 = theme
+        .resolve_series_color(0, bc.y.series_style())
+        .with_alpha(opacity);
     let n = bc.x.len().min(bc.y.len()).min(bc.sizes.len());
     for i in 0..n {
         let xv = bc.x.values()[i];
@@ -92,7 +104,9 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
 
     // Draw extra series
     for (si, (xs, ys, sizes)) in bc.extra_series.iter().enumerate() {
-        let color = theme.resolve_series_color(si + 1, ys.series_style()).with_alpha(opacity);
+        let color = theme
+            .resolve_series_color(si + 1, ys.series_style())
+            .with_alpha(opacity);
         let sn = xs.len().min(ys.len()).min(sizes.len());
         for i in 0..sn {
             let xv = xs.values()[i];

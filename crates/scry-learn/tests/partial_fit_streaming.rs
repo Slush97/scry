@@ -3,10 +3,10 @@
 //! Generates 10K samples, splits into 10 batches of 1K, trains
 //! incrementally, and verifies final model accuracy.
 
+use scry_learn::cluster::MiniBatchKMeans;
 use scry_learn::dataset::Dataset;
 use scry_learn::linear::{LogisticRegression, Solver};
 use scry_learn::naive_bayes::GaussianNb;
-use scry_learn::cluster::MiniBatchKMeans;
 use scry_learn::partial_fit::PartialFit;
 
 /// Generate `n` linearly separable samples with 2 features.
@@ -101,6 +101,12 @@ fn streaming_mini_batch_kmeans() {
     let c = model.centroids();
     let has_neg = c.iter().any(|ci| ci[0] < 0.0 && ci[1] < 0.0);
     let has_pos = c.iter().any(|ci| ci[0] > 0.0 && ci[1] > 0.0);
-    assert!(has_neg, "expected a centroid in negative quadrant, got {c:?}");
-    assert!(has_pos, "expected a centroid in positive quadrant, got {c:?}");
+    assert!(
+        has_neg,
+        "expected a centroid in negative quadrant, got {c:?}"
+    );
+    assert!(
+        has_pos,
+        "expected a centroid in positive quadrant, got {c:?}"
+    );
 }

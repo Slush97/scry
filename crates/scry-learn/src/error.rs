@@ -58,8 +58,14 @@ impl fmt::Display for ScryLearnError {
             }
             Self::NotFitted => f.write_str("model has not been fitted — call .fit() first"),
             Self::InvalidParameter(msg) => write!(f, "invalid parameter: {msg}"),
-            Self::ConvergenceFailure { iterations, tolerance } => {
-                write!(f, "failed to converge after {iterations} iterations (tolerance: {tolerance})")
+            Self::ConvergenceFailure {
+                iterations,
+                tolerance,
+            } => {
+                write!(
+                    f,
+                    "failed to converge after {iterations} iterations (tolerance: {tolerance})"
+                )
             }
             Self::Io(err) => write!(f, "I/O error: {err}"),
             Self::Csv(msg) => write!(f, "CSV error: {msg}"),

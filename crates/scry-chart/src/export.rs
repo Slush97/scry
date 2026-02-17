@@ -80,9 +80,8 @@ pub fn render_to_png(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, 
     let dpi = chart_dpi(chart);
     let (w, h) = dpi_scale(width, height, dpi);
     let rgba = render_to_rgba_raw(chart, w, h)?;
-    let pixmap =
-        tiny_skia::Pixmap::from_vec(rgba, tiny_skia::IntSize::from_wh(w, h).unwrap())
-            .ok_or("failed to create pixmap from RGBA data")?;
+    let pixmap = tiny_skia::Pixmap::from_vec(rgba, tiny_skia::IntSize::from_wh(w, h).unwrap())
+        .ok_or("failed to create pixmap from RGBA data")?;
     pixmap
         .encode_png()
         .map_err(|e| format!("PNG encoding failed: {e}"))
@@ -366,11 +365,7 @@ pub fn save_subplot_png(
 /// # Errors
 ///
 /// Returns an error if rendering fails.
-pub fn render_subplot_rgba(
-    grid: &SubplotGrid,
-    width: u32,
-    height: u32,
-) -> Result<Vec<u8>, String> {
+pub fn render_subplot_rgba(grid: &SubplotGrid, width: u32, height: u32) -> Result<Vec<u8>, String> {
     render_subplot_to_rgba_raw(grid, width, height)
 }
 
@@ -436,10 +431,18 @@ fn render_subplot_to_rgba_raw(
 
         for cell in local_cells.iter().flatten() {
             if let Some((xn, xx, yn, yx)) = data_extent(cell) {
-                if xn < gx_min { gx_min = xn; }
-                if xx > gx_max { gx_max = xx; }
-                if yn < gy_min { gy_min = yn; }
-                if yx > gy_max { gy_max = yx; }
+                if xn < gx_min {
+                    gx_min = xn;
+                }
+                if xx > gx_max {
+                    gx_max = xx;
+                }
+                if yn < gy_min {
+                    gy_min = yn;
+                }
+                if yx > gy_max {
+                    gy_max = yx;
+                }
             }
         }
 
@@ -525,4 +528,3 @@ fn render_subplot_to_rgba_raw(
 
     Ok(master)
 }
-

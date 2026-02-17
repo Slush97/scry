@@ -39,90 +39,98 @@
 #![allow(clippy::use_self)]
 #![allow(clippy::suspicious_operation_groupings)]
 
-pub mod error;
-pub(crate) mod rng;
-pub mod matrix;
+pub mod accel;
+pub mod anomaly;
+pub mod cluster;
 pub mod dataset;
 pub mod distance;
-pub mod split;
-pub mod preprocess;
-pub mod tree;
-pub mod linear;
-pub mod neighbors;
-pub mod cluster;
-pub mod naive_bayes;
-pub mod svm;
-pub mod metrics;
-pub mod pipeline;
-pub mod search;
-pub mod feature_selection;
-pub mod anomaly;
 pub mod ensemble;
-pub mod weights;
-pub mod viz;
-pub mod accel;
+pub mod error;
+pub mod feature_selection;
+pub mod linear;
+pub mod matrix;
+pub mod metrics;
+pub mod naive_bayes;
+pub mod neighbors;
 pub mod neural;
 pub mod partial_fit;
+pub mod pipeline;
+pub mod preprocess;
+pub(crate) mod rng;
+pub mod search;
 pub mod sparse;
+pub mod split;
+pub mod svm;
+pub mod text;
+pub mod tree;
+pub mod viz;
+pub mod weights;
+
+#[cfg(feature = "mmap")]
+pub mod mmap;
+#[cfg(feature = "polars")]
+pub mod polars_interop;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {
+    pub use crate::anomaly::IsolationForest;
+    pub use crate::cluster::{
+        silhouette_score, AgglomerativeClustering, Dbscan, KMeans, Linkage, MiniBatchKMeans,
+    };
     pub use crate::dataset::Dataset;
+    pub use crate::ensemble::{StackingClassifier, Voting, VotingClassifier};
+    pub use crate::error::ScryLearnError;
+    pub use crate::feature_selection::{f_classif, ScoreFn, SelectKBest, VarianceThreshold};
+    pub use crate::linear::{
+        ElasticNet, LassoRegression, LinearRegression, LogisticRegression, Penalty, Ridge, Solver,
+    };
     pub use crate::matrix::DenseMatrix;
-    pub use crate::split::{
-        train_test_split, stratified_split,
-        cross_val_score, cross_val_score_stratified, ScoringFn,
-        RepeatedKFold, repeated_cross_val_score, group_k_fold,
-        time_series_split, cross_val_predict,
-    };
-    pub use crate::tree::{
-        DecisionTreeClassifier, DecisionTreeRegressor,
-        RandomForestClassifier, RandomForestRegressor,
-        GradientBoostingClassifier, GradientBoostingRegressor,
-        HistGradientBoostingClassifier, HistGradientBoostingRegressor,
-        FeatureBinner, SplitCriterion, RegressionLoss,
-    };
-    pub use crate::linear::{LinearRegression, LogisticRegression, LassoRegression, ElasticNet, Solver, Penalty, Ridge};
-    pub use crate::neighbors::{KnnClassifier, KnnRegressor, DistanceMetric, WeightFunction, Algorithm, KdTree};
-    pub use crate::svm::{LinearSVC, LinearSVR, KernelSVC, KernelSVR, Kernel, Gamma};
-    pub use crate::cluster::{KMeans, MiniBatchKMeans, Dbscan, silhouette_score, AgglomerativeClustering, Linkage};
-    pub use crate::naive_bayes::{GaussianNb, BernoulliNB, MultinomialNB};
     pub use crate::metrics::{
-        accuracy, precision, recall, f1_score,
-        confusion_matrix, classification_report,
-        log_loss, balanced_accuracy, cohen_kappa_score,
-        mean_squared_error, r2_score,
-        explained_variance_score, mean_absolute_percentage_error,
-        adjusted_rand_index, calinski_harabasz_score, davies_bouldin_score,
-        roc_curve, roc_auc_score,
+        accuracy, adjusted_rand_index, balanced_accuracy, calinski_harabasz_score,
+        classification_report, cohen_kappa_score, confusion_matrix, davies_bouldin_score,
+        explained_variance_score, f1_score, log_loss, mean_absolute_percentage_error,
+        mean_squared_error, pr_curve, precision, r2_score, recall, roc_auc_score, roc_curve,
+        ClassMetrics, ClassificationReport, ConfusionMatrix, PrCurve, RocCurve,
     };
+    #[cfg(feature = "mmap")]
+    pub use crate::mmap::{save_scry, MmapDataset};
+    pub use crate::naive_bayes::{BernoulliNB, GaussianNb, MultinomialNB};
+    pub use crate::neighbors::{
+        Algorithm, DistanceMetric, KdTree, KnnClassifier, KnnRegressor, WeightFunction,
+    };
+    pub use crate::neural::{
+        Activation, BackwardOutput, Conv2D, Flatten, Layer, MLPClassifier, MLPRegressor,
+        MaxPool2D, OptimizerKind,
+    };
+    pub use crate::partial_fit::PartialFit;
+    pub use crate::pipeline::Pipeline;
     pub use crate::preprocess::{
-        StandardScaler, MinMaxScaler, RobustScaler, LabelEncoder, Transformer,
-        Pca, OneHotEncoder, DropStrategy, UnknownStrategy,
-        SimpleImputer, Strategy, ColumnTransformer,
-        PolynomialFeatures, Normalizer, Norm,
+        ColumnTransformer, DropStrategy, LabelEncoder, MinMaxScaler, Norm, Normalizer,
+        OneHotEncoder, Pca, PolynomialFeatures, RobustScaler, SimpleImputer, StandardScaler,
+        Strategy, Transformer, UnknownStrategy,
     };
-    pub use crate::viz::{
-        confusion_matrix_chart, roc_chart, feature_importance_chart,
-        residual_plot, regularization_path_chart,
-        pr_chart, learning_curve, prediction_error_chart,
-        calibration_chart, class_report_chart, metric_comparison_chart,
-        elbow_chart, cluster_scatter, silhouette_chart,
-        scatter3d_data, scatter3d_chart,
+    pub use crate::search::{
+        CvResult, GridSearchCV, ParamGrid, ParamValue, RandomizedSearchCV, Tunable,
+    };
+    pub use crate::sparse::{CscMatrix, CsrMatrix};
+    pub use crate::split::{
+        cross_val_predict, cross_val_score, cross_val_score_stratified, group_k_fold,
+        repeated_cross_val_score, stratified_split, time_series_split, train_test_split,
+        RepeatedKFold, ScoringFn,
+    };
+    pub use crate::svm::{Gamma, Kernel, KernelSVC, KernelSVR, LinearSVC, LinearSVR};
+    pub use crate::text::sparse_to_dataset;
+    pub use crate::tree::{
+        DecisionTreeClassifier, DecisionTreeRegressor, FeatureBinner, GradientBoostingClassifier,
+        GradientBoostingRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor,
+        RandomForestClassifier, RandomForestRegressor, RegressionLoss, SplitCriterion,
     };
     pub use crate::viz::model_viz::Visualize;
-    pub use crate::pipeline::Pipeline;
-    pub use crate::search::{
-        GridSearchCV, RandomizedSearchCV, ParamValue, ParamGrid, Tunable, CvResult,
+    pub use crate::viz::{
+        calibration_chart, class_report_chart, cluster_scatter, confusion_matrix_chart,
+        elbow_chart, feature_importance_chart, learning_curve, metric_comparison_chart, pr_chart,
+        prediction_error_chart, regularization_path_chart, residual_plot, roc_chart,
+        scatter3d_chart, scatter3d_data, silhouette_chart,
     };
-    pub use crate::feature_selection::{
-        VarianceThreshold, SelectKBest, ScoreFn, f_classif,
-    };
-    pub use crate::anomaly::IsolationForest;
-    pub use crate::ensemble::{VotingClassifier, StackingClassifier, Voting};
-    pub use crate::neural::{MLPClassifier, MLPRegressor, Activation, OptimizerKind};
-    pub use crate::error::ScryLearnError;
-    pub use crate::partial_fit::PartialFit;
     pub use crate::weights::ClassWeight;
-    pub use crate::sparse::{CsrMatrix, CscMatrix};
 }

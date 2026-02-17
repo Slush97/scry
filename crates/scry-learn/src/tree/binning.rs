@@ -32,7 +32,6 @@ use crate::error::{Result, ScryLearnError};
 /// Maximum number of bins (including the missing-value bin 0).
 pub const MAX_BINS: usize = 256;
 
-
 /// Quantile-based feature binner.
 ///
 /// Transforms each feature column into `u8` bin indices using quantile
@@ -43,6 +42,7 @@ pub const MAX_BINS: usize = 256;
 /// the O(256) histogram scan replaces the O(n log n) sorted-split search.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct FeatureBinner {
     /// Bin edges per feature: `bin_edges[feature][edge_idx]`.
     /// For K valid bins there are K−1 edges (upper-exclusive boundaries).
@@ -220,7 +220,9 @@ mod tests {
         Dataset::new(
             vec![
                 vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-                vec![100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0],
+                vec![
+                    100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0,
+                ],
             ],
             vec![0.0; 10],
             vec!["a".into(), "b".into()],

@@ -11,6 +11,7 @@ mod builder;
 mod flat;
 mod node;
 
+pub(crate) use builder::presort_indices;
 pub use builder::{DecisionTreeClassifier, DecisionTreeRegressor};
 pub use flat::{FlatNode, FlatTree};
 pub use node::TreeNode;
@@ -90,13 +91,23 @@ pub(super) fn majority_class(counts: &[usize]) -> f64 {
 // Weighted impurity helpers (for class_weight support)
 // ---------------------------------------------------------------------------
 
-pub(super) fn compute_impurity_weighted(counts: &[f64], total: f64, criterion: SplitCriterion) -> f64 {
+pub(super) fn compute_impurity_weighted(
+    counts: &[f64],
+    total: f64,
+    criterion: SplitCriterion,
+) -> f64 {
     if total < 1e-12 {
         return 0.0;
     }
     match criterion {
         SplitCriterion::Gini => {
-            let sum_sq: f64 = counts.iter().map(|&c| { let p = c / total; p * p }).sum();
+            let sum_sq: f64 = counts
+                .iter()
+                .map(|&c| {
+                    let p = c / total;
+                    p * p
+                })
+                .sum();
             1.0 - sum_sq
         }
         SplitCriterion::Entropy => {
@@ -296,7 +307,11 @@ mod tests {
         let data = make_iris_like();
         let mut dt = DecisionTreeClassifier::new().ccp_alpha(1000.0);
         dt.fit(&data).unwrap();
-        assert_eq!(dt.n_leaves(), 1, "Very large ccp_alpha should collapse to a single leaf");
+        assert_eq!(
+            dt.n_leaves(),
+            1,
+            "Very large ccp_alpha should collapse to a single leaf"
+        );
     }
 
     #[test]
@@ -335,7 +350,8 @@ mod tests {
             assert!(
                 w[1] >= w[0] - 1e-12,
                 "Alphas should be monotonically non-decreasing: {} -> {}",
-                w[0], w[1]
+                w[0],
+                w[1]
             );
         }
         // Impurities should be monotonically non-decreasing.
@@ -343,7 +359,8 @@ mod tests {
             assert!(
                 w[1] >= w[0] - 1e-12,
                 "Impurities should be non-decreasing: {} -> {}",
-                w[0], w[1]
+                w[0],
+                w[1]
             );
         }
         eprintln!("Pruning path: {} steps", alphas.len());

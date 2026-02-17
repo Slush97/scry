@@ -71,8 +71,7 @@ fn contrast_ratio_across_themes() {
         for overlay in &rendered.text_overlays {
             // Percentage labels use contrast_text_color, so they should be
             // black or white — both guarantee high contrast against any bg.
-            let is_contrast_color =
-                overlay.color == Color::BLACK || overlay.color == Color::WHITE;
+            let is_contrast_color = overlay.color == Color::BLACK || overlay.color == Color::WHITE;
             // Skip non-data overlays (title, axis labels use theme text color)
             if overlay.text.contains('%') {
                 assert!(
@@ -247,25 +246,26 @@ fn label_non_overlap_bar_20_categories() {
     // Use a narrow canvas to stress-test label placement
     let rendered = layout::render_chart(&chart, 250, 300);
 
-    // Collect category label overlays sorted by x position
+    // Collect category label overlays sorted by x position.
+    // With auto-formatting, some labels may be skipped or truncated.
     let mut cat_overlays: Vec<(f32, &str)> = rendered
         .text_overlays
         .iter()
-        .filter(|o| o.text.starts_with("Category_"))
+        .filter(|o| o.text.starts_with("Category_") || o.text.starts_with("Catego"))
         .map(|o| (o.x_px, o.text.as_str()))
         .collect();
 
-    // Should render all 20 category labels (bar charts don't skip)
-    assert_eq!(
-        cat_overlays.len(),
-        20,
-        "Bar chart should render all 20 category labels"
+    // At least some labels should be visible (first and last always kept).
+    assert!(
+        cat_overlays.len() >= 2,
+        "Should render at least first and last category labels, got {}",
+        cat_overlays.len()
     );
 
     // Sort by x position
     cat_overlays.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-    // Labels should have monotonically increasing x positions (no overlap in position)
+    // All visible labels should have strictly increasing x positions.
     for pair in cat_overlays.windows(2) {
         let (x1, label1) = pair[0];
         let (x2, label2) = pair[1];
@@ -276,21 +276,27 @@ fn label_non_overlap_bar_20_categories() {
         );
     }
 
-    // Spacing should be roughly uniform (bar chart = equal category bands)
-    if cat_overlays.len() >= 3 {
-        let spacings: Vec<f32> = cat_overlays
-            .windows(2)
-            .map(|pair| pair[1].0 - pair[0].0)
-            .collect();
-        let avg_spacing = spacings.iter().sum::<f32>() / spacings.len() as f32;
-        for (i, &sp) in spacings.iter().enumerate() {
-            assert!(
-                (sp - avg_spacing).abs() < avg_spacing * 0.5,
-                "Spacing between labels {i} and {} is {sp:.1}, expected ~{avg_spacing:.1}",
-                i + 1
-            );
-        }
-    }
+    // On a wider canvas, all 20 labels should be visible (possibly rotated/staggered).
+    let wide_rendered = layout::render_chart(
+        &Chart::bar(
+            (0..20).map(|i| format!("Cat_{i:02}")).collect(),
+            &(0..20).map(|i| (i as f64 + 1.0) * 5.0).collect::<Vec<_>>(),
+        )
+        .title("20 Short Categories")
+        .theme(Theme::dark())
+        .build(),
+        800,
+        300,
+    );
+    let wide_cat_count = wide_rendered
+        .text_overlays
+        .iter()
+        .filter(|o| o.text.starts_with("Cat_"))
+        .count();
+    assert_eq!(
+        wide_cat_count, 20,
+        "Wide canvas with short labels should render all 20 categories, got {wide_cat_count}"
+    );
 }
 
 // ===========================================================================
@@ -299,20 +305,14 @@ fn label_non_overlap_bar_20_categories() {
 
 #[test]
 fn heatmap_subtitle_present() {
-    let chart = Chart::heatmap(vec![
-        vec![1.0, 2.0],
-        vec![3.0, 4.0],
-    ])
-    .subtitle("Sub")
-    .title("HM")
-    .build();
+    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+        .subtitle("Sub")
+        .title("HM")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
 
-    let has_subtitle = rendered
-        .text_overlays
-        .iter()
-        .any(|o| o.text == "Sub");
+    let has_subtitle = rendered.text_overlays.iter().any(|o| o.text == "Sub");
     assert!(
         has_subtitle,
         "Heatmap with .subtitle(\"Sub\") should have 'Sub' in text overlays. \
@@ -332,23 +332,14 @@ fn heatmap_subtitle_present() {
 #[test]
 fn proportional_offsets_gauge_radar() {
     // --- Gauge ---
-    let gauge = Chart::gauge(75.0)
-        .title("Gauge")
-        .label("75%")
-        .build();
+    let gauge = Chart::gauge(75.0).title("Gauge").label("75%").build();
 
     let small = layout::render_chart(&gauge, 100, 75);
     let large = layout::render_chart(&gauge, 2000, 1200);
 
     // Find the value label overlay (the "75%" text)
-    let small_label = small
-        .text_overlays
-        .iter()
-        .find(|o| o.text == "75%");
-    let large_label = large
-        .text_overlays
-        .iter()
-        .find(|o| o.text == "75%");
+    let small_label = small.text_overlays.iter().find(|o| o.text == "75%");
+    let large_label = large.text_overlays.iter().find(|o| o.text == "75%");
 
     if let (Some(s), Some(l)) = (small_label, large_label) {
         // The y-offset from center should scale — not be a fixed 16px at both sizes

@@ -25,8 +25,8 @@
 use crate::dataset::Dataset;
 use crate::distance::euclidean_sq;
 use crate::error::{Result, ScryLearnError};
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// Inter-cluster distance measure for agglomerative clustering.
 ///
@@ -60,6 +60,7 @@ pub enum Linkage {
 /// Records which two clusters were merged and at what distance.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct MergeStep {
     /// Index of the first cluster merged.
     pub cluster_a: usize,
@@ -95,6 +96,7 @@ pub struct MergeStep {
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct AgglomerativeClustering {
     n_clusters: usize,
     linkage: Linkage,
@@ -281,7 +283,9 @@ impl AgglomerativeClustering {
         }
 
         // Assign final labels 0..n_clusters-1.
-        let active_ids: Vec<usize> = active.iter().enumerate()
+        let active_ids: Vec<usize> = active
+            .iter()
+            .enumerate()
             .filter(|(_, &a)| a)
             .map(|(i, _)| i)
             .collect();
@@ -342,13 +346,19 @@ impl AgglomerativeClustering {
                         sum += dist[i][j];
                     }
                 }
-                if count > 0 { sum / count as f64 } else { 0.0 }
+                if count > 0 {
+                    sum / count as f64
+                } else {
+                    0.0
+                }
             }
             Linkage::Ward => {
                 // Ward distance = size_a * size_b / (size_a + size_b) * ||c_a - c_b||²
                 let sa = members[a].len() as f64;
                 let sb = members[b].len() as f64;
-                let d: f64 = centroids[a].iter().zip(centroids[b].iter())
+                let d: f64 = centroids[a]
+                    .iter()
+                    .zip(centroids[b].iter())
                     .map(|(ca, cb)| (ca - cb).powi(2))
                     .sum();
                 sa * sb / (sa + sb) * d
@@ -370,12 +380,8 @@ impl AgglomerativeClustering {
         _rows: &[Vec<f64>],
     ) -> f64 {
         match self.linkage {
-            Linkage::Single => {
-                dist[ca][other].min(dist[cb][other])
-            }
-            Linkage::Complete => {
-                dist[ca][other].max(dist[cb][other])
-            }
+            Linkage::Single => dist[ca][other].min(dist[cb][other]),
+            Linkage::Complete => dist[ca][other].max(dist[cb][other]),
             Linkage::Average => {
                 let na = members[ca].len() as f64;
                 let nb = members[cb].len() as f64;
@@ -441,7 +447,6 @@ impl Ord for MergeCandidate {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,13 +485,22 @@ mod tests {
 
         // All points in the same group should have the same label.
         let label_a = labels[0];
-        assert!(labels[..10].iter().all(|&l| l == label_a), "Cluster A inconsistent");
+        assert!(
+            labels[..10].iter().all(|&l| l == label_a),
+            "Cluster A inconsistent"
+        );
 
         let label_b = labels[10];
-        assert!(labels[10..20].iter().all(|&l| l == label_b), "Cluster B inconsistent");
+        assert!(
+            labels[10..20].iter().all(|&l| l == label_b),
+            "Cluster B inconsistent"
+        );
 
         let label_c = labels[20];
-        assert!(labels[20..].iter().all(|&l| l == label_c), "Cluster C inconsistent");
+        assert!(
+            labels[20..].iter().all(|&l| l == label_c),
+            "Cluster C inconsistent"
+        );
 
         // All three labels should be distinct.
         assert_ne!(label_a, label_b);
@@ -503,7 +517,12 @@ mod tests {
             "label",
         );
 
-        for linkage in [Linkage::Single, Linkage::Complete, Linkage::Average, Linkage::Ward] {
+        for linkage in [
+            Linkage::Single,
+            Linkage::Complete,
+            Linkage::Average,
+            Linkage::Ward,
+        ] {
             let mut model = AgglomerativeClustering::new(2).linkage(linkage);
             model.fit(&data).unwrap();
             assert_eq!(model.labels().len(), 4, "Failed for {linkage:?}");
@@ -550,6 +569,9 @@ mod tests {
 
         let mut model = AgglomerativeClustering::new(1);
         model.fit(&data).unwrap();
-        assert!(model.labels().iter().all(|&l| l == 0), "All should be cluster 0");
+        assert!(
+            model.labels().iter().all(|&l| l == 0),
+            "All should be cluster 0"
+        );
     }
 }

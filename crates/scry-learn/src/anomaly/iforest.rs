@@ -142,9 +142,7 @@ impl IsolationTree {
 
     fn path_length_node(node: &ITreeNode, sample: &[f64], depth: usize) -> f64 {
         match node {
-            ITreeNode::Leaf { size } => {
-                depth as f64 + average_path_length(*size)
-            }
+            ITreeNode::Leaf { size } => depth as f64 + average_path_length(*size),
             ITreeNode::Split {
                 feature,
                 threshold,
@@ -207,6 +205,7 @@ fn average_path_length(n: usize) -> f64 {
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct IsolationForest {
     /// Number of isolation trees to build.
     n_estimators: usize,
@@ -220,6 +219,8 @@ pub struct IsolationForest {
     trees: Vec<IsolationTree>,
     /// The anomaly score threshold (set after fit).
     threshold: f64,
+    /// The subsample size used during training (for normalization constant).
+    training_sub_size: usize,
 }
 
 impl IsolationForest {
@@ -234,6 +235,7 @@ impl IsolationForest {
             random_state: None,
             trees: Vec::new(),
             threshold: 0.5,
+            training_sub_size: 0,
         }
     }
 
@@ -263,6 +265,11 @@ impl IsolationForest {
         self
     }
 
+    /// Alias for [`random_state`](Self::random_state) (consistent with other models).
+    pub fn seed(self, s: u64) -> Self {
+        self.random_state(s)
+    }
+
     /// Build isolation trees on the provided feature matrix.
     ///
     /// `features` is row-major: `features[sample_idx][feature_idx]`.
@@ -276,12 +283,10 @@ impl IsolationForest {
             return Err(ScryLearnError::EmptyDataset);
         }
         if self.contamination <= 0.0 || self.contamination > 0.5 {
-            return Err(ScryLearnError::InvalidParameter(
-                format!(
-                    "contamination must be in (0, 0.5], got {}",
-                    self.contamination
-                ),
-            ));
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "contamination must be in (0, 0.5], got {}",
+                self.contamination
+            )));
         }
 
         let n = features.len();
@@ -304,6 +309,7 @@ impl IsolationForest {
         }
 
         self.trees = trees;
+        self.training_sub_size = sub_size;
 
         // Compute scores on training data to determine the threshold.
         let mut scores = self.predict(features);
@@ -311,7 +317,9 @@ impl IsolationForest {
         scores.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
         // Threshold: the score at the `contamination` quantile.
-        let cutoff_idx = ((self.contamination * n as f64).ceil() as usize).min(n).max(1);
+        let cutoff_idx = ((self.contamination * n as f64).ceil() as usize)
+            .min(n)
+            .max(1);
         self.threshold = scores[cutoff_idx - 1];
 
         Ok(())
@@ -322,12 +330,18 @@ impl IsolationForest {
     /// Returns a `Vec<f64>` where values closer to 1.0 indicate anomalies
     /// and values closer to 0.0 indicate normal points.
     ///
-    /// Score formula: `score = 2^(-E[h(x)] / c(max_samples))`
-    /// where `E[h(x)]` is the average path length and `c(n)` is the
-    /// average BST path length.
+    /// Score formula: `score = 2^(-E[h(x)] / c(ψ))`
+    /// where `E[h(x)]` is the average path length and `c(ψ)` is the
+    /// average BST path length for the training subsample size `ψ`.
     pub fn predict(&self, features: &[Vec<f64>]) -> Vec<f64> {
         let n = features.len();
-        let sub_size = self.max_samples.min(n.max(1));
+        // Use the training subsample size for normalization (Liu et al.).
+        // During fit, training_sub_size is set; before fit, fall back to max_samples.
+        let sub_size = if self.training_sub_size > 0 {
+            self.training_sub_size
+        } else {
+            self.max_samples.min(n.max(1))
+        };
         let c = average_path_length(sub_size);
 
         if c.abs() < f64::EPSILON || self.trees.is_empty() {
@@ -337,7 +351,11 @@ impl IsolationForest {
         features
             .iter()
             .map(|sample| {
-                let avg_path: f64 = self.trees.iter().map(|t| t.path_length(sample)).sum::<f64>()
+                let avg_path: f64 = self
+                    .trees
+                    .iter()
+                    .map(|t| t.path_length(sample))
+                    .sum::<f64>()
                     / self.trees.len() as f64;
                 2.0_f64.powf(-avg_path / c)
             })
@@ -347,7 +365,11 @@ impl IsolationForest {
     /// Predict anomaly labels: `1` for normal, `-1` for anomaly.
     ///
     /// Uses the contamination-based threshold computed during `fit`.
+    /// Returns all `1` (normal) if the model has not been fitted.
     pub fn predict_labels(&self, features: &[Vec<f64>]) -> Vec<i8> {
+        if self.trees.is_empty() {
+            return vec![1; features.len()];
+        }
         let scores = self.predict(features);
         scores
             .into_iter()
@@ -379,18 +401,12 @@ mod tests {
 
         // Normal cluster around (0, 0).
         for _ in 0..n_normal {
-            data.push(vec![
-                rng.f64() * 2.0 - 1.0,
-                rng.f64() * 2.0 - 1.0,
-            ]);
+            data.push(vec![rng.f64() * 2.0 - 1.0, rng.f64() * 2.0 - 1.0]);
         }
 
         // Outliers far away.
         for _ in 0..n_outliers {
-            data.push(vec![
-                10.0 + rng.f64() * 5.0,
-                10.0 + rng.f64() * 5.0,
-            ]);
+            data.push(vec![10.0 + rng.f64() * 5.0, 10.0 + rng.f64() * 5.0]);
         }
 
         data
@@ -466,7 +482,11 @@ mod tests {
             .unwrap()
             .0;
 
-        assert_eq!(max_score_idx, data.len() - 1, "outlier should have highest anomaly score");
+        assert_eq!(
+            max_score_idx,
+            data.len() - 1,
+            "outlier should have highest anomaly score"
+        );
     }
 
     #[test]

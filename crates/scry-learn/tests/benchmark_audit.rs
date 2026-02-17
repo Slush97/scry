@@ -30,14 +30,20 @@ fn gen_classification(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>) 
 }
 
 fn transpose(rows: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    if rows.is_empty() { return vec![]; }
+    if rows.is_empty() {
+        return vec![];
+    }
     let n_cols = rows[0].len();
     let n_rows = rows.len();
-    (0..n_cols).map(|j| (0..n_rows).map(|i| rows[i][j]).collect()).collect()
+    (0..n_cols)
+        .map(|j| (0..n_rows).map(|i| rows[i][j]).collect())
+        .collect()
 }
 
 fn accuracy_f64(y_true: &[f64], y_pred: &[f64]) -> f64 {
-    let correct = y_true.iter().zip(y_pred.iter())
+    let correct = y_true
+        .iter()
+        .zip(y_pred.iter())
         .filter(|(&t, &p)| (t - p).abs() < 1e-9)
         .count();
     correct as f64 / y_true.len() as f64
@@ -54,7 +60,10 @@ fn prediction_checksum(preds: &[f64]) -> u64 {
 }
 
 /// Convert row-major Vec<Vec<f64>> + Vec<f64> target into linfa Dataset (ndarray-based)
-fn to_linfa_dataset(features: &[Vec<f64>], target: &[f64]) -> linfa::DatasetBase<ndarray::Array2<f64>, ndarray::Array1<usize>> {
+fn to_linfa_dataset(
+    features: &[Vec<f64>],
+    target: &[f64],
+) -> linfa::DatasetBase<ndarray::Array2<f64>, ndarray::Array1<usize>> {
     let n = features.len();
     let m = features[0].len();
     let flat: Vec<f64> = features.iter().flat_map(|r| r.iter().copied()).collect();
@@ -70,8 +79,10 @@ fn audit_dt_predict_fairness() {
 
     // ── scry-learn ──
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_dt = scry_learn::prelude::DecisionTreeClassifier::new();
     scry_dt.fit(&data).unwrap();
@@ -79,8 +90,11 @@ fn audit_dt_predict_fairness() {
     // ── smartcore 0.4.9 ──
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_dt = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-        &x, &target_i32, Default::default(),
-    ).unwrap();
+        &x,
+        &target_i32,
+        Default::default(),
+    )
+    .unwrap();
 
     // ── linfa-trees ──
     use linfa::prelude::{Fit, Predict};
@@ -100,9 +114,21 @@ fn audit_dt_predict_fairness() {
 
     println!("\n{}", "=".repeat(65));
     println!("DECISION TREE ACCURACY (1K×10, train=test, timing only — NOT generalization)");
-    println!("  scry-learn:          {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
-    println!("  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
-    println!("  linfa-trees 0.7:     {:.1}%  checksum=0x{:016x}", linfa_acc * 100.0, prediction_checksum(&linfa_preds));
+    println!(
+        "  scry-learn:          {:.1}%  checksum=0x{:016x}",
+        scry_acc * 100.0,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}",
+        smart_acc * 100.0,
+        prediction_checksum(&smart_preds)
+    );
+    println!(
+        "  linfa-trees 0.7:     {:.1}%  checksum=0x{:016x}",
+        linfa_acc * 100.0,
+        prediction_checksum(&linfa_preds)
+    );
 
     assert!(scry_acc > 0.95);
     assert!(smart_acc > 0.95);
@@ -141,8 +167,16 @@ fn audit_dt_predict_fairness() {
 
     println!("\nDECISION TREE PREDICT LATENCY (1K samples, {n_iters} iters)");
     println!("  scry-learn:          {:.2} µs", scry_us);
-    println!("  smartcore 0.4.9:     {:.2} µs  ({:.1}× slower)", smart_us, smart_us / scry_us);
-    println!("  linfa-trees 0.7:     {:.2} µs  ({:.1}× slower)", linfa_us, linfa_us / scry_us);
+    println!(
+        "  smartcore 0.4.9:     {:.2} µs  ({:.1}× slower)",
+        smart_us,
+        smart_us / scry_us
+    );
+    println!(
+        "  linfa-trees 0.7:     {:.2} µs  ({:.1}× slower)",
+        linfa_us,
+        linfa_us / scry_us
+    );
     println!();
 }
 
@@ -154,31 +188,40 @@ fn audit_rf_predict_fairness() {
 
     // ── scry-learn ──
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_rf = scry_learn::prelude::RandomForestClassifier::new()
-        .n_estimators(n_trees).max_depth(8);
+        .n_estimators(n_trees)
+        .max_depth(8);
     scry_rf.fit(&data).unwrap();
 
     // ── smartcore 0.4.9 ──
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
-    let params = smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
-        .with_n_trees(n_trees as u16)
-        .with_max_depth(8);
+    let params =
+        smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
+            .with_n_trees(n_trees as u16)
+            .with_max_depth(8);
     let smart_rf = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-        &x, &target_i32, params,
-    ).unwrap();
+        &x,
+        &target_i32,
+        params,
+    )
+    .unwrap();
 
     // ── linfa-ensemble ──
     use linfa::prelude::{Fit, Predict};
     let linfa_ds = to_linfa_dataset(&features, &target);
-    let linfa_rf = linfa_ensemble::RandomForestParams::new(linfa_trees::DecisionTree::params().max_depth(Some(8)))
-        .ensemble_size(n_trees)
-        .bootstrap_proportion(0.7)
-        .feature_proportion(0.3)
-        .fit(&linfa_ds)
-        .unwrap();
+    let linfa_rf = linfa_ensemble::RandomForestParams::new(
+        linfa_trees::DecisionTree::params().max_depth(Some(8)),
+    )
+    .ensemble_size(n_trees)
+    .bootstrap_proportion(0.7)
+    .feature_proportion(0.3)
+    .fit(&linfa_ds)
+    .unwrap();
 
     // Verify accuracy
     let scry_preds = scry_rf.predict(&features).unwrap();
@@ -193,9 +236,21 @@ fn audit_rf_predict_fairness() {
 
     println!("\n{}", "=".repeat(65));
     println!("RANDOM FOREST ACCURACY (2K×10, 100t, max_depth=8, train=test, timing only — NOT generalization)");
-    println!("  scry-learn:              {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
-    println!("  smartcore 0.4.9:         {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
-    println!("  linfa-ensemble 0.8:      {:.1}%  checksum=0x{:016x}", linfa_acc * 100.0, prediction_checksum(&linfa_preds));
+    println!(
+        "  scry-learn:              {:.1}%  checksum=0x{:016x}",
+        scry_acc * 100.0,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  smartcore 0.4.9:         {:.1}%  checksum=0x{:016x}",
+        smart_acc * 100.0,
+        prediction_checksum(&smart_preds)
+    );
+    println!(
+        "  linfa-ensemble 0.8:      {:.1}%  checksum=0x{:016x}",
+        linfa_acc * 100.0,
+        prediction_checksum(&linfa_preds)
+    );
 
     assert!(scry_acc > 0.90);
     assert!(smart_acc > 0.90);
@@ -234,8 +289,16 @@ fn audit_rf_predict_fairness() {
 
     println!("\nRANDOM FOREST PREDICT (2K samples, 100t, {n_iters} iters)");
     println!("  scry-learn:              {:.2} µs", scry_us);
-    println!("  smartcore 0.4.9:         {:.2} µs  ({:.1}× slower)", smart_us, smart_us / scry_us);
-    println!("  linfa-ensemble 0.8:      {:.2} µs  ({:.1}× slower)", linfa_us, linfa_us / scry_us);
+    println!(
+        "  smartcore 0.4.9:         {:.2} µs  ({:.1}× slower)",
+        smart_us,
+        smart_us / scry_us
+    );
+    println!(
+        "  linfa-ensemble 0.8:      {:.2} µs  ({:.1}× slower)",
+        linfa_us,
+        linfa_us / scry_us
+    );
 
     // ── Train timing ──
     let n_train_iters = 10;
@@ -243,11 +306,14 @@ fn audit_rf_predict_fairness() {
     let t0 = Instant::now();
     for _ in 0..n_train_iters {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut rf = scry_learn::prelude::RandomForestClassifier::new()
-            .n_estimators(n_trees).max_depth(8);
+            .n_estimators(n_trees)
+            .max_depth(8);
         rf.fit(std::hint::black_box(&d)).unwrap();
     }
     let scry_train_ms = t0.elapsed().as_nanos() as f64 / n_train_iters as f64 / 1_000_000.0;
@@ -258,28 +324,43 @@ fn audit_rf_predict_fairness() {
         let p2 = smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
             .with_n_trees(n_trees as u16).with_max_depth(8);
         let _ = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-            std::hint::black_box(&x2), std::hint::black_box(&target_i32), p2,
-        ).unwrap();
+            std::hint::black_box(&x2),
+            std::hint::black_box(&target_i32),
+            p2,
+        )
+        .unwrap();
     }
     let smart_train_ms = t0.elapsed().as_nanos() as f64 / n_train_iters as f64 / 1_000_000.0;
 
     let t0 = Instant::now();
     for _ in 0..n_train_iters {
         let ds = to_linfa_dataset(&features, &target);
-        let _ = linfa_ensemble::RandomForestParams::new(linfa_trees::DecisionTree::params().max_depth(Some(8)))
-            .ensemble_size(n_trees)
-            .bootstrap_proportion(0.7)
-            .feature_proportion(0.3)
-            .fit(std::hint::black_box(&ds))
-            .unwrap();
+        let _ = linfa_ensemble::RandomForestParams::new(
+            linfa_trees::DecisionTree::params().max_depth(Some(8)),
+        )
+        .ensemble_size(n_trees)
+        .bootstrap_proportion(0.7)
+        .feature_proportion(0.3)
+        .fit(std::hint::black_box(&ds))
+        .unwrap();
     }
     let linfa_train_ms = t0.elapsed().as_nanos() as f64 / n_train_iters as f64 / 1_000_000.0;
 
     println!("\nRANDOM FOREST TRAIN (2K×10, 100t, {n_train_iters} iters)");
     println!("  scry-learn:              {:.2} ms", scry_train_ms);
-    println!("  smartcore 0.4.9:         {:.2} ms  ({:.1}× slower)", smart_train_ms, smart_train_ms / scry_train_ms);
-    println!("  linfa-ensemble 0.8:      {:.2} ms  ({:.1}× slower)", linfa_train_ms, linfa_train_ms / scry_train_ms);
-    println!("  Note: linfa uses bootstrap=0.7, features=0.3 (non-default, differs from scry/smartcore)");
+    println!(
+        "  smartcore 0.4.9:         {:.2} ms  ({:.1}× slower)",
+        smart_train_ms,
+        smart_train_ms / scry_train_ms
+    );
+    println!(
+        "  linfa-ensemble 0.8:      {:.2} ms  ({:.1}× slower)",
+        linfa_train_ms,
+        linfa_train_ms / scry_train_ms
+    );
+    println!(
+        "  Note: linfa uses bootstrap=0.7, features=0.3 (non-default, differs from scry/smartcore)"
+    );
     println!();
 }
 
@@ -301,8 +382,10 @@ fn audit_pca_fairness() {
 
     // ── scry-learn ──
     let scry_ds = scry_learn::prelude::Dataset::new(
-        features_col.clone(), target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        features_col.clone(),
+        target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     // Warmup
     for _ in 0..2 {
@@ -319,27 +402,30 @@ fn audit_pca_fairness() {
 
     // ── smartcore 0.4.9 ──
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features_row).unwrap();
-    let smart_params = smartcore::decomposition::pca::PCAParameters::default()
-        .with_n_components(n_components);
+    let smart_params =
+        smartcore::decomposition::pca::PCAParameters::default().with_n_components(n_components);
 
     for _ in 0..2 {
-        let pca = smartcore::decomposition::pca::PCA::fit(
-            std::hint::black_box(&x), smart_params.clone(),
-        ).unwrap();
+        let pca =
+            smartcore::decomposition::pca::PCA::fit(std::hint::black_box(&x), smart_params.clone())
+                .unwrap();
         std::hint::black_box(&pca);
     }
     let t0 = Instant::now();
     for _ in 0..n_fit_iters {
-        let pca = smartcore::decomposition::pca::PCA::fit(
-            std::hint::black_box(&x), smart_params.clone(),
-        ).unwrap();
+        let pca =
+            smartcore::decomposition::pca::PCA::fit(std::hint::black_box(&x), smart_params.clone())
+                .unwrap();
         std::hint::black_box(&pca);
     }
     let smart_fit_us = t0.elapsed().as_nanos() as f64 / n_fit_iters as f64 / 1000.0;
 
     // ── linfa-reduction ──
     use linfa::prelude::{Fit, Predict};
-    let flat: Vec<f64> = features_row.iter().flat_map(|r| r.iter().copied()).collect();
+    let flat: Vec<f64> = features_row
+        .iter()
+        .flat_map(|r| r.iter().copied())
+        .collect();
     let x_nd = ndarray::Array2::from_shape_vec((n_samples, n_features), flat).unwrap();
     let linfa_ds = linfa::Dataset::new(
         x_nd.clone(),
@@ -380,13 +466,15 @@ fn audit_pca_fairness() {
     // Warmup transforms
     for _ in 0..2 {
         let mut ds = scry_ds.clone();
-        scry_learn::preprocess::Transformer::transform(&scry_pca, std::hint::black_box(&mut ds)).unwrap();
+        scry_learn::preprocess::Transformer::transform(&scry_pca, std::hint::black_box(&mut ds))
+            .unwrap();
     }
     // scry-learn transform
     let t0 = Instant::now();
     for _ in 0..n_transform_iters {
         let mut ds = scry_ds.clone();
-        scry_learn::preprocess::Transformer::transform(&scry_pca, std::hint::black_box(&mut ds)).unwrap();
+        scry_learn::preprocess::Transformer::transform(&scry_pca, std::hint::black_box(&mut ds))
+            .unwrap();
         std::hint::black_box(&ds);
     }
     let scry_transform_us = t0.elapsed().as_nanos() as f64 / n_transform_iters as f64 / 1000.0;
@@ -430,7 +518,9 @@ fn audit_pca_fairness() {
         assert!(
             diff < 0.05,
             "PC{} variance ratio mismatch: scry={:.4} linfa={:.4}",
-            i + 1, scry_ratios[i], linfa_ratios[i],
+            i + 1,
+            scry_ratios[i],
+            linfa_ratios[i],
         );
     }
 
@@ -441,24 +531,46 @@ fn audit_pca_fairness() {
     println!("\n{}", "=".repeat(65));
     println!("PCA FIT ({n_samples}×{n_features} → {n_components} components, {n_fit_iters} iters)");
     println!("  scry-learn:          {:.2} µs", scry_fit_us);
-    println!("  smartcore 0.4.9:     {:.2} µs  ({:.2}×)", smart_fit_us, smart_fit_us / scry_fit_us);
-    println!("  linfa-reduction 0.8: {:.2} µs  ({:.2}×)", linfa_fit_us, linfa_fit_us / scry_fit_us);
+    println!(
+        "  smartcore 0.4.9:     {:.2} µs  ({:.2}×)",
+        smart_fit_us,
+        smart_fit_us / scry_fit_us
+    );
+    println!(
+        "  linfa-reduction 0.8: {:.2} µs  ({:.2}×)",
+        linfa_fit_us,
+        linfa_fit_us / scry_fit_us
+    );
 
-    println!("\nPCA TRANSFORM ({n_samples}×{n_features} → {n_components}, {n_transform_iters} iters)");
+    println!(
+        "\nPCA TRANSFORM ({n_samples}×{n_features} → {n_components}, {n_transform_iters} iters)"
+    );
     println!("  scry-learn:          {:.2} µs", scry_transform_us);
-    println!("  smartcore 0.4.9:     {:.2} µs  ({:.2}×)", smart_transform_us, smart_transform_us / scry_transform_us);
-    println!("  linfa-reduction 0.8: {:.2} µs  ({:.2}×)", linfa_transform_us, linfa_transform_us / scry_transform_us);
+    println!(
+        "  smartcore 0.4.9:     {:.2} µs  ({:.2}×)",
+        smart_transform_us,
+        smart_transform_us / scry_transform_us
+    );
+    println!(
+        "  linfa-reduction 0.8: {:.2} µs  ({:.2}×)",
+        linfa_transform_us,
+        linfa_transform_us / scry_transform_us
+    );
 
     println!("\nEXPLAINED VARIANCE RATIOS (top {n_components}):");
     print!("  scry-learn:          [");
     for (i, &r) in scry_ratios.iter().enumerate() {
-        if i > 0 { print!(", "); }
+        if i > 0 {
+            print!(", ");
+        }
         print!("{r:.4}");
     }
     println!("]");
     print!("  linfa-reduction:     [");
     for (i, &r) in linfa_ratios.iter().enumerate() {
-        if i > 0 { print!(", "); }
+        if i > 0 {
+            print!(", ");
+        }
         print!("{r:.4}");
     }
     println!("]");
@@ -562,7 +674,8 @@ fn audit_ensemble_regression_fairness() {
             std::hint::black_box(&smart_x),
             std::hint::black_box(&target),
             Default::default(),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let smart_fit_start = Instant::now();
     for _ in 0..n_iters {
@@ -601,7 +714,10 @@ fn audit_ensemble_regression_fairness() {
     println!("    scry-learn GBT:      {:.2} us", scry_pred_us);
     println!("    smartcore RF 0.4:    {:.2} us", smart_pred_us);
 
-    println!("\n  scry-learn GBT train MSE (self-only, no comparison): {:.4}", scry_mse);
+    println!(
+        "\n  scry-learn GBT train MSE (self-only, no comparison): {:.4}",
+        scry_mse
+    );
     println!();
 }
 
@@ -617,8 +733,10 @@ fn audit_logreg_fairness() {
 
     // ── scry-learn ──
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_lr = scry_learn::prelude::LogisticRegression::new()
         .max_iter(200)
@@ -628,8 +746,11 @@ fn audit_logreg_fairness() {
     // ── smartcore 0.4.9 ──
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_lr = smartcore::linear::logistic_regression::LogisticRegression::fit(
-        &x, &target_i32, Default::default(),
-    ).unwrap();
+        &x,
+        &target_i32,
+        Default::default(),
+    )
+    .unwrap();
 
     // ── linfa-logistic ──
     use linfa::prelude::{Fit, Predict};
@@ -648,7 +769,10 @@ fn audit_logreg_fairness() {
     let smart_preds_i32: Vec<i32> = smart_lr.predict(&x).unwrap();
     let smart_preds: Vec<f64> = smart_preds_i32.iter().map(|&p| p as f64).collect();
     let linfa_preds_arr = linfa_lr.predict(&linfa_ds);
-    let linfa_preds: Vec<f64> = linfa_preds_arr.iter().map(|&p| if p { 1.0 } else { 0.0 }).collect();
+    let linfa_preds: Vec<f64> = linfa_preds_arr
+        .iter()
+        .map(|&p| if p { 1.0 } else { 0.0 })
+        .collect();
 
     let scry_acc = accuracy_f64(&target, &scry_preds);
     let smart_acc = accuracy_f64(&target, &smart_preds);
@@ -656,9 +780,21 @@ fn audit_logreg_fairness() {
 
     println!("\n{}", "=".repeat(65));
     println!("LOGISTIC REGRESSION ACCURACY (1K×10, train=test, timing only — NOT generalization)");
-    println!("  scry-learn:          {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
-    println!("  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
-    println!("  linfa-logistic 0.8:  {:.1}%  checksum=0x{:016x}", linfa_acc * 100.0, prediction_checksum(&linfa_preds));
+    println!(
+        "  scry-learn:          {:.1}%  checksum=0x{:016x}",
+        scry_acc * 100.0,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}",
+        smart_acc * 100.0,
+        prediction_checksum(&smart_preds)
+    );
+    println!(
+        "  linfa-logistic 0.8:  {:.1}%  checksum=0x{:016x}",
+        linfa_acc * 100.0,
+        prediction_checksum(&linfa_preds)
+    );
 
     assert!(scry_acc > 0.90);
     assert!(smart_acc > 0.90);
@@ -670,21 +806,27 @@ fn audit_logreg_fairness() {
     // Warmup
     for _ in 0..2 {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut lr = scry_learn::prelude::LogisticRegression::new()
-            .max_iter(200).learning_rate(0.1);
+            .max_iter(200)
+            .learning_rate(0.1);
         lr.fit(std::hint::black_box(&d)).unwrap();
     }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..10).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
         );
         let mut lr = scry_learn::prelude::LogisticRegression::new()
-            .max_iter(200).learning_rate(0.1);
+            .max_iter(200)
+            .learning_rate(0.1);
         lr.fit(std::hint::black_box(&d)).unwrap();
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
@@ -695,7 +837,8 @@ fn audit_logreg_fairness() {
             std::hint::black_box(&x2),
             std::hint::black_box(&target_i32),
             Default::default(),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let t0 = Instant::now();
     for _ in 0..n_iters {
@@ -704,7 +847,8 @@ fn audit_logreg_fairness() {
             std::hint::black_box(&x2),
             std::hint::black_box(&target_i32),
             Default::default(),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let smart_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
@@ -725,8 +869,16 @@ fn audit_logreg_fairness() {
 
     println!("\nLOGISTIC REGRESSION TRAIN (1K×10, {n_iters} iters)");
     println!("  scry-learn:          {:.2} µs", scry_us);
-    println!("  smartcore 0.4.9:     {:.2} µs  ({:.1}×)", smart_us, smart_us / scry_us);
-    println!("  linfa-logistic 0.8:  {:.2} µs  ({:.1}×)", linfa_us, linfa_us / scry_us);
+    println!(
+        "  smartcore 0.4.9:     {:.2} µs  ({:.1}×)",
+        smart_us,
+        smart_us / scry_us
+    );
+    println!(
+        "  linfa-logistic 0.8:  {:.2} µs  ({:.1}×)",
+        linfa_us,
+        linfa_us / scry_us
+    );
     println!();
 }
 
@@ -741,8 +893,10 @@ fn audit_knn_fairness() {
 
     // ── scry-learn ──
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..10).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
     );
     let mut scry_knn = scry_learn::prelude::KnnClassifier::new().k(5);
     scry_knn.fit(&data).unwrap();
@@ -750,9 +904,11 @@ fn audit_knn_fairness() {
     // ── smartcore 0.4.9 ──
     let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
     let smart_knn = smartcore::neighbors::knn_classifier::KNNClassifier::fit(
-        &x, &target_i32,
+        &x,
+        &target_i32,
         smartcore::neighbors::knn_classifier::KNNClassifierParameters::default().with_k(5),
-    ).unwrap();
+    )
+    .unwrap();
 
     // Verify accuracy.
     let matrix = data.feature_matrix();
@@ -765,8 +921,16 @@ fn audit_knn_fairness() {
 
     println!("\n{}", "=".repeat(65));
     println!("KNN ACCURACY (1K×10, k=5, train=test, timing only — NOT generalization)");
-    println!("  scry-learn:          {:.1}%  checksum=0x{:016x}", scry_acc * 100.0, prediction_checksum(&scry_preds));
-    println!("  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}", smart_acc * 100.0, prediction_checksum(&smart_preds));
+    println!(
+        "  scry-learn:          {:.1}%  checksum=0x{:016x}",
+        scry_acc * 100.0,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  smartcore 0.4.9:     {:.1}%  checksum=0x{:016x}",
+        smart_acc * 100.0,
+        prediction_checksum(&smart_preds)
+    );
 
     assert!(scry_acc > 0.90);
     assert!(smart_acc > 0.90);
@@ -795,7 +959,11 @@ fn audit_knn_fairness() {
 
     println!("\nKNN PREDICT (1K samples, k=5, {n_iters} iters)");
     println!("  scry-learn:          {:.2} µs", scry_us);
-    println!("  smartcore 0.4.9:     {:.2} µs  ({:.1}×)", smart_us, smart_us / scry_us);
+    println!(
+        "  smartcore 0.4.9:     {:.2} µs  ({:.1}×)",
+        smart_us,
+        smart_us / scry_us
+    );
 
     println!();
 }
@@ -816,10 +984,15 @@ fn audit_kmeans_fairness() {
 
     // ── scry-learn ──
     let data = scry_learn::prelude::Dataset::new(
-        transpose(&features), target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+        transpose(&features),
+        target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "target",
     );
-    let mut scry_km = scry_learn::prelude::KMeans::new(k).seed(42).max_iter(100).n_init(1);
+    let mut scry_km = scry_learn::prelude::KMeans::new(k)
+        .seed(42)
+        .max_iter(100)
+        .n_init(1);
     scry_km.fit(&data).unwrap();
     let scry_inertia = scry_km.inertia();
 
@@ -843,19 +1016,29 @@ fn audit_kmeans_fairness() {
     // Warmup
     for _ in 0..2 {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..n_features).map(|i| format!("f{i}")).collect(),
+            "target",
         );
-        let mut km = scry_learn::prelude::KMeans::new(k).seed(42).max_iter(100).n_init(1);
+        let mut km = scry_learn::prelude::KMeans::new(k)
+            .seed(42)
+            .max_iter(100)
+            .n_init(1);
         km.fit(std::hint::black_box(&d)).unwrap();
     }
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let d = scry_learn::prelude::Dataset::new(
-            transpose(&features), target.clone(),
-            (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target.clone(),
+            (0..n_features).map(|i| format!("f{i}")).collect(),
+            "target",
         );
-        let mut km = scry_learn::prelude::KMeans::new(k).seed(42).max_iter(100).n_init(1);
+        let mut km = scry_learn::prelude::KMeans::new(k)
+            .seed(42)
+            .max_iter(100)
+            .n_init(1);
         km.fit(std::hint::black_box(&d)).unwrap();
     }
     let scry_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
@@ -879,7 +1062,11 @@ fn audit_kmeans_fairness() {
 
     println!("\nK-MEANS TRAIN ({n_samples}×{n_features}, k={k}, {n_iters} iters)");
     println!("  scry-learn:              {:.2} µs", scry_us);
-    println!("  linfa-clustering 0.8:    {:.2} µs  ({:.2}×)", linfa_us, linfa_us / scry_us);
+    println!(
+        "  linfa-clustering 0.8:    {:.2} µs  ({:.2}×)",
+        linfa_us,
+        linfa_us / scry_us
+    );
 
     println!();
 }
@@ -897,18 +1084,17 @@ fn audit_dbscan_fairness() {
     println!("\n{}", "═".repeat(72));
     println!("  DBSCAN PROFILING — scry-learn (eps=1.0, min_samples=5)");
     println!("{}", "═".repeat(72));
-    println!(
-        "  {:>8} {:>14} {:>14}",
-        "N", "Fit time(ms)", "Clusters"
-    );
+    println!("  {:>8} {:>14} {:>14}", "N", "Fit time(ms)", "Clusters");
     println!("  {}", "─".repeat(40));
 
     for &n in &sizes {
         let (features, target) = gen_classification(n, n_features);
 
         let data = scry_learn::prelude::Dataset::new(
-            transpose(&features), target,
-            (0..n_features).map(|i| format!("f{i}")).collect(), "target",
+            transpose(&features),
+            target,
+            (0..n_features).map(|i| format!("f{i}")).collect(),
+            "target",
         );
 
         let mut total_ms = 0.0;
@@ -923,10 +1109,7 @@ fn audit_dbscan_fairness() {
         }
 
         let avg_ms = total_ms / n_iters as f64;
-        println!(
-            "  {:>8} {:>12.2}ms {:>14}",
-            n, avg_ms, n_clusters,
-        );
+        println!("  {:>8} {:>12.2}ms {:>14}", n, avg_ms, n_clusters,);
     }
 
     println!("\n  Note: DBSCAN uses KD-tree for Euclidean distance with ≤ 20 features.");

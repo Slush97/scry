@@ -122,11 +122,31 @@ fn all_ops_pipeline() -> PipelineDef {
             },
         ],
         input_schema: vec![
-            FeatureSpec { name: "a".into(), dtype: DType::Float64, index: 0 },
-            FeatureSpec { name: "b".into(), dtype: DType::Float64, index: 1 },
-            FeatureSpec { name: "c".into(), dtype: DType::Float64, index: 2 },
-            FeatureSpec { name: "d".into(), dtype: DType::Float64, index: 3 },
-            FeatureSpec { name: "e".into(), dtype: DType::Float64, index: 4 },
+            FeatureSpec {
+                name: "a".into(),
+                dtype: DType::Float64,
+                index: 0,
+            },
+            FeatureSpec {
+                name: "b".into(),
+                dtype: DType::Float64,
+                index: 1,
+            },
+            FeatureSpec {
+                name: "c".into(),
+                dtype: DType::Float64,
+                index: 2,
+            },
+            FeatureSpec {
+                name: "d".into(),
+                dtype: DType::Float64,
+                index: 3,
+            },
+            FeatureSpec {
+                name: "e".into(),
+                dtype: DType::Float64,
+                index: 4,
+            },
         ],
     }
 }
@@ -140,9 +160,12 @@ fn assert_compiles(code: &str, label: &str) {
 
     let output = Command::new("rustc")
         .args([
-            "--edition", "2021",
-            "--crate-type", "lib",
-            "--crate-name", "generated_pipeline",
+            "--edition",
+            "2021",
+            "--crate-type",
+            "lib",
+            "--crate-name",
+            "generated_pipeline",
         ])
         .arg("-o")
         .arg(&out)

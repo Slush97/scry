@@ -20,6 +20,7 @@
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neural::activation::Activation;
+use crate::neural::callback::{self, EpochMetrics, TrainingHistory};
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};
@@ -56,6 +57,8 @@ pub struct MLPClassifier {
     network_dims: Vec<(usize, usize)>,
     /// Training loss curve (one entry per epoch).
     pub loss_curve: Vec<f64>,
+    /// Structured training history with per-epoch metrics.
+    training_history: TrainingHistory,
 }
 
 impl MLPClassifier {
@@ -81,6 +84,7 @@ impl MLPClassifier {
             network_weights: Vec::new(),
             network_dims: Vec::new(),
             loss_curve: Vec::new(),
+            training_history: TrainingHistory::new(),
         }
     }
 
@@ -130,6 +134,11 @@ impl MLPClassifier {
     pub fn tolerance(mut self, tol: f64) -> Self {
         self.tolerance = tol;
         self
+    }
+
+    /// Alias for [`tolerance`](Self::tolerance) (sklearn convention).
+    pub fn tol(self, t: f64) -> Self {
+        self.tolerance(t)
     }
 
     /// Enable early stopping with validation split. Default: false.
@@ -228,22 +237,28 @@ impl MLPClassifier {
 
         let mut net = Network::new(&sizes, self.activation, self.seed);
         let param_sizes = net.param_group_sizes();
-        let mut optimizer = OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
+        let mut optimizer =
+            OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
 
         let batch_size = self.batch_size.min(train_n);
         let mut rng = FastRng::new(self.seed.wrapping_add(1));
         let mut indices: Vec<usize> = (0..train_n).collect();
 
         self.loss_curve.clear();
+        self.training_history = TrainingHistory::new();
         let mut best_val_loss = f64::INFINITY;
         let mut best_weights: Option<Vec<(Vec<f64>, Vec<f64>)>> = None;
         let mut no_improve = 0;
 
-        for _epoch in 0..self.max_iter {
+        for epoch_idx in 0..self.max_iter {
+            let epoch_start = std::time::Instant::now();
             rng.shuffle(&mut indices);
 
             let mut epoch_loss = 0.0;
             let mut n_batches = 0;
+            let mut last_grad_norm = 0.0;
+            let mut epoch_correct = 0usize;
+            let mut epoch_total = 0usize;
 
             for chunk in indices.chunks(batch_size) {
                 let b = chunk.len();
@@ -259,7 +274,17 @@ impl MLPClassifier {
                 epoch_loss += loss;
                 n_batches += 1;
 
+                // Compute training accuracy for this mini-batch
+                let preds = network::argmax_predictions(&logits, b, n_classes);
+                for (p, t) in preds.iter().zip(batch_y.iter()) {
+                    if (*p - *t).abs() < f64::EPSILON {
+                        epoch_correct += 1;
+                    }
+                    epoch_total += 1;
+                }
+
                 let layer_grads = net.backward(&grad, self.alpha);
+                last_grad_norm = callback::compute_grad_norm(&layer_grads);
                 optimizer.tick();
                 net.apply_gradients(&layer_grads, &mut optimizer);
             }
@@ -267,12 +292,32 @@ impl MLPClassifier {
             let avg_loss = epoch_loss / n_batches as f64;
             self.loss_curve.push(avg_loss);
 
-            // Early stopping check
+            let train_accuracy = if epoch_total > 0 {
+                Some(epoch_correct as f64 / epoch_total as f64)
+            } else {
+                None
+            };
+
+            // Early stopping check + validation metrics
+            let mut val_loss_epoch = None;
+            let mut val_metric_epoch = None;
+
             if self.early_stopping {
                 if let (Some(ref vx), Some(ref vy)) = (&val_x, &val_y) {
                     let val_n = vy.len();
                     let val_logits = net.forward(vx, val_n, false);
-                    let (val_loss, _) = network::cross_entropy_loss(&val_logits, vy, val_n, n_classes);
+                    let (val_loss, _) =
+                        network::cross_entropy_loss(&val_logits, vy, val_n, n_classes);
+                    val_loss_epoch = Some(val_loss);
+
+                    // Validation accuracy
+                    let val_preds = network::argmax_predictions(&val_logits, val_n, n_classes);
+                    let val_correct = val_preds
+                        .iter()
+                        .zip(vy.iter())
+                        .filter(|(p, t)| (**p - **t).abs() < f64::EPSILON)
+                        .count();
+                    val_metric_epoch = Some(val_correct as f64 / val_n as f64);
 
                     if val_loss < best_val_loss - self.tolerance {
                         best_val_loss = val_loss;
@@ -280,9 +325,6 @@ impl MLPClassifier {
                         no_improve = 0;
                     } else {
                         no_improve += 1;
-                        if no_improve >= self.n_iter_no_change {
-                            break;
-                        }
                     }
                 }
             } else {
@@ -292,13 +334,28 @@ impl MLPClassifier {
                     let improvement = self.loss_curve[n - 2] - self.loss_curve[n - 1];
                     if improvement.abs() < self.tolerance {
                         no_improve += 1;
-                        if no_improve >= self.n_iter_no_change {
-                            break;
-                        }
                     } else {
                         no_improve = 0;
                     }
                 }
+            }
+
+            let elapsed = epoch_start.elapsed();
+            self.training_history.push(EpochMetrics {
+                epoch: epoch_idx,
+                train_loss: avg_loss,
+                val_loss: val_loss_epoch,
+                train_metric: train_accuracy,
+                val_metric: val_metric_epoch,
+                learning_rate: self.learning_rate,
+                grad_norm: last_grad_norm,
+                elapsed_ms: elapsed.as_millis() as u64,
+            });
+
+            if no_improve >= self.n_iter_no_change
+                && (self.early_stopping || self.loss_curve.len() >= 2)
+            {
+                break;
             }
         }
 
@@ -326,7 +383,10 @@ impl MLPClassifier {
         let batch = features.len();
         let preds = network::argmax_predictions(&proba, batch, self.n_classes);
         // Map indices back to original class labels
-        Ok(preds.iter().map(|&i| self.class_labels[i as usize]).collect())
+        Ok(preds
+            .iter()
+            .map(|&i| self.class_labels[i as usize])
+            .collect())
     }
 
     /// Predict class probabilities (softmax output).
@@ -351,7 +411,10 @@ impl MLPClassifier {
         }
 
         let mut net = self.rebuild_network();
-        let x: Vec<f64> = features.iter().flat_map(|row| row.iter().copied()).collect();
+        let x: Vec<f64> = features
+            .iter()
+            .flat_map(|row| row.iter().copied())
+            .collect();
         let logits = net.forward(&x, batch, false);
         Ok(network::softmax(&logits, batch, self.n_classes))
     }
@@ -371,6 +434,17 @@ impl MLPClassifier {
         &self.loss_curve
     }
 
+    /// Structured training history with per-epoch metrics.
+    ///
+    /// Returns `None` if the model has not been fitted yet.
+    pub fn history(&self) -> Option<&TrainingHistory> {
+        if self.training_history.is_empty() {
+            None
+        } else {
+            Some(&self.training_history)
+        }
+    }
+
     /// Saved network weights (for visualization).
     pub fn weights(&self) -> &[(Vec<f64>, Vec<f64>)] {
         &self.network_weights
@@ -379,6 +453,11 @@ impl MLPClassifier {
     /// Layer dimensions (for visualization).
     pub fn layer_dims(&self) -> &[(usize, usize)] {
         &self.network_dims
+    }
+
+    /// Hidden-layer activation function.
+    pub fn activation_fn(&self) -> Activation {
+        self.activation
     }
 
     /// Rebuild a Network from saved weights.
@@ -404,6 +483,9 @@ impl PartialFit for MLPClassifier {
         let n_samples = data.n_samples();
         let n_features = data.n_features();
         if n_samples == 0 {
+            if self.is_initialized() {
+                return Ok(());
+            }
             return Err(ScryLearnError::EmptyDataset);
         }
 
@@ -433,11 +515,29 @@ impl PartialFit for MLPClassifier {
             self.n_classes = n_classes;
             self.class_labels = batch_labels;
             self.loss_curve.clear();
-        } else if n_features != self.n_features {
-            return Err(ScryLearnError::ShapeMismatch {
-                expected: self.n_features,
-                got: n_features,
-            });
+        } else {
+            if n_features != self.n_features {
+                return Err(ScryLearnError::ShapeMismatch {
+                    expected: self.n_features,
+                    got: n_features,
+                });
+            }
+            // Check for new classes not seen during initialization.
+            for &label in &batch_labels {
+                if !self
+                    .class_labels
+                    .iter()
+                    .any(|&c| (c - label).abs() < f64::EPSILON)
+                {
+                    return Err(ScryLearnError::InvalidParameter(format!(
+                        "partial_fit encountered new class {label} not seen during \
+                         initialization (known classes: {:?}). MLPClassifier cannot add \
+                         classes after network initialization — pass all possible classes \
+                         in the first batch.",
+                        self.class_labels
+                    )));
+                }
+            }
         }
 
         // Build row-major data.
@@ -478,8 +578,7 @@ impl PartialFit for MLPClassifier {
             }
 
             let logits = net.forward(&batch_x, b, true);
-            let (loss, grad) =
-                network::cross_entropy_loss(&logits, &batch_y, b, self.n_classes);
+            let (loss, grad) = network::cross_entropy_loss(&logits, &batch_y, b, self.n_classes);
             epoch_loss += loss;
             n_batches += 1;
 
@@ -533,10 +632,7 @@ mod tests {
 
     fn xor_dataset() -> Dataset {
         Dataset::new(
-            vec![
-                vec![0.0, 0.0, 1.0, 1.0],
-                vec![0.0, 1.0, 0.0, 1.0],
-            ],
+            vec![vec![0.0, 0.0, 1.0, 1.0], vec![0.0, 1.0, 0.0, 1.0]],
             vec![0.0, 1.0, 1.0, 0.0],
             vec!["x1".into(), "x2".into()],
             "xor",
@@ -583,19 +679,25 @@ mod tests {
             .seed(42);
         clf.fit(&data).unwrap();
 
-        let preds = clf.predict(&[
-            vec![0.0, 0.0],
-            vec![0.0, 1.0],
-            vec![1.0, 0.0],
-            vec![1.0, 1.0],
-        ]).unwrap();
+        let preds = clf
+            .predict(&[
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+            ])
+            .unwrap();
 
-        let correct = preds.iter()
+        let correct = preds
+            .iter()
             .zip([0.0, 1.0, 1.0, 0.0].iter())
             .filter(|(p, t)| (**p - **t).abs() < f64::EPSILON)
             .count();
 
-        assert!(correct >= 3, "XOR: got {correct}/4 correct, preds={preds:?}");
+        assert!(
+            correct >= 3,
+            "XOR: got {correct}/4 correct, preds={preds:?}"
+        );
     }
 
     #[test]
@@ -607,10 +709,7 @@ mod tests {
             .seed(42);
         clf.fit(&data).unwrap();
 
-        let test_x = vec![
-            vec![0.5, 1.0],
-            vec![5.5, 6.0],
-        ];
+        let test_x = vec![vec![0.5, 1.0], vec![5.5, 6.0]];
         let preds = clf.predict(&test_x).unwrap();
         assert!((preds[0] - 0.0).abs() < f64::EPSILON);
         assert!((preds[1] - 1.0).abs() < f64::EPSILON);
@@ -726,7 +825,13 @@ mod tests {
         }
 
         let preds = clf.predict(&[vec![0.5, 1.0], vec![5.5, 6.0]]).unwrap();
-        assert!((preds[0] - 0.0).abs() < f64::EPSILON, "x=0.5 should be class 0");
-        assert!((preds[1] - 1.0).abs() < f64::EPSILON, "x=5.5 should be class 1");
+        assert!(
+            (preds[0] - 0.0).abs() < f64::EPSILON,
+            "x=0.5 should be class 0"
+        );
+        assert!(
+            (preds[1] - 1.0).abs() < f64::EPSILON,
+            "x=5.5 should be class 1"
+        );
     }
 }

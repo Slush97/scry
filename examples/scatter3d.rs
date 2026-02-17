@@ -35,8 +35,8 @@ fn main() {
         zs.push(0.7 + rng.f64() * 0.2);
     }
 
-    let chart = scry_chart::chart3d::Chart3D::scatter(&xs, &ys, &zs)
-        .title("3D Scatter — Two Clusters");
+    let chart =
+        scry_chart::chart3d::Chart3D::scatter(&xs, &ys, &zs).title("3D Scatter — Two Clusters");
 
     if tui_mode {
         run_tui(chart);
@@ -59,8 +59,8 @@ fn run_tui(chart: scry_chart::chart3d::Chart3D) {
 
     use ratatui::widgets::{Block, Borders};
 
-    use scry_chart::prelude::{Chart3DState, Chart3DWidget};
     use scry_chart::chart3d::camera::{Camera3D, Vec3};
+    use scry_chart::prelude::{Chart3DState, Chart3DWidget};
 
     enable_raw_mode().expect("enable raw mode");
     stdout()
@@ -92,11 +92,7 @@ fn run_tui(chart: scry_chart::chart3d::Chart3D) {
                     .title(" 3D Scatter — ←→↑↓ rotate | +/- zoom | Q quit ");
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
-                frame.render_stateful_widget(
-                    Chart3DWidget::new(&current_chart),
-                    inner,
-                    &mut state,
-                );
+                frame.render_stateful_widget(Chart3DWidget::new(&current_chart), inner, &mut state);
             })
             .expect("draw");
 

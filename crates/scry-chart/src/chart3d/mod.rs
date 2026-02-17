@@ -41,8 +41,10 @@ pub mod scene;
 pub mod wgpu_backend;
 
 use camera::{Camera3D, Vec3};
-use projection::{ProjectedPoint, PerspectiveProjection, mat4_mul, project_batch_precomputed, depth_sort};
-use scene::{AxisConfig3D, Scene3D, PointCloud3D};
+use projection::{
+    depth_sort, mat4_mul, project_batch_precomputed, PerspectiveProjection, ProjectedPoint,
+};
+use scene::{AxisConfig3D, PointCloud3D, Scene3D};
 use scry_engine::style::Color;
 
 // ---------------------------------------------------------------------------
@@ -57,12 +59,12 @@ use scry_engine::style::Color;
 #[must_use]
 pub fn default_palette() -> [Color; 6] {
     [
-        Color::from_rgba8(99, 190, 255, 230),   // blue
-        Color::from_rgba8(255, 107, 107, 230),   // red
-        Color::from_rgba8(80, 220, 140, 230),    // green
-        Color::from_rgba8(255, 200, 60, 230),    // yellow
-        Color::from_rgba8(200, 120, 255, 230),   // purple
-        Color::from_rgba8(255, 160, 80, 230),    // orange
+        Color::from_rgba8(99, 190, 255, 230),  // blue
+        Color::from_rgba8(255, 107, 107, 230), // red
+        Color::from_rgba8(80, 220, 140, 230),  // green
+        Color::from_rgba8(255, 200, 60, 230),  // yellow
+        Color::from_rgba8(200, 120, 255, 230), // purple
+        Color::from_rgba8(255, 160, 80, 230),  // orange
     ]
 }
 
@@ -142,7 +144,10 @@ impl Rasterizer3D for SkiaRasterizer3D {
         let stride = pw as usize * 4;
 
         for pt in points {
-            let color = colors.get(pt.original_index).copied().unwrap_or(Color::WHITE);
+            let color = colors
+                .get(pt.original_index)
+                .copied()
+                .unwrap_or(Color::WHITE);
             let size = sizes.get(pt.original_index).copied().unwrap_or(3.0);
             let radius = size;
 
@@ -207,7 +212,8 @@ impl Rasterizer3D for SkiaRasterizer3D {
                         let br = ((sr as f32 * (1.0 - border_mix * 0.6)) as u32).min(255);
                         let bg_c = ((sg as f32 * (1.0 - border_mix * 0.6)) as u32).min(255);
                         let bb = ((sb as f32 * (1.0 - border_mix * 0.6)) as u32).min(255);
-                        let ba = sa_base * coverage * (1.0 - border_mix * (1.0 - border_alpha_base));
+                        let ba =
+                            sa_base * coverage * (1.0 - border_mix * (1.0 - border_alpha_base));
                         (br, bg_c, bb, ba)
                     } else {
                         (sr, sg, sb, sa_base * coverage)
@@ -220,7 +226,7 @@ impl Rasterizer3D for SkiaRasterizer3D {
                     let inv = 255 - sa;
 
                     let idx = row_offset + px as usize * 4;
-                    data[idx]     = ((fr * sa + data[idx] as u32 * inv) / 255) as u8;
+                    data[idx] = ((fr * sa + data[idx] as u32 * inv) / 255) as u8;
                     data[idx + 1] = ((fg * sa + data[idx + 1] as u32 * inv) / 255) as u8;
                     data[idx + 2] = ((fb * sa + data[idx + 2] as u32 * inv) / 255) as u8;
                     data[idx + 3] = (sa + data[idx + 3] as u32 * inv / 255).min(255) as u8;
@@ -315,7 +321,14 @@ pub(super) fn with_font(bold: bool, f: impl FnOnce(&fontdue::Font)) {
 }
 
 /// Stamp a single text string onto a pixmap, centered at (x, y).
-fn stamp_text(pixmap: &mut tiny_skia::Pixmap, x: f32, y: f32, text: &str, color: Color, font_size: f32) {
+fn stamp_text(
+    pixmap: &mut tiny_skia::Pixmap,
+    x: f32,
+    y: f32,
+    text: &str,
+    color: Color,
+    font_size: f32,
+) {
     with_font(false, |font| {
         // Pre-rasterize glyphs and measure width
         let mut glyphs: Vec<(fontdue::Metrics, Vec<u8>)> = Vec::with_capacity(text.len());
@@ -795,7 +808,8 @@ impl Chart3D {
         // Project line segments using precomputed VP
         let mut projected_segments: Vec<(ProjectedPoint, ProjectedPoint, Color, f32)> = Vec::new();
         for seg in &scene.line_segments {
-            let a_clip = projection::mat4_mul_vec4(&vp, [seg.start.x, seg.start.y, seg.start.z, 1.0]);
+            let a_clip =
+                projection::mat4_mul_vec4(&vp, [seg.start.x, seg.start.y, seg.start.z, 1.0]);
             let b_clip = projection::mat4_mul_vec4(&vp, [seg.end.x, seg.end.y, seg.end.z, 1.0]);
 
             if a_clip[3] <= 0.0 || b_clip[3] <= 0.0 {
@@ -840,7 +854,8 @@ impl Chart3D {
             {
                 seg_idx += 1;
             }
-            let batch: Vec<(ProjectedPoint, ProjectedPoint)> = projected_segments[batch_start..seg_idx]
+            let batch: Vec<(ProjectedPoint, ProjectedPoint)> = projected_segments
+                [batch_start..seg_idx]
                 .iter()
                 .map(|(a, b, _, _)| (*a, *b))
                 .collect();
@@ -858,7 +873,13 @@ impl Chart3D {
         // Project and draw labels
         for label in &scene.labels {
             if let Some(p) = proj.project(label.position, &view, width, height, 0) {
-                rasterizer.draw_text(p.screen_x, p.screen_y, &label.text, label.color, label.font_size);
+                rasterizer.draw_text(
+                    p.screen_x,
+                    p.screen_y,
+                    &label.text,
+                    label.color,
+                    label.font_size,
+                );
             }
         }
 
@@ -974,16 +995,16 @@ impl Chart3D {
         use crossterm::ExecutableCommand;
         use scry_engine::prelude::{Picker, ProtocolKind};
         use scry_engine::rasterize::Rasterizer;
-        use scry_engine::transport::{self, ProtocolBackend};
         use scry_engine::transport::backend::TerminalPosition;
+        use scry_engine::transport::{self, ProtocolBackend};
         use std::io::Write;
 
         let picker = Picker::detect();
         let font = picker.font_size();
 
         // Get terminal dimensions in pixels
-        let (cols, rows) = terminal::size()
-            .map_err(|e| format!("failed to get terminal size: {e}"))?;
+        let (cols, rows) =
+            terminal::size().map_err(|e| format!("failed to get terminal size: {e}"))?;
         // Leave 2 rows for the status bar
         let display_rows = rows.saturating_sub(2);
         let pixel_w = u32::from(cols) * u32::from(font.width);
@@ -1010,10 +1031,10 @@ impl Chart3D {
 
         // Enter alternate screen + raw mode so terminal text is hidden
         let mut stdout = std::io::stdout();
-        stdout.execute(crossterm::terminal::EnterAlternateScreen)
+        stdout
+            .execute(crossterm::terminal::EnterAlternateScreen)
             .map_err(|e| format!("failed to enter alternate screen: {e}"))?;
-        terminal::enable_raw_mode()
-            .map_err(|e| format!("failed to enable raw mode: {e}"))?;
+        terminal::enable_raw_mode().map_err(|e| format!("failed to enable raw mode: {e}"))?;
         // Hide cursor for a cleaner look
         let _ = stdout.execute(crossterm::cursor::Hide);
 
@@ -1026,9 +1047,10 @@ impl Chart3D {
         );
         let chart = self.clone().camera(cam);
         let canvas = chart.render_to_canvas(pixel_w, pixel_h)?;
-        let pixmap = Rasterizer::rasterize(&canvas)
-            .map_err(|e| format!("rasterize failed: {e}"))?;
-        let mut handle = backend.transmit(&pixmap, position, -1)
+        let pixmap =
+            Rasterizer::rasterize(&canvas).map_err(|e| format!("rasterize failed: {e}"))?;
+        let mut handle = backend
+            .transmit(&pixmap, position, -1)
             .map_err(|e| format!("transmit failed: {e}"))?;
 
         // Status bar
@@ -1041,9 +1063,7 @@ impl Chart3D {
             if event::poll(std::time::Duration::from_millis(50))
                 .map_err(|e| format!("poll failed: {e}"))?
             {
-                if let Event::Key(key) = event::read()
-                    .map_err(|e| format!("read failed: {e}"))?
-                {
+                if let Event::Key(key) = event::read().map_err(|e| format!("read failed: {e}"))? {
                     if key.kind != KeyEventKind::Press {
                         continue;
                     }
@@ -1075,7 +1095,8 @@ impl Chart3D {
                         let canvas = chart.render_to_canvas(pixel_w, pixel_h)?;
                         let pixmap = Rasterizer::rasterize(&canvas)
                             .map_err(|e| format!("rasterize failed: {e}"))?;
-                        handle = backend.replace(&handle, &pixmap, position, -1)
+                        handle = backend
+                            .replace(&handle, &pixmap, position, -1)
                             .map_err(|e| format!("replace failed: {e}"))?;
                         let _ = stdout.flush();
                     }
@@ -1116,8 +1137,8 @@ mod tests {
 
     #[test]
     fn chart3d_render_produces_rgba() {
-        let rgba = Chart3D::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], &[7.0, 8.0, 9.0])
-            .render(200, 150);
+        let rgba =
+            Chart3D::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], &[7.0, 8.0, 9.0]).render(200, 150);
 
         assert!(rgba.is_ok(), "render should succeed: {:?}", rgba.err());
         let data = rgba.unwrap();
@@ -1164,11 +1185,7 @@ mod tests {
 
     #[test]
     fn chart3d_with_custom_camera() {
-        let cam = Camera3D::new(
-            Vec3::new(2.0, 2.0, 2.0),
-            Vec3::new(0.5, 0.5, 0.5),
-            Vec3::Y,
-        );
+        let cam = Camera3D::new(Vec3::new(2.0, 2.0, 2.0), Vec3::new(0.5, 0.5, 0.5), Vec3::Y);
         let result = Chart3D::scatter(&[0.0, 1.0], &[0.0, 1.0], &[0.0, 1.0])
             .camera(cam)
             .render(200, 150);

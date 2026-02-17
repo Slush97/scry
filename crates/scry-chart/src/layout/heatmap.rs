@@ -92,7 +92,12 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
             );
 
             let corner = hm.cell_radius;
-            ctx.draw(|c| c.rect(cx, cy, cell_w, cell_h).fill(cell_color).corner_radius(corner).done());
+            ctx.draw(|c| {
+                c.rect(cx, cy, cell_w, cell_h)
+                    .fill(cell_color)
+                    .corner_radius(corner)
+                    .done()
+            });
 
             // Value label in cell center — contrast-aware text color
             if hm.show_values {

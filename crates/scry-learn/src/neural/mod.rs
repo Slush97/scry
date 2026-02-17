@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Neural network module — Multi-Layer Perceptron (MLP).
+//! Neural network module — MLP and CNN layers.
 //!
 //! Provides [`MLPClassifier`] and [`MLPRegressor`] with an sklearn-compatible
 //! builder API, GPU-accelerated forward pass, and built-in visualization.
+//!
+//! Also provides CNN building blocks: [`Conv2D`], [`MaxPool2D`], [`Flatten`],
+//! and the [`Layer`] trait for composing custom architectures.
 //!
 //! # Example
 //!
@@ -28,13 +31,23 @@
 //! ```
 
 pub mod activation;
-pub(crate) mod optimizer;
+pub mod callback;
+pub mod classifier;
+pub mod conv;
+pub mod flatten;
 pub(crate) mod layer;
 pub(crate) mod network;
-pub mod classifier;
+pub(crate) mod optimizer;
+pub mod pool;
 pub mod regressor;
+pub mod traits;
 
 pub use activation::Activation;
-pub use optimizer::OptimizerKind;
+pub use callback::{CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory};
 pub use classifier::MLPClassifier;
+pub use conv::Conv2D;
+pub use flatten::Flatten;
+pub use optimizer::OptimizerKind;
+pub use pool::MaxPool2D;
 pub use regressor::MLPRegressor;
+pub use traits::{BackwardOutput, Layer};

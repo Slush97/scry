@@ -13,7 +13,10 @@ impl Rasterizer {
     /// Compute a cache key for a gradient: hash of (gradient def + rect
     /// width/height). Position is excluded because we render at origin
     /// and blit to the target position.
-    pub(super) fn gradient_cache_key(gradient: &GradientDef, rect: &crate::scene::style::Rect) -> u64 {
+    pub(super) fn gradient_cache_key(
+        gradient: &GradientDef,
+        rect: &crate::scene::style::Rect,
+    ) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         gradient.hash(&mut hasher);
         rect.width.to_bits().hash(&mut hasher);

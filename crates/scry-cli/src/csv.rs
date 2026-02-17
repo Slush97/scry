@@ -132,10 +132,24 @@ impl CsvData {
                 self.headers.join(", ")
             )
         })?;
+        let expected = self.headers.len();
+        let mut ragged_warned = false;
         Ok(self
             .rows
             .iter()
-            .map(|row| row.get(idx).cloned().unwrap_or_default())
+            .enumerate()
+            .map(|(row_num, row)| {
+                if !ragged_warned && row.len() != expected {
+                    eprintln!(
+                        "warning: row {} has {} fields but header has {} — data may be misaligned",
+                        row_num + 1,
+                        row.len(),
+                        expected
+                    );
+                    ragged_warned = true;
+                }
+                row.get(idx).cloned().unwrap_or_default()
+            })
             .collect())
     }
 

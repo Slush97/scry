@@ -28,7 +28,11 @@ use crate::chart::Chart;
 pub fn data_extent(chart: &Chart) -> Option<(f64, f64, f64, f64)> {
     match chart {
         Chart::Line(c) => {
-            let ys: Vec<f64> = c.series.iter().flat_map(|s| s.values().iter().copied()).collect();
+            let ys: Vec<f64> = c
+                .series
+                .iter()
+                .flat_map(|s| s.values().iter().copied())
+                .collect();
             if ys.is_empty() {
                 return None;
             }
@@ -55,28 +59,48 @@ pub fn data_extent(chart: &Chart) -> Option<(f64, f64, f64, f64)> {
             let mut y_min = f64::INFINITY;
             let mut y_max = f64::NEG_INFINITY;
             for &v in xs {
-                if v < x_min { x_min = v; }
-                if v > x_max { x_max = v; }
+                if v < x_min {
+                    x_min = v;
+                }
+                if v > x_max {
+                    x_max = v;
+                }
             }
             for &v in ys {
-                if v < y_min { y_min = v; }
-                if v > y_max { y_max = v; }
+                if v < y_min {
+                    y_min = v;
+                }
+                if v > y_max {
+                    y_max = v;
+                }
             }
             // Include extra series
             for (ex, ey) in &c.extra_series {
                 for &v in ex.values() {
-                    if v < x_min { x_min = v; }
-                    if v > x_max { x_max = v; }
+                    if v < x_min {
+                        x_min = v;
+                    }
+                    if v > x_max {
+                        x_max = v;
+                    }
                 }
                 for &v in ey.values() {
-                    if v < y_min { y_min = v; }
-                    if v > y_max { y_max = v; }
+                    if v < y_min {
+                        y_min = v;
+                    }
+                    if v > y_max {
+                        y_max = v;
+                    }
                 }
             }
             Some((x_min, x_max, y_min, y_max))
         }
         Chart::Bar(c) => {
-            let ys: Vec<f64> = c.series.iter().flat_map(|s| s.values().iter().copied()).collect();
+            let ys: Vec<f64> = c
+                .series
+                .iter()
+                .flat_map(|s| s.values().iter().copied())
+                .collect();
             if ys.is_empty() {
                 return None;
             }
@@ -106,12 +130,20 @@ pub fn data_extent(chart: &Chart) -> Option<(f64, f64, f64, f64)> {
             let mut y_min = f64::INFINITY;
             let mut y_max = f64::NEG_INFINITY;
             for &v in xs {
-                if v < x_min { x_min = v; }
-                if v > x_max { x_max = v; }
+                if v < x_min {
+                    x_min = v;
+                }
+                if v > x_max {
+                    x_max = v;
+                }
             }
             for &v in ys {
-                if v < y_min { y_min = v; }
-                if v > y_max { y_max = v; }
+                if v < y_min {
+                    y_min = v;
+                }
+                if v > y_max {
+                    y_max = v;
+                }
             }
             Some((x_min, x_max, y_min, y_max))
         }
@@ -122,7 +154,11 @@ pub fn data_extent(chart: &Chart) -> Option<(f64, f64, f64, f64)> {
             let x_min = c.data.iter().map(|e| e.x).fold(f64::INFINITY, f64::min);
             let x_max = c.data.iter().map(|e| e.x).fold(f64::NEG_INFINITY, f64::max);
             let y_min = c.data.iter().map(|e| e.low).fold(f64::INFINITY, f64::min);
-            let y_max = c.data.iter().map(|e| e.high).fold(f64::NEG_INFINITY, f64::max);
+            let y_max = c
+                .data
+                .iter()
+                .map(|e| e.high)
+                .fold(f64::NEG_INFINITY, f64::max);
             Some((x_min, x_max, y_min, y_max))
         }
         Chart::BoxPlot(_)

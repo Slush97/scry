@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Materials for SDF objects: solid, water, and volumetric fire.
+
+use crate::scene::style::Color;
+
+/// Surface or volumetric material attached to an [`SdfObject`](super::SdfObject).
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum Material {
+    /// Opaque surface with Phong shading.
+    Solid {
+        /// Base color.
+        color: Color,
+        /// Mirror reflectivity (0 = matte, 1 = perfect mirror).
+        reflectivity: f32,
+        /// Specular highlight power.
+        specular: f32,
+    },
+    /// Animated water surface with Fresnel reflections.
+    Water {
+        /// Tint applied to the refracted color.
+        tint: Color,
+        /// Index of refraction (water ≈ 1.33).
+        ior: f32,
+        /// Wave amplitude in world units.
+        amplitude: f32,
+        /// Wave spatial frequency.
+        frequency: f32,
+    },
+    /// Volumetric fire rendered by front-to-back ray marching through FBM noise.
+    Fire {
+        /// Overall brightness multiplier.
+        intensity: f32,
+        /// Scale of the noise field.
+        noise_scale: f32,
+        /// Animation speed multiplier.
+        speed: f32,
+    },
+}
+
+impl Material {
+    /// Convenience: matte solid with no reflection.
+    pub fn matte(color: Color) -> Self {
+        Self::Solid {
+            color,
+            reflectivity: 0.0,
+            specular: 32.0,
+        }
+    }
+
+    /// Convenience: mirror-like surface.
+    pub fn mirror(color: Color, reflectivity: f32) -> Self {
+        Self::Solid {
+            color,
+            reflectivity,
+            specular: 64.0,
+        }
+    }
+
+    /// Convenience: default water material.
+    pub fn water() -> Self {
+        Self::Water {
+            tint: Color::from_rgba8(20, 60, 120, 255),
+            ior: 1.33,
+            amplitude: 0.08,
+            frequency: 3.0,
+        }
+    }
+
+    /// Convenience: default fire material.
+    pub fn fire() -> Self {
+        Self::Fire {
+            intensity: 1.5,
+            noise_scale: 2.5,
+            speed: 1.0,
+        }
+    }
+}
+
+/// Map a fire temperature `t` in `[0, 1]` to a color ramp:
+/// black → dark red → red → orange → yellow → white.
+pub fn fire_color_ramp(t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    let r = (t * 3.0).clamp(0.0, 1.0);
+    let g = ((t - 0.33) * 3.0).clamp(0.0, 1.0);
+    let b = ((t - 0.66) * 3.0).clamp(0.0, 1.0);
+    Color { r, g, b, a: 1.0 }
+}
+
+/// Schlick's approximation for Fresnel reflectance.
+///
+/// `cos_theta` is the cosine of the angle between the view direction and surface
+/// normal. `ior` is the index of refraction of the material.
+pub fn fresnel(cos_theta: f32, ior: f32) -> f32 {
+    let r0 = ((1.0 - ior) / (1.0 + ior)).powi(2);
+    r0 + (1.0 - r0) * (1.0 - cos_theta.clamp(0.0, 1.0)).powi(5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fire_ramp_endpoints() {
+        let black = fire_color_ramp(0.0);
+        assert!(black.r < 0.01 && black.g < 0.01 && black.b < 0.01);
+
+        let white = fire_color_ramp(1.0);
+        assert!(white.r > 0.99 && white.g > 0.99 && white.b > 0.99);
+    }
+
+    #[test]
+    fn fire_ramp_monotonic() {
+        let mut prev_r = 0.0_f32;
+        for i in 0..=10 {
+            let t = i as f32 / 10.0;
+            let c = fire_color_ramp(t);
+            assert!(c.r >= prev_r - 1e-6);
+            prev_r = c.r;
+        }
+    }
+
+    #[test]
+    fn fresnel_at_normal_incidence() {
+        // At normal incidence for glass (ior=1.5), R0 ≈ 0.04
+        let f = fresnel(1.0, 1.5);
+        assert!((f - 0.04).abs() < 0.01);
+    }
+
+    #[test]
+    fn fresnel_at_grazing() {
+        // At grazing angle, Fresnel → 1.0
+        let f = fresnel(0.0, 1.5);
+        assert!((f - 1.0).abs() < 0.01);
+    }
+}

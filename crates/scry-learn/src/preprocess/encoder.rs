@@ -7,6 +7,7 @@ use crate::error::{Result, ScryLearnError};
 ///
 /// Maintains a bidirectional mapping between labels and their numeric indices.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct LabelEncoder {
     classes: Vec<String>,
     fitted: bool,
@@ -23,7 +24,10 @@ impl LabelEncoder {
 
     /// Fit the encoder on a set of string labels.
     pub fn fit(&mut self, labels: &[&str]) {
-        let mut unique: Vec<String> = labels.iter().map(std::string::ToString::to_string).collect();
+        let mut unique: Vec<String> = labels
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         unique.sort();
         unique.dedup();
         self.classes = unique;
@@ -58,12 +62,9 @@ impl LabelEncoder {
             .iter()
             .map(|&idx| {
                 let i = idx as usize;
-                self.classes
-                    .get(i)
-                    .cloned()
-                    .ok_or_else(|| {
-                        ScryLearnError::InvalidParameter(format!("index out of range: {i}"))
-                    })
+                self.classes.get(i).cloned().ok_or_else(|| {
+                    ScryLearnError::InvalidParameter(format!("index out of range: {i}"))
+                })
             })
             .collect()
     }

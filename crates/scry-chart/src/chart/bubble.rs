@@ -10,8 +10,8 @@ use crate::chart::config_builder::{
     chart_config_ranges, chart_config_semantic_zoom, chart_config_tick_rotation,
     chart_config_tick_steps, chart_config_v_lines,
 };
-use crate::chart::{Chart, ChartConfig};
 use crate::chart::scatter::Marker;
+use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
 
 /// A bubble chart — scatter plot where each point has a variable size.

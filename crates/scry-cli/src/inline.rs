@@ -95,6 +95,73 @@ pub fn display_inline_auto(png_data: &[u8]) -> io::Result<()> {
     }
 }
 
+/// Display a PNG image inline using the Kitty graphics protocol with explicit
+/// display size in terminal columns (`c=`) and rows (`r=`).
+pub fn display_kitty_inline_sized(
+    png_data: &[u8],
+    width: Option<u32>,
+    height: Option<u32>,
+) -> io::Result<()> {
+    use base64::Engine;
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(png_data);
+    let mut stdout = io::stdout().lock();
+
+    // Build the size parameters string
+    let mut size_params = String::new();
+    if let Some(w) = width {
+        size_params.push_str(&format!(",c={w}"));
+    }
+    if let Some(h) = height {
+        size_params.push_str(&format!(",r={h}"));
+    }
+
+    const CHUNK_SIZE: usize = 65_536;
+    let total = encoded.len();
+    let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
+
+    for i in 0..n_chunks {
+        let start = i * CHUNK_SIZE;
+        let end = (start + CHUNK_SIZE).min(total);
+        let chunk = &encoded[start..end];
+        let more = if i != n_chunks - 1 { 1 } else { 0 };
+
+        if i == 0 {
+            write!(
+                stdout,
+                "\x1b_Ga=T,q=2,f=100,m={more}{size_params};{chunk}\x1b\\"
+            )?;
+        } else {
+            write!(stdout, "\x1b_Gm={more};{chunk}\x1b\\")?;
+        }
+    }
+
+    writeln!(stdout)?;
+    stdout.flush()?;
+    Ok(())
+}
+
+/// Auto-detect the best inline display method and show the image with size hints.
+pub fn display_inline_auto_sized(
+    png_data: &[u8],
+    width: Option<u32>,
+    height: Option<u32>,
+) -> io::Result<()> {
+    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let term = std::env::var("TERM").unwrap_or_default();
+    let kitty_pid = std::env::var("KITTY_PID").ok();
+
+    if term_program == "iTerm.app" || term_program == "WezTerm" {
+        // iTerm2 protocol supports width= and height= params but we
+        // fall back to the unsized variant for simplicity.
+        display_iterm2_inline(png_data)
+    } else if term == "xterm-kitty" || kitty_pid.is_some() {
+        display_kitty_inline_sized(png_data, width, height)
+    } else {
+        display_kitty_inline_sized(png_data, width, height)
+    }
+}
+
 /// Probe whether the current terminal likely supports inline images.
 pub fn terminal_supports_inline() -> bool {
     let term = std::env::var("TERM").unwrap_or_default();

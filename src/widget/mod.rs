@@ -22,7 +22,6 @@
 //! - [`incremental()`](PixelCanvasWidget::incremental) — transmit only changed 64×64
 //!   tiles for partially-animated scenes (Kitty backend only).
 
-
 pub(crate) mod widget_impl;
 
 #[cfg(feature = "svg")]

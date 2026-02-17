@@ -29,8 +29,7 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
     let path = &args.path;
 
     // Read the file
-    let data =
-        std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
+    let data = std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
 
     // Detect format by extension or magic bytes
     let lower = path.to_lowercase();
@@ -49,8 +48,11 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
         data
     };
 
-    inline::display_inline_auto(&png_data)
-        .map_err(|e| format!("inline display failed: {e}"))?;
+    match (args.width, args.height) {
+        (None, None) => inline::display_inline_auto(&png_data),
+        _ => inline::display_inline_auto_sized(&png_data, args.width, args.height),
+    }
+    .map_err(|e| format!("inline display failed: {e}"))?;
 
     Ok(())
 }

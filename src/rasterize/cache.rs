@@ -51,6 +51,8 @@ pub struct RasterCache {
     hash: Option<u64>,
     /// The rasterized pixel buffer.
     pixmap: Option<Pixmap>,
+    /// Dimensions of the last stored/validated pixmap.
+    cached_dims: Option<(u32, u32)>,
     /// Per-tile hashes of the previous frame for dirty detection.
     prev_tile_hashes: Vec<u64>,
     /// Width in tiles of the grid.
@@ -68,6 +70,7 @@ impl RasterCache {
         Self {
             hash: None,
             pixmap: None,
+            cached_dims: None,
             prev_tile_hashes: Vec::new(),
             tiles_x: 0,
             tiles_y: 0,
@@ -76,9 +79,15 @@ impl RasterCache {
     }
 
     /// Check whether the cache contains a valid entry for the given content hash.
+    ///
+    /// Also validates that the cached pixmap dimensions match the stored dimensions
+    /// to prevent stale entries after dimension changes.
     #[must_use]
     pub fn is_valid(&self, content_hash: u64) -> bool {
-        self.hash == Some(content_hash) && self.pixmap.is_some()
+        self.hash == Some(content_hash)
+            && self.pixmap.as_ref().map_or(false, |pm| {
+                self.cached_dims == Some((pm.width(), pm.height()))
+            })
     }
 
     /// Get the cached pixmap, if the content hash matches.
@@ -127,6 +136,7 @@ impl RasterCache {
 
     /// Store a rasterized result in the cache.
     pub fn store(&mut self, content_hash: u64, pixmap: Pixmap) {
+        self.cached_dims = Some((pixmap.width(), pixmap.height()));
         self.hash = Some(content_hash);
         self.pixmap = Some(pixmap);
     }
@@ -135,7 +145,8 @@ impl RasterCache {
     ///
     /// Used after [`Rasterizer::rasterize_into`](super::Rasterizer::rasterize_into) writes directly into the
     /// pixmap returned by [`get_or_insert`](Self::get_or_insert).
-    pub const fn mark_valid(&mut self, content_hash: u64) {
+    pub fn mark_valid(&mut self, content_hash: u64) {
+        self.cached_dims = self.pixmap.as_ref().map(|pm| (pm.width(), pm.height()));
         self.hash = Some(content_hash);
     }
 
@@ -143,6 +154,7 @@ impl RasterCache {
     pub fn clear(&mut self) {
         self.hash = None;
         self.pixmap = None;
+        self.cached_dims = None;
         self.prev_tile_hashes.clear();
         self.tiles_x = 0;
         self.tiles_y = 0;
@@ -211,10 +223,19 @@ impl RasterCache {
     /// Returns `None` if no pixmap is currently cached.
     pub fn compute_dirty_tiles_cached(&mut self) -> Option<Vec<DirtyTile>> {
         let pixmap = self.pixmap.as_ref()?;
-        let data = pixmap.data().to_vec(); // Copy data to break borrow
+        let data = pixmap.data();
         let w = pixmap.width() as usize;
         let h = pixmap.height() as usize;
-        Some(self.compute_dirty_tiles_from_data(&data, w, h))
+        // Use free function to avoid self-referential borrow (data borrows
+        // self.pixmap immutably while we need &mut self.prev_tile_hashes).
+        Some(compute_dirty_from_data(
+            data,
+            w,
+            h,
+            &mut self.prev_tile_hashes,
+            &mut self.tiles_x,
+            &mut self.tiles_y,
+        ))
     }
 
     /// Compute dirty tiles from raw RGBA pixel data.
@@ -228,72 +249,95 @@ impl RasterCache {
         w: usize,
         h: usize,
     ) -> Vec<DirtyTile> {
-        let tx = w.div_ceil(TILE_SIZE);
-        let ty = h.div_ceil(TILE_SIZE);
-        let total = tx * ty;
+        compute_dirty_from_data(
+            data,
+            w,
+            h,
+            &mut self.prev_tile_hashes,
+            &mut self.tiles_x,
+            &mut self.tiles_y,
+        )
+    }
+}
 
-        // Take the old hashes out for comparison, then reuse the vec
-        // for computing the current frame's hashes (avoids allocation).
-        let prev_hashes = std::mem::take(&mut self.prev_tile_hashes);
-        let mut current_hashes = Vec::with_capacity(total.max(prev_hashes.len()));
+/// Compute dirty tiles from raw pixel data, comparing per-tile hashes.
+///
+/// This is a free function (not a method) so that the caller can borrow
+/// pixel data and tile-hash state from different struct fields simultaneously,
+/// avoiding the self-referential borrow problem in `compute_dirty_tiles_cached`.
+fn compute_dirty_from_data(
+    data: &[u8],
+    w: usize,
+    h: usize,
+    prev_tile_hashes: &mut Vec<u64>,
+    tiles_x: &mut usize,
+    tiles_y: &mut usize,
+) -> Vec<DirtyTile> {
+    let tx = w.div_ceil(TILE_SIZE);
+    let ty = h.div_ceil(TILE_SIZE);
+    let total = tx * ty;
 
+    // Take the old hashes out for comparison, then reuse the vec
+    // for computing the current frame's hashes (avoids allocation).
+    let old_hashes = std::mem::take(prev_tile_hashes);
+    let mut current_hashes = Vec::with_capacity(total.max(old_hashes.len()));
+
+    for ty_idx in 0..ty {
+        for tx_idx in 0..tx {
+            let x0 = tx_idx * TILE_SIZE;
+            let y0 = ty_idx * TILE_SIZE;
+            let tw = TILE_SIZE.min(w - x0);
+            let th = TILE_SIZE.min(h - y0);
+
+            let mut hash = FNV_OFFSET;
+            for row in y0..(y0 + th) {
+                let start = (row * w + x0) * 4;
+                let end = start + tw * 4;
+                for &byte in &data[start..end] {
+                    hash ^= u64::from(byte);
+                    hash = hash.wrapping_mul(FNV_PRIME);
+                }
+            }
+            current_hashes.push(hash);
+        }
+    }
+
+    // Compare against previous
+    let mut dirty = Vec::new();
+
+    if *tiles_x != tx || *tiles_y != ty || old_hashes.len() != total {
+        // Dimensions changed — everything is dirty
         for ty_idx in 0..ty {
             for tx_idx in 0..tx {
-                let x0 = tx_idx * TILE_SIZE;
-                let y0 = ty_idx * TILE_SIZE;
-                let tw = TILE_SIZE.min(w - x0);
-                let th = TILE_SIZE.min(h - y0);
-
-                let mut hash = FNV_OFFSET;
-                for row in y0..(y0 + th) {
-                    let start = (row * w + x0) * 4;
-                    let end = start + tw * 4;
-                    for &byte in &data[start..end] {
-                        hash ^= u64::from(byte);
-                        hash = hash.wrapping_mul(FNV_PRIME);
-                    }
-                }
-                current_hashes.push(hash);
+                dirty.push(DirtyTile {
+                    x: tx_idx * TILE_SIZE,
+                    y: ty_idx * TILE_SIZE,
+                    width: TILE_SIZE.min(w - tx_idx * TILE_SIZE),
+                    height: TILE_SIZE.min(h - ty_idx * TILE_SIZE),
+                });
             }
         }
-
-        // Compare against previous
-        let mut dirty = Vec::new();
-
-        if self.tiles_x != tx || self.tiles_y != ty || prev_hashes.len() != total {
-            // Dimensions changed — everything is dirty
-            for ty_idx in 0..ty {
-                for tx_idx in 0..tx {
-                    dirty.push(DirtyTile {
-                        x: tx_idx * TILE_SIZE,
-                        y: ty_idx * TILE_SIZE,
-                        width: TILE_SIZE.min(w - tx_idx * TILE_SIZE),
-                        height: TILE_SIZE.min(h - ty_idx * TILE_SIZE),
-                    });
-                }
-            }
-        } else {
-            for (i, (&prev, &curr)) in prev_hashes.iter().zip(current_hashes.iter()).enumerate() {
-                if prev != curr {
-                    let col_idx = i % tx;
-                    let row_idx = i / tx;
-                    dirty.push(DirtyTile {
-                        x: col_idx * TILE_SIZE,
-                        y: row_idx * TILE_SIZE,
-                        width: TILE_SIZE.min(w - col_idx * TILE_SIZE),
-                        height: TILE_SIZE.min(h - row_idx * TILE_SIZE),
-                    });
-                }
+    } else {
+        for (i, (&prev, &curr)) in old_hashes.iter().zip(current_hashes.iter()).enumerate() {
+            if prev != curr {
+                let col_idx = i % tx;
+                let row_idx = i / tx;
+                dirty.push(DirtyTile {
+                    x: col_idx * TILE_SIZE,
+                    y: row_idx * TILE_SIZE,
+                    width: TILE_SIZE.min(w - col_idx * TILE_SIZE),
+                    height: TILE_SIZE.min(h - row_idx * TILE_SIZE),
+                });
             }
         }
-
-        // Store for next frame
-        self.prev_tile_hashes = current_hashes;
-        self.tiles_x = tx;
-        self.tiles_y = ty;
-
-        dirty
     }
+
+    // Store for next frame
+    *prev_tile_hashes = current_hashes;
+    *tiles_x = tx;
+    *tiles_y = ty;
+
+    dirty
 }
 
 impl Default for RasterCache {

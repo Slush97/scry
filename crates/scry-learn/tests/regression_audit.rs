@@ -28,14 +28,27 @@ fn gen_regression(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<
 }
 
 fn mse(y_true: &[f64], y_pred: &[f64]) -> f64 {
-    y_true.iter().zip(y_pred).map(|(&t, &p)| (t - p).powi(2)).sum::<f64>() / y_true.len() as f64
+    y_true
+        .iter()
+        .zip(y_pred)
+        .map(|(&t, &p)| (t - p).powi(2))
+        .sum::<f64>()
+        / y_true.len() as f64
 }
 
 fn r2(y_true: &[f64], y_pred: &[f64]) -> f64 {
     let mean = y_true.iter().sum::<f64>() / y_true.len() as f64;
     let ss_tot: f64 = y_true.iter().map(|&t| (t - mean).powi(2)).sum();
-    let ss_res: f64 = y_true.iter().zip(y_pred).map(|(&t, &p)| (t - p).powi(2)).sum();
-    if ss_tot < 1e-15 { 0.0 } else { 1.0 - ss_res / ss_tot }
+    let ss_res: f64 = y_true
+        .iter()
+        .zip(y_pred)
+        .map(|(&t, &p)| (t - p).powi(2))
+        .sum();
+    if ss_tot < 1e-15 {
+        0.0
+    } else {
+        1.0 - ss_res / ss_tot
+    }
 }
 
 /// FNV-1a hash of prediction vector for cross-machine reproducibility.
@@ -50,8 +63,17 @@ fn prediction_checksum(preds: &[f64]) -> u64 {
 
 /// Simple 80/20 split with deterministic shuffle (seed=42).
 fn split_data(
-    col_major: &[Vec<f64>], target: &[f64], row_major: &[Vec<f64>],
-) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
+    col_major: &[Vec<f64>],
+    target: &[f64],
+    row_major: &[Vec<f64>],
+) -> (
+    Vec<Vec<f64>>,
+    Vec<f64>,
+    Vec<Vec<f64>>,
+    Vec<Vec<f64>>,
+    Vec<f64>,
+    Vec<Vec<f64>>,
+) {
     let n = target.len();
     let mut indices: Vec<usize> = (0..n).collect();
     // Fisher-Yates with seed
@@ -77,7 +99,14 @@ fn split_data(
     let test_target: Vec<f64> = test_idx.iter().map(|&i| target[i]).collect();
     let test_row: Vec<Vec<f64>> = test_idx.iter().map(|&i| row_major[i].clone()).collect();
 
-    (train_col, train_target, train_row, test_col, test_target, test_row)
+    (
+        train_col,
+        train_target,
+        train_row,
+        test_col,
+        test_target,
+        test_row,
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -96,8 +125,10 @@ fn regression_audit_linear() {
 
     // ── scry-learn ──
     let train_ds = scry_learn::dataset::Dataset::new(
-        train_col, train_target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "y",
+        train_col,
+        train_target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "y",
     );
     let t0 = Instant::now();
     for _ in 0..n_iters {
@@ -121,13 +152,17 @@ fn regression_audit_linear() {
             std::hint::black_box(&smart_train_x),
             std::hint::black_box(&train_target),
             Default::default(),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let smart_fit_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     let smart_model = smartcore::linear::linear_regression::LinearRegression::fit(
-        &smart_train_x, &train_target, Default::default(),
-    ).unwrap();
+        &smart_train_x,
+        &train_target,
+        Default::default(),
+    )
+    .unwrap();
     let smart_test_x = DenseMatrix::from_2d_vec(&test_row).unwrap();
     let smart_preds: Vec<f64> = smart_model.predict(&smart_test_x).unwrap();
     let smart_r2 = r2(&test_target, &smart_preds);
@@ -136,7 +171,8 @@ fn regression_audit_linear() {
     // ── linfa ──
     use linfa::prelude::{Fit, Predict};
     let train_flat: Vec<f64> = train_row.iter().flat_map(|r| r.iter().copied()).collect();
-    let train_x_nd = ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
+    let train_x_nd =
+        ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
     let train_y_nd = ndarray::Array1::from_vec(train_target.clone());
     let linfa_train_ds = linfa::Dataset::new(train_x_nd, train_y_nd);
 
@@ -149,9 +185,11 @@ fn regression_audit_linear() {
     let linfa_fit_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     let linfa_model = linfa_linear::LinearRegression::default()
-        .fit(&linfa_train_ds).unwrap();
+        .fit(&linfa_train_ds)
+        .unwrap();
     let test_flat: Vec<f64> = test_row.iter().flat_map(|r| r.iter().copied()).collect();
-    let test_x_nd = ndarray::Array2::from_shape_vec((test_row.len(), n_features), test_flat).unwrap();
+    let test_x_nd =
+        ndarray::Array2::from_shape_vec((test_row.len(), n_features), test_flat).unwrap();
     let linfa_preds_nd = linfa_model.predict(&test_x_nd);
     let linfa_preds: Vec<f64> = linfa_preds_nd.to_vec();
     let linfa_r2 = r2(&test_target, &linfa_preds);
@@ -159,9 +197,34 @@ fn regression_audit_linear() {
 
     println!("\n{}", "=".repeat(80));
     println!("REGRESSION AUDIT — LinearRegression ({n}x{n_features}, 80/20 split, seed=42)");
-    println!("  scry-learn   R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}", scry_r2, scry_mse, scry_fit_us, prediction_checksum(&scry_preds));
-    println!("  smartcore    R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}", smart_r2, smart_mse, smart_fit_us, prediction_checksum(&smart_preds));
-    println!("  linfa        R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}", linfa_r2, linfa_mse, linfa_fit_us, prediction_checksum(&linfa_preds));
+    println!(
+        "  scry-learn   R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}",
+        scry_r2,
+        scry_mse,
+        scry_fit_us,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  smartcore    R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}",
+        smart_r2,
+        smart_mse,
+        smart_fit_us,
+        prediction_checksum(&smart_preds)
+    );
+    println!(
+        "  linfa        R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}",
+        linfa_r2,
+        linfa_mse,
+        linfa_fit_us,
+        prediction_checksum(&linfa_preds)
+    );
+
+    // Regression threshold: linear regression on y = sum(j*xj) + noise should
+    // achieve near-perfect R² on the test set.
+    assert!(
+        scry_r2 >= 0.99,
+        "scry LinearRegression R² regression: {scry_r2:.6} < 0.99"
+    );
     println!();
 }
 
@@ -181,8 +244,10 @@ fn regression_audit_decision_tree() {
 
     // ── scry-learn ──
     let train_ds = scry_learn::dataset::Dataset::new(
-        train_col, train_target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "y",
+        train_col,
+        train_target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "y",
     );
     let t0 = Instant::now();
     for _ in 0..n_iters {
@@ -200,21 +265,26 @@ fn regression_audit_decision_tree() {
     // ── smartcore ──
     use smartcore::linalg::basic::matrix::DenseMatrix;
     let smart_train_x = DenseMatrix::from_2d_vec(&train_row).unwrap();
-    let smart_params = smartcore::tree::decision_tree_regressor::DecisionTreeRegressorParameters::default()
-        .with_max_depth(8);
+    let smart_params =
+        smartcore::tree::decision_tree_regressor::DecisionTreeRegressorParameters::default()
+            .with_max_depth(8);
     let t0 = Instant::now();
     for _ in 0..n_iters {
         let _ = smartcore::tree::decision_tree_regressor::DecisionTreeRegressor::fit(
             std::hint::black_box(&smart_train_x),
             std::hint::black_box(&train_target),
             smart_params.clone(),
-        ).unwrap();
+        )
+        .unwrap();
     }
     let smart_fit_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     let smart_model = smartcore::tree::decision_tree_regressor::DecisionTreeRegressor::fit(
-        &smart_train_x, &train_target, smart_params,
-    ).unwrap();
+        &smart_train_x,
+        &train_target,
+        smart_params,
+    )
+    .unwrap();
     let smart_test_x = DenseMatrix::from_2d_vec(&test_row).unwrap();
     let smart_preds: Vec<f64> = smart_model.predict(&smart_test_x).unwrap();
     let smart_r2 = r2(&test_target, &smart_preds);
@@ -222,8 +292,26 @@ fn regression_audit_decision_tree() {
 
     println!("\n{}", "=".repeat(80));
     println!("REGRESSION AUDIT — DecisionTreeRegressor ({n}x{n_features}, depth=8, 80/20 split, seed=42)");
-    println!("  scry-learn   R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}", scry_r2, scry_mse, scry_fit_us, prediction_checksum(&scry_preds));
-    println!("  smartcore    R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}", smart_r2, smart_mse, smart_fit_us, prediction_checksum(&smart_preds));
+    println!(
+        "  scry-learn   R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}",
+        scry_r2,
+        scry_mse,
+        scry_fit_us,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  smartcore    R2={:.6}  MSE={:.4}  fit={:.2}us  checksum=0x{:016x}",
+        smart_r2,
+        smart_mse,
+        smart_fit_us,
+        prediction_checksum(&smart_preds)
+    );
+
+    // Regression threshold: DT regressor on synthetic data should achieve R² > 0.85
+    assert!(
+        scry_r2 >= 0.85,
+        "scry DTRegressor R² regression: {scry_r2:.6} < 0.85"
+    );
     println!();
 }
 
@@ -241,10 +329,14 @@ fn regression_audit_lasso() {
 
     // ── scry-learn ──
     let train_ds = scry_learn::dataset::Dataset::new(
-        train_col, train_target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "y",
+        train_col,
+        train_target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "y",
     );
-    let mut scry_lasso = scry_learn::linear::LassoRegression::new().alpha(0.1).max_iter(1000);
+    let mut scry_lasso = scry_learn::linear::LassoRegression::new()
+        .alpha(0.1)
+        .max_iter(1000);
     scry_lasso.fit(&train_ds).unwrap();
     let scry_preds = scry_lasso.predict(&test_row).unwrap();
     let scry_r2 = r2(&test_target, &scry_preds);
@@ -253,7 +345,8 @@ fn regression_audit_lasso() {
     // ── linfa-elasticnet (l1_ratio=1.0 = Lasso) ──
     use linfa::prelude::{Fit, Predict};
     let train_flat: Vec<f64> = train_row.iter().flat_map(|r| r.iter().copied()).collect();
-    let train_x_nd = ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
+    let train_x_nd =
+        ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
     let train_y_nd = ndarray::Array1::from_vec(train_target);
     let linfa_train_ds = linfa::Dataset::new(train_x_nd, train_y_nd);
 
@@ -263,7 +356,8 @@ fn regression_audit_lasso() {
         .fit(&linfa_train_ds)
         .unwrap();
     let test_flat: Vec<f64> = test_row.iter().flat_map(|r| r.iter().copied()).collect();
-    let test_x_nd = ndarray::Array2::from_shape_vec((test_row.len(), n_features), test_flat).unwrap();
+    let test_x_nd =
+        ndarray::Array2::from_shape_vec((test_row.len(), n_features), test_flat).unwrap();
     let linfa_preds_nd = linfa_model.predict(&test_x_nd);
     let linfa_preds: Vec<f64> = linfa_preds_nd.to_vec();
     let linfa_r2 = r2(&test_target, &linfa_preds);
@@ -271,8 +365,24 @@ fn regression_audit_lasso() {
 
     println!("\n{}", "=".repeat(80));
     println!("REGRESSION AUDIT — Lasso ({n}x{n_features}, alpha=0.1, 80/20 split, seed=42)");
-    println!("  scry-learn   R2={:.6}  MSE={:.4}  checksum=0x{:016x}", scry_r2, scry_mse, prediction_checksum(&scry_preds));
-    println!("  linfa        R2={:.6}  MSE={:.4}  checksum=0x{:016x}", linfa_r2, linfa_mse, prediction_checksum(&linfa_preds));
+    println!(
+        "  scry-learn   R2={:.6}  MSE={:.4}  checksum=0x{:016x}",
+        scry_r2,
+        scry_mse,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  linfa        R2={:.6}  MSE={:.4}  checksum=0x{:016x}",
+        linfa_r2,
+        linfa_mse,
+        prediction_checksum(&linfa_preds)
+    );
+
+    // Regression threshold: Lasso on synthetic linear data should achieve high R²
+    assert!(
+        scry_r2 >= 0.95,
+        "scry Lasso R² regression: {scry_r2:.6} < 0.95"
+    );
     println!();
 }
 
@@ -290,10 +400,15 @@ fn regression_audit_elastic_net() {
 
     // ── scry-learn ──
     let train_ds = scry_learn::dataset::Dataset::new(
-        train_col, train_target.clone(),
-        (0..n_features).map(|i| format!("f{i}")).collect(), "y",
+        train_col,
+        train_target.clone(),
+        (0..n_features).map(|i| format!("f{i}")).collect(),
+        "y",
     );
-    let mut scry_en = scry_learn::linear::ElasticNet::new().alpha(0.1).l1_ratio(0.5).max_iter(1000);
+    let mut scry_en = scry_learn::linear::ElasticNet::new()
+        .alpha(0.1)
+        .l1_ratio(0.5)
+        .max_iter(1000);
     scry_en.fit(&train_ds).unwrap();
     let scry_preds = scry_en.predict(&test_row).unwrap();
     let scry_r2 = r2(&test_target, &scry_preds);
@@ -302,7 +417,8 @@ fn regression_audit_elastic_net() {
     // ── linfa-elasticnet ──
     use linfa::prelude::{Fit, Predict};
     let train_flat: Vec<f64> = train_row.iter().flat_map(|r| r.iter().copied()).collect();
-    let train_x_nd = ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
+    let train_x_nd =
+        ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
     let train_y_nd = ndarray::Array1::from_vec(train_target);
     let linfa_train_ds = linfa::Dataset::new(train_x_nd, train_y_nd);
 
@@ -312,7 +428,8 @@ fn regression_audit_elastic_net() {
         .fit(&linfa_train_ds)
         .unwrap();
     let test_flat: Vec<f64> = test_row.iter().flat_map(|r| r.iter().copied()).collect();
-    let test_x_nd = ndarray::Array2::from_shape_vec((test_row.len(), n_features), test_flat).unwrap();
+    let test_x_nd =
+        ndarray::Array2::from_shape_vec((test_row.len(), n_features), test_flat).unwrap();
     let linfa_preds_nd = linfa_model.predict(&test_x_nd);
     let linfa_preds: Vec<f64> = linfa_preds_nd.to_vec();
     let linfa_r2 = r2(&test_target, &linfa_preds);
@@ -320,7 +437,23 @@ fn regression_audit_elastic_net() {
 
     println!("\n{}", "=".repeat(80));
     println!("REGRESSION AUDIT — ElasticNet ({n}x{n_features}, alpha=0.1, l1_ratio=0.5, 80/20 split, seed=42)");
-    println!("  scry-learn   R2={:.6}  MSE={:.4}  checksum=0x{:016x}", scry_r2, scry_mse, prediction_checksum(&scry_preds));
-    println!("  linfa        R2={:.6}  MSE={:.4}  checksum=0x{:016x}", linfa_r2, linfa_mse, prediction_checksum(&linfa_preds));
+    println!(
+        "  scry-learn   R2={:.6}  MSE={:.4}  checksum=0x{:016x}",
+        scry_r2,
+        scry_mse,
+        prediction_checksum(&scry_preds)
+    );
+    println!(
+        "  linfa        R2={:.6}  MSE={:.4}  checksum=0x{:016x}",
+        linfa_r2,
+        linfa_mse,
+        prediction_checksum(&linfa_preds)
+    );
+
+    // Regression threshold: ElasticNet on synthetic linear data should achieve high R²
+    assert!(
+        scry_r2 >= 0.95,
+        "scry ElasticNet R² regression: {scry_r2:.6} < 0.95"
+    );
     println!();
 }

@@ -15,6 +15,7 @@
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neural::activation::Activation;
+use crate::neural::callback::{self, EpochMetrics, TrainingHistory};
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};
@@ -49,6 +50,8 @@ pub struct MLPRegressor {
     network_dims: Vec<(usize, usize)>,
     /// Training loss curve (one entry per epoch).
     pub loss_curve: Vec<f64>,
+    /// Structured training history with per-epoch metrics.
+    training_history: TrainingHistory,
 }
 
 impl MLPRegressor {
@@ -72,6 +75,7 @@ impl MLPRegressor {
             network_weights: Vec::new(),
             network_dims: Vec::new(),
             loss_curve: Vec::new(),
+            training_history: TrainingHistory::new(),
         }
     }
 
@@ -121,6 +125,11 @@ impl MLPRegressor {
     pub fn tolerance(mut self, tol: f64) -> Self {
         self.tolerance = tol;
         self
+    }
+
+    /// Alias for [`tolerance`](Self::tolerance) (sklearn convention).
+    pub fn tol(self, t: f64) -> Self {
+        self.tolerance(t)
     }
 
     /// Enable early stopping. Default: false.
@@ -196,22 +205,37 @@ impl MLPRegressor {
 
         let mut net = Network::new(&sizes, self.activation, self.seed);
         let param_sizes = net.param_group_sizes();
-        let mut optimizer = OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
+        let mut optimizer =
+            OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
 
         let batch_size = self.batch_size.min(train_n);
         let mut rng = FastRng::new(self.seed.wrapping_add(1));
         let mut indices: Vec<usize> = (0..train_n).collect();
 
         self.loss_curve.clear();
+        self.training_history = TrainingHistory::new();
         let mut best_val_loss = f64::INFINITY;
         let mut best_weights: Option<Vec<(Vec<f64>, Vec<f64>)>> = None;
         let mut no_improve = 0;
 
-        for _epoch in 0..self.max_iter {
+        for epoch_idx in 0..self.max_iter {
+            let epoch_start = std::time::Instant::now();
             rng.shuffle(&mut indices);
 
             let mut epoch_loss = 0.0;
             let mut n_batches = 0;
+            let mut last_grad_norm = 0.0;
+            let mut epoch_ss_res = 0.0;
+            let mut epoch_ss_tot = 0.0;
+            let mut epoch_sum_y = 0.0;
+            let mut epoch_n = 0usize;
+
+            // First pass: compute mean of targets for R²
+            for &i in &indices {
+                epoch_sum_y += train_y[i];
+                epoch_n += 1;
+            }
+            let mean_y = epoch_sum_y / epoch_n as f64;
 
             for chunk in indices.chunks(batch_size) {
                 let b = chunk.len();
@@ -227,9 +251,16 @@ impl MLPRegressor {
                 epoch_loss += loss;
                 n_batches += 1;
 
+                // Accumulate R² components
+                for (pred, &actual) in output.iter().zip(batch_y.iter()) {
+                    epoch_ss_res += (pred - actual).powi(2);
+                    epoch_ss_tot += (actual - mean_y).powi(2);
+                }
+
                 // Reshape gradient to [batch, 1] for backward pass
                 let grad_2d: Vec<f64> = grad;
                 let layer_grads = net.backward(&grad_2d, self.alpha);
+                last_grad_norm = callback::compute_grad_norm(&layer_grads);
                 optimizer.tick();
                 net.apply_gradients(&layer_grads, &mut optimizer);
             }
@@ -237,12 +268,34 @@ impl MLPRegressor {
             let avg_loss = epoch_loss / n_batches as f64;
             self.loss_curve.push(avg_loss);
 
-            // Early stopping check
+            let train_r2 = if epoch_ss_tot > 0.0 {
+                Some(1.0 - epoch_ss_res / epoch_ss_tot)
+            } else {
+                None
+            };
+
+            // Early stopping check + validation metrics
+            let mut val_loss_epoch = None;
+            let mut val_metric_epoch = None;
+
             if self.early_stopping {
                 if let (Some(ref vx), Some(ref vy)) = (&val_x, &val_y) {
                     let val_n = vy.len();
                     let val_output = net.forward(vx, val_n, false);
                     let (val_loss, _) = network::mse_loss(&val_output, vy, val_n);
+                    val_loss_epoch = Some(val_loss);
+
+                    // Validation R²
+                    let val_mean: f64 = vy.iter().sum::<f64>() / val_n as f64;
+                    let val_ss_res: f64 = val_output
+                        .iter()
+                        .zip(vy.iter())
+                        .map(|(p, a)| (p - a).powi(2))
+                        .sum();
+                    let val_ss_tot: f64 = vy.iter().map(|a| (a - val_mean).powi(2)).sum();
+                    if val_ss_tot > 0.0 {
+                        val_metric_epoch = Some(1.0 - val_ss_res / val_ss_tot);
+                    }
 
                     if val_loss < best_val_loss - self.tolerance {
                         best_val_loss = val_loss;
@@ -250,9 +303,6 @@ impl MLPRegressor {
                         no_improve = 0;
                     } else {
                         no_improve += 1;
-                        if no_improve >= self.n_iter_no_change {
-                            break;
-                        }
                     }
                 }
             } else {
@@ -261,13 +311,28 @@ impl MLPRegressor {
                     let improvement = self.loss_curve[n - 2] - self.loss_curve[n - 1];
                     if improvement.abs() < self.tolerance {
                         no_improve += 1;
-                        if no_improve >= self.n_iter_no_change {
-                            break;
-                        }
                     } else {
                         no_improve = 0;
                     }
                 }
+            }
+
+            let elapsed = epoch_start.elapsed();
+            self.training_history.push(EpochMetrics {
+                epoch: epoch_idx,
+                train_loss: avg_loss,
+                val_loss: val_loss_epoch,
+                train_metric: train_r2,
+                val_metric: val_metric_epoch,
+                learning_rate: self.learning_rate,
+                grad_norm: last_grad_norm,
+                elapsed_ms: elapsed.as_millis() as u64,
+            });
+
+            if no_improve >= self.n_iter_no_change
+                && (self.early_stopping || self.loss_curve.len() >= 2)
+            {
+                break;
             }
         }
 
@@ -303,7 +368,10 @@ impl MLPRegressor {
         }
 
         let mut net = self.rebuild_network();
-        let x: Vec<f64> = features.iter().flat_map(|row| row.iter().copied()).collect();
+        let x: Vec<f64> = features
+            .iter()
+            .flat_map(|row| row.iter().copied())
+            .collect();
         let output = net.forward(&x, batch, false);
         Ok(output)
     }
@@ -318,6 +386,17 @@ impl MLPRegressor {
         &self.loss_curve
     }
 
+    /// Structured training history with per-epoch metrics.
+    ///
+    /// Returns `None` if the model has not been fitted yet.
+    pub fn history(&self) -> Option<&TrainingHistory> {
+        if self.training_history.is_empty() {
+            None
+        } else {
+            Some(&self.training_history)
+        }
+    }
+
     /// Saved network weights (for visualization).
     pub fn weights(&self) -> &[(Vec<f64>, Vec<f64>)] {
         &self.network_weights
@@ -326,6 +405,11 @@ impl MLPRegressor {
     /// Layer dimensions (for visualization).
     pub fn layer_dims(&self) -> &[(usize, usize)] {
         &self.network_dims
+    }
+
+    /// Hidden-layer activation function.
+    pub fn activation_fn(&self) -> Activation {
+        self.activation
     }
 
     fn rebuild_network(&self) -> Network {
@@ -349,6 +433,9 @@ impl PartialFit for MLPRegressor {
         let n_samples = data.n_samples();
         let n_features = data.n_features();
         if n_samples == 0 {
+            if self.is_initialized() {
+                return Ok(());
+            }
             return Err(ScryLearnError::EmptyDataset);
         }
 
@@ -453,12 +540,7 @@ mod tests {
         let n = 100;
         let x_vals: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
         let y_vals: Vec<f64> = x_vals.iter().map(|&x| 2.0 * x + 1.0).collect();
-        Dataset::new(
-            vec![x_vals],
-            y_vals,
-            vec!["x".into()],
-            "y",
-        )
+        Dataset::new(vec![x_vals], y_vals, vec!["x".into()], "y")
     }
 
     #[test]
@@ -479,22 +561,18 @@ mod tests {
             .seed(42);
         reg.fit(&data).unwrap();
 
-        let test_x = vec![
-            vec![0.0],
-            vec![0.5],
-            vec![1.0],
-        ];
+        let test_x = vec![vec![0.0], vec![0.5], vec![1.0]];
         let preds = reg.predict(&test_x).unwrap();
 
         // Check R²
         let actual = vec![1.0, 2.0, 3.0];
         let mean_y: f64 = actual.iter().sum::<f64>() / actual.len() as f64;
-        let ss_res: f64 = preds.iter().zip(actual.iter())
+        let ss_res: f64 = preds
+            .iter()
+            .zip(actual.iter())
             .map(|(p, a)| (p - a).powi(2))
             .sum();
-        let ss_tot: f64 = actual.iter()
-            .map(|a| (a - mean_y).powi(2))
-            .sum();
+        let ss_tot: f64 = actual.iter().map(|a| (a - mean_y).powi(2)).sum();
         let r2 = 1.0 - ss_res / ss_tot;
 
         assert!(r2 > 0.9, "R² should be > 0.9, got {r2:.4}, preds={preds:?}");

@@ -30,6 +30,7 @@ use crate::error::{Result, ScryLearnError};
 /// with different random seeds and keeps the result with the lowest inertia.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct KMeans {
     k: usize,
     max_iter: usize,
@@ -72,6 +73,11 @@ impl KMeans {
         self
     }
 
+    /// Alias for [`tolerance`](Self::tolerance) (sklearn convention).
+    pub fn tol(self, t: f64) -> Self {
+        self.tolerance(t)
+    }
+
     /// Set random seed.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
@@ -112,8 +118,7 @@ impl KMeans {
 
         for run in 0..self.n_init {
             let run_seed = self.seed.wrapping_add(run as u64);
-            let (centroids, labels, inertia, n_iter) =
-                self.run_once(&rows, n, m, run_seed);
+            let (centroids, labels, inertia, n_iter) = self.run_once(&rows, n, m, run_seed);
 
             if inertia < best_inertia {
                 best_centroids = Some(centroids);
@@ -326,7 +331,6 @@ pub(crate) fn kmeans_plus_plus(rows: &[Vec<f64>], k: usize, seed: u64) -> Vec<Ve
     centroids
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,12 +352,7 @@ mod tests {
             target.push(1.0);
         }
 
-        let data = Dataset::new(
-            vec![f1, f2],
-            target,
-            vec!["x".into(), "y".into()],
-            "label",
-        );
+        let data = Dataset::new(vec![f1, f2], target, vec!["x".into(), "y".into()], "label");
 
         let mut km = KMeans::new(2).seed(42).n_init(1);
         km.fit(&data).unwrap();
@@ -378,7 +377,10 @@ mod tests {
         km.fit(&data).unwrap();
 
         let pred = km.predict(&[vec![1.0, 1.0], vec![9.0, 9.0]]).unwrap();
-        assert_ne!(pred[0], pred[1], "nearby and far points should be in different clusters");
+        assert_ne!(
+            pred[0], pred[1],
+            "nearby and far points should be in different clusters"
+        );
     }
 
     #[test]
@@ -431,7 +433,11 @@ mod tests {
 
         let dists = km.transform(&[vec![5.0, 5.0], vec![0.0, 0.0]]).unwrap();
         assert_eq!(dists.len(), 2, "should have 2 samples");
-        assert_eq!(dists[0].len(), 2, "should have distance to each of 2 centroids");
+        assert_eq!(
+            dists[0].len(),
+            2,
+            "should have distance to each of 2 centroids"
+        );
         // All distances should be non-negative.
         for row in &dists {
             for &d in row {

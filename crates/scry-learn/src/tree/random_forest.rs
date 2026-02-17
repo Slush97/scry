@@ -4,8 +4,6 @@
 //! Uses bootstrap sampling and random feature subsets for each tree,
 //! trained in parallel via rayon.
 
-
-
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::tree::cart::{DecisionTreeClassifier, DecisionTreeRegressor};
@@ -49,6 +47,7 @@ impl MaxFeatures {
 /// sample with a random subset of features. Predictions are by majority vote.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct RandomForestClassifier {
     n_estimators: usize,
     max_depth: Option<usize>,
@@ -162,7 +161,9 @@ impl RandomForestClassifier {
                 let col = &data.features[feat_idx];
                 let mut sorted: Vec<usize> = (0..n_samples).collect();
                 sorted.sort_unstable_by(|&a, &b| {
-                    col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
+                    col[a]
+                        .partial_cmp(&col[b])
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 sorted
             })
@@ -202,7 +203,8 @@ impl RandomForestClassifier {
                 }
 
                 // Train using shared pre-sorted indices — no per-tree sort allocation.
-                tree.fit_on_indices_presorted(data, &indices, global_sorted_ref).ok();
+                tree.fit_on_indices_presorted(data, &indices, global_sorted_ref)
+                    .ok();
 
                 // Compute OOB votes inline and merge into shared accumulator.
                 // Bootstrap indices and bitset are dropped at end of closure.
@@ -250,7 +252,10 @@ impl RandomForestClassifier {
         // Compute OOB accuracy from accumulated atomic votes.
         self.oob_score_ = if do_bootstrap {
             // Convert atomics to plain u32 for scoring.
-            let totals: Vec<u32> = oob_votes.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+            let totals: Vec<u32> = oob_votes
+                .iter()
+                .map(|a| a.load(Ordering::Relaxed))
+                .collect();
             Self::oob_accuracy_from_votes(&totals, n_samples, n_classes, &data.target)
         } else {
             None
@@ -405,6 +410,7 @@ impl Default for RandomForestClassifier {
 /// Random Forest for regression (mean of tree predictions).
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct RandomForestRegressor {
     n_estimators: usize,
     max_depth: Option<usize>,
@@ -617,9 +623,7 @@ mod tests {
     #[test]
     fn test_feature_importances_valid() {
         let data = make_classification_data();
-        let mut rf = RandomForestClassifier::new()
-            .n_estimators(10)
-            .seed(42);
+        let mut rf = RandomForestClassifier::new().n_estimators(10).seed(42);
         rf.fit(&data).unwrap();
 
         let imp = rf.feature_importances().unwrap();
@@ -630,9 +634,7 @@ mod tests {
     #[test]
     fn test_predict_proba() {
         let data = make_classification_data();
-        let mut rf = RandomForestClassifier::new()
-            .n_estimators(10)
-            .seed(42);
+        let mut rf = RandomForestClassifier::new().n_estimators(10).seed(42);
         rf.fit(&data).unwrap();
 
         let sample = vec![1.0, 1.0]; // should be class 0
@@ -651,18 +653,13 @@ mod tests {
         rf.fit(&data).unwrap();
 
         let oob = rf.oob_score();
-        assert!(oob.is_some(), "OOB score should be available with bootstrap=true");
+        assert!(
+            oob.is_some(),
+            "OOB score should be available with bootstrap=true"
+        );
         let score = oob.unwrap();
-        assert!(
-            score >= 0.80,
-            "expected OOB score ≥ 0.80, got {:.3}",
-            score
-        );
-        assert!(
-            score <= 1.0,
-            "OOB score should be ≤ 1.0, got {:.3}",
-            score
-        );
+        assert!(score >= 0.80, "expected OOB score ≥ 0.80, got {:.3}", score);
+        assert!(score <= 1.0, "OOB score should be ≤ 1.0, got {:.3}", score);
     }
 
     #[test]

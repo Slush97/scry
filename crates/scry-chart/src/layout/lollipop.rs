@@ -20,12 +20,20 @@ fn render_lollipop_vertical(lc: &LollipopChart, w: u32, h: u32) -> RenderedChart
     let data_fs = super::scaled_font_size(9.0, w, h);
 
     let n = lc.labels.len().min(lc.values.len());
-    let y_lo = lc.values.iter().take(n).copied()
+    let y_lo = lc
+        .values
+        .iter()
+        .take(n)
+        .copied()
         .filter(|v| v.is_finite())
         .reduce(f64::min)
         .unwrap_or(0.0)
         .min(0.0);
-    let y_hi = lc.values.iter().take(n).copied()
+    let y_hi = lc
+        .values
+        .iter()
+        .take(n)
+        .copied()
         .filter(|v| v.is_finite())
         .reduce(f64::max)
         .unwrap_or(1.0)
@@ -68,11 +76,7 @@ fn render_lollipop_vertical(lc: &LollipopChart, w: u32, h: u32) -> RenderedChart
         });
 
         // Dot
-        ctx.draw(|c| {
-            c.circle(cx, vy, lc.dot_radius)
-                .fill(color)
-                .done()
-        });
+        ctx.draw(|c| c.circle(cx, vy, lc.dot_radius).fill(color).done());
 
         // Value label
         if lc.show_values {
@@ -108,12 +112,20 @@ fn render_lollipop_horizontal(lc: &LollipopChart, w: u32, h: u32) -> RenderedCha
     let mut ctx = RenderContext::new(config, w, h, None);
     let (px, py, pw, ph) = ctx.plot;
 
-    let x_lo = lc.values.iter().take(n).copied()
+    let x_lo = lc
+        .values
+        .iter()
+        .take(n)
+        .copied()
         .filter(|v| v.is_finite())
         .reduce(f64::min)
         .unwrap_or(0.0)
         .min(0.0);
-    let x_hi = lc.values.iter().take(n).copied()
+    let x_hi = lc
+        .values
+        .iter()
+        .take(n)
+        .copied()
         .filter(|v| v.is_finite())
         .reduce(f64::max)
         .unwrap_or(1.0)
@@ -168,11 +180,7 @@ fn render_lollipop_horizontal(lc: &LollipopChart, w: u32, h: u32) -> RenderedCha
         });
 
         // Dot
-        ctx.draw(|c| {
-            c.circle(vx, cy, lc.dot_radius)
-                .fill(color)
-                .done()
-        });
+        ctx.draw(|c| c.circle(vx, cy, lc.dot_radius).fill(color).done());
 
         // Value label
         if lc.show_values {

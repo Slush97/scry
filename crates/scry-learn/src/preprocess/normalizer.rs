@@ -34,6 +34,7 @@ pub enum Norm {
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct Normalizer {
     norm: Norm,
 }
@@ -132,10 +133,7 @@ mod tests {
 
     #[test]
     fn test_normalizer_l2_unit_norm() {
-        let mut ds = make_ds(&[
-            vec![3.0, 4.0],
-            vec![1.0, 0.0],
-        ]);
+        let mut ds = make_ds(&[vec![3.0, 4.0], vec![1.0, 0.0]]);
         let mut norm = Normalizer::new(Norm::L2);
         norm.fit_transform(&mut ds).unwrap();
 
@@ -158,9 +156,7 @@ mod tests {
 
     #[test]
     fn test_normalizer_l1() {
-        let mut ds = make_ds(&[
-            vec![1.0, 2.0, 3.0],
-        ]);
+        let mut ds = make_ds(&[vec![1.0, 2.0, 3.0]]);
         let mut norm = Normalizer::new(Norm::L1);
         norm.fit_transform(&mut ds).unwrap();
 
@@ -174,15 +170,17 @@ mod tests {
 
     #[test]
     fn test_normalizer_max() {
-        let mut ds = make_ds(&[
-            vec![-5.0, 2.0, 3.0],
-        ]);
+        let mut ds = make_ds(&[vec![-5.0, 2.0, 3.0]]);
         let mut norm = Normalizer::new(Norm::Max);
         norm.fit_transform(&mut ds).unwrap();
 
         // max_abs = 5, so [-1, 0.4, 0.6]
         assert!((ds.features[0][0] - (-1.0)).abs() < 1e-10);
-        let max_abs: f64 = ds.features.iter().map(|c| c[0].abs()).fold(0.0_f64, f64::max);
+        let max_abs: f64 = ds
+            .features
+            .iter()
+            .map(|c| c[0].abs())
+            .fold(0.0_f64, f64::max);
         assert!(
             (max_abs - 1.0).abs() < 1e-10,
             "Max norm should be 1.0, got {max_abs}"
@@ -192,9 +190,7 @@ mod tests {
     #[test]
     fn test_normalizer_zero_row() {
         // Zero row should be left as-is (no division by zero).
-        let mut ds = make_ds(&[
-            vec![0.0, 0.0],
-        ]);
+        let mut ds = make_ds(&[vec![0.0, 0.0]]);
         let mut norm = Normalizer::new(Norm::L2);
         norm.fit_transform(&mut ds).unwrap();
 

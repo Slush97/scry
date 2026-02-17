@@ -28,7 +28,6 @@
 //! | `iterm2::Iterm2Backend` | `iterm2` | PNG inline | ✅ |
 //! | [`halfblock::HalfblockBackend`] | always | 1×2 per cell | ❌ |
 
-
 pub mod backend;
 #[cfg(feature = "kitty")]
 pub mod kitty;

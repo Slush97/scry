@@ -486,15 +486,9 @@ fn cat5_everything_scatter() {
     .annotate(1.0, 2.0, "Start")
     .annotate(10.0, 10.0, "End")
     .h_line(5.0)
-    .h_line_styled(
-        8.0,
-        scry_engine::style::Color::from_rgba8(255, 0, 0, 200),
-    )
+    .h_line_styled(8.0, scry_engine::style::Color::from_rgba8(255, 0, 0, 200))
     .v_line(3.0)
-    .v_line_styled(
-        7.0,
-        scry_engine::style::Color::from_rgba8(0, 255, 0, 200),
-    )
+    .v_line_styled(7.0, scry_engine::style::Color::from_rgba8(0, 255, 0, 200))
     .x_range(0.0, 12.0)
     .y_range(-2.0, 12.0)
     .add_series(

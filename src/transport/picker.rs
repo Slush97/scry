@@ -72,6 +72,7 @@ impl Picker {
     /// Detect which protocol the terminal supports.
     fn detect_protocol() -> ProtocolKind {
         // Check for Kitty
+        #[cfg(feature = "kitty")]
         if Self::is_kitty_compatible() {
             return ProtocolKind::Kitty;
         }
@@ -93,6 +94,7 @@ impl Picker {
     }
 
     /// Check if the terminal is Kitty-compatible.
+    #[cfg(feature = "kitty")]
     fn is_kitty_compatible() -> bool {
         // TERM_PROGRAM is set by Kitty and some other terminals
         if let Ok(prog) = std::env::var("TERM_PROGRAM") {

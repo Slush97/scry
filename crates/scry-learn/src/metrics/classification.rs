@@ -18,6 +18,7 @@ pub enum Average {
 
 /// A confusion matrix.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ConfusionMatrix {
     /// The matrix: `matrix[true_class][predicted_class]`.
     pub matrix: Vec<Vec<usize>>,
@@ -27,6 +28,7 @@ pub struct ConfusionMatrix {
 
 /// Per-class metrics.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ClassMetrics {
     /// Precision for this class.
     pub precision: f64,
@@ -40,6 +42,7 @@ pub struct ClassMetrics {
 
 /// A full classification report.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ClassificationReport {
     /// Overall accuracy.
     pub accuracy: f64,
@@ -55,22 +58,43 @@ pub struct ClassificationReport {
 
 impl fmt::Display for ClassificationReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{:>15} {:>10} {:>10} {:>10} {:>10}",
-            "", "precision", "recall", "f1-score", "support")?;
+        writeln!(
+            f,
+            "{:>15} {:>10} {:>10} {:>10} {:>10}",
+            "", "precision", "recall", "f1-score", "support"
+        )?;
         writeln!(f)?;
         for (label, m) in &self.per_class {
-            writeln!(f, "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
-                label, m.precision, m.recall, m.f1, m.support)?;
+            writeln!(
+                f,
+                "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
+                label, m.precision, m.recall, m.f1, m.support
+            )?;
         }
         writeln!(f)?;
-        writeln!(f, "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
-            "accuracy", "", "", self.accuracy, self.total_support)?;
-        writeln!(f, "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
-            "macro avg", self.macro_avg.precision, self.macro_avg.recall,
-            self.macro_avg.f1, self.total_support)?;
-        writeln!(f, "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
-            "weighted avg", self.weighted_avg.precision, self.weighted_avg.recall,
-            self.weighted_avg.f1, self.total_support)?;
+        writeln!(
+            f,
+            "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
+            "accuracy", "", "", self.accuracy, self.total_support
+        )?;
+        writeln!(
+            f,
+            "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
+            "macro avg",
+            self.macro_avg.precision,
+            self.macro_avg.recall,
+            self.macro_avg.f1,
+            self.total_support
+        )?;
+        writeln!(
+            f,
+            "{:>15} {:>10.4} {:>10.4} {:>10.4} {:>10}",
+            "weighted avg",
+            self.weighted_avg.precision,
+            self.weighted_avg.recall,
+            self.weighted_avg.f1,
+            self.total_support
+        )?;
         Ok(())
     }
 }
@@ -94,15 +118,27 @@ fn precision_from_cm(cm: &ConfusionMatrix, avg: Average) -> f64 {
     match avg {
         Average::Binary => {
             let tp = if n >= 2 { cm.matrix[1][1] } else { 0 };
-            let fp = (0..n).map(|i| if i == 1 { 0 } else { cm.matrix[i][1] }).sum::<usize>();
-            if tp + fp == 0 { 0.0 } else { tp as f64 / (tp + fp) as f64 }
+            let fp = (0..n)
+                .map(|i| if i == 1 { 0 } else { cm.matrix[i][1] })
+                .sum::<usize>();
+            if tp + fp == 0 {
+                0.0
+            } else {
+                tp as f64 / (tp + fp) as f64
+            }
         }
         Average::Macro => {
             let mut total = 0.0;
             for c in 0..n {
                 let tp = cm.matrix[c][c];
-                let fp: usize = (0..n).map(|i| if i == c { 0 } else { cm.matrix[i][c] }).sum();
-                total += if tp + fp == 0 { 0.0 } else { tp as f64 / (tp + fp) as f64 };
+                let fp: usize = (0..n)
+                    .map(|i| if i == c { 0 } else { cm.matrix[i][c] })
+                    .sum();
+                total += if tp + fp == 0 {
+                    0.0
+                } else {
+                    tp as f64 / (tp + fp) as f64
+                };
             }
             total / n as f64
         }
@@ -112,12 +148,22 @@ fn precision_from_cm(cm: &ConfusionMatrix, avg: Average) -> f64 {
             for c in 0..n {
                 let support: usize = cm.matrix[c].iter().sum();
                 let tp = cm.matrix[c][c];
-                let fp: usize = (0..n).map(|i| if i == c { 0 } else { cm.matrix[i][c] }).sum();
-                let p = if tp + fp == 0 { 0.0 } else { tp as f64 / (tp + fp) as f64 };
+                let fp: usize = (0..n)
+                    .map(|i| if i == c { 0 } else { cm.matrix[i][c] })
+                    .sum();
+                let p = if tp + fp == 0 {
+                    0.0
+                } else {
+                    tp as f64 / (tp + fp) as f64
+                };
                 total += p * support as f64;
                 total_support += support;
             }
-            if total_support == 0 { 0.0 } else { total / total_support as f64 }
+            if total_support == 0 {
+                0.0
+            } else {
+                total / total_support as f64
+            }
         }
     }
 }
@@ -129,16 +175,28 @@ fn recall_from_cm(cm: &ConfusionMatrix, avg: Average) -> f64 {
         Average::Binary => {
             let tp = if n >= 2 { cm.matrix[1][1] } else { 0 };
             let fn_ = if n >= 2 {
-                (0..n).map(|j| if j == 1 { 0 } else { cm.matrix[1][j] }).sum::<usize>()
-            } else { 0 };
-            if tp + fn_ == 0 { 0.0 } else { tp as f64 / (tp + fn_) as f64 }
+                (0..n)
+                    .map(|j| if j == 1 { 0 } else { cm.matrix[1][j] })
+                    .sum::<usize>()
+            } else {
+                0
+            };
+            if tp + fn_ == 0 {
+                0.0
+            } else {
+                tp as f64 / (tp + fn_) as f64
+            }
         }
         Average::Macro => {
             let mut total = 0.0;
             for c in 0..n {
                 let tp = cm.matrix[c][c];
                 let support: usize = cm.matrix[c].iter().sum();
-                total += if support == 0 { 0.0 } else { tp as f64 / support as f64 };
+                total += if support == 0 {
+                    0.0
+                } else {
+                    tp as f64 / support as f64
+                };
             }
             total / n as f64
         }
@@ -148,11 +206,19 @@ fn recall_from_cm(cm: &ConfusionMatrix, avg: Average) -> f64 {
             for c in 0..n {
                 let support: usize = cm.matrix[c].iter().sum();
                 let tp = cm.matrix[c][c];
-                let r = if support == 0 { 0.0 } else { tp as f64 / support as f64 };
+                let r = if support == 0 {
+                    0.0
+                } else {
+                    tp as f64 / support as f64
+                };
                 total += r * support as f64;
                 total_support += support;
             }
-            if total_support == 0 { 0.0 } else { total / total_support as f64 }
+            if total_support == 0 {
+                0.0
+            } else {
+                total / total_support as f64
+            }
         }
     }
 }
@@ -171,13 +237,83 @@ pub fn recall(y_true: &[f64], y_pred: &[f64], avg: Average) -> f64 {
 
 /// Compute F1 score.
 ///
-/// Builds the confusion matrix once and derives precision + recall from it,
-/// avoiding the 3× redundant computation.
+/// For `Binary`, computes `2 * precision * recall / (precision + recall)`.
+/// For `Macro`, computes per-class F1 scores then averages (matching sklearn).
+/// For `Weighted`, computes per-class F1 scores then takes a support-weighted average.
 pub fn f1_score(y_true: &[f64], y_pred: &[f64], avg: Average) -> f64 {
     let cm = confusion_matrix(y_true, y_pred);
-    let p = precision_from_cm(&cm, avg);
-    let r = recall_from_cm(&cm, avg);
-    if p + r == 0.0 { 0.0 } else { 2.0 * p * r / (p + r) }
+    let n = cm.matrix.len();
+
+    match avg {
+        Average::Binary => {
+            let p = precision_from_cm(&cm, Average::Binary);
+            let r = recall_from_cm(&cm, Average::Binary);
+            if p + r == 0.0 {
+                0.0
+            } else {
+                2.0 * p * r / (p + r)
+            }
+        }
+        Average::Macro => {
+            let mut total_f1 = 0.0;
+            for c in 0..n {
+                let tp = cm.matrix[c][c];
+                let fp: usize = (0..n)
+                    .map(|i| if i == c { 0 } else { cm.matrix[i][c] })
+                    .sum();
+                let support: usize = cm.matrix[c].iter().sum();
+                let p = if tp + fp == 0 {
+                    0.0
+                } else {
+                    tp as f64 / (tp + fp) as f64
+                };
+                let r = if support == 0 {
+                    0.0
+                } else {
+                    tp as f64 / support as f64
+                };
+                total_f1 += if p + r == 0.0 {
+                    0.0
+                } else {
+                    2.0 * p * r / (p + r)
+                };
+            }
+            total_f1 / n as f64
+        }
+        Average::Weighted => {
+            let mut total_f1 = 0.0;
+            let mut total_support = 0;
+            for c in 0..n {
+                let tp = cm.matrix[c][c];
+                let fp: usize = (0..n)
+                    .map(|i| if i == c { 0 } else { cm.matrix[i][c] })
+                    .sum();
+                let support: usize = cm.matrix[c].iter().sum();
+                let p = if tp + fp == 0 {
+                    0.0
+                } else {
+                    tp as f64 / (tp + fp) as f64
+                };
+                let r = if support == 0 {
+                    0.0
+                } else {
+                    tp as f64 / support as f64
+                };
+                let f = if p + r == 0.0 {
+                    0.0
+                } else {
+                    2.0 * p * r / (p + r)
+                };
+                total_f1 += f * support as f64;
+                total_support += support;
+            }
+            if total_support == 0 {
+                0.0
+            } else {
+                total_f1 / total_support as f64
+            }
+        }
+    }
 }
 
 /// Build a confusion matrix from true and predicted labels.
@@ -192,14 +328,13 @@ pub fn confusion_matrix(y_true: &[f64], y_pred: &[f64]) -> ConfusionMatrix {
 
     let n = classes.len();
     let mut matrix = vec![vec![0usize; n]; n];
-    let labels: Vec<String> = classes.iter().map(std::string::ToString::to_string).collect();
+    let labels: Vec<String> = classes
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
 
     // O(1) lookup per sample instead of O(k) linear scan.
-    let class_map: HashMap<i64, usize> = classes
-        .iter()
-        .enumerate()
-        .map(|(i, &c)| (c, i))
-        .collect();
+    let class_map: HashMap<i64, usize> = classes.iter().enumerate().map(|(i, &c)| (c, i)).collect();
 
     for (&t, &p) in y_true.iter().zip(y_pred.iter()) {
         let ti = class_map.get(&(t as i64)).copied().unwrap_or(0);
@@ -227,15 +362,35 @@ pub fn classification_report(y_true: &[f64], y_pred: &[f64]) -> ClassificationRe
     for c in 0..n {
         let tp = cm.matrix[c][c];
         let support: usize = cm.matrix[c].iter().sum();
-        let fp: usize = (0..n).map(|i| if i == c { 0 } else { cm.matrix[i][c] }).sum();
+        let fp: usize = (0..n)
+            .map(|i| if i == c { 0 } else { cm.matrix[i][c] })
+            .sum();
 
-        let p = if tp + fp == 0 { 0.0 } else { tp as f64 / (tp + fp) as f64 };
-        let r = if support == 0 { 0.0 } else { tp as f64 / support as f64 };
-        let f = if p + r == 0.0 { 0.0 } else { 2.0 * p * r / (p + r) };
+        let p = if tp + fp == 0 {
+            0.0
+        } else {
+            tp as f64 / (tp + fp) as f64
+        };
+        let r = if support == 0 {
+            0.0
+        } else {
+            tp as f64 / support as f64
+        };
+        let f = if p + r == 0.0 {
+            0.0
+        } else {
+            2.0 * p * r / (p + r)
+        };
 
-        per_class.push((cm.labels[c].clone(), ClassMetrics {
-            precision: p, recall: r, f1: f, support,
-        }));
+        per_class.push((
+            cm.labels[c].clone(),
+            ClassMetrics {
+                precision: p,
+                recall: r,
+                f1: f,
+                support,
+            },
+        ));
 
         macro_p += p;
         macro_r += r;
@@ -305,7 +460,11 @@ pub fn balanced_accuracy(y_true: &[f64], y_pred: &[f64]) -> f64 {
     for c in 0..n {
         let support: usize = cm.matrix[c].iter().sum();
         let tp = cm.matrix[c][c];
-        total_recall += if support == 0 { 0.0 } else { tp as f64 / support as f64 };
+        total_recall += if support == 0 {
+            0.0
+        } else {
+            tp as f64 / support as f64
+        };
     }
     total_recall / n as f64
 }
@@ -413,7 +572,10 @@ mod tests {
         ];
         let ll = log_loss(&y_true, &y_prob);
         assert!(ll > 0.5, "random log_loss should be positive, got {ll}");
-        assert!((ll - 3.0_f64.ln()).abs() < 1e-6, "expected ~ln(3), got {ll}");
+        assert!(
+            (ll - 3.0_f64.ln()).abs() < 1e-6,
+            "expected ~ln(3), got {ll}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -449,7 +611,10 @@ mod tests {
     #[test]
     fn test_cohen_kappa_perfect() {
         let kappa = cohen_kappa_score(&[0.0, 1.0, 2.0, 0.0, 1.0], &[0.0, 1.0, 2.0, 0.0, 1.0]);
-        assert!((kappa - 1.0).abs() < 1e-10, "perfect kappa should be 1.0, got {kappa}");
+        assert!(
+            (kappa - 1.0).abs() < 1e-10,
+            "perfect kappa should be 1.0, got {kappa}"
+        );
     }
 
     #[test]
@@ -458,7 +623,10 @@ mod tests {
         let y_true = vec![0.0, 0.0, 1.0, 1.0];
         let y_pred = vec![0.0, 0.0, 0.0, 0.0];
         let kappa = cohen_kappa_score(&y_true, &y_pred);
-        assert!(kappa.abs() < 1e-10, "chance kappa should be ~0, got {kappa}");
+        assert!(
+            kappa.abs() < 1e-10,
+            "chance kappa should be ~0, got {kappa}"
+        );
     }
 
     #[test]
@@ -470,7 +638,9 @@ mod tests {
         // p_o = 3/4 = 0.75, row/col sums: [2,2] x [3,1]
         // p_e = (2*3)/(4*4) + (2*1)/(4*4) = 6/16 + 2/16 = 0.5
         // kappa = (0.75 - 0.5) / (1.0 - 0.5) = 0.5
-        assert!((kappa - 0.5).abs() < 1e-10, "expected kappa=0.5, got {kappa}");
+        assert!(
+            (kappa - 0.5).abs() < 1e-10,
+            "expected kappa=0.5, got {kappa}"
+        );
     }
 }
-

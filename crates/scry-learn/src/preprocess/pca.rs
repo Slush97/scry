@@ -29,6 +29,7 @@ use crate::preprocess::Transformer;
 /// Optionally whitens the output so each component has unit variance.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct Pca {
     n_components: Option<usize>,
     do_whiten: bool,
@@ -138,8 +139,7 @@ impl Transformer for Pca {
                 let col_j = mat.col(j);
                 let mut s = 0.0;
                 for s_idx in 0..n {
-                    s += (col_i[s_idx] - mean[i])
-                        * (col_j[s_idx] - mean[j]);
+                    s += (col_i[s_idx] - mean[i]) * (col_j[s_idx] - mean[j]);
                 }
                 let v = s / denom;
                 cov[i * m + j] = v;
@@ -163,10 +163,7 @@ impl Transformer for Pca {
             .map(|&i| eigenvalues[i].max(0.0))
             .collect();
         self.explained_variance_ratio = if total > 1e-15 {
-            self.explained_variance
-                .iter()
-                .map(|v| v / total)
-                .collect()
+            self.explained_variance.iter().map(|v| v / total).collect()
         } else {
             vec![0.0; k]
         };
@@ -245,7 +242,11 @@ impl Transformer for Pca {
         for c in 0..k {
             let scale = if self.do_whiten {
                 let ev = self.explained_variance[c];
-                if ev > 1e-15 { 1.0 / ev.sqrt() } else { 1.0 }
+                if ev > 1e-15 {
+                    1.0 / ev.sqrt()
+                } else {
+                    1.0
+                }
             } else {
                 1.0
             };
@@ -320,10 +321,8 @@ impl Transformer for Pca {
                         for c in cb..c_end {
                             let y_val = scores_flat[i * k + c];
 
-                            let recon_slice =
-                                &mut recon_flat[i * m + jb..i * m + j_end];
-                            let comp_slice =
-                                &comp_flat[c * m + jb..c * m + j_end];
+                            let recon_slice = &mut recon_flat[i * m + jb..i * m + j_end];
+                            let comp_slice = &comp_flat[c * m + jb..c * m + j_end];
 
                             // iter_mut().zip() proves equal lengths → no
                             // bounds checks → LLVM vectorises to vfmadd231pd.
@@ -530,8 +529,7 @@ mod tests {
         for j in 0..2 {
             let col = &ds.features[j];
             let mean = col.iter().sum::<f64>() / col.len() as f64;
-            let var =
-                col.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (col.len() - 1) as f64;
+            let var = col.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (col.len() - 1) as f64;
             assert!(
                 (var - 1.0).abs() < 0.15,
                 "whitened PC{} variance should be ~1.0, got {var}",
@@ -549,12 +547,7 @@ mod tests {
 
     #[test]
     fn pca_empty_dataset_error() {
-        let ds = Dataset::new(
-            vec![vec![]],
-            vec![],
-            vec!["x".into()],
-            "y",
-        );
+        let ds = Dataset::new(vec![vec![]], vec![], vec!["x".into()], "y");
         let mut pca = Pca::new();
         assert!(pca.fit(&ds).is_err());
     }

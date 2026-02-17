@@ -33,8 +33,12 @@ fn main() {
 fn waterfall_chart() -> Chart {
     Chart::waterfall(
         vec![
-            "Revenue".into(), "COGS".into(), "Gross Profit".into(),
-            "OpEx".into(), "Tax".into(), "Marketing".into(),
+            "Revenue".into(),
+            "COGS".into(),
+            "Gross Profit".into(),
+            "OpEx".into(),
+            "Tax".into(),
+            "Marketing".into(),
         ],
         &[1200.0, -450.0, 200.0, -300.0, -120.0, -80.0],
     )
@@ -64,9 +68,9 @@ fn funnel_chart() -> Chart {
 fn gauge_chart() -> Chart {
     Chart::gauge(73.0)
         .range(0.0, 100.0)
-        .threshold(40.0, Color::from_rgba8(46, 204, 113, 255))  // green
-        .threshold(70.0, Color::from_rgba8(241, 196, 15, 255))  // yellow
-        .threshold(90.0, Color::from_rgba8(230, 126, 34, 255))  // orange
+        .threshold(40.0, Color::from_rgba8(46, 204, 113, 255)) // green
+        .threshold(70.0, Color::from_rgba8(241, 196, 15, 255)) // yellow
+        .threshold(90.0, Color::from_rgba8(230, 126, 34, 255)) // orange
         .threshold(100.0, Color::from_rgba8(231, 76, 60, 255)) // red
         .label("73%")
         .title("CPU Utilization")
@@ -77,8 +81,12 @@ fn gauge_chart() -> Chart {
 fn lollipop_chart() -> Chart {
     Chart::lollipop(
         vec![
-            "Rust".into(), "Python".into(), "Go".into(),
-            "TypeScript".into(), "Java".into(), "C++".into(),
+            "Rust".into(),
+            "Python".into(),
+            "Go".into(),
+            "TypeScript".into(),
+            "Java".into(),
+            "C++".into(),
         ],
         &[92.0, 78.0, 71.0, 65.0, 58.0, 45.0],
     )

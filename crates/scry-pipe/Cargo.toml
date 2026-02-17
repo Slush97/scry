@@ -7,6 +7,7 @@ authors = ["esoc"]
 description = "Cross-language feature engineering compiler. Define pipelines in Python, compile to zero-dependency Rust or WASM."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Slush97/scry"
+documentation = "https://docs.rs/scry-pipe"
 keywords = ["machine-learning", "feature-engineering", "pipeline", "compiler", "wasm"]
 categories = ["science", "compilers", "wasm"]
 readme = "README.md"

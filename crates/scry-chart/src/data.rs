@@ -461,16 +461,14 @@ mod tests {
     #[test]
     fn series_with_style() {
         let red = Color::from_rgba8(255, 0, 0, 255);
-        let s = Series::new("styled", vec![1.0, 2.0])
-            .style(SeriesStyle::new().color(red));
+        let s = Series::new("styled", vec![1.0, 2.0]).style(SeriesStyle::new().color(red));
         assert_eq!(s.series_style().color, Some(red));
     }
 
     #[test]
     fn series_style_preserved_on_sanitize() {
         let red = Color::from_rgba8(255, 0, 0, 255);
-        let s = Series::new("dirty", vec![1.0, f64::NAN, 3.0])
-            .style(SeriesStyle::new().color(red));
+        let s = Series::new("dirty", vec![1.0, f64::NAN, 3.0]).style(SeriesStyle::new().color(red));
         let clean = s.sanitized();
         assert_eq!(clean.series_style().color, Some(red));
         assert_eq!(clean.len(), 2);
@@ -496,8 +494,8 @@ mod tests {
     fn series_style_gradient_custom_stops() {
         let red = Color::from_rgba8(255, 0, 0, 255);
         let blue = Color::from_rgba8(0, 0, 255, 255);
-        let style = SeriesStyle::new()
-            .fill_gradient(GradientFill::Custom(vec![(0.0, red), (1.0, blue)]));
+        let style =
+            SeriesStyle::new().fill_gradient(GradientFill::Custom(vec![(0.0, red), (1.0, blue)]));
         assert!(!style.is_empty());
         if let Some(GradientFill::Custom(stops)) = &style.fill_gradient {
             assert_eq!(stops.len(), 2);
@@ -558,4 +556,3 @@ mod tests {
         assert_ne!(GapPolicy::Zero, GapPolicy::Interpolate);
     }
 }
-

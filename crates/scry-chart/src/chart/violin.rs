@@ -5,9 +5,8 @@
 //! curves, optionally with an inner box-and-whisker overlay.
 
 use crate::chart::config_builder::{
-    chart_config_axis_labels, chart_config_core, chart_config_formatters,
-    chart_config_grid, chart_config_legend, chart_config_locale,
-    chart_config_tick_rotation,
+    chart_config_axis_labels, chart_config_core, chart_config_formatters, chart_config_grid,
+    chart_config_legend, chart_config_locale, chart_config_tick_rotation,
 };
 use crate::chart::{Chart, ChartConfig};
 

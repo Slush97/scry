@@ -9,7 +9,7 @@ use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::partial_fit::PartialFit;
 use crate::sparse::{CscMatrix, CsrMatrix};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 use super::lbfgs;
 
@@ -66,10 +66,11 @@ pub enum Solver {
 /// iterations, and L2 regularization.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct LogisticRegression {
     learning_rate: f64,
     max_iter: usize,
-    alpha: f64,        // regularization strength
+    alpha: f64, // regularization strength
     tolerance: f64,
     class_weight: ClassWeight,
     #[cfg_attr(feature = "serde", serde(default))]
@@ -143,6 +144,11 @@ impl LogisticRegression {
         self
     }
 
+    /// Alias for [`tolerance`](Self::tolerance) (sklearn convention).
+    pub fn tol(self, t: f64) -> Self {
+        self.tolerance(t)
+    }
+
     /// Set class weighting strategy for imbalanced datasets.
     pub fn class_weight(mut self, cw: ClassWeight) -> Self {
         self.class_weight = cw;
@@ -172,8 +178,7 @@ impl LogisticRegression {
         // Classification requires at least 2 distinct classes.
         if data.n_classes() < 2 {
             return Err(ScryLearnError::InvalidParameter(
-                "LogisticRegression requires at least 2 distinct classes in the target."
-                    .into(),
+                "LogisticRegression requires at least 2 distinct classes in the target.".into(),
             ));
         }
         // Validate solver/penalty compatibility.
@@ -386,7 +391,8 @@ impl LogisticRegression {
             let mut max_grad = 0.0_f64;
             let mut gradient = vec![vec![0.0; dim]; self.n_classes];
 
-            for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate() {
+            for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate()
+            {
                 let target_class = target_val as usize;
 
                 // Compute logits for all classes.
@@ -410,7 +416,12 @@ impl LogisticRegression {
                 }
 
                 // Gradient: weight_i * (softmax_prob - one_hot_target).
-                for (c, (&pc, gc)) in probs.iter().zip(gradient.iter_mut()).enumerate().take(self.n_classes) {
+                for (c, (&pc, gc)) in probs
+                    .iter()
+                    .zip(gradient.iter_mut())
+                    .enumerate()
+                    .take(self.n_classes)
+                {
                     let y_i = if target_class == c { 1.0 } else { 0.0 };
                     let error = sw * (pc - y_i);
 
@@ -432,7 +443,11 @@ impl LogisticRegression {
             let inv_n = 1.0 / n as f64;
 
             // Update weights: gradient step + L2 regularization in gradient.
-            for (c_grad, c_w) in gradient.iter_mut().zip(self.weights.iter_mut()).take(self.n_classes) {
+            for (c_grad, c_w) in gradient
+                .iter_mut()
+                .zip(self.weights.iter_mut())
+                .take(self.n_classes)
+            {
                 for (j, (g, w)) in c_grad.iter_mut().zip(c_w.iter_mut()).enumerate().take(dim) {
                     *g *= inv_n;
                     if j > 0 {
@@ -534,7 +549,9 @@ impl LogisticRegression {
         }
         if target.len() != n {
             return Err(ScryLearnError::InvalidParameter(format!(
-                "target length {} != n_rows {}", target.len(), n
+                "target length {} != n_rows {}",
+                target.len(),
+                n
             )));
         }
 
@@ -657,7 +674,9 @@ impl LogisticRegression {
         Ok((0..features.n_rows())
             .map(|i| {
                 let row = features.row(i);
-                let mut scores: Vec<f64> = self.weights.iter()
+                let mut scores: Vec<f64> = self
+                    .weights
+                    .iter()
                     .map(|w| {
                         let mut z = w[0]; // bias
                         for (col, val) in row.iter() {
@@ -706,6 +725,9 @@ impl PartialFit for LogisticRegression {
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
+            if self.is_initialized() {
+                return Ok(());
+            }
             return Err(ScryLearnError::EmptyDataset);
         }
 
@@ -758,7 +780,12 @@ impl PartialFit for LogisticRegression {
             }
 
             // Accumulate gradient.
-            for (c, (&pc, gc)) in probs.iter().zip(gradient.iter_mut()).enumerate().take(self.n_classes) {
+            for (c, (&pc, gc)) in probs
+                .iter()
+                .zip(gradient.iter_mut())
+                .enumerate()
+                .take(self.n_classes)
+            {
                 let y_i = if target_class == c { 1.0 } else { 0.0 };
                 let error = sw * (pc - y_i);
                 gc[0] += error;
@@ -779,7 +806,11 @@ impl PartialFit for LogisticRegression {
         let inv_n = 1.0 / n as f64;
 
         // Update weights with L2 gradient and learning rate.
-        for (c_grad, c_w) in gradient.iter_mut().zip(self.weights.iter_mut()).take(self.n_classes) {
+        for (c_grad, c_w) in gradient
+            .iter_mut()
+            .zip(self.weights.iter_mut())
+            .take(self.n_classes)
+        {
             for (j, (g, w)) in c_grad.iter_mut().zip(c_w.iter_mut()).enumerate().take(dim) {
                 *g *= inv_n;
                 if j > 0 {
@@ -820,9 +851,7 @@ mod tests {
         let target: Vec<f64> = (0..20).map(|i| if i < 10 { 0.0 } else { 1.0 }).collect();
         let data = Dataset::new(features, target, vec!["x".into()], "class");
 
-        let mut lr = LogisticRegression::new()
-            .alpha(0.0)
-            .max_iter(200);
+        let mut lr = LogisticRegression::new().alpha(0.0).max_iter(200);
         lr.fit(&data).unwrap();
 
         let matrix = data.feature_matrix();
@@ -915,7 +944,12 @@ mod tests {
         let data = Dataset::new(
             vec![f0, f1, f2, f3],
             target,
-            vec!["sig0".into(), "sig1".into(), "noise0".into(), "noise1".into()],
+            vec![
+                "sig0".into(),
+                "sig1".into(),
+                "noise0".into(),
+                "noise1".into(),
+            ],
             "class",
         );
 
@@ -962,7 +996,12 @@ mod tests {
         let data = Dataset::new(
             vec![f0, f1, f2, f3],
             target,
-            vec!["sig0".into(), "sig1".into(), "noise0".into(), "noise1".into()],
+            vec![
+                "sig0".into(),
+                "sig1".into(),
+                "noise0".into(),
+                "noise1".into(),
+            ],
             "class",
         );
 
@@ -1006,7 +1045,12 @@ mod tests {
         let data = Dataset::new(
             vec![f0, f1, f2, f3],
             target,
-            vec!["sig0".into(), "sig1".into(), "noise0".into(), "noise1".into()],
+            vec![
+                "sig0".into(),
+                "sig1".into(),
+                "noise0".into(),
+                "noise1".into(),
+            ],
             "class",
         );
 
@@ -1038,10 +1082,7 @@ mod tests {
             .penalty(Penalty::L1)
             .alpha(0.1);
         let result = lr.fit(&data);
-        assert!(
-            result.is_err(),
-            "L-BFGS should reject L1 penalty"
-        );
+        assert!(result.is_err(), "L-BFGS should reject L1 penalty");
 
         // Also reject ElasticNet.
         let mut lr2 = LogisticRegression::new()
@@ -1049,10 +1090,7 @@ mod tests {
             .penalty(Penalty::ElasticNet(0.5))
             .alpha(0.1);
         let result2 = lr2.fit(&data);
-        assert!(
-            result2.is_err(),
-            "L-BFGS should reject ElasticNet penalty"
-        );
+        assert!(result2.is_err(), "L-BFGS should reject ElasticNet penalty");
     }
 
     #[test]
@@ -1096,8 +1134,14 @@ mod tests {
 
         // Test on held-out points.
         let preds = lr.predict(&[vec![1.0], vec![9.0]]).unwrap();
-        assert!((preds[0] - 0.0).abs() < f64::EPSILON, "expected class 0 for x=1");
-        assert!((preds[1] - 1.0).abs() < f64::EPSILON, "expected class 1 for x=9");
+        assert!(
+            (preds[0] - 0.0).abs() < f64::EPSILON,
+            "expected class 0 for x=1"
+        );
+        assert!(
+            (preds[1] - 1.0).abs() < f64::EPSILON,
+            "expected class 1 for x=9"
+        );
     }
 
     #[test]
@@ -1129,13 +1173,29 @@ mod tests {
         let preds_partial = lr_partial.predict(&matrix).unwrap();
         let preds_full = lr_full.predict(&matrix).unwrap();
 
-        let acc_partial = preds_partial.iter().zip(data.target.iter())
-            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count() as f64 / 40.0;
-        let acc_full = preds_full.iter().zip(data.target.iter())
-            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count() as f64 / 40.0;
+        let acc_partial = preds_partial
+            .iter()
+            .zip(data.target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6)
+            .count() as f64
+            / 40.0;
+        let acc_full = preds_full
+            .iter()
+            .zip(data.target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6)
+            .count() as f64
+            / 40.0;
 
-        assert!(acc_partial >= 0.85, "partial_fit accuracy {:.1}% too low", acc_partial * 100.0);
-        assert!(acc_full >= 0.85, "full fit accuracy {:.1}% too low", acc_full * 100.0);
+        assert!(
+            acc_partial >= 0.85,
+            "partial_fit accuracy {:.1}% too low",
+            acc_partial * 100.0
+        );
+        assert!(
+            acc_full >= 0.85,
+            "full fit accuracy {:.1}% too low",
+            acc_full * 100.0
+        );
     }
 
     #[test]
@@ -1163,10 +1223,16 @@ mod tests {
         let csr = CsrMatrix::from_dense(&matrix);
         let preds_sparse = lr_sparse.predict_sparse(&csr).unwrap();
 
-        let acc_dense: usize = preds_dense.iter().zip(target.iter())
-            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count();
-        let acc_sparse: usize = preds_sparse.iter().zip(target.iter())
-            .filter(|(p, t)| (*p - *t).abs() < 1e-6).count();
+        let acc_dense: usize = preds_dense
+            .iter()
+            .zip(target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6)
+            .count();
+        let acc_sparse: usize = preds_sparse
+            .iter()
+            .zip(target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6)
+            .count();
 
         assert!(acc_dense >= 17, "Dense accuracy too low: {acc_dense}/20");
         assert!(acc_sparse >= 17, "Sparse accuracy too low: {acc_sparse}/20");

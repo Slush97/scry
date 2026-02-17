@@ -305,7 +305,11 @@ fn emit_command(body: &mut String, defs: &mut String, grad_id: &mut u32, cmd: &D
         DrawCommand::Image { .. } => {}
 
         // Feature-gated variants (e.g. Text behind "text" feature).
-        #[allow(unreachable_patterns, clippy::match_same_arms, clippy::match_wildcard_for_single_variants)]
+        #[allow(
+            unreachable_patterns,
+            clippy::match_same_arms,
+            clippy::match_wildcard_for_single_variants
+        )]
         _ => {}
     }
 }
@@ -469,7 +473,10 @@ fn svg_fill_attr(style: &ShapeStyle, defs: &mut String, grad_id: &mut u32) -> St
 }
 
 fn svg_stroke_attr(style: &ShapeStyle) -> String {
-    style.stroke.as_ref().map_or_else(String::new, svg_stroke_style_attr)
+    style
+        .stroke
+        .as_ref()
+        .map_or_else(String::new, svg_stroke_style_attr)
 }
 
 fn svg_stroke_style_attr(stroke: &StrokeStyle) -> String {

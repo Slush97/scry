@@ -7,18 +7,13 @@ mod regression;
 mod roc;
 
 pub use classification::{
-    accuracy, precision, recall, f1_score,
-    confusion_matrix, classification_report,
-    log_loss, balanced_accuracy, cohen_kappa_score,
-    ConfusionMatrix, ClassificationReport, ClassMetrics,
-    Average,
+    accuracy, balanced_accuracy, classification_report, cohen_kappa_score, confusion_matrix,
+    f1_score, log_loss, precision, recall, Average, ClassMetrics, ClassificationReport,
+    ConfusionMatrix,
 };
-pub use clustering::{
-    adjusted_rand_index, calinski_harabasz_score, davies_bouldin_score,
-};
+pub use clustering::{adjusted_rand_index, calinski_harabasz_score, davies_bouldin_score};
 pub use regression::{
-    mean_squared_error, root_mean_squared_error,
-    mean_absolute_error, r2_score,
-    explained_variance_score, mean_absolute_percentage_error,
+    explained_variance_score, mean_absolute_error, mean_absolute_percentage_error,
+    mean_squared_error, r2_score, root_mean_squared_error,
 };
-pub use roc::{roc_curve, roc_auc_score, pr_curve, RocCurve, PrCurve};
+pub use roc::{pr_curve, roc_auc_score, roc_curve, PrCurve, RocCurve};

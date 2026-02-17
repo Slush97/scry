@@ -144,6 +144,7 @@ impl_ensemble_no_proba!(crate::svm::KernelSVR);
 /// ]).voting(Voting::Hard);
 /// ```
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct VotingClassifier {
     /// Base estimators.
     estimators: Vec<Box<dyn EnsembleClassifier>>,
@@ -272,7 +273,6 @@ impl VotingClassifier {
         let n = features.len();
         let n_classes = self.n_classes;
         let weights = self.uniform_weights();
-        let total_weight: f64 = weights.iter().sum();
 
         let mut avg_proba = vec![vec![0.0; n_classes]; n];
 
@@ -297,13 +297,6 @@ impl VotingClassifier {
                     .map_or(0.0, |(idx, _)| idx as f64)
             })
             .collect();
-
-        // Normalize (for correctness, though argmax doesn't need it).
-        for p in &mut avg_proba {
-            for v in p {
-                *v /= total_weight;
-            }
-        }
 
         Ok(result)
     }
@@ -343,6 +336,7 @@ impl VotingClassifier {
 /// ).cv(5);
 /// ```
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct StackingClassifier {
     /// Base learners.
     estimators: Vec<Box<dyn EnsembleClassifier>>,
@@ -453,16 +447,9 @@ impl StackingClassifier {
         let meta_columns: Vec<Vec<f64>> = (0..n_estimators)
             .map(|est_idx| meta_features.iter().map(|row| row[est_idx]).collect())
             .collect();
-        let feature_names: Vec<String> = (0..n_estimators)
-            .map(|i| format!("est_{i}"))
-            .collect();
+        let feature_names: Vec<String> = (0..n_estimators).map(|i| format!("est_{i}")).collect();
 
-        let meta_dataset = Dataset::new(
-            meta_columns,
-            data.target.clone(),
-            feature_names,
-            "target",
-        );
+        let meta_dataset = Dataset::new(meta_columns, data.target.clone(), feature_names, "target");
 
         // Train the final estimator on meta-features.
         self.final_estimator.fit(&meta_dataset)?;
@@ -497,11 +484,7 @@ impl StackingClassifier {
 
         // Assemble meta-features.
         let meta_features: Vec<Vec<f64>> = (0..n)
-            .map(|i| {
-                (0..n_estimators)
-                    .map(|j| base_preds[j][i])
-                    .collect()
-            })
+            .map(|i| (0..n_estimators).map(|j| base_preds[j][i]).collect())
             .collect();
 
         self.final_estimator.predict(&meta_features)
@@ -509,10 +492,7 @@ impl StackingClassifier {
 
     /// Extract row-major features for specific sample indices.
     fn extract_features(data: &Dataset, indices: &[usize]) -> Vec<Vec<f64>> {
-        indices
-            .iter()
-            .map(|&i| data.sample(i))
-            .collect()
+        indices.iter().map(|&i| data.sample(i)).collect()
     }
 }
 
@@ -658,9 +638,7 @@ mod tests {
 
     #[test]
     fn test_voting_not_fitted() {
-        let vc = VotingClassifier::new(vec![
-            Box::new(DecisionTreeClassifier::new()),
-        ]);
+        let vc = VotingClassifier::new(vec![Box::new(DecisionTreeClassifier::new())]);
         let result = vc.predict(&[vec![1.0, 2.0]]);
         assert!(result.is_err());
     }
@@ -675,10 +653,8 @@ mod tests {
     #[test]
     fn test_voting_weights_mismatch() {
         let data = make_iris_like_data();
-        let mut vc = VotingClassifier::new(vec![
-            Box::new(DecisionTreeClassifier::new()),
-        ])
-        .weights(vec![1.0, 2.0]); // mismatch: 2 weights for 1 estimator
+        let mut vc = VotingClassifier::new(vec![Box::new(DecisionTreeClassifier::new())])
+            .weights(vec![1.0, 2.0]); // mismatch: 2 weights for 1 estimator
         assert!(vc.fit(&data).is_err());
     }
 
@@ -729,10 +705,7 @@ mod tests {
     #[test]
     fn test_stacking_empty_estimators() {
         let data = make_iris_like_data();
-        let mut sc = StackingClassifier::new(
-            vec![],
-            Box::new(DecisionTreeClassifier::new()),
-        );
+        let mut sc = StackingClassifier::new(vec![], Box::new(DecisionTreeClassifier::new()));
         assert!(sc.fit(&data).is_err());
     }
 

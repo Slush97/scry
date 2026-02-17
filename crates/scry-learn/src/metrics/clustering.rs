@@ -252,7 +252,10 @@ mod tests {
     fn test_ari_identical() {
         let labels = vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
         let ari = adjusted_rand_index(&labels, &labels);
-        assert!((ari - 1.0).abs() < 1e-10, "identical ARI should be 1.0, got {ari}");
+        assert!(
+            (ari - 1.0).abs() < 1e-10,
+            "identical ARI should be 1.0, got {ari}"
+        );
     }
 
     #[test]
@@ -261,7 +264,10 @@ mod tests {
         let true_labels = vec![0.0, 0.0, 1.0, 1.0];
         let pred_labels = vec![5.0, 5.0, 3.0, 3.0];
         let ari = adjusted_rand_index(&true_labels, &pred_labels);
-        assert!((ari - 1.0).abs() < 1e-10, "permuted ARI should be 1.0, got {ari}");
+        assert!(
+            (ari - 1.0).abs() < 1e-10,
+            "permuted ARI should be 1.0, got {ari}"
+        );
     }
 
     #[test]

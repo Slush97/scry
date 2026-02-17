@@ -24,7 +24,6 @@ pub(crate) struct DenseLayer {
     pub activation: Activation,
 
     // ── Training caches (populated during forward, consumed during backward) ──
-
     /// Cached input to this layer: `[batch, in_size]` row-major.
     pub cache_input: Vec<f64>,
     /// Cached pre-activation values: `[batch, out_size]` row-major.
@@ -154,12 +153,7 @@ impl DenseLayer {
     /// Returns:
     /// - `grad_input`: `[batch, in_size]` — gradient to pass to previous layer
     /// - Weight and bias gradients are written to `dw` and `db`.
-    pub fn backward(
-        &self,
-        grad_output: &[f64],
-        dw: &mut [f64],
-        db: &mut [f64],
-    ) -> Vec<f64> {
+    pub fn backward(&self, grad_output: &[f64], dw: &mut [f64], db: &mut [f64]) -> Vec<f64> {
         let batch = self.cache_batch;
         debug_assert_eq!(grad_output.len(), batch * self.out_size);
         debug_assert_eq!(dw.len(), self.out_size * self.in_size);
@@ -167,7 +161,8 @@ impl DenseLayer {
 
         // Apply activation derivative: delta = grad_output ⊙ f'(z)
         let mut delta = grad_output.to_vec();
-        self.activation.backward_from_activated(&self.cache_z, &self.cache_a, &mut delta);
+        self.activation
+            .backward_from_activated(&self.cache_z, &self.cache_a, &mut delta);
 
         // Bias gradient: db[j] = sum_i(delta[i,j]) / batch
         let batch_f = batch as f64;
@@ -211,6 +206,52 @@ impl DenseLayer {
     #[allow(dead_code)]
     pub fn n_params(&self) -> usize {
         self.weights.len() + self.biases.len()
+    }
+}
+
+// ── Layer trait implementation ──
+
+impl crate::neural::traits::Layer for DenseLayer {
+    fn forward(&mut self, input: &[f64], batch: usize, training: bool) -> Vec<f64> {
+        self.forward(input, batch, training)
+    }
+
+    fn backward(&self, grad_output: &[f64]) -> crate::neural::traits::BackwardOutput {
+        let mut dw = vec![0.0; self.out_size * self.in_size];
+        let mut db = vec![0.0; self.out_size];
+        let grad_input = self.backward(grad_output, &mut dw, &mut db);
+        (grad_input, vec![(dw, db)])
+    }
+
+    fn n_param_groups(&self) -> usize {
+        1
+    }
+
+    fn params_mut(&mut self) -> Vec<(&mut Vec<f64>, &mut Vec<f64>)> {
+        vec![(&mut self.weights, &mut self.biases)]
+    }
+
+    fn save_params(&self) -> Vec<(Vec<f64>, Vec<f64>)> {
+        vec![(self.weights.clone(), self.biases.clone())]
+    }
+
+    fn restore_params(&mut self, saved: &[(Vec<f64>, Vec<f64>)]) {
+        if let Some((w, b)) = saved.first() {
+            self.weights.clone_from(w);
+            self.biases.clone_from(b);
+        }
+    }
+
+    fn in_size(&self) -> usize {
+        self.in_size
+    }
+
+    fn out_size(&self) -> usize {
+        self.out_size
+    }
+
+    fn name(&self) -> &'static str {
+        "Dense"
     }
 }
 
@@ -284,6 +325,7 @@ mod tests {
 
         // Numerical gradient for weights
         let eps = 1e-5;
+        #[allow(clippy::needless_range_loop)]
         for idx in 0..layer.weights.len() {
             let orig = layer.weights[idx];
 
@@ -295,9 +337,12 @@ mod tests {
 
             layer.weights[idx] = orig;
 
-            let numerical: f64 = out_plus.iter().zip(out_minus.iter())
+            let numerical: f64 = out_plus
+                .iter()
+                .zip(out_minus.iter())
                 .map(|(p, m)| (p - m) / (2.0 * eps))
-                .sum::<f64>() / batch as f64;
+                .sum::<f64>()
+                / batch as f64;
 
             let analytic = dw[idx];
             let diff = (analytic - numerical).abs();
@@ -308,5 +353,4 @@ mod tests {
             );
         }
     }
-
 }

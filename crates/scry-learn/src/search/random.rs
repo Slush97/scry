@@ -8,7 +8,7 @@ use crate::error::{Result, ScryLearnError};
 use crate::metrics::accuracy;
 use crate::split::{k_fold, stratified_k_fold, ScoringFn};
 
-use super::{CvResult, ParamGrid, ParamValue, Tunable, cartesian_product, evaluate_combo};
+use super::{cartesian_product, evaluate_combo, CvResult, ParamGrid, ParamValue, Tunable};
 
 /// Randomized search over a hyperparameter grid with cross-validation.
 ///
@@ -33,6 +33,7 @@ use super::{CvResult, ParamGrid, ParamValue, Tunable, cartesian_product, evaluat
 ///     .fit(&data)
 ///     .unwrap();
 /// ```
+#[non_exhaustive]
 pub struct RandomizedSearchCV {
     base_model: Box<dyn Tunable>,
     param_grid: ParamGrid,
@@ -102,6 +103,12 @@ impl RandomizedSearchCV {
     ///
     /// Samples up to `n_iter` random parameter combinations from the grid.
     pub fn fit(mut self, data: &Dataset) -> Result<Self> {
+        if self.cv < 2 {
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "cv must be >= 2, got {}",
+                self.cv
+            )));
+        }
         let all_combos = cartesian_product(&self.param_grid);
         if all_combos.is_empty() {
             return Err(ScryLearnError::InvalidParameter(
@@ -127,18 +134,21 @@ impl RandomizedSearchCV {
 
         for &idx in &indices[..n] {
             let combo = &all_combos[idx];
-            let result = evaluate_combo(
-                &*self.base_model,
-                combo,
-                &folds,
-                self.scorer,
-            )?;
+            let result = evaluate_combo(&*self.base_model, combo, &folds, self.scorer)?;
 
-            if result.mean_score > self.best_score_ {
+            if result.mean_score.is_finite()
+                && (self.best_params_.is_none() || result.mean_score > self.best_score_)
+            {
                 self.best_score_ = result.mean_score;
                 self.best_params_ = Some(result.params.clone());
             }
             self.cv_results_.push(result);
+        }
+
+        if self.best_params_.is_none() {
+            return Err(ScryLearnError::InvalidParameter(
+                "all parameter combinations produced NaN scores".into(),
+            ));
         }
 
         Ok(self)

@@ -419,7 +419,10 @@ mod tests {
             chart.push(i as f64, (i * i) as f64);
         }
         let snap = chart.snapshot();
-        assert!(snap.is_some(), "snapshot should produce a chart after pushing data");
+        assert!(
+            snap.is_some(),
+            "snapshot should produce a chart after pushing data"
+        );
     }
 
     // Test 5: StreamingChart window — push 200 points into window_size=100,
@@ -437,8 +440,16 @@ mod tests {
         if let Chart::Line(line) = snap {
             let xs = line.x_values.unwrap();
             assert_eq!(xs.len(), 100);
-            assert!((xs[0] - 100.0).abs() < 1e-9, "first x should be 100, got {}", xs[0]);
-            assert!((xs[99] - 199.0).abs() < 1e-9, "last x should be 199, got {}", xs[99]);
+            assert!(
+                (xs[0] - 100.0).abs() < 1e-9,
+                "first x should be 100, got {}",
+                xs[0]
+            );
+            assert!(
+                (xs[99] - 199.0).abs() < 1e-9,
+                "last x should be 199, got {}",
+                xs[99]
+            );
         } else {
             panic!("expected Line chart");
         }
@@ -471,9 +482,7 @@ mod tests {
     // Test 7: StreamingChart fixed Y range — set y_range, verify it's respected
     #[test]
     fn streaming_chart_fixed_y_range() {
-        let mut chart = StreamingChart::new()
-            .window_size(10)
-            .y_range(0.0, 100.0);
+        let mut chart = StreamingChart::new().window_size(10).y_range(0.0, 100.0);
         chart.push(1.0, 50.0);
 
         let snap = chart.snapshot().unwrap();

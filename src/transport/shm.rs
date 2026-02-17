@@ -111,26 +111,35 @@ impl ShmBuffer {
 
     /// Write data into the shared memory buffer.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if `data.len()` exceeds the buffer's capacity.
+    ///
     /// # Panics
     ///
-    /// Panics if `data.len() > self.capacity`.
-    pub(crate) fn write(&self, data: &[u8]) {
+    /// Panics if the internal pointer is null (indicates memory corruption).
+    pub(crate) fn write(&self, data: &[u8]) -> io::Result<()> {
         assert!(
             !self.ptr.is_null(),
             "ShmBuffer::write: buffer has been invalidated (null pointer)",
         );
-        assert!(
-            data.len() <= self.capacity,
-            "ShmBuffer::write: data ({}) exceeds capacity ({})",
-            data.len(),
-            self.capacity,
-        );
+        if data.len() > self.capacity {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "ShmBuffer::write: data ({}) exceeds capacity ({})",
+                    data.len(),
+                    self.capacity,
+                ),
+            ));
+        }
         // SAFETY: ptr is non-null (checked above), valid, and exclusively
         // owned. data.len() <= capacity (checked above), so the write is
         // within bounds.
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), self.ptr, data.len());
         }
+        Ok(())
     }
 
     /// The shared memory object name (without leading `/`), suitable
@@ -221,7 +230,7 @@ mod tests {
         assert_eq!(buf.capacity(), 1024);
 
         let data = vec![42u8; 512];
-        buf.write(&data);
+        buf.write(&data).unwrap();
 
         // Verify the data was written
         let slice = unsafe { std::slice::from_raw_parts(buf.ptr, 512) };

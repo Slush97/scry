@@ -161,7 +161,9 @@ impl SubplotGrid {
     /// Get the chart at `(row, col)`, if any.
     #[must_use]
     pub fn get(&self, row: usize, col: usize) -> Option<&Chart> {
-        self.cells.get(row * self.cols + col).and_then(|c| c.as_ref())
+        self.cells
+            .get(row * self.cols + col)
+            .and_then(|c| c.as_ref())
     }
 
     /// Iterator over `(row, col, Option<&Chart>)` for all cells.

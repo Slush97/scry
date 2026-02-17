@@ -22,11 +22,11 @@
 //! assert_eq!(mbk.labels().len(), 4);
 //! ```
 
+use super::kmeans::kmeans_plus_plus;
 use crate::dataset::Dataset;
 use crate::distance::euclidean_sq;
 use crate::error::{Result, ScryLearnError};
 use crate::partial_fit::PartialFit;
-use super::kmeans::kmeans_plus_plus;
 
 /// Mini-Batch K-Means clustering.
 ///
@@ -35,6 +35,7 @@ use super::kmeans::kmeans_plus_plus;
 /// This is significantly faster for large datasets while producing similar results.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct MiniBatchKMeans {
     k: usize,
     batch_size: usize,
@@ -86,6 +87,11 @@ impl MiniBatchKMeans {
         self
     }
 
+    /// Alias for [`tolerance`](Self::tolerance) (sklearn convention).
+    pub fn tol(self, t: f64) -> Self {
+        self.tolerance(t)
+    }
+
     /// Set random seed.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
@@ -119,9 +125,7 @@ impl MiniBatchKMeans {
 
         for iter in 0..self.max_iter {
             // Sample a mini-batch.
-            let batch_indices: Vec<usize> = (0..effective_batch)
-                .map(|_| rng.usize(0..n))
-                .collect();
+            let batch_indices: Vec<usize> = (0..effective_batch).map(|_| rng.usize(0..n)).collect();
 
             // Assign batch samples to nearest centroid.
             let mut assignments = Vec::with_capacity(effective_batch);
@@ -165,9 +169,7 @@ impl MiniBatchKMeans {
                 self.n_iter = iter + 1;
                 self.inertia = inertia;
 
-                if self.tolerance > 0.0
-                    && (prev_inertia - inertia).abs() < self.tolerance
-                {
+                if self.tolerance > 0.0 && (prev_inertia - inertia).abs() < self.tolerance {
                     break;
                 }
                 prev_inertia = inertia;
@@ -246,6 +248,10 @@ impl PartialFit for MiniBatchKMeans {
     fn partial_fit(&mut self, data: &Dataset) -> Result<()> {
         let n = data.n_samples();
         if n == 0 {
+            // No-op on empty batch if already initialized; error if not.
+            if self.is_initialized() {
+                return Ok(());
+            }
             return Err(ScryLearnError::EmptyDataset);
         }
 
@@ -362,7 +368,10 @@ mod tests {
         mbk.fit(&data).unwrap();
 
         let pred = mbk.predict(&[vec![1.0, 1.0], vec![9.0, 9.0]]).unwrap();
-        assert_ne!(pred[0], pred[1], "nearby and far points should be in different clusters");
+        assert_ne!(
+            pred[0], pred[1],
+            "nearby and far points should be in different clusters"
+        );
     }
 
     #[test]
@@ -405,8 +414,12 @@ mod tests {
 
         // Centroids should be near the two cluster centers.
         let c = mbk.centroids();
-        let c0_near_1 = c.iter().any(|ci| (ci[0] - 1.0).abs() < 3.0 && (ci[1] - 1.0).abs() < 3.0);
-        let c1_near_10 = c.iter().any(|ci| (ci[0] - 10.0).abs() < 3.0 && (ci[1] - 10.0).abs() < 3.0);
+        let c0_near_1 = c
+            .iter()
+            .any(|ci| (ci[0] - 1.0).abs() < 3.0 && (ci[1] - 1.0).abs() < 3.0);
+        let c1_near_10 = c
+            .iter()
+            .any(|ci| (ci[0] - 10.0).abs() < 3.0 && (ci[1] - 10.0).abs() < 3.0);
         assert!(c0_near_1, "expected a centroid near (1,1), got {c:?}");
         assert!(c1_near_10, "expected a centroid near (10,10), got {c:?}");
 

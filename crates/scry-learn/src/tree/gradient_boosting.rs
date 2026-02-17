@@ -13,8 +13,9 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use crate::tree::cart::DecisionTreeRegressor;
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::neural::callback::{EpochMetrics, TrainingHistory};
+use crate::tree::cart::{presort_indices, DecisionTreeRegressor};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Regression Loss Functions
@@ -53,7 +54,6 @@ pub enum RegressionLoss {
         alpha: f64,
     },
 }
-
 
 impl RegressionLoss {
     /// Compute the initial (constant) prediction F₀.
@@ -107,11 +107,19 @@ impl RegressionLoss {
     ///
     /// For SquaredError, mean of residuals is already correct (tree default).
     /// For other losses, we override leaf predictions.
-    fn update_terminal_value(&self, residuals: &[f64], y_in_leaf: &[f64], f_in_leaf: &[f64], delta: f64) -> f64 {
+    fn update_terminal_value(
+        &self,
+        residuals: &[f64],
+        y_in_leaf: &[f64],
+        f_in_leaf: &[f64],
+        delta: f64,
+    ) -> f64 {
         match self {
             Self::SquaredError => {
                 // Tree already computes mean — no override needed.
-                if residuals.is_empty() { 0.0 } else {
+                if residuals.is_empty() {
+                    0.0
+                } else {
                     residuals.iter().sum::<f64>() / residuals.len() as f64
                 }
             }
@@ -119,15 +127,21 @@ impl RegressionLoss {
             Self::Huber { .. } => {
                 // Median of residuals + mean of clipped tails.
                 let med = median(residuals);
-                let correction: f64 = residuals.iter().map(|&r| {
-                    let diff = r - med;
-                    diff.clamp(-delta, delta)
-                }).sum::<f64>() / residuals.len().max(1) as f64;
+                let correction: f64 = residuals
+                    .iter()
+                    .map(|&r| {
+                        let diff = r - med;
+                        diff.clamp(-delta, delta)
+                    })
+                    .sum::<f64>()
+                    / residuals.len().max(1) as f64;
                 med + correction
             }
             Self::Quantile { alpha } => {
                 // Compute residuals from current predictions.
-                let diffs: Vec<f64> = y_in_leaf.iter().zip(f_in_leaf.iter())
+                let diffs: Vec<f64> = y_in_leaf
+                    .iter()
+                    .zip(f_in_leaf.iter())
                     .map(|(&y, &f)| y - f)
                     .collect();
                 quantile(&diffs, *alpha)
@@ -208,6 +222,7 @@ fn quantile(data: &[f64], alpha: f64) -> f64 {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct GradientBoostingRegressor {
     n_estimators: usize,
     learning_rate: f64,
@@ -226,6 +241,7 @@ pub struct GradientBoostingRegressor {
     n_features: usize,
     fitted: bool,
     n_estimators_used: usize,
+    history: Option<TrainingHistory>,
 }
 
 impl GradientBoostingRegressor {
@@ -248,6 +264,7 @@ impl GradientBoostingRegressor {
             n_features: 0,
             fitted: false,
             n_estimators_used: 0,
+            history: None,
         }
     }
 
@@ -371,7 +388,9 @@ impl GradientBoostingRegressor {
         // Compute Huber delta (quantile of |y - F₀|) — used throughout training.
         let delta = match &self.loss {
             RegressionLoss::Huber { alpha } => {
-                let abs_resid: Vec<f64> = train_data.target.iter()
+                let abs_resid: Vec<f64> = train_data
+                    .target
+                    .iter()
                     .zip(f_vals.iter())
                     .map(|(&y, &f)| (y - f).abs())
                     .collect();
@@ -393,17 +412,26 @@ impl GradientBoostingRegressor {
         );
         let row_major = train_data.feature_matrix();
 
+        // Pre-sort indices once — reused across all boosting rounds.
+        // Feature values don't change between rounds (only targets/residuals do),
+        // so the sorted order is valid throughout training.
+        let global_sorted = presort_indices(&temp_data, &all_indices);
+
         // Early stopping state.
         let mut best_val_loss = f64::INFINITY;
         let mut no_improve_count = 0usize;
         let patience = self.n_iter_no_change.unwrap_or(usize::MAX);
 
+        let mut history = TrainingHistory::new();
+
         for round in 0..self.n_estimators {
+            let round_start = std::time::Instant::now();
+
             // Compute negative gradient (pseudo-residuals).
             for (i, fv) in f_vals.iter().enumerate().take(n_train) {
-                temp_data.target[i] = self.loss.negative_gradient(
-                    train_data.target[i], *fv, delta,
-                );
+                temp_data.target[i] = self
+                    .loss
+                    .negative_gradient(train_data.target[i], *fv, delta);
             }
 
             // Subsample indices.
@@ -414,7 +442,7 @@ impl GradientBoostingRegressor {
                 .max_depth(self.max_depth)
                 .min_samples_split(self.min_samples_split)
                 .min_samples_leaf(self.min_samples_leaf);
-            tree.fit_on_indices(&temp_data, &indices)?;
+            tree.fit_on_indices_presorted(&temp_data, &indices, &global_sorted)?;
 
             // For non-squared-error losses, override leaf values with
             // the loss-specific optimal terminal region update.
@@ -453,6 +481,37 @@ impl GradientBoostingRegressor {
 
             self.trees.push(tree);
 
+            // Compute training loss (MSE on training set).
+            let train_mse: f64 = train_data
+                .target
+                .iter()
+                .zip(f_vals.iter())
+                .map(|(&y, &f)| (y - f).powi(2))
+                .sum::<f64>()
+                / n_train as f64;
+
+            // Gradient norm: L2 norm of pseudo-residuals (approximation for trees).
+            let grad_norm: f64 = temp_data
+                .target
+                .iter()
+                .take(n_train)
+                .map(|&r| r * r)
+                .sum::<f64>()
+                .sqrt();
+
+            let elapsed = round_start.elapsed().as_millis() as u64;
+
+            history.push(EpochMetrics {
+                epoch: round,
+                train_loss: train_mse,
+                val_loss: None, // updated below if early stopping
+                train_metric: None,
+                val_metric: None,
+                learning_rate: self.learning_rate,
+                grad_norm,
+                elapsed_ms: elapsed,
+            });
+
             // ── Check early stopping ──
             if let Some(ref val) = val_data {
                 let val_features = val.feature_matrix();
@@ -464,8 +523,19 @@ impl GradientBoostingRegressor {
                         }
                     }
                 }
-                let val_mse: f64 = val.target.iter().zip(val_preds.iter())
-                    .map(|(&y, &p)| (y - p).powi(2)).sum::<f64>() / val.target.len() as f64;
+                let val_mse: f64 = val
+                    .target
+                    .iter()
+                    .zip(val_preds.iter())
+                    .map(|(&y, &p)| (y - p).powi(2))
+                    .sum::<f64>()
+                    / val.target.len() as f64;
+
+                // Record val_loss in history.
+                if let Some(last) = history.epochs.last_mut() {
+                    last.val_loss = Some(val_mse);
+                }
+
                 if val_mse + self.tol < best_val_loss {
                     best_val_loss = val_mse;
                     no_improve_count = 0;
@@ -474,6 +544,7 @@ impl GradientBoostingRegressor {
                     if no_improve_count >= patience {
                         self.n_estimators_used = round + 1;
                         self.fitted = true;
+                        self.history = Some(history);
                         return Ok(());
                     }
                 }
@@ -482,6 +553,7 @@ impl GradientBoostingRegressor {
 
         self.n_estimators_used = self.trees.len();
         self.fitted = true;
+        self.history = Some(history);
         Ok(())
     }
 
@@ -539,6 +611,11 @@ impl GradientBoostingRegressor {
     pub fn early_stopped(&self) -> bool {
         self.n_iter_no_change.is_some() && self.n_estimators_used < self.n_estimators
     }
+
+    /// Return training history (populated after `fit()`).
+    pub fn history(&self) -> Option<&TrainingHistory> {
+        self.history.as_ref()
+    }
 }
 
 impl Default for GradientBoostingRegressor {
@@ -584,6 +661,7 @@ impl Default for GradientBoostingRegressor {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct GradientBoostingClassifier {
     n_estimators: usize,
     learning_rate: f64,
@@ -599,6 +677,7 @@ pub struct GradientBoostingClassifier {
     n_classes: usize,
     n_features: usize,
     fitted: bool,
+    history: Option<TrainingHistory>,
 }
 
 impl GradientBoostingClassifier {
@@ -618,6 +697,7 @@ impl GradientBoostingClassifier {
             n_classes: 0,
             n_features: 0,
             fitted: false,
+            history: None,
         }
     }
 
@@ -703,11 +783,20 @@ impl GradientBoostingClassifier {
 
         if k == 2 {
             // ── Binary classification via log-loss ──
-            self.fit_binary(data, n, &mut rng, &all_indices, &row_major, &sample_weights)
+            self.fit_binary(data, n, &mut rng, &all_indices, &row_major, &sample_weights)?;
         } else {
             // ── Multiclass via softmax (K one-vs-all) ──
-            self.fit_multiclass(data, n, k, &mut rng, &all_indices, &row_major, &sample_weights)
+            self.fit_multiclass(
+                data,
+                n,
+                k,
+                &mut rng,
+                &all_indices,
+                &row_major,
+                &sample_weights,
+            )?;
         }
+        Ok(())
     }
 
     /// Binary classification: single sequence of trees with Newton leaf correction.
@@ -729,6 +818,7 @@ impl GradientBoostingClassifier {
 
         let mut f_vals = vec![f0; n];
         let mut trees_seq = Vec::with_capacity(self.n_estimators);
+        let mut history = TrainingHistory::new();
 
         // Reusable dataset — share features, replace target each round.
         let mut temp_data = Dataset::new(
@@ -738,7 +828,12 @@ impl GradientBoostingClassifier {
             "residual",
         );
 
-        for _ in 0..self.n_estimators {
+        // Pre-sort indices once — reused across all boosting rounds.
+        let global_sorted = presort_indices(&temp_data, all_indices);
+
+        for round in 0..self.n_estimators {
+            let round_start = std::time::Instant::now();
+
             // Compute probabilities and pseudo-residuals.
             let probs: Vec<f64> = f_vals.iter().map(|&f| sigmoid(f)).collect();
 
@@ -753,7 +848,7 @@ impl GradientBoostingClassifier {
                 .max_depth(self.max_depth)
                 .min_samples_split(self.min_samples_split)
                 .min_samples_leaf(self.min_samples_leaf);
-            tree.fit_on_indices(&temp_data, &indices)?;
+            tree.fit_on_indices_presorted(&temp_data, &indices, &global_sorted)?;
 
             // ── Newton-Raphson leaf correction ──
             // For each leaf, replace the mean residual with:
@@ -775,10 +870,46 @@ impl GradientBoostingClassifier {
             }
 
             trees_seq.push(tree);
+
+            // Binary cross-entropy loss: -mean(y*log(p) + (1-y)*log(1-p))
+            let probs_after: Vec<f64> = f_vals.iter().map(|&f| sigmoid(f)).collect();
+            let train_loss: f64 = data
+                .target
+                .iter()
+                .zip(probs_after.iter())
+                .map(|(&y, &p)| {
+                    let p_c = p.clamp(1e-15, 1.0 - 1e-15);
+                    -(y * p_c.ln() + (1.0 - y) * (1.0 - p_c).ln())
+                })
+                .sum::<f64>()
+                / n as f64;
+
+            // Gradient norm: L2 norm of residuals.
+            let grad_norm: f64 = temp_data
+                .target
+                .iter()
+                .take(n)
+                .map(|&r| r * r)
+                .sum::<f64>()
+                .sqrt();
+
+            let elapsed = round_start.elapsed().as_millis() as u64;
+
+            history.push(EpochMetrics {
+                epoch: round,
+                train_loss,
+                val_loss: None,
+                train_metric: None,
+                val_metric: None,
+                learning_rate: self.learning_rate,
+                grad_norm,
+                elapsed_ms: elapsed,
+            });
         }
 
         self.trees = vec![trees_seq];
         self.fitted = true;
+        self.history = Some(history);
         Ok(())
     }
 
@@ -820,8 +951,10 @@ impl GradientBoostingClassifier {
         // f_vals[class][sample]
         let mut f_vals: Vec<Vec<f64>> = (0..k).map(|c| vec![init_preds[c]; n]).collect();
 
-        let mut trees_all: Vec<Vec<DecisionTreeRegressor>> =
-            (0..k).map(|_| Vec::with_capacity(self.n_estimators)).collect();
+        let mut trees_all: Vec<Vec<DecisionTreeRegressor>> = (0..k)
+            .map(|_| Vec::with_capacity(self.n_estimators))
+            .collect();
+        let mut history = TrainingHistory::new();
 
         // Reusable dataset — share features, replace target each round.
         let mut temp_data = Dataset::new(
@@ -831,7 +964,11 @@ impl GradientBoostingClassifier {
             "residual",
         );
 
-        for _ in 0..self.n_estimators {
+        // Pre-sort indices once — reused across all boosting rounds.
+        let global_sorted = presort_indices(&temp_data, all_indices);
+
+        for round in 0..self.n_estimators {
+            let round_start = std::time::Instant::now();
             // Compute softmax probabilities.
             let probs = softmax_matrix(&f_vals, n, k);
 
@@ -848,7 +985,7 @@ impl GradientBoostingClassifier {
                     .max_depth(self.max_depth)
                     .min_samples_split(self.min_samples_split)
                     .min_samples_leaf(self.min_samples_leaf);
-                tree.fit_on_indices(&temp_data, &indices)?;
+                tree.fit_on_indices_presorted(&temp_data, &indices, &global_sorted)?;
 
                 // ── Newton-Raphson leaf correction for multiclass ──
                 // For each leaf:
@@ -870,10 +1007,44 @@ impl GradientBoostingClassifier {
 
                 trees_all[cls].push(tree);
             }
+
+            // Cross-entropy loss: -mean(sum_k y_k * log(p_k))
+            let probs_after = softmax_matrix(&f_vals, n, k);
+            let train_loss: f64 = (0..n)
+                .map(|i| {
+                    let cls_i = data.target[i] as usize;
+                    let p = probs_after[cls_i][i].clamp(1e-15, 1.0 - 1e-15);
+                    -p.ln()
+                })
+                .sum::<f64>()
+                / n as f64;
+
+            // Gradient norm: L2 norm of last class's residuals (representative).
+            let grad_norm: f64 = temp_data
+                .target
+                .iter()
+                .take(n)
+                .map(|&r| r * r)
+                .sum::<f64>()
+                .sqrt();
+
+            let elapsed = round_start.elapsed().as_millis() as u64;
+
+            history.push(EpochMetrics {
+                epoch: round,
+                train_loss,
+                val_loss: None,
+                train_metric: None,
+                val_metric: None,
+                learning_rate: self.learning_rate,
+                grad_norm,
+                elapsed_ms: elapsed,
+            });
         }
 
         self.trees = trees_all;
         self.fitted = true;
+        self.history = Some(history);
         Ok(())
     }
 
@@ -986,6 +1157,11 @@ impl GradientBoostingClassifier {
     /// Total number of trees across all class sequences.
     pub fn n_trees(&self) -> usize {
         self.trees.iter().map(Vec::len).sum()
+    }
+
+    /// Return training history (populated after `fit()`).
+    pub fn history(&self) -> Option<&TrainingHistory> {
+        self.history.as_ref()
     }
 }
 
@@ -1219,7 +1395,10 @@ mod tests {
         gbr.fit(&data).unwrap();
         let imp = gbr.feature_importances().unwrap();
         assert_eq!(imp.len(), 1);
-        assert!((imp[0] - 1.0).abs() < 1e-6, "single feature should have importance 1.0");
+        assert!(
+            (imp[0] - 1.0).abs() < 1e-6,
+            "single feature should have importance 1.0"
+        );
     }
 
     #[test]
@@ -1396,7 +1575,11 @@ mod tests {
             .max_depth(3);
         gbr.fit(&data).unwrap();
         let preds = gbr.predict(&[vec![50.0]]).unwrap();
-        assert!((preds[0] - 101.0).abs() < 10.0, "SquaredError pred={}", preds[0]);
+        assert!(
+            (preds[0] - 101.0).abs() < 10.0,
+            "SquaredError pred={}",
+            preds[0]
+        );
     }
 
     #[test]
@@ -1412,7 +1595,8 @@ mod tests {
         // y = 2x + 1 → 101
         assert!(
             (preds[0] - 101.0).abs() < 20.0,
-            "AbsoluteError pred={}", preds[0]
+            "AbsoluteError pred={}",
+            preds[0]
         );
     }
 
@@ -1426,10 +1610,7 @@ mod tests {
             .max_depth(3);
         gbr.fit(&data).unwrap();
         let preds = gbr.predict(&[vec![50.0]]).unwrap();
-        assert!(
-            (preds[0] - 101.0).abs() < 20.0,
-            "Huber pred={}", preds[0]
-        );
+        assert!((preds[0] - 101.0).abs() < 20.0, "Huber pred={}", preds[0]);
     }
 
     #[test]
@@ -1444,7 +1625,8 @@ mod tests {
         let preds = gbr.predict(&[vec![50.0]]).unwrap();
         assert!(
             (preds[0] - 101.0).abs() < 25.0,
-            "Quantile(0.5) pred={}", preds[0]
+            "Quantile(0.5) pred={}",
+            preds[0]
         );
     }
 
@@ -1463,5 +1645,76 @@ mod tests {
         assert!((quantile(&data, 0.0) - 1.0).abs() < 1e-12);
         assert!((quantile(&data, 1.0) - 5.0).abs() < 1e-12);
         assert!((quantile(&data, 0.25) - 2.0).abs() < 1e-12);
+    }
+
+    // ─── Training history tests ───
+
+    #[test]
+    fn regressor_history_populated() {
+        let data = make_linear_data(50);
+        let mut gbr = GradientBoostingRegressor::new()
+            .n_estimators(10)
+            .learning_rate(0.1)
+            .max_depth(3);
+        gbr.fit(&data).unwrap();
+
+        let history = gbr.history().expect("history should be populated");
+        assert_eq!(history.len(), 10);
+        // Loss should decrease over rounds.
+        assert!(history.epochs[0].train_loss > history.epochs[9].train_loss);
+        // Grad norms should be positive.
+        assert!(history.epochs[0].grad_norm > 0.0);
+    }
+
+    #[test]
+    fn classifier_binary_history_populated() {
+        let data = make_binary_data();
+        let mut gbc = GradientBoostingClassifier::new()
+            .n_estimators(10)
+            .learning_rate(0.1)
+            .max_depth(2);
+        gbc.fit(&data).unwrap();
+
+        let history = gbc.history().expect("history should be populated");
+        assert_eq!(history.len(), 10);
+        assert!(history.epochs[0].train_loss > 0.0);
+    }
+
+    #[test]
+    fn classifier_multiclass_history_populated() {
+        let data = make_multiclass_data();
+        let mut gbc = GradientBoostingClassifier::new()
+            .n_estimators(10)
+            .learning_rate(0.1)
+            .max_depth(2);
+        gbc.fit(&data).unwrap();
+
+        let history = gbc.history().expect("history should be populated");
+        assert_eq!(history.len(), 10);
+        assert!(history.epochs[0].train_loss > 0.0);
+    }
+
+    #[test]
+    fn regressor_early_stopping_history() {
+        let mut rng = crate::rng::FastRng::new(42);
+        let n = 50;
+        let x: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
+        let y: Vec<f64> = x.iter().map(|&v| v.sin() + rng.f64() * 5.0).collect();
+        let data = Dataset::new(vec![x], y, vec!["x".into()], "y");
+
+        let mut gbr = GradientBoostingRegressor::new()
+            .n_estimators(1000)
+            .learning_rate(0.5)
+            .max_depth(5)
+            .n_iter_no_change(5)
+            .validation_fraction(0.3)
+            .tol(0.0);
+        gbr.fit(&data).unwrap();
+
+        let history = gbr.history().expect("history should be populated");
+        // History length should match n_estimators_used.
+        assert_eq!(history.len(), gbr.n_estimators_used());
+        // Some epochs should have val_loss.
+        assert!(history.epochs.last().unwrap().val_loss.is_some());
     }
 }

@@ -81,7 +81,6 @@
 //!
 //! 1.83.0
 
-
 // Strict lints for production quality
 #![warn(missing_docs)]
 #![warn(unreachable_pub)]
@@ -99,6 +98,9 @@ pub mod svg;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
+
+#[cfg(feature = "sdf")]
+pub mod sdf;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -139,11 +141,12 @@ pub enum PixelCanvasError {
 /// use scry_engine::prelude::*;
 /// ```
 pub mod prelude {
-    pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
     #[cfg(feature = "gpu")]
     pub use crate::rasterize::{rasterize_auto, WgpuContext2D, WgpuRasterizer};
+    pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
     pub use crate::scene::animation::{
-        AnimationState, Easing, Keyframe, Keyframes, Lerp, Transition,
+        preset, AnimationSequence, AnimationState, Easing, Keyframe, Keyframes, Lerp,
+        SequencePlayer, Spring, SpringConfig, Transition,
     };
     pub use crate::scene::style::Color;
     pub use crate::scene::PixelCanvas;
@@ -162,6 +165,11 @@ pub mod prelude {
     #[cfg(feature = "svg")]
     pub use crate::svg::line_drawing::{
         DrawMode, PenPressure, PenTip, SvgLineDrawing, SvgPathSegment, Trail,
+    };
+
+    #[cfg(feature = "sdf")]
+    pub use crate::sdf::{
+        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
     };
 }
 

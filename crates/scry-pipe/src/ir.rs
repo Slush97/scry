@@ -326,10 +326,7 @@ mod tests {
                 mean: 0.0,
                 std_dev: 1.0,
             },
-            TransformOp::MinMaxScale {
-                min: 0.0,
-                max: 1.0,
-            },
+            TransformOp::MinMaxScale { min: 0.0, max: 1.0 },
             TransformOp::RobustScale {
                 median: 5.0,
                 iqr: 2.0,
@@ -376,7 +373,8 @@ mod tests {
     #[test]
     fn from_json_missing_required_fields() {
         // Valid JSON but missing "steps" field.
-        let json = r#"{"name": "x", "version": "0.1.0", "created_at": "2026-01-01", "input_schema": []}"#;
+        let json =
+            r#"{"name": "x", "version": "0.1.0", "created_at": "2026-01-01", "input_schema": []}"#;
         let result = PipelineDef::from_json(json);
         assert!(result.is_err());
     }
@@ -411,8 +409,16 @@ mod tests {
                 },
             ],
             input_schema: vec![
-                FeatureSpec { name: "cat".into(), dtype: DType::Float64, index: 0 },
-                FeatureSpec { name: "num".into(), dtype: DType::Float64, index: 1 },
+                FeatureSpec {
+                    name: "cat".into(),
+                    dtype: DType::Float64,
+                    index: 0,
+                },
+                FeatureSpec {
+                    name: "num".into(),
+                    dtype: DType::Float64,
+                    index: 1,
+                },
             ],
         };
         // 2 base + (4-1) onehot + (4-1) polynomial = 2 + 3 + 3 = 8

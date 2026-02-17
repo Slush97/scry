@@ -58,6 +58,7 @@ pub enum UnknownStrategy {
 /// pass through untouched.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct OneHotEncoder {
     feature_indices: Vec<usize>,
     drop_strategy: DropStrategy,
@@ -114,11 +115,7 @@ impl OneHotEncoder {
         let mut names = Vec::new();
         for (j, orig_name) in self.orig_feature_names.iter().enumerate() {
             if encoded_set.contains(&j) {
-                let cat_idx = self
-                    .feature_indices
-                    .iter()
-                    .position(|&fi| fi == j)
-                    .unwrap();
+                let cat_idx = self.feature_indices.iter().position(|&fi| fi == j).unwrap();
                 let cats = &self.categories[cat_idx];
                 let skip = self.n_drop(cat_idx);
                 for (ci, &cat_val) in cats.iter().enumerate() {
@@ -144,9 +141,7 @@ impl OneHotEncoder {
         match self.drop_strategy {
             DropStrategy::None => 0,
             DropStrategy::First => 1,
-            DropStrategy::IfBinary => {
-                usize::from(self.categories[cat_idx].len() == 2)
-            }
+            DropStrategy::IfBinary => usize::from(self.categories[cat_idx].len() == 2),
         }
     }
 }
@@ -195,11 +190,7 @@ impl Transformer for OneHotEncoder {
         for j in 0..data.n_features() {
             if encoded_set.contains(&j) {
                 // Find which cat_idx this corresponds to.
-                let cat_idx = self
-                    .feature_indices
-                    .iter()
-                    .position(|&fi| fi == j)
-                    .unwrap();
+                let cat_idx = self.feature_indices.iter().position(|&fi| fi == j).unwrap();
                 let cats = &self.categories[cat_idx];
                 let skip = self.n_drop(cat_idx);
                 let orig_name = &data.feature_names[j];
@@ -219,11 +210,9 @@ impl Transformer for OneHotEncoder {
                             // Unknown category.
                             match self.unknown_strategy {
                                 UnknownStrategy::Error => {
-                                    return Err(ScryLearnError::InvalidParameter(
-                                        format!(
-                                            "unknown category {val} in feature '{orig_name}'"
-                                        ),
-                                    ));
+                                    return Err(ScryLearnError::InvalidParameter(format!(
+                                        "unknown category {val} in feature '{orig_name}'"
+                                    )));
                                 }
                                 UnknownStrategy::Ignore => {
                                     col.push(0.0);
@@ -278,10 +267,9 @@ impl Transformer for OneHotEncoder {
                 if j + n_cols <= data.n_features() {
                     // Try to extract the original feature name from the first column name.
                     let first_name = &data.feature_names[j];
-                    let prefix = first_name.rfind('_').map_or(
-                        first_name.as_str(),
-                        |pos| &first_name[..pos],
-                    );
+                    let prefix = first_name
+                        .rfind('_')
+                        .map_or(first_name.as_str(), |pos| &first_name[..pos]);
 
                     // Collapse: for each sample, find which column is 1.
                     let mut col = Vec::with_capacity(n);
@@ -385,10 +373,7 @@ mod tests {
     fn onehot_drop_if_binary() {
         // Binary feature: only 2 categories.
         let mut ds = Dataset::new(
-            vec![
-                vec![0.0, 1.0, 0.0, 1.0],
-                vec![10.0, 20.0, 30.0, 40.0],
-            ],
+            vec![vec![0.0, 1.0, 0.0, 1.0], vec![10.0, 20.0, 30.0, 40.0]],
             vec![0.0; 4],
             vec!["binary".into(), "num".into()],
             "y",

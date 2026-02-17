@@ -93,7 +93,15 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                                 .done()
                         });
                     }
-                    draw_fill_pattern(&mut ctx, series.series_style().fill_pattern.as_ref(), color, bar_x, rect_y, bar_width, bar_h);
+                    draw_fill_pattern(
+                        &mut ctx,
+                        series.series_style().fill_pattern.as_ref(),
+                        color,
+                        bar_x,
+                        rect_y,
+                        bar_width,
+                        bar_h,
+                    );
                 }
                 cumulative += value;
             }
@@ -139,7 +147,15 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                                 .done()
                         });
                     }
-                    draw_fill_pattern(&mut ctx, series.series_style().fill_pattern.as_ref(), color, bar_x, rect_y, bar_width, bar_h);
+                    draw_fill_pattern(
+                        &mut ctx,
+                        series.series_style().fill_pattern.as_ref(),
+                        color,
+                        bar_x,
+                        rect_y,
+                        bar_width,
+                        bar_h,
+                    );
                 }
             }
         }
@@ -173,15 +189,31 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                 let err_color = color.with_alpha(0.8);
                 let sy_top = y_scale.to_pixel(value + errors) as f32;
                 let sy_bot = y_scale.to_pixel(value - errors) as f32;
-                ctx.draw(|c| c.line(bar_center_x, sy_top, bar_center_x, sy_bot).color(err_color).width(1.5).done());
-                ctx.draw(|c| c.line(bar_center_x - cap_w, sy_top, bar_center_x + cap_w, sy_top).color(err_color).width(1.5).done());
-                ctx.draw(|c| c.line(bar_center_x - cap_w, sy_bot, bar_center_x + cap_w, sy_bot).color(err_color).width(1.5).done());
+                ctx.draw(|c| {
+                    c.line(bar_center_x, sy_top, bar_center_x, sy_bot)
+                        .color(err_color)
+                        .width(1.5)
+                        .done()
+                });
+                ctx.draw(|c| {
+                    c.line(bar_center_x - cap_w, sy_top, bar_center_x + cap_w, sy_top)
+                        .color(err_color)
+                        .width(1.5)
+                        .done()
+                });
+                ctx.draw(|c| {
+                    c.line(bar_center_x - cap_w, sy_bot, bar_center_x + cap_w, sy_bot)
+                        .color(err_color)
+                        .width(1.5)
+                        .done()
+                });
             }
         }
     }
 
     // Value labels above bars
     if bc.show_values {
+        let val_start = ctx.overlays.len();
         let text_color = theme.text_color();
         for (ci, _label) in bc.labels.iter().enumerate() {
             let center = cat_scale.center(ci) as f32;
@@ -194,7 +226,11 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     .filter_map(|s| {
                         if ci < s.len() {
                             let v = s.values()[ci];
-                            if v.is_finite() { Some(v) } else { None }
+                            if v.is_finite() {
+                                Some(v)
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
@@ -257,6 +293,8 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                 }
             }
         }
+        // Cull overlapping value labels, keeping min/max/endpoints.
+        cull_overlapping_value_labels(&mut ctx.overlays, val_start, data_fs, false);
     }
 
     // Category label overlays
@@ -379,7 +417,15 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                                 .done()
                         });
                     }
-                    draw_fill_pattern(&mut ctx, series.series_style().fill_pattern.as_ref(), color, rect_x, bar_y, bar_w, bar_height);
+                    draw_fill_pattern(
+                        &mut ctx,
+                        series.series_style().fill_pattern.as_ref(),
+                        color,
+                        rect_x,
+                        bar_y,
+                        bar_w,
+                        bar_height,
+                    );
                 }
                 cumulative += value;
             }
@@ -424,7 +470,15 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                                 .done()
                         });
                     }
-                    draw_fill_pattern(&mut ctx, series.series_style().fill_pattern.as_ref(), color, rect_x, bar_y, bar_w, bar_height);
+                    draw_fill_pattern(
+                        &mut ctx,
+                        series.series_style().fill_pattern.as_ref(),
+                        color,
+                        rect_x,
+                        bar_y,
+                        bar_w,
+                        bar_height,
+                    );
                 }
             }
         }
@@ -432,6 +486,7 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 
     // Value labels beside bars
     if bc.show_values {
+        let val_start = ctx.overlays.len();
         let text_color = theme.text_color();
         for (ci, _label) in bc.labels.iter().enumerate() {
             let center = cat_scale.center(ci) as f32;
@@ -444,7 +499,11 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     .filter_map(|s| {
                         if ci < s.len() {
                             let v = s.values()[ci];
-                            if v.is_finite() { Some(v) } else { None }
+                            if v.is_finite() {
+                                Some(v)
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
@@ -499,6 +558,8 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                 }
             }
         }
+        // Cull overlapping value labels, keeping min/max/endpoints.
+        cull_overlapping_value_labels(&mut ctx.overlays, val_start, data_fs, true);
     }
 
     // Category label overlays (on the left side)
@@ -609,19 +670,129 @@ fn compute_value_extent(bc: &BarChart) -> (f64, f64) {
     }
 }
 
-/// Format a numeric value adaptively for bar value labels.
+/// Format a numeric value adaptively for data labels (bar, histogram, etc.).
 ///
-/// Uses the same logic as scatter chart value labels for consistency:
-/// - Scientific notation for very large (≥1000) or very small (<0.01) values
-/// - Integer format when the value has no fractional part
-/// - One decimal place otherwise
-fn format_value(value: f64) -> String {
-    if value.abs() >= 1000.0 || (value.abs() < 0.01 && value != 0.0) {
+/// Uses human-readable SI suffixes for large values instead of scientific
+/// notation, keeping labels compact and glance-able:
+/// - ≥ 1 billion  → `1.2B`
+/// - ≥ 1 million  → `3.4M`
+/// - ≥ 1 thousand → `1.5k`
+/// - Very small   → scientific notation (only for |v| < 0.01)
+/// - Integer      → no decimal point
+/// - Otherwise    → one decimal place
+pub(crate) fn format_value(value: f64) -> String {
+    let abs = value.abs();
+    if abs >= 1_000_000_000.0 {
+        format!("{:.1}B", value / 1_000_000_000.0)
+    } else if abs >= 1_000_000.0 {
+        format!("{:.1}M", value / 1_000_000.0)
+    } else if abs >= 10_000.0 {
+        format!("{:.1}k", value / 1_000.0)
+    } else if abs >= 1_000.0 {
+        // 1000–9999: show as integer (compact enough without suffix)
+        format!("{}", value as i64)
+    } else if abs < 0.01 && value != 0.0 {
         format!("{value:.2e}")
     } else if value.fract().abs() < 1e-9 {
         format!("{}", value as i64)
     } else {
         format!("{value:.1}")
+    }
+}
+
+/// Remove overlapping value labels, prioritising min, max, and endpoints.
+///
+/// Walks the overlays added after `start_idx` and marks labels for removal
+/// if they would visually collide with a higher-priority neighbour.
+/// Priority: endpoints (first/last) > extremes (min/max value) > interior.
+pub(crate) fn cull_overlapping_value_labels(
+    overlays: &mut Vec<TextOverlay>,
+    start_idx: usize,
+    font_size: f32,
+    horizontal: bool,
+) {
+    let n = overlays.len();
+    if start_idx >= n || n - start_idx < 2 {
+        return;
+    }
+
+    let slice = &overlays[start_idx..];
+    let count = slice.len();
+
+    // Minimum pixel distance between centres to avoid overlap.
+    let min_dist = if horizontal {
+        font_size * 3.0
+    } else {
+        font_size * 1.4
+    };
+
+    // Build priority flags: endpoints + extremes are protected.
+    let mut is_protected = vec![false; count];
+    is_protected[0] = true;
+    is_protected[count - 1] = true;
+
+    // Find min/max value labels by parsing their text (best-effort).
+    if count > 2 {
+        let (mut min_i, mut max_i) = (0, 0);
+        let (mut min_y, mut max_y) = (f32::MAX, f32::MIN);
+        for (i, ov) in slice.iter().enumerate() {
+            let coord = if horizontal { ov.x_px } else { -ov.y_px };
+            if coord < min_y {
+                min_y = coord;
+                min_i = i;
+            }
+            if coord > max_y {
+                max_y = coord;
+                max_i = i;
+            }
+        }
+        is_protected[min_i] = true;
+        is_protected[max_i] = true;
+    }
+
+    // Sort indices by position along the primary axis, then greedily cull.
+    let mut indices: Vec<usize> = (0..count).collect();
+    if horizontal {
+        indices.sort_by(|a, b| slice[*a].x_px.partial_cmp(&slice[*b].x_px).unwrap());
+    } else {
+        indices.sort_by(|a, b| slice[*a].y_px.partial_cmp(&slice[*b].y_px).unwrap());
+    }
+
+    let mut remove = vec![false; count];
+    let mut last_kept_pos: Option<f32> = None;
+
+    for &idx in &indices {
+        if remove[idx] {
+            continue;
+        }
+        let pos = if horizontal {
+            slice[idx].x_px
+        } else {
+            slice[idx].y_px
+        };
+        if let Some(prev) = last_kept_pos {
+            if (pos - prev).abs() < min_dist {
+                if !is_protected[idx] {
+                    remove[idx] = true;
+                    continue;
+                }
+                // Protected overlaps a previous one — keep this, remove the
+                // previous if it isn't also protected (backtrack).
+            }
+        }
+        last_kept_pos = Some(pos);
+    }
+
+    // Actually remove, from back to front to preserve indices.
+    let mut to_remove: Vec<usize> = remove
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| **r)
+        .map(|(i, _)| start_idx + i)
+        .collect();
+    to_remove.sort_unstable_by(|a, b| b.cmp(a));
+    for idx in to_remove {
+        overlays.remove(idx);
     }
 }
 
@@ -653,7 +824,12 @@ fn draw_fill_pattern(
             let spacing = 4.0_f32;
             let mut ly = y + spacing;
             while ly < y + h {
-                ctx.draw(|c| c.line(x, ly, x + w, ly).color(hatch_color).width(line_w).done());
+                ctx.draw(|c| {
+                    c.line(x, ly, x + w, ly)
+                        .color(hatch_color)
+                        .width(line_w)
+                        .done()
+                });
                 ly += spacing;
             }
         }
@@ -662,12 +838,22 @@ fn draw_fill_pattern(
             let spacing = 5.0_f32;
             let mut ly = y + spacing;
             while ly < y + h {
-                ctx.draw(|c| c.line(x, ly, x + w, ly).color(hatch_color).width(line_w).done());
+                ctx.draw(|c| {
+                    c.line(x, ly, x + w, ly)
+                        .color(hatch_color)
+                        .width(line_w)
+                        .done()
+                });
                 ly += spacing;
             }
             let mut lx = x + spacing;
             while lx < x + w {
-                ctx.draw(|c| c.line(lx, y, lx, y + h).color(hatch_color).width(line_w).done());
+                ctx.draw(|c| {
+                    c.line(lx, y, lx, y + h)
+                        .color(hatch_color)
+                        .width(line_w)
+                        .done()
+                });
                 lx += spacing;
             }
         }
@@ -697,7 +883,12 @@ fn draw_fill_pattern(
                 let x2 = (x + offset).min(x + w);
                 let y2 = (y + h - (offset - (x2 - x))).max(y);
                 if x1 < x + w && y2 <= y + h {
-                    ctx.draw(|c| c.line(x1, y1, x2, y2).color(hatch_color).width(line_w).done());
+                    ctx.draw(|c| {
+                        c.line(x1, y1, x2, y2)
+                            .color(hatch_color)
+                            .width(line_w)
+                            .done()
+                    });
                 }
                 offset += spacing;
             }

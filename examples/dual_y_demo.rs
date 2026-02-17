@@ -31,9 +31,7 @@ fn main() {
 
     let conversion = Series::new(
         "Conversion %",
-        vec![
-            3.2, 3.5, 3.1, 3.8, 4.2, 4.0, 4.5, 4.3, 4.8, 5.1, 4.9, 5.4,
-        ],
+        vec![3.2, 3.5, 3.1, 3.8, 4.2, 4.0, 4.5, 4.3, 4.8, 5.1, 4.9, 5.4],
     )
     .style(
         SeriesStyle::new()

@@ -48,6 +48,7 @@ pub enum Strategy {
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct SimpleImputer {
     strategy: Strategy,
     fill_values: Vec<f64>,

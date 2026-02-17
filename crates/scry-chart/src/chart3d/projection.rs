@@ -40,7 +40,8 @@ pub fn mat4_mul(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut out = [[0.0_f32; 4]; 4];
     for i in 0..4 {
         for j in 0..4 {
-            out[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
+            out[i][j] =
+                a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
         }
     }
     out
@@ -109,7 +110,12 @@ impl PerspectiveProjection {
         [
             [f / self.aspect, 0.0, 0.0, 0.0],
             [0.0, f, 0.0, 0.0],
-            [0.0, 0.0, (self.far + self.near) / nf, 2.0 * self.far * self.near / nf],
+            [
+                0.0,
+                0.0,
+                (self.far + self.near) / nf,
+                2.0 * self.far * self.near / nf,
+            ],
             [0.0, 0.0, -1.0, 0.0],
         ]
     }
@@ -259,27 +265,21 @@ mod tests {
 
     #[test]
     fn projection_matrix_is_valid() {
-        let proj = PerspectiveProjection::new(
-            std::f32::consts::FRAC_PI_4,
-            16.0 / 9.0,
-            0.1,
-            100.0,
-        );
+        let proj = PerspectiveProjection::new(std::f32::consts::FRAC_PI_4, 16.0 / 9.0, 0.1, 100.0);
         let m = proj.projection_matrix();
         // Should have -1 in [3][2] for perspective divide
-        assert!(approx_eq(m[3][2], -1.0), "m[3][2] should be -1: {}", m[3][2]);
+        assert!(
+            approx_eq(m[3][2], -1.0),
+            "m[3][2] should be -1: {}",
+            m[3][2]
+        );
         // m[3][3] should be 0 (perspective, not orthographic)
         assert!(approx_eq(m[3][3], 0.0), "m[3][3] should be 0: {}", m[3][3]);
     }
 
     #[test]
     fn project_center_point() {
-        let proj = PerspectiveProjection::new(
-            std::f32::consts::FRAC_PI_4,
-            1.0,
-            0.1,
-            100.0,
-        );
+        let proj = PerspectiveProjection::new(std::f32::consts::FRAC_PI_4, 1.0, 0.1, 100.0);
         // A point at (0, 0, -5) with identity view should project to center
         let view = mat4_identity();
         let result = proj.project(Vec3::new(0.0, 0.0, -5.0), &view, 800, 600, 0);
@@ -299,12 +299,7 @@ mod tests {
 
     #[test]
     fn project_behind_camera_returns_none() {
-        let proj = PerspectiveProjection::new(
-            std::f32::consts::FRAC_PI_4,
-            1.0,
-            0.1,
-            100.0,
-        );
+        let proj = PerspectiveProjection::new(std::f32::consts::FRAC_PI_4, 1.0, 0.1, 100.0);
         let view = mat4_identity();
         // Point at (0, 0, 5) is behind camera when looking down -Z
         let result = proj.project(Vec3::new(0.0, 0.0, 5.0), &view, 800, 600, 0);
@@ -321,9 +316,24 @@ mod tests {
     #[test]
     fn depth_sort_orders_back_to_front() {
         let mut points = vec![
-            ProjectedPoint { screen_x: 0.0, screen_y: 0.0, depth: 0.1, original_index: 0 },
-            ProjectedPoint { screen_x: 0.0, screen_y: 0.0, depth: 0.9, original_index: 1 },
-            ProjectedPoint { screen_x: 0.0, screen_y: 0.0, depth: 0.5, original_index: 2 },
+            ProjectedPoint {
+                screen_x: 0.0,
+                screen_y: 0.0,
+                depth: 0.1,
+                original_index: 0,
+            },
+            ProjectedPoint {
+                screen_x: 0.0,
+                screen_y: 0.0,
+                depth: 0.9,
+                original_index: 1,
+            },
+            ProjectedPoint {
+                screen_x: 0.0,
+                screen_y: 0.0,
+                depth: 0.5,
+                original_index: 2,
+            },
         ];
         depth_sort(&mut points);
         assert_eq!(points[0].original_index, 1, "farthest first");
@@ -333,15 +343,10 @@ mod tests {
 
     #[test]
     fn project_batch_filters_backface() {
-        let proj = PerspectiveProjection::new(
-            std::f32::consts::FRAC_PI_4,
-            1.0,
-            0.1,
-            100.0,
-        );
+        let proj = PerspectiveProjection::new(std::f32::consts::FRAC_PI_4, 1.0, 0.1, 100.0);
         let view = mat4_identity();
         let points = vec![
-            Vec3::new(0.0, 0.0, -5.0), // visible
+            Vec3::new(0.0, 0.0, -5.0),  // visible
             Vec3::new(0.0, 0.0, -10.0), // visible
         ];
         let projected = proj.project_batch(&points, &view, 800, 600);

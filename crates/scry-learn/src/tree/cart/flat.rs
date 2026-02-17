@@ -5,7 +5,7 @@
 //! Predictions and probabilities are stored in compact cold arrays indexed
 //! by leaf position.
 
-use super::{LEAF_SENTINEL, TreeNode};
+use super::{TreeNode, LEAF_SENTINEL};
 
 /// Hot-path node for prediction — 16 bytes, **4 per 64-byte cache line**.
 ///
@@ -17,6 +17,7 @@ use super::{LEAF_SENTINEL, TreeNode};
 #[repr(C)]
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct FlatNode {
     /// Right child index in DFS order, or `LEAF_SENTINEL` if this is a leaf.
     /// Left child is always `self_idx + 1` (implicit in DFS layout).
@@ -27,8 +28,6 @@ pub struct FlatNode {
     pub threshold: f64,
 }
 
-
-
 /// A cache-optimal decision tree stored as a contiguous DFS pre-ordered array.
 ///
 /// - Left child is always the **next** node in memory (free prefetch)
@@ -38,6 +37,7 @@ pub struct FlatNode {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(clippy::unsafe_derive_deserialize)]
+#[non_exhaustive]
 pub struct FlatTree {
     /// DFS pre-ordered hot nodes (16 bytes each).
     ///
@@ -66,8 +66,12 @@ impl FlatTree {
         let mut leaf_probas: Vec<f32> = Vec::new();
         let mut leaf_count: u32 = 0;
         Self::flatten_dfs(
-            root, &mut nodes, &mut predictions, &mut leaf_probas,
-            &mut leaf_count, n_classes,
+            root,
+            &mut nodes,
+            &mut predictions,
+            &mut leaf_probas,
+            &mut leaf_count,
+            n_classes,
         );
         FlatTree {
             nodes,
@@ -92,7 +96,10 @@ impl FlatTree {
     ) {
         match node {
             TreeNode::Leaf {
-                prediction, n_samples, class_counts, ..
+                prediction,
+                n_samples,
+                class_counts,
+                ..
             } => {
                 let li = *leaf_count;
                 *leaf_count += 1;
@@ -105,8 +112,14 @@ impl FlatTree {
                 Self::append_proba(leaf_probas, class_counts, *n_samples, n_classes);
             }
             TreeNode::Split {
-                feature_idx, threshold, left, right,
-                class_counts: _, n_samples: _, prediction: _, ..
+                feature_idx,
+                threshold,
+                left,
+                right,
+                class_counts: _,
+                n_samples: _,
+                prediction: _,
+                ..
             } => {
                 let my_idx = nodes.len();
                 nodes.push(FlatNode {
@@ -120,17 +133,33 @@ impl FlatTree {
 
                 // Right child index = current length (after entire left subtree).
                 nodes[my_idx].right = nodes.len() as u32;
-                Self::flatten_dfs(right, nodes, predictions, leaf_probas, leaf_count, n_classes);
+                Self::flatten_dfs(
+                    right,
+                    nodes,
+                    predictions,
+                    leaf_probas,
+                    leaf_count,
+                    n_classes,
+                );
             }
         }
     }
 
     /// Append probabilities for one leaf to the flat f32 array.
-    fn append_proba(probas: &mut Vec<f32>, class_counts: &[usize], n_samples: usize, n_classes: usize) {
+    fn append_proba(
+        probas: &mut Vec<f32>,
+        class_counts: &[usize],
+        n_samples: usize,
+        n_classes: usize,
+    ) {
         if n_classes > 0 && n_samples > 0 {
             let total = n_samples as f64;
             for i in 0..n_classes {
-                let count = if i < class_counts.len() { class_counts[i] } else { 0 };
+                let count = if i < class_counts.len() {
+                    class_counts[i]
+                } else {
+                    0
+                };
                 probas.push((count as f64 / total) as f32);
             }
         }
@@ -161,9 +190,9 @@ impl FlatTree {
             // SAFETY: feature_idx < n_features, validated during fit().
             let feat_val = unsafe { *sample.get_unchecked(node.feature_idx as usize) };
             idx = if feat_val <= node.threshold {
-                idx + 1                    // left child: next in DFS order
+                idx + 1 // left child: next in DFS order
             } else {
-                node.right as usize        // right child: stored index
+                node.right as usize // right child: stored index
             };
         }
     }
@@ -214,7 +243,10 @@ impl FlatTree {
     #[inline]
     pub fn leaf_prediction(&self, node_idx: usize) -> f64 {
         let node = &self.nodes[node_idx];
-        debug_assert!(node.right == LEAF_SENTINEL, "node_idx {node_idx} is not a leaf");
+        debug_assert!(
+            node.right == LEAF_SENTINEL,
+            "node_idx {node_idx} is not a leaf"
+        );
         self.predictions[node.feature_idx as usize]
     }
 
@@ -224,7 +256,10 @@ impl FlatTree {
     #[inline]
     pub fn set_leaf_prediction(&mut self, node_idx: usize, value: f64) {
         let node = &self.nodes[node_idx];
-        debug_assert!(node.right == LEAF_SENTINEL, "node_idx {node_idx} is not a leaf");
+        debug_assert!(
+            node.right == LEAF_SENTINEL,
+            "node_idx {node_idx} is not a leaf"
+        );
         self.predictions[node.feature_idx as usize] = value;
     }
 
@@ -236,7 +271,10 @@ impl FlatTree {
 
     /// Predict for all samples.
     pub fn predict(&self, features: &[Vec<f64>]) -> Vec<f64> {
-        features.iter().map(|row| self.predict_sample(row)).collect()
+        features
+            .iter()
+            .map(|row| self.predict_sample(row))
+            .collect()
     }
 
     /// Route a single sample to its leaf and return the leaf node index.
@@ -270,12 +308,16 @@ impl FlatTree {
 
     /// Depth of the tree.
     pub fn depth(&self) -> usize {
-        if self.nodes.is_empty() { return 0; }
+        if self.nodes.is_empty() {
+            return 0;
+        }
         Self::depth_at(&self.nodes, 0, 1)
     }
 
     fn depth_at(nodes: &[FlatNode], idx: usize, d: usize) -> usize {
-        if idx >= nodes.len() { return 0; }
+        if idx >= nodes.len() {
+            return 0;
+        }
         let node = &nodes[idx];
         if node.right == LEAF_SENTINEL {
             d
@@ -288,6 +330,9 @@ impl FlatTree {
 
     /// Number of leaf nodes.
     pub fn n_leaves(&self) -> usize {
-        self.nodes.iter().filter(|n| n.right == LEAF_SENTINEL).count()
+        self.nodes
+            .iter()
+            .filter(|n| n.right == LEAF_SENTINEL)
+            .count()
     }
 }

@@ -9,9 +9,9 @@ use crate::scale::{LinearScale, Scale};
 
 use super::render_context::RenderContext;
 use super::{
-    char_width_for_size, estimate_y_label_width, proportional_margin,
-    proportional_title_height, proportional_x_label_height, proportional_x_tick_height,
-    scaled_font_size, x_tick_label_offset, y_tick_label_offset, TextAlign, TextOverlay,
+    char_width_for_size, estimate_y_label_width, proportional_margin, proportional_title_height,
+    proportional_x_label_height, proportional_x_tick_height, scaled_font_size, x_tick_label_offset,
+    y_tick_label_offset, TextAlign, TextOverlay,
 };
 
 impl RenderContext {
@@ -83,7 +83,8 @@ impl RenderContext {
 
         if let Some(ref label) = config.y_label {
             // Y-axis label is rotated 90° so it reads vertically.
-            let y_label_w = estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
+            let y_label_w =
+                estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
             self.overlays.push(TextOverlay {
                 x_px: margin + y_label_w / 2.0,
                 y_px: py + ph / 2.0,
@@ -98,7 +99,8 @@ impl RenderContext {
 
         // Secondary Y-axis label (right side, rotated -90°).
         if let Some(ref label) = config.secondary_y_label {
-            let sec_label_w = estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
+            let sec_label_w =
+                estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
             self.overlays.push(TextOverlay {
                 x_px: (w as f32) - margin - sec_label_w / 2.0,
                 y_px: py + ph / 2.0,
@@ -150,32 +152,123 @@ impl RenderContext {
 
     /// Draw category labels along the X axis for bar/boxplot charts.
     ///
-    /// Draws centered labels at each category position below the plot area,
-    /// using the same offset as `add_tick_overlays` for consistency.
+    /// Implements an automatic collision-avoidance cascade:
+    /// 1. Try horizontal labels
+    /// 2. Stagger — alternate labels drop to a second row
+    /// 3. Rotate 45°
+    /// 4. Rotate 90°
+    /// 5. Skip every Nth (keeping first + last)
+    /// 6. Truncate individual labels that exceed band width
+    ///
+    /// If the user has explicitly set `x_tick_rotation`, that rotation is
+    /// used instead of steps 1–4, but skipping and truncation still apply.
     pub fn draw_categorical_x_labels(
         &mut self,
         config: &ChartConfig,
         cat_scale: &crate::scale::CategoricalScale,
         labels: &[String],
     ) {
+        if labels.is_empty() {
+            return;
+        }
+
         let (_px, py, _pw, ph) = self.plot;
         let theme = &config.theme;
         let w = self.width();
         let h = self.height();
         let x_off = x_tick_label_offset(h);
-        let rot_deg = config.x_tick_rotation.degrees();
+        let tick_fs = scaled_font_size(theme.tick_style.font_size, w, h);
+        let char_w = char_width_for_size(tick_fs);
+
+        let band = cat_scale.band_width() as f32;
+        let max_chars = labels.iter().map(|l| l.chars().count()).max().unwrap_or(1);
+        let label_w = max_chars as f32 * char_w;
+
+        // Minimum gap between adjacent labels (px).
+        let gap = 4.0_f32;
+
+        // --- Determine rotation and stagger strategy ---
+        let user_set_rotation = config.x_tick_rotation != crate::axis::LabelRotation::Horizontal;
+
+        let (rot_deg, stagger) = if user_set_rotation {
+            // User explicitly chose a rotation — respect it, no stagger.
+            (config.x_tick_rotation.degrees(), false)
+        } else if label_w + gap <= band {
+            // Labels fit horizontally — no changes needed.
+            (0.0, false)
+        } else if label_w + gap <= band * 2.0 && labels.len() > 1 {
+            // Labels would overlap horizontally but fit if staggered
+            // (alternate labels on a second row, each gets ~2× band of room).
+            (0.0, true)
+        } else if label_w * 0.71 + gap <= band {
+            // 45° rotation makes them fit.
+            (45.0, false)
+        } else {
+            // 90° rotation (maximum density).
+            (90.0, false)
+        };
+
         let align = if rot_deg > 0.0 {
             TextAlign::Right
         } else {
             TextAlign::Center
         };
-        let tick_fs = scaled_font_size(theme.tick_style.font_size, w, h);
 
+        // Effective horizontal space per label (staggered labels span 2 bands).
+        let effective_band = if stagger { band * 2.0 } else { band };
+
+        // --- Skip every Nth if still too dense (after rotation) ---
+        let effective_label_w = if rot_deg >= 89.0 {
+            tick_fs + gap // vertical: width ≈ font height
+        } else if rot_deg > 0.0 {
+            let rad = rot_deg.to_radians();
+            label_w * rad.cos() + gap
+        } else {
+            label_w + gap
+        };
+
+        let skip = if effective_label_w > effective_band && labels.len() > 1 {
+            ((effective_label_w / effective_band).ceil() as usize).max(2)
+        } else {
+            1
+        };
+
+        // --- Truncate long individual labels ---
+        let max_visible_chars = if rot_deg > 0.0 {
+            // Rotated labels have diagonal space — be generous.
+            usize::MAX
+        } else {
+            let available = effective_band / char_w;
+            (available.floor() as usize).max(4)
+        };
+
+        let total = labels.len();
         for (ci, label) in labels.iter().enumerate() {
+            // Skip logic: keep first, last, and every Nth.
+            if skip > 1 && ci % skip != 0 && ci != 0 && ci != total - 1 {
+                continue;
+            }
+
+            // Truncate if needed.
+            let display_label =
+                if label.chars().count() > max_visible_chars && max_visible_chars > 4 {
+                    let truncated: String = label.chars().take(max_visible_chars - 1).collect();
+                    format!("{truncated}…")
+                } else {
+                    label.clone()
+                };
+
+            // Stagger: odd-indexed labels get an extra vertical offset.
+            let stagger_offset = if stagger && ci % 2 == 1 {
+                tick_fs + 2.0
+            } else {
+                0.0
+            };
+
             self.overlays.push(TextOverlay {
                 x_px: cat_scale.center(ci) as f32,
-                y_px: py + ph + x_off,
-                text: label.clone(),
+                y_px: py + ph + x_off + stagger_offset,
+                text: display_label,
                 color: theme.text_color(),
                 align,
                 font_size: tick_fs,

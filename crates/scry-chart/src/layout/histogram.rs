@@ -100,6 +100,35 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
         draw_bins_on_ctx(&mut ctx, bins, &x_scale, &y_scale, baseline_y, color, 0.5);
     }
 
+    // Auto value labels above bins when not too dense (≤ 20 bins).
+    // Only for primary series to avoid visual clutter with overlapping series.
+    if n_bins <= 20 && n_total_series == 1 {
+        let data_fs = super::scaled_font_size(9.0, w, h);
+        let val_start = ctx.overlays.len();
+        for bin in &primary_bins {
+            if bin.count > 0.0 {
+                let cx = ((x_scale.to_pixel(bin.lo) + x_scale.to_pixel(bin.hi)) / 2.0) as f32;
+                let top = y_scale.to_pixel(bin.count) as f32;
+                let label = if hc.density {
+                    format!("{:.3}", bin.count)
+                } else {
+                    super::bar::format_value(bin.count)
+                };
+                ctx.overlays.push(TextOverlay {
+                    x_px: cx,
+                    y_px: top - 4.0,
+                    text: label,
+                    color: theme.text_color(),
+                    align: TextAlign::Center,
+                    font_size: data_fs,
+                    bold: false,
+                    rotation_deg: 0.0,
+                });
+            }
+        }
+        super::bar::cull_overlapping_value_labels(&mut ctx.overlays, val_start, data_fs, false);
+    }
+
     // Legend for multi-series
     if n_total_series > 1 {
         let mut entries = vec![LegendEntry {

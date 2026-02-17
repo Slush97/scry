@@ -50,6 +50,7 @@ use crate::preprocess::Transformer;
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct VarianceThreshold {
     threshold: f64,
     variances_: Vec<f64>,
@@ -171,6 +172,7 @@ pub enum ScoreFn {
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct SelectKBest {
     k: usize,
     score_fn: ScoreFn,
@@ -308,11 +310,7 @@ pub fn f_classif(data: &Dataset) -> Vec<f64> {
     // Build class membership lookup.
     let class_indices: Vec<Vec<usize>> = class_set
         .iter()
-        .map(|&c| {
-            (0..n)
-                .filter(|&i| data.target[i] as i64 == c)
-                .collect()
-        })
+        .map(|&c| (0..n).filter(|&i| data.target[i] as i64 == c).collect())
         .collect();
 
     let mut f_values = Vec::with_capacity(n_features);
@@ -385,8 +383,8 @@ fn filter_features(data: &mut Dataset, mask: &[bool]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::preprocess::StandardScaler;
     use crate::pipeline::Pipeline;
+    use crate::preprocess::StandardScaler;
     use crate::tree::DecisionTreeClassifier;
 
     /// Iris-like dataset where petal features (f2, f3) are much more
@@ -404,26 +402,26 @@ mod tests {
 
         for _ in 0..n_per_class {
             // Class 0
-            f0.push(5.0 + rng.f64() * 0.5);  // overlapping sepal
-            f1.push(3.4 + rng.f64() * 0.4);   // overlapping sepal
-            f2.push(1.0 + rng.f64() * 0.5);   // small petal — discriminative
-            f3.push(0.1 + rng.f64() * 0.2);   // small petal — discriminative
+            f0.push(5.0 + rng.f64() * 0.5); // overlapping sepal
+            f1.push(3.4 + rng.f64() * 0.4); // overlapping sepal
+            f2.push(1.0 + rng.f64() * 0.5); // small petal — discriminative
+            f3.push(0.1 + rng.f64() * 0.2); // small petal — discriminative
             target.push(0.0);
         }
         for _ in 0..n_per_class {
             // Class 1
-            f0.push(5.5 + rng.f64() * 0.8);   // overlapping sepal
-            f1.push(2.5 + rng.f64() * 0.5);   // overlapping sepal
-            f2.push(4.0 + rng.f64() * 0.5);   // medium petal
-            f3.push(1.2 + rng.f64() * 0.3);   // medium petal
+            f0.push(5.5 + rng.f64() * 0.8); // overlapping sepal
+            f1.push(2.5 + rng.f64() * 0.5); // overlapping sepal
+            f2.push(4.0 + rng.f64() * 0.5); // medium petal
+            f3.push(1.2 + rng.f64() * 0.3); // medium petal
             target.push(1.0);
         }
         for _ in 0..n_per_class {
             // Class 2
-            f0.push(6.0 + rng.f64() * 1.0);   // overlapping sepal
-            f1.push(2.8 + rng.f64() * 0.5);   // overlapping sepal
-            f2.push(5.5 + rng.f64() * 0.5);   // large petal
-            f3.push(2.0 + rng.f64() * 0.3);   // large petal
+            f0.push(6.0 + rng.f64() * 1.0); // overlapping sepal
+            f1.push(2.8 + rng.f64() * 0.5); // overlapping sepal
+            f2.push(5.5 + rng.f64() * 0.5); // large petal
+            f3.push(2.0 + rng.f64() * 0.3); // large petal
             target.push(2.0);
         }
 
@@ -444,9 +442,9 @@ mod tests {
     fn test_variance_threshold_removes_constant() {
         let mut data = Dataset::new(
             vec![
-                vec![1.0, 2.0, 3.0, 4.0],  // variable
-                vec![5.0, 5.0, 5.0, 5.0],  // constant → removed
-                vec![0.0, 1.0, 0.0, 1.0],  // variable
+                vec![1.0, 2.0, 3.0, 4.0], // variable
+                vec![5.0, 5.0, 5.0, 5.0], // constant → removed
+                vec![0.0, 1.0, 0.0, 1.0], // variable
             ],
             vec![0.0, 1.0, 0.0, 1.0],
             vec!["a".into(), "b".into(), "c".into()],
@@ -464,7 +462,7 @@ mod tests {
     fn test_variance_threshold_custom() {
         let mut data = Dataset::new(
             vec![
-                vec![1.0, 1.0, 1.0, 1.1],  // variance ≈ 0.0019
+                vec![1.0, 1.0, 1.0, 1.1],   // variance ≈ 0.0019
                 vec![0.0, 10.0, 0.0, 10.0], // variance = 25
             ],
             vec![0.0; 4],
@@ -492,12 +490,14 @@ mod tests {
         assert!(
             scores[2] > scores[0],
             "petal_len ({:.1}) should rank higher than sepal_len ({:.1})",
-            scores[2], scores[0]
+            scores[2],
+            scores[0]
         );
         assert!(
             scores[3] > scores[1],
             "petal_wid ({:.1}) should rank higher than sepal_wid ({:.1})",
-            scores[3], scores[1]
+            scores[3],
+            scores[1]
         );
 
         // After transform, only 2 features remain.
@@ -516,12 +516,7 @@ mod tests {
     #[test]
     fn test_select_k_best_not_fitted() {
         let sel = SelectKBest::new(ScoreFn::FClassif);
-        let mut data = Dataset::new(
-            vec![vec![1.0]],
-            vec![0.0],
-            vec!["x".into()],
-            "t",
-        );
+        let mut data = Dataset::new(vec![vec![1.0]], vec![0.0], vec!["x".into()], "t");
         assert!(sel.transform(&mut data).is_err());
     }
 
@@ -531,7 +526,7 @@ mod tests {
         let data = Dataset::new(
             vec![
                 vec![1.0, 1.0, 1.0, 10.0, 10.0, 10.0], // perfect separator
-                vec![3.0, 7.0, 2.0, 5.0, 8.0, 1.0],     // noise
+                vec![3.0, 7.0, 2.0, 5.0, 8.0, 1.0],    // noise
             ],
             vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
             vec!["good".into(), "noise".into()],
@@ -542,7 +537,8 @@ mod tests {
         assert!(
             scores[0] > scores[1],
             "good feature ({:.1}) should have higher F-value than noise ({:.1})",
-            scores[0], scores[1]
+            scores[0],
+            scores[1]
         );
     }
 
@@ -550,9 +546,9 @@ mod tests {
     fn test_pipeline_vt_scaler_dt() {
         // End-to-end: VarianceThreshold → StandardScaler → DecisionTree.
         let features = vec![
-            vec![1.0, 2.0, 3.0, 10.0, 11.0, 12.0],  // discriminative
-            vec![5.0, 5.0, 5.0, 5.0, 5.0, 5.0],      // constant → removed
-            vec![0.0, 0.5, 1.0, 5.0, 5.5, 6.0],      // discriminative
+            vec![1.0, 2.0, 3.0, 10.0, 11.0, 12.0], // discriminative
+            vec![5.0, 5.0, 5.0, 5.0, 5.0, 5.0],    // constant → removed
+            vec![0.0, 0.5, 1.0, 5.0, 5.5, 6.0],    // discriminative
         ];
         let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let data = Dataset::new(

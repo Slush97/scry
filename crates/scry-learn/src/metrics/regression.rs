@@ -66,9 +66,17 @@ pub fn explained_variance_score(y_true: &[f64], y_pred: &[f64]) -> f64 {
     let n = y_true.len() as f64;
 
     // Residuals
-    let residuals: Vec<f64> = y_true.iter().zip(y_pred.iter()).map(|(t, p)| t - p).collect();
+    let residuals: Vec<f64> = y_true
+        .iter()
+        .zip(y_pred.iter())
+        .map(|(t, p)| t - p)
+        .collect();
     let res_mean = residuals.iter().sum::<f64>() / n;
-    let var_res = residuals.iter().map(|r| (r - res_mean).powi(2)).sum::<f64>() / n;
+    let var_res = residuals
+        .iter()
+        .map(|r| (r - res_mean).powi(2))
+        .sum::<f64>()
+        / n;
 
     let y_mean = y_true.iter().sum::<f64>() / n;
     let var_y = y_true.iter().map(|t| (t - y_mean).powi(2)).sum::<f64>() / n;
@@ -97,7 +105,11 @@ pub fn mean_absolute_percentage_error(y_true: &[f64], y_pred: &[f64]) -> f64 {
         total += ((t - p) / t).abs();
         count += 1;
     }
-    if count == 0 { 0.0 } else { total / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        total / count as f64
+    }
 }
 
 #[cfg(test)]
@@ -163,7 +175,9 @@ mod tests {
         // y_true = [0, 1, 2], y_pred = [0.5, 1.5, 2.5]
         // Skips y_true=0, so MAPE = (|0.5/1| + |0.5/2|) / 2 = (0.5 + 0.25) / 2 = 0.375
         let mape = mean_absolute_percentage_error(&[0.0, 1.0, 2.0], &[0.5, 1.5, 2.5]);
-        assert!((mape - 0.375).abs() < 1e-10, "expected MAPE=0.375, got {mape}");
+        assert!(
+            (mape - 0.375).abs() < 1e-10,
+            "expected MAPE=0.375, got {mape}"
+        );
     }
 }
-

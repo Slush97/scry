@@ -19,14 +19,13 @@
 
 #![allow(missing_docs)]
 
-
 use std::time::Duration as StdDuration;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 use scry_chart::chart::{
-    BarChart, BoxPlot, CandlestickChart, Chart, Heatmap, Histogram, LineChart, OhlcEntry,
-    PieChart, RadarChart, ScatterChart,
+    BarChart, BoxPlot, CandlestickChart, Chart, Heatmap, Histogram, LineChart, OhlcEntry, PieChart,
+    RadarChart, ScatterChart,
 };
 use scry_chart::data::Series;
 use scry_chart::export::{render_to_png, render_to_rgba};
@@ -124,7 +123,12 @@ fn bench_all_chart_types(c: &mut Criterion) {
     let ohlc = gen_ohlc(60);
     let hmap = gen_heatmap(8, 10);
     let radar_axes: Vec<String> = vec![
-        "Speed", "Power", "Range", "Accuracy", "Efficiency", "Stealth",
+        "Speed",
+        "Power",
+        "Range",
+        "Accuracy",
+        "Efficiency",
+        "Stealth",
     ]
     .into_iter()
     .map(String::from)
@@ -140,7 +144,10 @@ fn bench_all_chart_types(c: &mut Criterion) {
     });
 
     // --- Line ---
-    let line = Chart::line(&y[..500]).title("Line").theme(Theme::dark()).build();
+    let line = Chart::line(&y[..500])
+        .title("Line")
+        .theme(Theme::dark())
+        .build();
     group.bench_function("line_500pts", |b| {
         b.iter(|| render_to_png(black_box(&line), W, H).unwrap());
     });
@@ -355,7 +362,13 @@ fn bench_resolution_scaling(c: &mut Criterion) {
         .with_points()
         .build();
 
-    for &(w, h) in &[(400u32, 300u32), (800, 500), (1280, 720), (1920, 1080), (3840, 2160)] {
+    for &(w, h) in &[
+        (400u32, 300u32),
+        (800, 500),
+        (1280, 720),
+        (1920, 1080),
+        (3840, 2160),
+    ] {
         group.bench_with_input(
             BenchmarkId::new("line_1k", format!("{w}x{h}")),
             &(w, h),
@@ -422,7 +435,10 @@ fn bench_financial_dashboard(c: &mut Criterion) {
         .y_label("Price ($)")
         .theme(Theme::dark())
         .h_line(100.0)
-        .h_line_styled(120.0, scry_engine::style::Color::from_rgba8(255, 165, 0, 180))
+        .h_line_styled(
+            120.0,
+            scry_engine::style::Color::from_rgba8(255, 165, 0, 180),
+        )
         .annotate(50.0, 115.0, "Resistance")
         .annotate(150.0, 85.0, "Support")
         .y_formatter(CurrencyFormatter::default())

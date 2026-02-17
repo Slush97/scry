@@ -84,11 +84,7 @@ macro_rules! chart_config_h_lines {
         }
 
         /// Add a horizontal reference line with color.
-        pub fn h_line_styled(
-            mut self,
-            value: f64,
-            color: scry_engine::style::Color,
-        ) -> Self {
+        pub fn h_line_styled(mut self, value: f64, color: scry_engine::style::Color) -> Self {
             self.config
                 .h_lines
                 .push($crate::chart::ReferenceLine::new(value).color(color));
@@ -109,11 +105,7 @@ macro_rules! chart_config_v_lines {
         }
 
         /// Add a vertical reference line with color.
-        pub fn v_line_styled(
-            mut self,
-            value: f64,
-            color: scry_engine::style::Color,
-        ) -> Self {
+        pub fn v_line_styled(mut self, value: f64, color: scry_engine::style::Color) -> Self {
             self.config
                 .v_lines
                 .push($crate::chart::ReferenceLine::new(value).color(color));
@@ -409,8 +401,9 @@ macro_rules! chart_config_secondary_y {
             mut self,
             f: impl $crate::formatter::TickFormatter + 'static,
         ) -> Self {
-            self.config.secondary_y_formatter =
-                Some(std::sync::Arc::new(f) as std::sync::Arc<dyn $crate::formatter::TickFormatter>);
+            self.config.secondary_y_formatter = Some(
+                std::sync::Arc::new(f) as std::sync::Arc<dyn $crate::formatter::TickFormatter>
+            );
             self
         }
 
@@ -434,8 +427,6 @@ macro_rules! chart_config_secondary_y {
         }
     };
 }
-
-
 
 /// Generate semantic zoom formatter methods for X and Y axes.
 ///

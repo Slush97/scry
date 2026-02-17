@@ -23,7 +23,11 @@ pub(crate) fn render_violin(vp: &ViolinPlot, w: u32, h: u32) -> RenderedChart {
                 }
             }
         }
-        if lo > hi { (0.0, 1.0) } else { (lo - (hi - lo) * 0.1, hi + (hi - lo) * 0.1) }
+        if lo > hi {
+            (0.0, 1.0)
+        } else {
+            (lo - (hi - lo) * 0.1, hi + (hi - lo) * 0.1)
+        }
     };
 
     let y_extent = (global_min, global_max);
@@ -189,7 +193,11 @@ fn silverman_bandwidth(sorted: &[f64]) -> f64 {
     let std_dev = variance.sqrt();
     let iqr = percentile(sorted, 75.0) - percentile(sorted, 25.0);
     let spread = std_dev.min(iqr / 1.34);
-    let s = if spread > 0.0 { spread } else { std_dev.max(1.0) };
+    let s = if spread > 0.0 {
+        spread
+    } else {
+        std_dev.max(1.0)
+    };
     0.9 * s * n.powf(-0.2)
 }
 
@@ -224,8 +232,12 @@ fn compute_kde(
 /// Linear interpolation percentile on a sorted slice.
 fn percentile(sorted: &[f64], p: f64) -> f64 {
     let n = sorted.len();
-    if n == 0 { return 0.0; }
-    if n == 1 { return sorted[0]; }
+    if n == 0 {
+        return 0.0;
+    }
+    if n == 1 {
+        return sorted[0];
+    }
     let rank = (p / 100.0) * (n - 1) as f64;
     let lo = rank.floor() as usize;
     let hi = rank.ceil() as usize;

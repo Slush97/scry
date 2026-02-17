@@ -78,10 +78,18 @@ impl Gamma {
         match self {
             Gamma::Scale => {
                 let denom = n_features as f64 * feature_variance;
-                if denom > f64::EPSILON { 1.0 / denom } else { 1.0 }
+                if denom > f64::EPSILON {
+                    1.0 / denom
+                } else {
+                    1.0
+                }
             }
             Gamma::Auto => {
-                if n_features > 0 { 1.0 / n_features as f64 } else { 1.0 }
+                if n_features > 0 {
+                    1.0 / n_features as f64
+                } else {
+                    1.0
+                }
             }
             Gamma::Value(v) => *v,
         }
@@ -95,17 +103,11 @@ impl Kernel {
         match self {
             Kernel::Linear => dot(a, b),
             Kernel::RBF { gamma } => {
-                let sq: f64 = a
-                    .iter()
-                    .zip(b.iter())
-                    .map(|(x, y)| (x - y).powi(2))
-                    .sum();
+                let sq: f64 = a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum();
                 (-gamma * sq).exp()
             }
             #[allow(clippy::cast_possible_wrap)]
-            Kernel::Polynomial { degree, coef0 } => {
-                (dot(a, b) + coef0).powi(*degree as i32)
-            }
+            Kernel::Polynomial { degree, coef0 } => (dot(a, b) + coef0).powi(*degree as i32),
         }
     }
 }
@@ -148,6 +150,7 @@ pub(crate) fn dot(a: &[f64], b: &[f64]) -> f64 {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct KernelSVC {
     kernel: Kernel,
     c: f64,
@@ -166,6 +169,7 @@ pub struct KernelSVC {
 /// Internal binary SMO model for one OVR sub-problem.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub(crate) struct BinarySMO {
     /// Dual variables.
     pub(crate) alphas: Vec<f64>,
@@ -199,7 +203,13 @@ impl KernelSVC {
     }
 
     /// Set the kernel function.
+    ///
+    /// Setting a non-RBF kernel clears any gamma strategy so it is not
+    /// silently overwritten to RBF during [`fit`](Self::fit).
     pub fn kernel(mut self, k: Kernel) -> Self {
+        if !matches!(k, Kernel::RBF { .. }) {
+            self.gamma_strategy = None;
+        }
         self.kernel = k;
         self
     }
@@ -246,9 +256,9 @@ impl KernelSVC {
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
         }
-        if self.c <= 0.0 {
+        if self.c <= 0.0 || !self.c.is_finite() {
             return Err(ScryLearnError::InvalidParameter(
-                "C must be positive".into(),
+                "C must be finite and positive".into(),
             ));
         }
 
@@ -276,12 +286,19 @@ impl KernelSVC {
                 .map(|&t| if t as usize == cls { 1.0 } else { -1.0 })
                 .collect();
 
-            let model =
-                smo_train(&rows, &binary_y, &self.kernel, self.c, self.tol, self.max_iter);
+            let model = smo_train(
+                &rows,
+                &binary_y,
+                &self.kernel,
+                self.c,
+                self.tol,
+                self.max_iter,
+            );
 
             // Platt scaling: fit sigmoid on decision values.
             let ab = if self.probability {
-                let dvals: Vec<f64> = rows.iter()
+                let dvals: Vec<f64> = rows
+                    .iter()
                     .map(|x| smo_decision(&model, x, &self.kernel))
                     .collect();
                 platt_fit(&dvals, &binary_y)
@@ -368,7 +385,8 @@ impl KernelSVC {
         Ok(features
             .iter()
             .map(|x| {
-                let raw: Vec<f64> = self.models
+                let raw: Vec<f64> = self
+                    .models
                     .iter()
                     .zip(self.platt_params.iter())
                     .map(|(model, &(a, b))| {
@@ -400,8 +418,8 @@ impl Default for KernelSVC {
 
 /// Train a binary SVM using simplified SMO (Platt 1998, simplified variant).
 pub(crate) fn smo_train(
-    x: &[Vec<f64>],    // [n_samples][n_features] row-major
-    y: &[f64],          // [n_samples], +1/-1
+    x: &[Vec<f64>], // [n_samples][n_features] row-major
+    y: &[f64],      // [n_samples], +1/-1
     kernel: &Kernel,
     c: f64,
     tol: f64,
@@ -489,10 +507,12 @@ pub(crate) fn smo_train(
                 alphas[i] += y[i] * y[j] * (alpha_j_old - alphas[j]);
 
                 // Update bias.
-                let b1 = b - e_i
+                let b1 = b
+                    - e_i
                     - y[i] * (alphas[i] - alpha_i_old) * k_matrix[i][i]
                     - y[j] * (alphas[j] - alpha_j_old) * k_matrix[i][j];
-                let b2 = b - e_j
+                let b2 = b
+                    - e_j
                     - y[i] * (alphas[i] - alpha_i_old) * k_matrix[i][j]
                     - y[j] * (alphas[j] - alpha_j_old) * k_matrix[j][j];
 
@@ -574,7 +594,8 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
     // Smoothed targets (Platt 2000).
     let t_pos = (n_pos + 1.0) / (n_pos + 2.0);
     let t_neg = 1.0 / (n_neg + 2.0);
-    let targets: Vec<f64> = labels.iter()
+    let targets: Vec<f64> = labels
+        .iter()
         .map(|&y| if y > 0.0 { t_pos } else { t_neg })
         .collect();
 
@@ -589,7 +610,7 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
     for _ in 0..max_iter {
         let mut g1 = 0.0_f64; // dL/dA
         let mut g2 = 0.0_f64; // dL/dB
-        let mut h11 = sigma;   // d²L/dA²
+        let mut h11 = sigma; // d²L/dA²
         let mut h22 = sigma;
         let mut h21 = 0.0_f64;
 
@@ -674,10 +695,7 @@ mod tests {
     #[test]
     fn test_kernel_svc_rbf_xor() {
         // XOR: not linearly separable, but RBF should handle it.
-        let features = vec![
-            vec![0.0, 1.0, 0.0, 1.0],
-            vec![0.0, 0.0, 1.0, 1.0],
-        ];
+        let features = vec![vec![0.0, 1.0, 0.0, 1.0], vec![0.0, 0.0, 1.0, 1.0]];
         let target = vec![0.0, 1.0, 1.0, 0.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
@@ -688,7 +706,12 @@ mod tests {
         svc.fit(&data).unwrap();
 
         let preds = svc
-            .predict(&[vec![0.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0], vec![1.0, 1.0]])
+            .predict(&[
+                vec![0.0, 0.0],
+                vec![1.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 1.0],
+            ])
             .unwrap();
         // Should get at least 3/4 correct.
         let correct = preds
@@ -696,7 +719,10 @@ mod tests {
             .zip([0.0, 1.0, 1.0, 0.0].iter())
             .filter(|(p, t)| (**p - **t).abs() < 0.5)
             .count();
-        assert!(correct >= 3, "RBF should solve XOR (got {correct}/4 correct)");
+        assert!(
+            correct >= 3,
+            "RBF should solve XOR (got {correct}/4 correct)"
+        );
     }
 
     #[test]
@@ -707,10 +733,7 @@ mod tests {
 
     #[test]
     fn test_kernel_svc_decision_function() {
-        let features = vec![
-            vec![0.0, 0.0, 10.0, 10.0],
-            vec![0.0, 0.0, 10.0, 10.0],
-        ];
+        let features = vec![vec![0.0, 0.0, 10.0, 10.0], vec![0.0, 0.0, 10.0, 10.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
@@ -736,10 +759,15 @@ mod tests {
             .probability(true);
         svc.fit(&data).unwrap();
 
-        let proba = svc.predict_proba(&[vec![1.0, 1.0], vec![9.0, 9.0]]).unwrap();
+        let proba = svc
+            .predict_proba(&[vec![1.0, 1.0], vec![9.0, 9.0]])
+            .unwrap();
         for row in &proba {
             let sum: f64 = row.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-6, "probabilities should sum to 1, got {sum}");
+            assert!(
+                (sum - 1.0).abs() < 1e-6,
+                "probabilities should sum to 1, got {sum}"
+            );
             for &p in row {
                 assert!(p >= 0.0 && p <= 1.0, "probability out of range: {p}");
             }
@@ -748,10 +776,7 @@ mod tests {
 
     #[test]
     fn test_kernel_svc_predict_proba_not_enabled() {
-        let features = vec![
-            vec![0.0, 0.0, 10.0, 10.0],
-            vec![0.0, 0.0, 10.0, 10.0],
-        ];
+        let features = vec![vec![0.0, 0.0, 10.0, 10.0], vec![0.0, 0.0, 10.0, 10.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
 
@@ -768,8 +793,12 @@ mod tests {
             vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
         ];
         let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-        let data = Dataset::new(features, target.clone(),
-            vec!["x".into(), "y".into(), "z".into()], "class");
+        let data = Dataset::new(
+            features,
+            target.clone(),
+            vec!["x".into(), "y".into(), "z".into()],
+            "class",
+        );
 
         // Auto = 1/n_features = 1/3
         let mut svc = KernelSVC::new().gamma(Gamma::Auto).c(1.0);
@@ -789,13 +818,9 @@ mod tests {
 
     #[test]
     fn test_gamma_scale() {
-        let features = vec![
-            vec![1.0, 2.0, 3.0, 4.0],
-            vec![2.0, 3.0, 4.0, 5.0],
-        ];
+        let features = vec![vec![1.0, 2.0, 3.0, 4.0], vec![2.0, 3.0, 4.0, 5.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
-        let data = Dataset::new(features, target,
-            vec!["a".into(), "b".into()], "class");
+        let data = Dataset::new(features, target, vec!["a".into(), "b".into()], "class");
 
         let mut svc = KernelSVC::new().gamma(Gamma::Scale).c(1.0);
         svc.fit(&data).unwrap();

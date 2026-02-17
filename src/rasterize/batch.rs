@@ -282,19 +282,28 @@ pub(crate) fn batch_commands(commands: &[DrawCommand]) -> Vec<BatchedOp<'_>> {
             // Single command — no batching overhead
             result.push(BatchedOp::Single(&commands[run_start]));
         } else {
-            // Build compound path from all commands in the run
+            // Build compound path from all commands in the run.
+            // Commands that can't be appended (e.g. rotated ellipses)
+            // are tracked and emitted as Singles to avoid silent data loss.
             let mut pb = PathBuilder::new();
             let mut any_appended = false;
+            let mut failed: Vec<&DrawCommand> = Vec::new();
 
             for cmd in &commands[run_start..i] {
                 if append_command(&mut pb, cmd) {
                     any_appended = true;
+                } else {
+                    failed.push(cmd);
                 }
             }
 
             if any_appended {
                 if let Some(path) = pb.finish() {
                     result.push(BatchedOp::Compound { path, style });
+                    // Emit un-appendable commands individually
+                    for cmd in &failed {
+                        result.push(BatchedOp::Single(cmd));
+                    }
                 } else {
                     // Fallback: emit individually
                     for cmd in &commands[run_start..i] {

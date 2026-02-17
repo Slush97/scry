@@ -76,7 +76,9 @@ impl Colormap for Viridis {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&VIRIDIS_STOPS, t)
     }
-    fn name(&self) -> &'static str { "viridis" }
+    fn name(&self) -> &'static str {
+        "viridis"
+    }
 }
 
 /// Plasma — perceptually uniform, yellow→magenta→indigo.
@@ -87,7 +89,9 @@ impl Colormap for Plasma {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&PLASMA_STOPS, t)
     }
-    fn name(&self) -> &'static str { "plasma" }
+    fn name(&self) -> &'static str {
+        "plasma"
+    }
 }
 
 /// Inferno — perceptually uniform, yellow→red→black.
@@ -98,7 +102,9 @@ impl Colormap for Inferno {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&INFERNO_STOPS, t)
     }
-    fn name(&self) -> &'static str { "inferno" }
+    fn name(&self) -> &'static str {
+        "inferno"
+    }
 }
 
 /// Magma — perceptually uniform, yellow→magenta→black.
@@ -109,7 +115,9 @@ impl Colormap for Magma {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&MAGMA_STOPS, t)
     }
-    fn name(&self) -> &'static str { "magma" }
+    fn name(&self) -> &'static str {
+        "magma"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +134,9 @@ impl Colormap for RdBu {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&RDBU_STOPS, t)
     }
-    fn name(&self) -> &'static str { "rdbu" }
+    fn name(&self) -> &'static str {
+        "rdbu"
+    }
 }
 
 /// Brown–Blue-Green diverging colormap.
@@ -137,7 +147,9 @@ impl Colormap for BrBG {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&BRBG_STOPS, t)
     }
-    fn name(&self) -> &'static str { "brbg" }
+    fn name(&self) -> &'static str {
+        "brbg"
+    }
 }
 
 /// Pink–Yellow-Green diverging colormap.
@@ -148,7 +160,9 @@ impl Colormap for PiYG {
     fn color_at(&self, t: f32) -> Color {
         table_lookup(&PIYG_STOPS, t)
     }
-    fn name(&self) -> &'static str { "piyg" }
+    fn name(&self) -> &'static str {
+        "piyg"
+    }
 }
 
 // ---------------------------------------------------------------------------

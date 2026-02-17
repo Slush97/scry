@@ -118,9 +118,15 @@ fn measure_overlay(overlay: &TextOverlay) -> TextBBox {
 
         // Compute the AABB of the rotated corners
         let x_min = rotated.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
-        let x_max = rotated.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
+        let x_max = rotated
+            .iter()
+            .map(|p| p.0)
+            .fold(f32::NEG_INFINITY, f32::max);
         let y_min = rotated.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
-        let y_max = rotated.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+        let y_max = rotated
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::NEG_INFINITY, f32::max);
 
         TextBBox {
             label: overlay.text.clone(),
@@ -184,10 +190,7 @@ fn classify_overlays(
             // Y-tick labels: right-aligned, left of plot area, NOT rotated.
             // Rotated X-tick labels also use Right alignment but have rotation_deg != 0
             // and are positioned below the plot midpoint.
-            if o.align == TextAlign::Right
-                && o.x_px <= px + 5.0
-                && o.rotation_deg.abs() < 0.01
-            {
+            if o.align == TextAlign::Right && o.x_px <= px + 5.0 && o.rotation_deg.abs() < 0.01 {
                 bbox.role = "y_tick".to_string();
                 return bbox;
             }

@@ -1025,14 +1025,15 @@ use scry_chart::data::{FillPattern, GradientFill, SeriesStyle};
 #[test]
 fn render_boxplot_per_series_color() {
     let red = scry_engine::style::Color::from_rgba8(255, 0, 0, 255);
-    let s = Series::new("Custom", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
-        .style(SeriesStyle::new().color(red));
+    let s = Series::new(
+        "Custom",
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    )
+    .style(SeriesStyle::new().color(red));
 
-    let chart = Chart::boxplot(vec![
-        ("Default", vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]),
-    ])
-    .title("Styled Boxplot")
-    .build();
+    let chart = Chart::boxplot(vec![("Default", vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])])
+        .title("Styled Boxplot")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     assert!(rendered.canvas.commands().len() > 0);
@@ -1102,7 +1103,10 @@ fn render_bar_with_fill_patterns() {
         .filter(|cmd| matches!(cmd, DrawCommand::Line { .. }))
         .count();
     // Without patterns, bars only have rects; with patterns, we get hatch lines
-    assert!(line_count > 0, "Pattern fills should generate line commands for hatch marks");
+    assert!(
+        line_count > 0,
+        "Pattern fills should generate line commands for hatch marks"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1120,20 +1124,20 @@ fn render_heatmap_viridis() {
     let rendered = layout::render_chart(&chart, 400, 300);
     // Should render cells (9 rects) + labels + title
     assert!(rendered.canvas.commands().len() >= 9);
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Viridis Heatmap"));
+    assert!(rendered
+        .text_overlays
+        .iter()
+        .any(|o| o.text == "Viridis Heatmap"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_heatmap_diverging() {
-    let chart = Chart::heatmap(vec![
-        vec![-1.0, 0.0, 1.0],
-        vec![0.5, -0.5, 0.0],
-    ])
-    .colormap(scry_chart::colormap::RdBu)
-    .range(-1.0, 1.0)
-    .title("Diverging Map")
-    .build();
+    let chart = Chart::heatmap(vec![vec![-1.0, 0.0, 1.0], vec![0.5, -0.5, 0.0]])
+        .colormap(scry_chart::colormap::RdBu)
+        .range(-1.0, 1.0)
+        .title("Diverging Map")
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     assert!(rendered.canvas.commands().len() >= 6);
@@ -1156,7 +1160,10 @@ fn render_waterfall_basic() {
 
     let rendered = layout::render_chart(&chart, 500, 350);
     assert!(rendered.canvas.commands().len() > 5);
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "P&L Waterfall"));
+    assert!(rendered
+        .text_overlays
+        .iter()
+        .any(|o| o.text == "P&L Waterfall"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1189,7 +1196,12 @@ fn render_empty_waterfall() {
 #[test]
 fn render_funnel_basic() {
     let chart = Chart::funnel(
-        vec!["Visitors".into(), "Signups".into(), "Trials".into(), "Paid".into()],
+        vec![
+            "Visitors".into(),
+            "Signups".into(),
+            "Trials".into(),
+            "Paid".into(),
+        ],
         &[10000.0, 5000.0, 2000.0, 800.0],
     )
     .title("Conversion Funnel")
@@ -1197,7 +1209,10 @@ fn render_funnel_basic() {
 
     let rendered = layout::render_chart(&chart, 500, 400);
     assert!(rendered.canvas.commands().len() > 4);
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Conversion Funnel"));
+    assert!(rendered
+        .text_overlays
+        .iter()
+        .any(|o| o.text == "Conversion Funnel"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1217,9 +1232,18 @@ fn render_empty_funnel() {
 fn render_gauge_basic() {
     let chart = Chart::gauge(75.0)
         .title("CPU Usage")
-        .threshold(60.0, scry_engine::style::Color::from_rgba8(40, 180, 99, 255))
-        .threshold(80.0, scry_engine::style::Color::from_rgba8(241, 196, 15, 255))
-        .threshold(100.0, scry_engine::style::Color::from_rgba8(231, 76, 60, 255))
+        .threshold(
+            60.0,
+            scry_engine::style::Color::from_rgba8(40, 180, 99, 255),
+        )
+        .threshold(
+            80.0,
+            scry_engine::style::Color::from_rgba8(241, 196, 15, 255),
+        )
+        .threshold(
+            100.0,
+            scry_engine::style::Color::from_rgba8(231, 76, 60, 255),
+        )
         .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
@@ -1250,7 +1274,13 @@ fn render_gauge_custom_range() {
 #[test]
 fn render_lollipop_basic() {
     let chart = Chart::lollipop(
-        vec!["Mon".into(), "Tue".into(), "Wed".into(), "Thu".into(), "Fri".into()],
+        vec![
+            "Mon".into(),
+            "Tue".into(),
+            "Wed".into(),
+            "Thu".into(),
+            "Fri".into(),
+        ],
         &[12.0, 19.0, 8.0, 15.0, 22.0],
     )
     .title("Weekly Scores")
@@ -1259,7 +1289,10 @@ fn render_lollipop_basic() {
 
     let rendered = layout::render_chart(&chart, 500, 350);
     assert!(rendered.canvas.commands().len() > 10);
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Weekly Scores"));
+    assert!(rendered
+        .text_overlays
+        .iter()
+        .any(|o| o.text == "Weekly Scores"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1279,10 +1312,7 @@ fn render_lollipop_horizontal() {
 
 #[test]
 fn render_lollipop_single_value() {
-    let chart = Chart::lollipop(
-        vec!["Only".into()],
-        &[42.0],
-    ).build();
+    let chart = Chart::lollipop(vec!["Only".into()], &[42.0]).build();
 
     let rendered = layout::render_chart(&chart, 300, 200);
     assert!(rendered.canvas.commands().len() > 2);
@@ -1295,17 +1325,39 @@ fn render_lollipop_single_value() {
 
 #[test]
 fn render_subplot_basic() {
-    use scry_chart::subplot::SubplotGrid;
     use scry_chart::export::render_subplot_rgba;
+    use scry_chart::subplot::SubplotGrid;
 
     let grid = SubplotGrid::new(2, 2)
-        .set(0, 0, Chart::line(&[1.0, 4.0, 2.0, 8.0]).title("Line").build())
-        .set(0, 1, Chart::scatter(&[1.0, 2.0, 3.0], &[3.0, 1.0, 4.0]).title("Scatter").build())
-        .set(1, 0, Chart::bar(
-            vec!["A".into(), "B".into(), "C".into()],
-            &[10.0, 20.0, 15.0],
-        ).title("Bar").build())
-        .set(1, 1, Chart::histogram(&[1.0, 2.0, 2.5, 3.0, 3.5, 4.0]).title("Hist").build());
+        .set(
+            0,
+            0,
+            Chart::line(&[1.0, 4.0, 2.0, 8.0]).title("Line").build(),
+        )
+        .set(
+            0,
+            1,
+            Chart::scatter(&[1.0, 2.0, 3.0], &[3.0, 1.0, 4.0])
+                .title("Scatter")
+                .build(),
+        )
+        .set(
+            1,
+            0,
+            Chart::bar(
+                vec!["A".into(), "B".into(), "C".into()],
+                &[10.0, 20.0, 15.0],
+            )
+            .title("Bar")
+            .build(),
+        )
+        .set(
+            1,
+            1,
+            Chart::histogram(&[1.0, 2.0, 2.5, 3.0, 3.5, 4.0])
+                .title("Hist")
+                .build(),
+        );
 
     let rgba = render_subplot_rgba(&grid, 800, 600).expect("subplot render failed");
     // 800×600 × 4 channels
@@ -1318,19 +1370,27 @@ fn render_subplot_basic() {
 
 #[test]
 fn render_subplot_shared_x() {
-    use scry_chart::subplot::SubplotGrid;
     use scry_chart::export::render_subplot_rgba;
+    use scry_chart::subplot::SubplotGrid;
 
     let grid = SubplotGrid::new(2, 1)
         .share_x_axis()
-        .set(0, 0, Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
-            .title("Top")
-            .x_label("Time")
-            .build())
-        .set(1, 0, Chart::line(&[8.0, 5.0, 3.0, 6.0, 2.0])
-            .title("Bottom")
-            .x_label("Time")
-            .build());
+        .set(
+            0,
+            0,
+            Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+                .title("Top")
+                .x_label("Time")
+                .build(),
+        )
+        .set(
+            1,
+            0,
+            Chart::line(&[8.0, 5.0, 3.0, 6.0, 2.0])
+                .title("Bottom")
+                .x_label("Time")
+                .build(),
+        );
 
     let rgba = render_subplot_rgba(&grid, 600, 800).expect("shared-x subplot render failed");
     assert_eq!(rgba.len(), 600 * 800 * 4);

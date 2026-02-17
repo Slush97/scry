@@ -13,7 +13,8 @@ fn main() {
         &[30.0, 55.0, 45.0, 70.0, 40.0, 65.0],
         &[500.0, 1200.0, 300.0, 2000.0, 800.0, 1500.0],
     )
-    .add_named_series("Series B",
+    .add_named_series(
+        "Series B",
         &[2.0, 3.5, 5.0, 6.5, 8.0],
         &[50.0, 35.0, 60.0, 25.0, 55.0],
         &[700.0, 400.0, 1800.0, 600.0, 1100.0],
@@ -31,18 +32,27 @@ fn main() {
 
     // ── 2. Violin Plot ─────────────────────────────────────────────────
     let violin = Chart::violin(vec![
-        ("Control", vec![
-            2.1, 2.5, 2.8, 3.0, 3.1, 2.9, 2.7, 3.3, 2.4, 2.6,
-            3.2, 2.8, 3.0, 2.5, 2.9, 3.1, 2.7, 2.8, 3.4, 2.6,
-        ]),
-        ("Drug A", vec![
-            4.2, 4.5, 3.8, 5.1, 4.7, 4.3, 4.9, 3.7, 4.6, 5.0,
-            4.1, 4.8, 4.4, 5.2, 3.9, 4.6, 4.3, 5.3, 4.0, 4.7,
-        ]),
-        ("Drug B", vec![
-            3.5, 4.0, 3.2, 4.5, 3.8, 3.6, 4.2, 3.3, 3.9, 4.1,
-            3.7, 3.4, 4.3, 3.1, 3.8, 4.4, 3.6, 3.5, 4.0, 3.9,
-        ]),
+        (
+            "Control",
+            vec![
+                2.1, 2.5, 2.8, 3.0, 3.1, 2.9, 2.7, 3.3, 2.4, 2.6, 3.2, 2.8, 3.0, 2.5, 2.9, 3.1,
+                2.7, 2.8, 3.4, 2.6,
+            ],
+        ),
+        (
+            "Drug A",
+            vec![
+                4.2, 4.5, 3.8, 5.1, 4.7, 4.3, 4.9, 3.7, 4.6, 5.0, 4.1, 4.8, 4.4, 5.2, 3.9, 4.6,
+                4.3, 5.3, 4.0, 4.7,
+            ],
+        ),
+        (
+            "Drug B",
+            vec![
+                3.5, 4.0, 3.2, 4.5, 3.8, 3.6, 4.2, 3.3, 3.9, 4.1, 3.7, 3.4, 4.3, 3.1, 3.8, 4.4,
+                3.6, 3.5, 4.0, 3.9,
+            ],
+        ),
     ])
     .inner_box()
     .title("Clinical Trial — Violin Plot")
@@ -54,13 +64,11 @@ fn main() {
     println!("✓ Violin plot  → /tmp/session3_violin.png");
 
     // ── 3. Bar Chart with Error Bars ───────────────────────────────────
-    let labels: Vec<String> = vec![
-        "Q1".into(), "Q2".into(), "Q3".into(), "Q4".into(),
-    ];
+    let labels: Vec<String> = vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()];
     let revenue = Series::new("Revenue", vec![120.0, 145.0, 132.0, 158.0])
         .with_error(vec![12.0, 8.0, 15.0, 10.0]);
-    let costs = Series::new("Costs", vec![85.0, 92.0, 88.0, 95.0])
-        .with_error(vec![7.0, 5.0, 9.0, 6.0]);
+    let costs =
+        Series::new("Costs", vec![85.0, 92.0, 88.0, 95.0]).with_error(vec![7.0, 5.0, 9.0, 6.0]);
     let bar = scry_chart::chart::BarChart::new(labels, vec![revenue, costs])
         .title("Quarterly Results with Error Bars")
         .y_label("Amount ($K)")
@@ -73,23 +81,20 @@ fn main() {
 
     // ── 4. Sparklines ──────────────────────────────────────────────────
     // Line sparkline
-    let spark_line = Chart::sparkline(&[
-        3.0, 7.0, 4.0, 8.0, 2.0, 9.0, 5.0, 6.0, 1.0, 8.0, 4.0, 7.0,
-    ])
-    .filled()
-    .color(Color::from_rgba8(100, 200, 255, 255))
-    .build();
+    let spark_line =
+        Chart::sparkline(&[3.0, 7.0, 4.0, 8.0, 2.0, 9.0, 5.0, 6.0, 1.0, 8.0, 4.0, 7.0])
+            .filled()
+            .color(Color::from_rgba8(100, 200, 255, 255))
+            .build();
 
     save_png(&spark_line, 200, 40, "/tmp/session3_sparkline_line.png").unwrap();
     println!("✓ Sparkline (line)     → /tmp/session3_sparkline_line.png");
 
     // Bar sparkline
-    let spark_bar = Chart::sparkline(&[
-        5.0, 8.0, 3.0, 7.0, 9.0, 4.0, 6.0, 2.0, 8.0, 5.0,
-    ])
-    .bar()
-    .color(Color::from_rgba8(130, 230, 130, 255))
-    .build();
+    let spark_bar = Chart::sparkline(&[5.0, 8.0, 3.0, 7.0, 9.0, 4.0, 6.0, 2.0, 8.0, 5.0])
+        .bar()
+        .color(Color::from_rgba8(130, 230, 130, 255))
+        .build();
 
     save_png(&spark_bar, 200, 40, "/tmp/session3_sparkline_bar.png").unwrap();
     println!("✓ Sparkline (bar)      → /tmp/session3_sparkline_bar.png");

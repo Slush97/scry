@@ -153,20 +153,19 @@ impl WgpuContext {
         ))
         .map_err(|e| format!("wgpu: device creation failed: {e}"))?;
 
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("uniform_bgl"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("uniform_bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
@@ -177,9 +176,7 @@ impl WgpuContext {
         // --- Point pipeline ---
         let point_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("point_shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("shaders/point.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/point.wgsl").into()),
         });
 
         let point_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -231,9 +228,7 @@ impl WgpuContext {
         // --- Line pipeline ---
         let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("line_shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("shaders/line.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/line.wgsl").into()),
         });
 
         let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -521,8 +516,13 @@ impl<'ctx> WgpuRasterizer3D<'ctx> {
         let (texture, texture_view, uniform_bind_group, cached_readback, cached_padded_row) =
             if let Some(c) = cached {
                 if c.width == width && c.height == height {
-                    (c.texture, c.texture_view, c.uniform_bind_group,
-                     Some(c.readback_buffer), c.readback_padded_row)
+                    (
+                        c.texture,
+                        c.texture_view,
+                        c.uniform_bind_group,
+                        Some(c.readback_buffer),
+                        c.readback_padded_row,
+                    )
                 } else {
                     let (t, tv, bg) =
                         create_frame_resources(&ctx.device, &ctx.bind_group_layout, width, height);
@@ -564,10 +564,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
                 .get(pt.original_index)
                 .copied()
                 .unwrap_or(Color::WHITE);
-            let size = sizes
-                .get(pt.original_index)
-                .copied()
-                .unwrap_or(3.0);
+            let size = sizes.get(pt.original_index).copied().unwrap_or(3.0);
             PointInstance {
                 pos_size: [pt.screen_x, pt.screen_y, size, pt.depth],
                 color: [color.r, color.g, color.b, color.a],
@@ -607,22 +604,46 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
 
             // Each segment → 2 triangles (6 vertices): p0-p1-p2 and p1-p3-p2
             self.line_vertices.push(LineVertex {
-                position: s, normal, color: color_arr, line_width: half_width, edge_dist: 1.0,
+                position: s,
+                normal,
+                color: color_arr,
+                line_width: half_width,
+                edge_dist: 1.0,
             });
             self.line_vertices.push(LineVertex {
-                position: s, normal, color: color_arr, line_width: half_width, edge_dist: -1.0,
+                position: s,
+                normal,
+                color: color_arr,
+                line_width: half_width,
+                edge_dist: -1.0,
             });
             self.line_vertices.push(LineVertex {
-                position: e, normal, color: color_arr, line_width: half_width, edge_dist: 1.0,
+                position: e,
+                normal,
+                color: color_arr,
+                line_width: half_width,
+                edge_dist: 1.0,
             });
             self.line_vertices.push(LineVertex {
-                position: s, normal, color: color_arr, line_width: half_width, edge_dist: -1.0,
+                position: s,
+                normal,
+                color: color_arr,
+                line_width: half_width,
+                edge_dist: -1.0,
             });
             self.line_vertices.push(LineVertex {
-                position: e, normal, color: color_arr, line_width: half_width, edge_dist: -1.0,
+                position: e,
+                normal,
+                color: color_arr,
+                line_width: half_width,
+                edge_dist: -1.0,
             });
             self.line_vertices.push(LineVertex {
-                position: e, normal, color: color_arr, line_width: half_width, edge_dist: 1.0,
+                position: e,
+                normal,
+                color: color_arr,
+                line_width: half_width,
+                edge_dist: 1.0,
             });
         }
     }
@@ -790,12 +811,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
 
         // --- CPU text overlay (stamp directly on raw bytes) ---
         if !self.text_overlays.is_empty() {
-            stamp_text_raw(
-                &mut rgba,
-                self.width,
-                self.height,
-                &self.text_overlays,
-            );
+            stamp_text_raw(&mut rgba, self.width, self.height, &self.text_overlays);
         }
 
         // --- Return resources to context cache for next frame ---
@@ -840,7 +856,8 @@ fn stamp_text_raw(rgba: &mut [u8], width: u32, height: u32, overlays: &[TextOver
     for overlay in overlays {
         super::with_font(false, |font| {
             // Pre-rasterize glyphs and measure width
-            let mut glyphs: Vec<(fontdue::Metrics, Vec<u8>)> = Vec::with_capacity(overlay.text.len());
+            let mut glyphs: Vec<(fontdue::Metrics, Vec<u8>)> =
+                Vec::with_capacity(overlay.text.len());
             let mut total_width = 0.0_f32;
 
             for ch in overlay.text.chars() {
@@ -909,7 +926,11 @@ mod tests {
     #[test]
     fn wgpu_rasterizer_init() {
         let result = WgpuRasterizer3D::new(200, 150, Color::BLACK);
-        assert!(result.is_ok(), "GPU init should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "GPU init should succeed: {:?}",
+            result.err()
+        );
         let rast = result.unwrap();
         assert_eq!(rast.width(), 200);
         assert_eq!(rast.height(), 150);
@@ -980,7 +1001,11 @@ mod tests {
         .title("GPU Test");
 
         let result = chart.render_gpu(200, 150);
-        assert!(result.is_ok(), "GPU render should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "GPU render should succeed: {:?}",
+            result.err()
+        );
         let data = result.unwrap();
         assert_eq!(data.len(), 200 * 150 * 4);
     }
@@ -994,12 +1019,20 @@ mod tests {
         let cpu = chart.render(100, 80).unwrap();
         let gpu = chart.render_gpu(100, 80).unwrap();
 
-        assert_eq!(cpu.len(), gpu.len(), "CPU and GPU output must have same byte count");
+        assert_eq!(
+            cpu.len(),
+            gpu.len(),
+            "CPU and GPU output must have same byte count"
+        );
         assert_eq!(cpu.len(), 100 * 80 * 4);
 
         // Both should have non-zero pixels (actual content)
-        let cpu_has_content = cpu.chunks(4).any(|px| px[0] > 20 || px[1] > 20 || px[2] > 20);
-        let gpu_has_content = gpu.chunks(4).any(|px| px[0] > 20 || px[1] > 20 || px[2] > 20);
+        let cpu_has_content = cpu
+            .chunks(4)
+            .any(|px| px[0] > 20 || px[1] > 20 || px[2] > 20);
+        let gpu_has_content = gpu
+            .chunks(4)
+            .any(|px| px[0] > 20 || px[1] > 20 || px[2] > 20);
         assert!(cpu_has_content, "CPU output should have visible content");
         assert!(gpu_has_content, "GPU output should have visible content");
     }
@@ -1034,19 +1067,20 @@ mod tests {
         use super::super::Chart3D;
 
         let ctx = WgpuContext::new().expect("WgpuContext init");
-        let chart = Chart3D::scatter(
-            &[1.0, 2.0, 3.0],
-            &[4.0, 5.0, 6.0],
-            &[7.0, 8.0, 9.0],
-        )
-        .title("Cached GPU");
+        let chart = Chart3D::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], &[7.0, 8.0, 9.0])
+            .title("Cached GPU");
 
         // Render twice with the same context
         for _ in 0..2 {
             let data = chart.render_gpu_with_context(&ctx, 160, 120).unwrap();
             assert_eq!(data.len(), 160 * 120 * 4);
-            let has_content = data.chunks(4).any(|px| px[0] > 20 || px[1] > 20 || px[2] > 20);
-            assert!(has_content, "cached GPU render should produce visible content");
+            let has_content = data
+                .chunks(4)
+                .any(|px| px[0] > 20 || px[1] > 20 || px[2] > 20);
+            assert!(
+                has_content,
+                "cached GPU render should produce visible content"
+            );
         }
     }
 }

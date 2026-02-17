@@ -4,23 +4,23 @@
 //! Provides scalers, encoders, dimensionality reduction, and a
 //! composable [`Transformer`] trait for building preprocessing pipelines.
 
-mod scaler;
-mod encoder;
-mod pca;
-mod one_hot;
-mod imputer;
 mod column_transformer;
-mod polynomial;
+mod encoder;
+mod imputer;
 mod normalizer;
+mod one_hot;
+mod pca;
+mod polynomial;
+mod scaler;
 
-pub use scaler::{StandardScaler, MinMaxScaler, RobustScaler};
-pub use encoder::LabelEncoder;
-pub use pca::Pca;
-pub use one_hot::{OneHotEncoder, DropStrategy, UnknownStrategy};
-pub use imputer::{SimpleImputer, Strategy};
 pub use column_transformer::ColumnTransformer;
+pub use encoder::LabelEncoder;
+pub use imputer::{SimpleImputer, Strategy};
+pub use normalizer::{Norm, Normalizer};
+pub use one_hot::{DropStrategy, OneHotEncoder, UnknownStrategy};
+pub use pca::Pca;
 pub use polynomial::PolynomialFeatures;
-pub use normalizer::{Normalizer, Norm};
+pub use scaler::{MinMaxScaler, RobustScaler, StandardScaler};
 
 use crate::dataset::Dataset;
 use crate::error::Result;
@@ -42,4 +42,3 @@ pub trait Transformer {
     /// Reverse the transformation (if invertible).
     fn inverse_transform(&self, data: &mut Dataset) -> Result<()>;
 }
-

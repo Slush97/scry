@@ -100,8 +100,19 @@ pub fn run(cmd: VizCommands) -> Result<(), String> {
             delimiter,
             no_header,
         } => cmd_scatter_3d(
-            csv, &x, &y, &z, color_by.as_deref(), title, width, height,
-            output, point_size, no_grid, &delimiter, no_header,
+            csv,
+            &x,
+            &y,
+            &z,
+            color_by.as_deref(),
+            title,
+            width,
+            height,
+            output,
+            point_size,
+            no_grid,
+            &delimiter,
+            no_header,
         ),
     }
 }
@@ -147,15 +158,12 @@ fn cmd_scatter_3d(
 
     // Read CSV from file or stdin
     let csv_data = if let Some(ref path) = csv_path {
-        let file =
-            std::fs::File::open(path).map_err(|e| format!("failed to open {path}: {e}"))?;
+        let file = std::fs::File::open(path).map_err(|e| format!("failed to open {path}: {e}"))?;
         CsvData::from_reader_with_opts(file, &parse_opts)?
     } else {
         let stdin = std::io::stdin();
         CsvData::from_reader_with_opts(stdin.lock(), &parse_opts)?
     };
-
-
 
     // Extract numeric columns for X, Y, Z
     let x_data = csv_data.numeric_column(x_col)?;
@@ -203,7 +211,8 @@ fn cmd_scatter_3d(
             csv_data.headers().join(", "),
         );
         if color_by.is_some() {
-            eprintln!("coloring by '{}' ({} unique values)",
+            eprintln!(
+                "coloring by '{}' ({} unique values)",
                 color_by.unwrap_or("?"),
                 {
                     let labels_col = csv_data.string_column(color_by.unwrap_or(""));
@@ -213,7 +222,8 @@ fn cmd_scatter_3d(
                         uniq.dedup();
                         uniq.len()
                     })
-                });
+                }
+            );
         }
         chart
             .save_png(width, height, path)

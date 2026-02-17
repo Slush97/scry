@@ -38,7 +38,11 @@ impl DenseMatrix {
                 n_rows * n_cols,
             )));
         }
-        Ok(Self { data, n_rows, n_cols })
+        Ok(Self {
+            data,
+            n_rows,
+            n_cols,
+        })
     }
 
     /// Create a matrix of all zeros.
@@ -55,7 +59,11 @@ impl DenseMatrix {
     /// Returns an error if columns have different lengths.
     pub fn from_col_major(cols: Vec<Vec<f64>>) -> Result<Self> {
         if cols.is_empty() {
-            return Ok(Self { data: Vec::new(), n_rows: 0, n_cols: 0 });
+            return Ok(Self {
+                data: Vec::new(),
+                n_rows: 0,
+                n_cols: 0,
+            });
         }
         let n_rows = cols[0].len();
         let n_cols = cols.len();
@@ -71,7 +79,11 @@ impl DenseMatrix {
         for col in &cols {
             data.extend_from_slice(col);
         }
-        Ok(Self { data, n_rows, n_cols })
+        Ok(Self {
+            data,
+            n_rows,
+            n_cols,
+        })
     }
 
     /// Build from row-major data, transposing into column-major storage.
@@ -82,7 +94,11 @@ impl DenseMatrix {
                 data[j * n_rows + i] = val;
             }
         }
-        Self { data, n_rows, n_cols }
+        Self {
+            data,
+            n_rows,
+            n_cols,
+        }
     }
 
     /// Zero-cost slice of column `j`.
@@ -169,7 +185,10 @@ impl From<&[Vec<f64>]> for DenseMatrix {
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for DenseMatrix {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("DenseMatrix", 3)?;
         state.serialize_field("data", &self.data)?;
@@ -181,7 +200,9 @@ impl serde::Serialize for DenseMatrix {
 
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for DenseMatrix {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         #[derive(serde::Deserialize)]
         struct Raw {
             data: Vec<f64>,
@@ -213,11 +234,8 @@ mod tests {
 
     #[test]
     fn col_correctness() {
-        let m = DenseMatrix::from_col_major(vec![
-            vec![1.0, 2.0],
-            vec![3.0, 4.0],
-            vec![5.0, 6.0],
-        ]).unwrap();
+        let m = DenseMatrix::from_col_major(vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]])
+            .unwrap();
         assert_eq!(m.col(0), &[1.0, 2.0]);
         assert_eq!(m.col(1), &[3.0, 4.0]);
         assert_eq!(m.col(2), &[5.0, 6.0]);
@@ -225,10 +243,8 @@ mod tests {
 
     #[test]
     fn row_iter_correctness() {
-        let m = DenseMatrix::from_col_major(vec![
-            vec![1.0, 2.0, 3.0],
-            vec![4.0, 5.0, 6.0],
-        ]).unwrap();
+        let m =
+            DenseMatrix::from_col_major(vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]).unwrap();
         let row0: Vec<f64> = m.row_iter(0).collect();
         assert_eq!(row0, vec![1.0, 4.0]);
         let row2: Vec<f64> = m.row_iter(2).collect();
@@ -319,10 +335,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn serde_roundtrip() {
-        let m = DenseMatrix::from_col_major(vec![
-            vec![1.0, 2.0],
-            vec![3.0, 4.0],
-        ]).unwrap();
+        let m = DenseMatrix::from_col_major(vec![vec![1.0, 2.0], vec![3.0, 4.0]]).unwrap();
         let json = serde_json::to_string(&m).unwrap();
         let m2: DenseMatrix = serde_json::from_str(&json).unwrap();
         assert_eq!(m.as_slice(), m2.as_slice());

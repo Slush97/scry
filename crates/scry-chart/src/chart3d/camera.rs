@@ -177,7 +177,6 @@ impl Quaternion {
         }
     }
 
-
     /// Normalize to unit quaternion.
     #[must_use]
     pub fn normalize(self) -> Self {
@@ -352,12 +351,7 @@ impl Camera3D {
         let dist = distance.max(MIN_DISTANCE);
         let (sa, ca) = azimuth.sin_cos();
         let (se, ce) = elevation.sin_cos();
-        let position = target
-            + Vec3::new(
-                dist * ce * sa,
-                dist * se,
-                dist * ce * ca,
-            );
+        let position = target + Vec3::new(dist * ce * sa, dist * se, dist * ce * ca);
         Self::new(position, target, Vec3::Y)
     }
 
@@ -474,7 +468,10 @@ mod tests {
     fn quaternion_identity_rotates_nothing() {
         let v = Vec3::new(1.0, 2.0, 3.0);
         let result = Quaternion::IDENTITY.rotate_vec3(v);
-        assert!(vec3_approx_eq(v, result), "identity should not change vector");
+        assert!(
+            vec3_approx_eq(v, result),
+            "identity should not change vector"
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ authors = ["esoc"]
 description = "Production-grade machine learning toolkit with built-in scry visualization"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Slush97/scry"
+documentation = "https://docs.rs/scry-learn"
 keywords = ["machine-learning", "decision-tree", "random-forest", "visualization", "terminal"]
 categories = ["science", "algorithms", "visualization"]
 readme = "README.md"
@@ -16,6 +17,8 @@ default = []
 csv = ["dep:csv"]
 serde = ["dep:serde"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+polars = ["dep:polars"]
+mmap = ["dep:memmap2", "dep:bytemuck"]
 
 [dependencies]
 scry-chart = { version = "0.7.0", path = "../scry-chart" }
@@ -27,6 +30,12 @@ serde = { version = "1", features = ["derive"], optional = true }
 wgpu = { version = "24", optional = true }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
+
+# Optional: Polars DataFrame interop
+polars = { version = "0.46", optional = true, default-features = false, features = ["lazy"] }
+
+# Optional: Memory-mapped dataset loading
+memmap2 = { version = "0.9", optional = true }
 
 [dev-dependencies]
 fastrand = "2"
@@ -65,10 +74,6 @@ harness = false
 name = "scaling_benchmark"
 harness = false
 
-[[bench]]
-name = "predict_latency"
-harness = false
-
 [[example]]
 name = "bench_dashboard"
 
@@ -80,6 +85,9 @@ name = "industry_report"
 
 [[example]]
 name = "benchmark_comparison"
+
+[[example]]
+name = "benchmark_report"
 
 [[example]]
 name = "memory_benchmark"

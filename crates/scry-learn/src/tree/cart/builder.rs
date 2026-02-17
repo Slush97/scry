@@ -6,12 +6,11 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 use super::{
+    compute_impurity, compute_impurity_weighted, majority_class, weighted_majority_class,
     BestSplit, FlatTree, SplitCriterion, TreeNode,
-    compute_impurity, compute_impurity_weighted,
-    majority_class, weighted_majority_class,
 };
 
 // ---------------------------------------------------------------------------
@@ -19,14 +18,16 @@ use super::{
 // ---------------------------------------------------------------------------
 
 /// Pre-sort sample indices by each feature value. O(n·log n) per feature.
-fn presort_indices(data: &Dataset, indices: &[usize]) -> Vec<Vec<usize>> {
+pub(crate) fn presort_indices(data: &Dataset, indices: &[usize]) -> Vec<Vec<usize>> {
     let n_features = data.n_features();
     let mut sorted_by_feature = Vec::with_capacity(n_features);
     for feat_idx in 0..n_features {
         let col = &data.features[feat_idx];
         let mut sorted = indices.to_vec();
         sorted.sort_unstable_by(|&a, &b| {
-            col[a].partial_cmp(&col[b]).unwrap_or(std::cmp::Ordering::Equal)
+            col[a]
+                .partial_cmp(&col[b])
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         sorted_by_feature.push(sorted);
     }
@@ -37,12 +38,7 @@ fn presort_indices(data: &Dataset, indices: &[usize]) -> Vec<Vec<usize>> {
 fn filter_sorted(global_sorted: &[Vec<usize>], membership: &[bool]) -> Vec<Vec<usize>> {
     global_sorted
         .iter()
-        .map(|gs| {
-            gs.iter()
-                .copied()
-                .filter(|&idx| membership[idx])
-                .collect()
-        })
+        .map(|gs| gs.iter().copied().filter(|&idx| membership[idx]).collect())
         .collect()
 }
 
@@ -75,15 +71,20 @@ fn partition_sorted(
 }
 
 /// Populate the feature buffer with indices, optionally shuffled for feature bagging.
+///
+/// When `max_features` is set, uses `rng` to select a random subset via
+/// partial Fisher-Yates shuffle. The caller must supply a mutable RNG whose
+/// state advances between calls so that each split considers a *different*
+/// random feature subset (critical for Random Forest decorrelation).
 fn fill_feature_buf(
     feature_buf: &mut Vec<usize>,
     n_features: usize,
     max_features: Option<usize>,
+    rng: &mut crate::rng::FastRng,
 ) {
     feature_buf.clear();
     feature_buf.extend(0..n_features);
     if let Some(max_f) = max_features {
-        let mut rng = crate::rng::FastRng::new(0);
         let m = max_f.min(n_features);
         for i in 0..m {
             let j = rng.usize(i..n_features);
@@ -100,6 +101,7 @@ fn fill_feature_buf(
 /// CART decision tree for classification.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct DecisionTreeClassifier {
     max_depth: Option<usize>,
     min_samples_split: usize,
@@ -217,7 +219,11 @@ impl DecisionTreeClassifier {
     /// Internally uses pre-sorted indices: sorts once at the root (O(n·log n)),
     /// then partitions at each node (O(n) per feature per node) — matching
     /// scikit-learn's optimized CART implementation.
-    pub(crate) fn fit_on_indices(&mut self, data: &Dataset, sample_indices: &[usize]) -> Result<()> {
+    pub(crate) fn fit_on_indices(
+        &mut self,
+        data: &Dataset,
+        sample_indices: &[usize],
+    ) -> Result<()> {
         let sorted_by_feature = presort_indices(data, sample_indices);
         self.fit_with_sorted(data, sample_indices, sorted_by_feature)
     }
@@ -267,11 +273,26 @@ impl DecisionTreeClassifier {
         self.sample_weights = weights;
 
         let mut feature_buf = Vec::with_capacity(self.n_features);
+        let mut split_rng = crate::rng::FastRng::new(0);
 
         let tree = if self.sample_weights.is_some() {
-            self.build_tree_weighted(data, sorted_by_feature, n, 0, &mut feature_buf)
+            self.build_tree_weighted(
+                data,
+                sorted_by_feature,
+                n,
+                0,
+                &mut feature_buf,
+                &mut split_rng,
+            )
         } else {
-            self.build_tree(data, sorted_by_feature, n, 0, &mut feature_buf)
+            self.build_tree(
+                data,
+                sorted_by_feature,
+                n,
+                0,
+                &mut feature_buf,
+                &mut split_rng,
+            )
         };
 
         // Apply cost-complexity pruning if requested.
@@ -369,11 +390,26 @@ impl DecisionTreeClassifier {
         let sorted_by_feature = presort_indices(data, &indices);
         let n = indices.len();
         let mut feature_buf = Vec::with_capacity(unpruned.n_features);
+        let mut split_rng = crate::rng::FastRng::new(0);
 
         let tree = if unpruned.sample_weights.is_some() {
-            unpruned.build_tree_weighted(data, sorted_by_feature, n, 0, &mut feature_buf)
+            unpruned.build_tree_weighted(
+                data,
+                sorted_by_feature,
+                n,
+                0,
+                &mut feature_buf,
+                &mut split_rng,
+            )
         } else {
-            unpruned.build_tree(data, sorted_by_feature, n, 0, &mut feature_buf)
+            unpruned.build_tree(
+                data,
+                sorted_by_feature,
+                n,
+                0,
+                &mut feature_buf,
+                &mut split_rng,
+            )
         };
         Ok(tree.cost_complexity_pruning_path())
     }
@@ -393,6 +429,7 @@ impl DecisionTreeClassifier {
         n_root_samples: usize,
         depth: usize,
         feature_buf: &mut Vec<usize>,
+        split_rng: &mut crate::rng::FastRng,
     ) -> TreeNode {
         let active = &sorted_by_feature[0];
         let n_actual = active.len();
@@ -423,7 +460,12 @@ impl DecisionTreeClassifier {
 
         // Find best split.
         let best = self.find_best_split(
-            data, &sorted_by_feature, &class_counts, n_actual, feature_buf,
+            data,
+            &sorted_by_feature,
+            &class_counts,
+            n_actual,
+            feature_buf,
+            split_rng,
         );
 
         let node_prediction = majority_class(&class_counts);
@@ -462,18 +504,27 @@ impl DecisionTreeClassifier {
                 // Record feature importance.
                 let weighted_impurity_decrease = (n_actual as f64 / n_root_samples as f64)
                     * (impurity - split.impurity_decrease);
-                self.feature_importances_[split.feature_idx] +=
-                    weighted_impurity_decrease.max(0.0);
+                self.feature_importances_[split.feature_idx] += weighted_impurity_decrease.max(0.0);
 
                 // Partition sorted arrays into left/right children.
                 let (left_sorted, right_sorted) =
                     partition_sorted(sorted_by_feature, col, threshold, left_count, right_count);
 
                 let left = self.build_tree(
-                    data, left_sorted, n_root_samples, depth + 1, feature_buf,
+                    data,
+                    left_sorted,
+                    n_root_samples,
+                    depth + 1,
+                    feature_buf,
+                    split_rng,
                 );
                 let right = self.build_tree(
-                    data, right_sorted, n_root_samples, depth + 1, feature_buf,
+                    data,
+                    right_sorted,
+                    n_root_samples,
+                    depth + 1,
+                    feature_buf,
+                    split_rng,
                 );
 
                 TreeNode::Split {
@@ -498,11 +549,12 @@ impl DecisionTreeClassifier {
         parent_counts: &[usize],
         n_parent: usize,
         feature_buf: &mut Vec<usize>,
+        split_rng: &mut crate::rng::FastRng,
     ) -> Option<BestSplit> {
         let n_features = data.n_features();
         let mut best: Option<BestSplit> = None;
 
-        fill_feature_buf(feature_buf, n_features, self.max_features);
+        fill_feature_buf(feature_buf, n_features, self.max_features, split_rng);
 
         for &feat_idx in feature_buf.iter() {
             let col = &data.features[feat_idx];
@@ -571,6 +623,7 @@ impl DecisionTreeClassifier {
         n_root_samples: usize,
         depth: usize,
         feature_buf: &mut Vec<usize>,
+        split_rng: &mut crate::rng::FastRng,
     ) -> TreeNode {
         let weights = self.sample_weights.as_ref().expect("weights must be set");
         let active = &sorted_by_feature[0];
@@ -608,7 +661,13 @@ impl DecisionTreeClassifier {
         }
 
         let best = self.find_best_split_weighted(
-            data, &sorted_by_feature, &w_counts, w_total, n_actual, feature_buf,
+            data,
+            &sorted_by_feature,
+            &w_counts,
+            w_total,
+            n_actual,
+            feature_buf,
+            split_rng,
         );
 
         let node_prediction = weighted_majority_class(&w_counts);
@@ -646,17 +705,26 @@ impl DecisionTreeClassifier {
                 // Record feature importance.
                 let weighted_impurity_decrease = (n_actual as f64 / n_root_samples as f64)
                     * (impurity - split.impurity_decrease);
-                self.feature_importances_[split.feature_idx] +=
-                    weighted_impurity_decrease.max(0.0);
+                self.feature_importances_[split.feature_idx] += weighted_impurity_decrease.max(0.0);
 
                 let (left_sorted, right_sorted) =
                     partition_sorted(sorted_by_feature, col, threshold, left_count, right_count);
 
                 let left = self.build_tree_weighted(
-                    data, left_sorted, n_root_samples, depth + 1, feature_buf,
+                    data,
+                    left_sorted,
+                    n_root_samples,
+                    depth + 1,
+                    feature_buf,
+                    split_rng,
                 );
                 let right = self.build_tree_weighted(
-                    data, right_sorted, n_root_samples, depth + 1, feature_buf,
+                    data,
+                    right_sorted,
+                    n_root_samples,
+                    depth + 1,
+                    feature_buf,
+                    split_rng,
                 );
 
                 TreeNode::Split {
@@ -682,12 +750,13 @@ impl DecisionTreeClassifier {
         w_parent_total: f64,
         n_parent: usize,
         feature_buf: &mut Vec<usize>,
+        split_rng: &mut crate::rng::FastRng,
     ) -> Option<BestSplit> {
         let weights = self.sample_weights.as_ref().expect("weights must be set");
         let n_features = data.n_features();
         let mut best: Option<BestSplit> = None;
 
-        fill_feature_buf(feature_buf, n_features, self.max_features);
+        fill_feature_buf(feature_buf, n_features, self.max_features, split_rng);
 
         for &feat_idx in feature_buf.iter() {
             let col = &data.features[feat_idx];
@@ -712,14 +781,15 @@ impl DecisionTreeClassifier {
                             .map(|(&p, &l)| (p - l).max(0.0))
                             .collect();
 
-                        let left_imp = compute_impurity_weighted(
-                            &left_w_counts, left_w_total, self.criterion,
-                        );
+                        let left_imp =
+                            compute_impurity_weighted(&left_w_counts, left_w_total, self.criterion);
                         let right_imp = compute_impurity_weighted(
-                            &right_w_counts, right_w_total, self.criterion,
+                            &right_w_counts,
+                            right_w_total,
+                            self.criterion,
                         );
-                        let weighted_imp = (left_w_total * left_imp + right_w_total * right_imp)
-                            / w_parent_total;
+                        let weighted_imp =
+                            (left_w_total * left_imp + right_w_total * right_imp) / w_parent_total;
 
                         let threshold = (prev_val + val) / 2.0;
 
@@ -765,6 +835,7 @@ impl Default for DecisionTreeClassifier {
 /// CART decision tree for regression.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct DecisionTreeRegressor {
     max_depth: Option<usize>,
     min_samples_split: usize,
@@ -836,7 +907,11 @@ impl DecisionTreeRegressor {
     ///
     /// Production path for Random Forest — trains directly on indices
     /// into the original data, avoiding dataset copies.
-    pub(crate) fn fit_on_indices(&mut self, data: &Dataset, sample_indices: &[usize]) -> Result<()> {
+    pub(crate) fn fit_on_indices(
+        &mut self,
+        data: &Dataset,
+        sample_indices: &[usize],
+    ) -> Result<()> {
         let n = sample_indices.len();
         if n == 0 {
             return Err(ScryLearnError::EmptyDataset);
@@ -846,8 +921,16 @@ impl DecisionTreeRegressor {
 
         let sorted_by_feature = presort_indices(data, sample_indices);
         let mut feature_buf = Vec::with_capacity(self.n_features);
+        let mut split_rng = crate::rng::FastRng::new(0);
 
-        let tree = self.build_tree_reg(data, sorted_by_feature, n, 0, &mut feature_buf);
+        let tree = self.build_tree_reg(
+            data,
+            sorted_by_feature,
+            n,
+            0,
+            &mut feature_buf,
+            &mut split_rng,
+        );
 
         // Apply cost-complexity pruning if requested.
         let tree = if self.ccp_alpha > 0.0 {
@@ -858,6 +941,60 @@ impl DecisionTreeRegressor {
 
         // Flatten recursive tree into contiguous array for prediction.
         // Regression trees don't need class probabilities (n_classes=0).
+        let flat = FlatTree::from_tree_node(&tree, 0);
+        self.flat_tree = Some(flat);
+
+        let total: f64 = self.feature_importances_.iter().sum();
+        if total > 0.0 {
+            for imp in &mut self.feature_importances_ {
+                *imp /= total;
+            }
+        }
+        Ok(())
+    }
+
+    /// Train using pre-sorted indices (GBT/RF optimization — sort once, reuse each round).
+    ///
+    /// `global_sorted` contains ALL dataset indices sorted by each feature.
+    /// Filters to only the requested sample indices, then builds the tree.
+    pub(crate) fn fit_on_indices_presorted(
+        &mut self,
+        data: &Dataset,
+        sample_indices: &[usize],
+        global_sorted: &[Vec<usize>],
+    ) -> Result<()> {
+        let n = sample_indices.len();
+        if n == 0 {
+            return Err(ScryLearnError::EmptyDataset);
+        }
+        self.n_features = data.n_features();
+        self.feature_importances_ = vec![0.0; self.n_features];
+
+        // Filter global sorted arrays to only include requested sample indices.
+        let membership_len = global_sorted.first().map_or(0, Vec::len);
+        let mut membership = vec![false; membership_len];
+        for &i in sample_indices {
+            membership[i] = true;
+        }
+        let sorted_by_feature = filter_sorted(global_sorted, &membership);
+        let mut feature_buf = Vec::with_capacity(self.n_features);
+        let mut split_rng = crate::rng::FastRng::new(0);
+
+        let tree = self.build_tree_reg(
+            data,
+            sorted_by_feature,
+            n,
+            0,
+            &mut feature_buf,
+            &mut split_rng,
+        );
+
+        let tree = if self.ccp_alpha > 0.0 {
+            tree.prune_ccp(self.ccp_alpha)
+        } else {
+            tree
+        };
+
         let flat = FlatTree::from_tree_node(&tree, 0);
         self.flat_tree = Some(flat);
 
@@ -902,6 +1039,7 @@ impl DecisionTreeRegressor {
         n_root_samples: usize,
         depth: usize,
         feature_buf: &mut Vec<usize>,
+        split_rng: &mut crate::rng::FastRng,
     ) -> TreeNode {
         let active = &sorted_by_feature[0];
         let n_actual = active.len();
@@ -924,7 +1062,9 @@ impl DecisionTreeRegressor {
             sq_sum += v * v;
         }
         let mean = sum / n_actual as f64;
-        let mse = sq_sum / n_actual as f64 - mean * mean;
+        // Clamp to 0.0: the textbook formula E[X²]-E[X]² can go slightly
+        // negative due to floating-point catastrophic cancellation.
+        let mse = (sq_sum / n_actual as f64 - mean * mean).max(0.0);
 
         let max_depth_reached = self.max_depth.is_some_and(|d| depth >= d);
         let too_few = n_actual < self.min_samples_split;
@@ -939,7 +1079,13 @@ impl DecisionTreeRegressor {
         }
 
         let best = self.find_best_split_reg(
-            data, &sorted_by_feature, sum, sq_sum, n_actual, feature_buf,
+            data,
+            &sorted_by_feature,
+            sum,
+            sq_sum,
+            n_actual,
+            feature_buf,
+            split_rng,
         );
 
         match best {
@@ -972,18 +1118,28 @@ impl DecisionTreeRegressor {
                     };
                 }
 
-                let decrease = (n_actual as f64 / n_root_samples as f64)
-                    * (mse - split.impurity_decrease);
+                let decrease =
+                    (n_actual as f64 / n_root_samples as f64) * (mse - split.impurity_decrease);
                 self.feature_importances_[split.feature_idx] += decrease.max(0.0);
 
                 let (left_sorted, right_sorted) =
                     partition_sorted(sorted_by_feature, col, threshold, left_count, right_count);
 
                 let left = self.build_tree_reg(
-                    data, left_sorted, n_root_samples, depth + 1, feature_buf,
+                    data,
+                    left_sorted,
+                    n_root_samples,
+                    depth + 1,
+                    feature_buf,
+                    split_rng,
                 );
                 let right = self.build_tree_reg(
-                    data, right_sorted, n_root_samples, depth + 1, feature_buf,
+                    data,
+                    right_sorted,
+                    n_root_samples,
+                    depth + 1,
+                    feature_buf,
+                    split_rng,
                 );
 
                 TreeNode::Split {
@@ -1009,11 +1165,12 @@ impl DecisionTreeRegressor {
         total_sq: f64,
         n_parent: usize,
         feature_buf: &mut Vec<usize>,
+        split_rng: &mut crate::rng::FastRng,
     ) -> Option<BestSplit> {
         let n_features = data.n_features();
         let mut best: Option<BestSplit> = None;
 
-        fill_feature_buf(feature_buf, n_features, self.max_features);
+        fill_feature_buf(feature_buf, n_features, self.max_features, split_rng);
 
         for &feat_idx in feature_buf.iter() {
             let col = &data.features[feat_idx];
@@ -1031,19 +1188,22 @@ impl DecisionTreeRegressor {
                 if left_n > 0 && (feat_val - prev_val).abs() > 1e-12 {
                     let right_n = n_parent - left_n;
                     if left_n >= self.min_samples_leaf && right_n >= self.min_samples_leaf {
-                        let left_mse = left_sq_sum / left_n as f64
-                            - (left_sum / left_n as f64).powi(2);
+                        let left_mse = (left_sq_sum / left_n as f64
+                            - (left_sum / left_n as f64).powi(2))
+                        .max(0.0);
                         let right_sum = total_sum - left_sum;
                         let right_sq = total_sq - left_sq_sum;
-                        let right_mse = right_sq / right_n as f64
-                            - (right_sum / right_n as f64).powi(2);
+                        let right_mse = (right_sq / right_n as f64
+                            - (right_sum / right_n as f64).powi(2))
+                        .max(0.0);
 
                         let weighted = (left_n as f64 * left_mse + right_n as f64 * right_mse)
                             / n_parent as f64;
 
                         let threshold = (prev_val + feat_val) / 2.0;
 
-                        let is_better = best.as_ref().is_none_or(|b| weighted < b.impurity_decrease);
+                        let is_better =
+                            best.as_ref().is_none_or(|b| weighted < b.impurity_decrease);
                         if is_better {
                             best = Some(BestSplit {
                                 feature_idx: feat_idx,

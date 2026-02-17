@@ -28,6 +28,7 @@ mod play;
 mod render_image;
 mod spec;
 mod splash;
+mod stream;
 mod viz;
 
 use clap::{Parser, Subcommand};
@@ -61,6 +62,9 @@ enum Commands {
     /// Play interactive fullscreen animations
     Play(play::PlayArgs),
 
+    /// Live streaming chart from stdin
+    Stream(stream::StreamArgs),
+
     /// 3D visualization commands (scatter, etc.)
     Viz {
         #[command(subcommand)]
@@ -83,6 +87,7 @@ fn main() {
         Commands::Splash(args) => splash::run(&args),
         Commands::Render(args) => render_image::run(&args),
         Commands::Play(args) => play::run(&args),
+        Commands::Stream(args) => stream::run(&args),
         Commands::Viz { cmd } => viz::run(*cmd),
         Commands::Info => cmd_info(),
     };
@@ -131,6 +136,7 @@ fn cmd_info() -> Result<(), String> {
     println!("  scry chart show      Display PNG inline");
     println!("  scry splash          Startup splash animation");
     println!("  scry render          Display image inline");
+    println!("  scry stream          Live streaming chart from stdin");
     println!("  scry play            Interactive TUI animations");
     println!("  scry info            Terminal capabilities");
     println!();

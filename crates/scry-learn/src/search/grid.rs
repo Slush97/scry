@@ -8,7 +8,7 @@ use crate::error::{Result, ScryLearnError};
 use crate::metrics::accuracy;
 use crate::split::{k_fold, stratified_k_fold, ScoringFn};
 
-use super::{CvResult, ParamGrid, ParamValue, Tunable, cartesian_product, evaluate_combo};
+use super::{cartesian_product, evaluate_combo, CvResult, ParamGrid, ParamValue, Tunable};
 
 /// Exhaustive search over a hyperparameter grid with cross-validation.
 ///
@@ -34,6 +34,7 @@ use super::{CvResult, ParamGrid, ParamValue, Tunable, cartesian_product, evaluat
 ///
 /// println!("Best: {:?} → {:.3}", result.best_params(), result.best_score());
 /// ```
+#[non_exhaustive]
 pub struct GridSearchCV {
     base_model: Box<dyn Tunable>,
     param_grid: ParamGrid,
@@ -96,6 +97,12 @@ impl GridSearchCV {
     ///
     /// Returns `self` for chained accessor calls.
     pub fn fit(mut self, data: &Dataset) -> Result<Self> {
+        if self.cv < 2 {
+            return Err(ScryLearnError::InvalidParameter(format!(
+                "cv must be >= 2, got {}",
+                self.cv
+            )));
+        }
         let combos = cartesian_product(&self.param_grid);
         if combos.is_empty() {
             return Err(ScryLearnError::InvalidParameter(
@@ -110,18 +117,21 @@ impl GridSearchCV {
         };
 
         for combo in &combos {
-            let result = evaluate_combo(
-                &*self.base_model,
-                combo,
-                &folds,
-                self.scorer,
-            )?;
+            let result = evaluate_combo(&*self.base_model, combo, &folds, self.scorer)?;
 
-            if result.mean_score > self.best_score_ {
+            if result.mean_score.is_finite()
+                && (self.best_params_.is_none() || result.mean_score > self.best_score_)
+            {
                 self.best_score_ = result.mean_score;
                 self.best_params_ = Some(result.params.clone());
             }
             self.cv_results_.push(result);
+        }
+
+        if self.best_params_.is_none() {
+            return Err(ScryLearnError::InvalidParameter(
+                "all parameter combinations produced NaN scores".into(),
+            ));
         }
 
         Ok(self)

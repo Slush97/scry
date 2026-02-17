@@ -137,7 +137,11 @@ pub(crate) fn minimize(
         let rho_bt = 0.5;
         let mut step = 1.0;
 
-        let dir_deriv: f64 = grad.iter().zip(direction.iter()).map(|(&g, &d)| g * d).sum();
+        let dir_deriv: f64 = grad
+            .iter()
+            .zip(direction.iter())
+            .map(|(&g, &d)| g * d)
+            .sum();
 
         // Guard: if direction is not a descent direction, fall back to steepest descent.
         if dir_deriv >= 0.0 {
@@ -148,7 +152,11 @@ pub(crate) fn minimize(
             step = 0.01 / grad_norm.max(1.0);
         }
 
-        let dir_deriv_ls: f64 = grad.iter().zip(direction.iter()).map(|(&g, &d)| g * d).sum();
+        let dir_deriv_ls: f64 = grad
+            .iter()
+            .zip(direction.iter())
+            .map(|(&g, &d)| g * d)
+            .sum();
         let abs_dir_deriv = dir_deriv_ls.abs();
 
         // Use a separate gradient buffer for trial evaluations so we never
@@ -176,8 +184,11 @@ pub(crate) fn minimize(
                     best_x = Some(x_trial.clone());
                 }
                 // Check strong Wolfe curvature condition.
-                let trial_deriv: f64 = grad_trial.iter().zip(direction.iter())
-                    .map(|(&g, &d)| g * d).sum();
+                let trial_deriv: f64 = grad_trial
+                    .iter()
+                    .zip(direction.iter())
+                    .map(|(&g, &d)| g * d)
+                    .sum();
                 if trial_deriv.abs() <= c_wolfe * abs_dir_deriv {
                     // Both conditions met — accept this step.
                     f = f_trial;
@@ -193,9 +204,7 @@ pub(crate) fn minimize(
         // Fallback: if Wolfe was never satisfied but Armijo was, accept
         // the first (largest) Armijo step to guarantee progress.
         if !accepted {
-            if let (Some((f_a, _)), Some(g_a), Some(x_a)) =
-                (best_armijo, best_grad, best_x)
-            {
+            if let (Some((f_a, _)), Some(g_a), Some(x_a)) = (best_armijo, best_grad, best_x) {
                 f = f_a;
                 x0.copy_from_slice(&x_a);
                 grad.copy_from_slice(&g_a);

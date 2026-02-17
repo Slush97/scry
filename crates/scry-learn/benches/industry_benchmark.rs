@@ -18,9 +18,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 
 use scry_learn::dataset::Dataset;
 use scry_learn::linear::LogisticRegression;
@@ -56,10 +54,7 @@ fn load_features_csv(name: &str) -> (Vec<Vec<f64>>, Vec<String>) {
     let mut rows: Vec<Vec<f64>> = Vec::new();
     for result in rdr.records() {
         let record = result.unwrap();
-        let row: Vec<f64> = record
-            .iter()
-            .map(|s| s.parse::<f64>().unwrap())
-            .collect();
+        let row: Vec<f64> = record.iter().map(|s| s.parse::<f64>().unwrap()).collect();
         rows.push(row);
     }
 
@@ -188,21 +183,17 @@ fn bench_accuracy_cv(c: &mut Criterion) {
         );
 
         // HistGBT
-        group.bench_with_input(
-            BenchmarkId::new("hist_gbt", ds_name),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let model = HistGradientBoostingClassifier::new()
-                        .n_estimators(100)
-                        .max_depth(6)
-                        .learning_rate(0.1);
-                    let scores = cross_val_score_stratified(&model, data, 5, scorer, 42).unwrap();
-                    let mean: f64 = scores.iter().sum::<f64>() / scores.len() as f64;
-                    black_box(mean)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("hist_gbt", ds_name), &data, |b, data| {
+            b.iter(|| {
+                let model = HistGradientBoostingClassifier::new()
+                    .n_estimators(100)
+                    .max_depth(6)
+                    .learning_rate(0.1);
+                let scores = cross_val_score_stratified(&model, data, 5, scorer, 42).unwrap();
+                let mean: f64 = scores.iter().sum::<f64>() / scores.len() as f64;
+                black_box(mean)
+            });
+        });
 
         // Logistic Regression (needs scaling)
         let mut scaled_data = data.clone();
@@ -224,18 +215,14 @@ fn bench_accuracy_cv(c: &mut Criterion) {
         );
 
         // KNN (needs scaling for fair comparison)
-        group.bench_with_input(
-            BenchmarkId::new("knn", ds_name),
-            &scaled_data,
-            |b, data| {
-                b.iter(|| {
-                    let model = KnnClassifier::new().k(5);
-                    let scores = cross_val_score_stratified(&model, data, 5, scorer, 42).unwrap();
-                    let mean: f64 = scores.iter().sum::<f64>() / scores.len() as f64;
-                    black_box(mean)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("knn", ds_name), &scaled_data, |b, data| {
+            b.iter(|| {
+                let model = KnnClassifier::new().k(5);
+                let scores = cross_val_score_stratified(&model, data, 5, scorer, 42).unwrap();
+                let mean: f64 = scores.iter().sum::<f64>() / scores.len() as f64;
+                black_box(mean)
+            });
+        });
 
         // Gaussian NB
         group.bench_with_input(
@@ -271,16 +258,12 @@ fn bench_training_scale(c: &mut Criterion) {
     for &n in sizes {
         let data = gen_classification(n, 10, 42);
 
-        group.bench_with_input(
-            BenchmarkId::new("decision_tree", n),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let mut dt = DecisionTreeClassifier::new().max_depth(10);
-                    dt.fit(black_box(data)).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("decision_tree", n), &data, |b, data| {
+            b.iter(|| {
+                let mut dt = DecisionTreeClassifier::new().max_depth(10);
+                dt.fit(black_box(data)).unwrap();
+            });
+        });
 
         group.bench_with_input(
             BenchmarkId::new("random_forest/20t", n),
@@ -310,43 +293,31 @@ fn bench_training_scale(c: &mut Criterion) {
             },
         );
 
-        group.bench_with_input(
-            BenchmarkId::new("hist_gbt", n),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let mut hgbt = HistGradientBoostingClassifier::new()
-                        .n_estimators(50)
-                        .max_depth(6)
-                        .learning_rate(0.1);
-                    hgbt.fit(black_box(data)).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("hist_gbt", n), &data, |b, data| {
+            b.iter(|| {
+                let mut hgbt = HistGradientBoostingClassifier::new()
+                    .n_estimators(50)
+                    .max_depth(6)
+                    .learning_rate(0.1);
+                hgbt.fit(black_box(data)).unwrap();
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("gaussian_nb", n),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let mut nb = GaussianNb::new();
-                    nb.fit(black_box(data)).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("gaussian_nb", n), &data, |b, data| {
+            b.iter(|| {
+                let mut nb = GaussianNb::new();
+                nb.fit(black_box(data)).unwrap();
+            });
+        });
 
         // KNN training is O(1) but prediction is O(n·k), skip large sizes
         if n <= 10_000 {
-            group.bench_with_input(
-                BenchmarkId::new("knn", n),
-                &data,
-                |b, data| {
-                    b.iter(|| {
-                        let mut knn = KnnClassifier::new().k(5);
-                        knn.fit(black_box(data)).unwrap();
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("knn", n), &data, |b, data| {
+                b.iter(|| {
+                    let mut knn = KnnClassifier::new().k(5);
+                    knn.fit(black_box(data)).unwrap();
+                });
+            });
 
             group.bench_with_input(
                 BenchmarkId::new("logistic_regression", n),
@@ -364,16 +335,12 @@ fn bench_training_scale(c: &mut Criterion) {
             svc_scaler.fit(&svc_data).unwrap();
             svc_scaler.transform(&mut svc_data).unwrap();
 
-            group.bench_with_input(
-                BenchmarkId::new("linear_svc", n),
-                &svc_data,
-                |b, data| {
-                    b.iter(|| {
-                        let mut svc = LinearSVC::new().c(1.0).max_iter(500);
-                        svc.fit(black_box(data)).unwrap();
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("linear_svc", n), &svc_data, |b, data| {
+                b.iter(|| {
+                    let mut svc = LinearSVC::new().c(1.0).max_iter(500);
+                    svc.fit(black_box(data)).unwrap();
+                });
+            });
         }
     }
 
@@ -485,44 +452,32 @@ fn bench_scaling_curves(c: &mut Criterion) {
     for &n in sizes {
         let data = gen_classification(n, 10, 42);
 
-        group.bench_with_input(
-            BenchmarkId::new("dt_train", n),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let mut dt = DecisionTreeClassifier::new().max_depth(10);
-                    dt.fit(black_box(data)).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("dt_train", n), &data, |b, data| {
+            b.iter(|| {
+                let mut dt = DecisionTreeClassifier::new().max_depth(10);
+                dt.fit(black_box(data)).unwrap();
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("rf_train/10t", n),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let mut rf = RandomForestClassifier::new()
-                        .n_estimators(10)
-                        .max_depth(8)
-                        .seed(42);
-                    rf.fit(black_box(data)).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("rf_train/10t", n), &data, |b, data| {
+            b.iter(|| {
+                let mut rf = RandomForestClassifier::new()
+                    .n_estimators(10)
+                    .max_depth(8)
+                    .seed(42);
+                rf.fit(black_box(data)).unwrap();
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("hist_gbt_train", n),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let mut hgbt = HistGradientBoostingClassifier::new()
-                        .n_estimators(20)
-                        .max_depth(6)
-                        .learning_rate(0.1);
-                    hgbt.fit(black_box(data)).unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("hist_gbt_train", n), &data, |b, data| {
+            b.iter(|| {
+                let mut hgbt = HistGradientBoostingClassifier::new()
+                    .n_estimators(20)
+                    .max_depth(6)
+                    .learning_rate(0.1);
+                hgbt.fit(black_box(data)).unwrap();
+            });
+        });
     }
 
     group.finish();
@@ -637,43 +592,93 @@ fn bench_batch_predict(c: &mut Criterion) {
 
     for &bs in batch_sizes {
         // Build batch input: bs rows sampled from training data
-        let batch: Vec<Vec<f64>> = (0..bs).map(|i| train.sample(i % train.n_samples())).collect();
+        let batch: Vec<Vec<f64>> = (0..bs)
+            .map(|i| train.sample(i % train.n_samples()))
+            .collect();
 
-        group.bench_with_input(
-            BenchmarkId::new("decision_tree", bs),
-            &batch,
-            |b, batch| {
-                b.iter(|| dt.predict(black_box(batch)).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("decision_tree", bs), &batch, |b, batch| {
+            b.iter(|| dt.predict(black_box(batch)).unwrap());
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("random_forest", bs),
-            &batch,
-            |b, batch| {
-                b.iter(|| rf.predict(black_box(batch)).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("random_forest", bs), &batch, |b, batch| {
+            b.iter(|| rf.predict(black_box(batch)).unwrap());
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("hist_gbt", bs),
-            &batch,
-            |b, batch| {
-                b.iter(|| hgbt.predict(black_box(batch)).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("hist_gbt", bs), &batch, |b, batch| {
+            b.iter(|| hgbt.predict(black_box(batch)).unwrap());
+        });
 
         group.bench_with_input(BenchmarkId::new("knn", bs), &batch, |b, batch| {
             b.iter(|| knn.predict(black_box(batch)).unwrap());
         });
 
-        group.bench_with_input(
-            BenchmarkId::new("gaussian_nb", bs),
-            &batch,
-            |b, batch| {
-                b.iter(|| nb.predict(black_box(batch)).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("gaussian_nb", bs), &batch, |b, batch| {
+            b.iter(|| nb.predict(black_box(batch)).unwrap());
+        });
+    }
+
+    group.finish();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Group 7: Memory Footprint (RSS Delta) — migrated from predict_latency.rs
+// ═══════════════════════════════════════════════════════════════════
+
+/// Read RSS (Resident Set Size) in kilobytes from `/proc/self/statm`.
+fn rss_kb() -> usize {
+    let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
+    let pages: usize = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    pages * 4 // page size = 4KB on x86_64
+}
+
+fn bench_model_memory(c: &mut Criterion) {
+    let mut group = c.benchmark_group("industry_model_memory");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(5));
+
+    for &(label, n_rows) in &[("10k", 10_000), ("100k", 100_000)] {
+        let data = gen_classification(n_rows, 50, 42);
+
+        // Random Forest — RSS delta during fit
+        let rss_before = rss_kb();
+        let mut rf = RandomForestClassifier::new()
+            .n_estimators(100)
+            .max_depth(10)
+            .seed(42);
+        rf.fit(&data).unwrap();
+        let rss_after = rss_kb();
+        let rf_rss_delta_kb = rss_after.saturating_sub(rss_before);
+        group.bench_function(BenchmarkId::new("rf_100trees_rss_kb", label), |b| {
+            b.iter(|| black_box(rf_rss_delta_kb));
+        });
+
+        // GBT — RSS delta during fit
+        let rss_before = rss_kb();
+        let mut gbt = GradientBoostingClassifier::new()
+            .n_estimators(100)
+            .max_depth(5)
+            .learning_rate(0.1);
+        gbt.fit(&data).unwrap();
+        let rss_after = rss_kb();
+        let gbt_rss_delta_kb = rss_after.saturating_sub(rss_before);
+        group.bench_function(BenchmarkId::new("gbt_100est_rss_kb", label), |b| {
+            b.iter(|| black_box(gbt_rss_delta_kb));
+        });
+
+        // KNN — stores full training set
+        let rss_before = rss_kb();
+        let mut knn = KnnClassifier::new().k(5);
+        knn.fit(&data).unwrap();
+        let rss_after = rss_kb();
+        let knn_rss_delta_kb = rss_after.saturating_sub(rss_before);
+        group.bench_function(BenchmarkId::new("knn_k5_rss_kb", label), |b| {
+            b.iter(|| black_box(knn_rss_delta_kb));
+        });
     }
 
     group.finish();
@@ -689,5 +694,6 @@ criterion_group!(
     bench_scaling_curves,
     bench_cold_start,
     bench_batch_predict,
+    bench_model_memory,
 );
 criterion_main!(benches);

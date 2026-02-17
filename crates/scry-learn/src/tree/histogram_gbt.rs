@@ -64,7 +64,7 @@ type FeatureHistogram = [HistBin; NUM_BINS];
 
 /// Build histograms for all features from the binned data.
 fn build_histograms(
-    binned: &[Vec<u8>],   // [feature][sample]
+    binned: &[Vec<u8>], // [feature][sample]
     gradients: &[f64],
     hessians: &[f64],
     sample_indices: &[usize],
@@ -116,14 +116,12 @@ fn subtract_histograms(
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum HistNode {
     /// Leaf node with a prediction value.
-    Leaf {
-        value: f64,
-    },
+    Leaf { value: f64 },
     /// Internal split node.
     Split {
         feature: usize,
         bin_threshold: u8,
-        left: usize,  // index into HistTree::nodes
+        left: usize, // index into HistTree::nodes
         right: usize,
         gain: f64,
     },
@@ -242,9 +240,17 @@ struct SplitResult {
 }
 
 /// L2-regularized leaf value: −G / (H + λ).
+///
+/// Guards against near-zero denominator which would produce extreme
+/// leaf values that destabilize the boosting ensemble.
 #[inline]
 fn leaf_value(grad_sum: f64, hess_sum: f64, l2_reg: f64) -> f64 {
-    -grad_sum / (hess_sum + l2_reg)
+    let denom = hess_sum + l2_reg;
+    if denom.abs() < 1e-10 {
+        0.0
+    } else {
+        -grad_sum / denom
+    }
 }
 
 /// Split gain: G_L²/(H_L+λ) + G_R²/(H_R+λ) − G²/(H+λ).
@@ -544,6 +550,7 @@ fn build_tree_leaf_wise(
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct HistGradientBoostingRegressor {
     n_estimators: usize,
     learning_rate: f64,
@@ -672,9 +679,7 @@ impl HistGradientBoostingRegressor {
 
         for _ in 0..self.n_estimators {
             // Compute gradients (negative residuals) and hessians.
-            let gradients: Vec<f64> = (0..n)
-                .map(|i| -(data.target[i] - predictions[i]))
-                .collect();
+            let gradients: Vec<f64> = (0..n).map(|i| -(data.target[i] - predictions[i])).collect();
             let hessians = vec![1.0; n]; // squared error: hessian = 1
 
             let tree = build_tree_leaf_wise(
@@ -789,6 +794,7 @@ impl Default for HistGradientBoostingRegressor {
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct HistGradientBoostingClassifier {
     n_estimators: usize,
     learning_rate: f64,
@@ -1007,8 +1013,9 @@ impl HistGradientBoostingClassifier {
 
         // f_vals[class][sample]
         let mut f_vals: Vec<Vec<f64>> = (0..k).map(|c| vec![init_preds[c]; n]).collect();
-        let mut trees_all: Vec<Vec<HistTree>> =
-            (0..k).map(|_| Vec::with_capacity(self.n_estimators)).collect();
+        let mut trees_all: Vec<Vec<HistTree>> = (0..k)
+            .map(|_| Vec::with_capacity(self.n_estimators))
+            .collect();
 
         for _ in 0..self.n_estimators {
             // Softmax probabilities.
@@ -1016,9 +1023,8 @@ impl HistGradientBoostingClassifier {
 
             for cls in 0..k {
                 // Gradients: p_k - y_k; Hessians: p_k * (1 - p_k).
-                let gradients: Vec<f64> = (0..n)
-                    .map(|i| probs[cls][i] - y_onehot[cls][i])
-                    .collect();
+                let gradients: Vec<f64> =
+                    (0..n).map(|i| probs[cls][i] - y_onehot[cls][i]).collect();
                 let hessians: Vec<f64> = (0..n)
                     .map(|i| (probs[cls][i] * (1.0 - probs[cls][i])).max(1e-10))
                     .collect();
@@ -1269,7 +1275,11 @@ mod tests {
         let features = data.feature_matrix();
         let preds = model.predict(&features).unwrap();
         let acc = accuracy(&data.target, &preds);
-        assert!(acc > 0.90, "accuracy should be > 90%, got {:.1}%", acc * 100.0);
+        assert!(
+            acc > 0.90,
+            "accuracy should be > 90%, got {:.1}%",
+            acc * 100.0
+        );
     }
 
     #[test]
@@ -1306,7 +1316,11 @@ mod tests {
         let features = data.feature_matrix();
         let preds = model.predict(&features).unwrap();
         let acc = accuracy(&data.target, &preds);
-        assert!(acc > 0.90, "multiclass accuracy > 90%, got {:.1}%", acc * 100.0);
+        assert!(
+            acc > 0.90,
+            "multiclass accuracy > 90%, got {:.1}%",
+            acc * 100.0
+        );
     }
 
     #[test]
@@ -1360,7 +1374,13 @@ mod tests {
     #[test]
     fn test_hist_gbr_with_nan() {
         let x: Vec<f64> = (0..100)
-            .map(|i| if i % 10 == 0 { f64::NAN } else { i as f64 * 0.1 })
+            .map(|i| {
+                if i % 10 == 0 {
+                    f64::NAN
+                } else {
+                    i as f64 * 0.1
+                }
+            })
             .collect();
         let y: Vec<f64> = (0..100).map(|i| i as f64 * 0.2 + 1.0).collect();
         let data = Dataset::new(vec![x], y, vec!["x".into()], "y");
@@ -1373,7 +1393,10 @@ mod tests {
         // Predict with NaN — should not panic.
         let preds = model.predict(&[vec![f64::NAN], vec![5.0]]).unwrap();
         assert_eq!(preds.len(), 2);
-        assert!(!preds[0].is_nan(), "NaN input should produce a finite prediction");
+        assert!(
+            !preds[0].is_nan(),
+            "NaN input should produce a finite prediction"
+        );
         assert!(!preds[1].is_nan());
     }
 }

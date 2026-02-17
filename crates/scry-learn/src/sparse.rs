@@ -88,6 +88,7 @@ impl<'a> SparseCol<'a> {
 /// Standard CSR layout: `indptr[i]..indptr[i+1]` gives the range
 /// into `indices` and `data` for row `i`.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct CsrMatrix {
     /// Row pointers: length `n_rows + 1`.
@@ -115,7 +116,9 @@ impl CsrMatrix {
         if cols.len() != nnz || vals.len() != nnz {
             return Err(ScryLearnError::InvalidParameter(format!(
                 "triplet arrays must have equal length (rows={}, cols={}, vals={})",
-                nnz, cols.len(), vals.len()
+                nnz,
+                cols.len(),
+                vals.len()
             )));
         }
 
@@ -213,7 +216,13 @@ impl CsrMatrix {
             indptr[i + 1] = indices.len();
         }
 
-        Self { indptr, indices, data, n_rows, n_cols }
+        Self {
+            indptr,
+            indices,
+            data,
+            n_rows,
+            n_cols,
+        }
     }
 
     /// Number of rows.
@@ -337,6 +346,7 @@ impl CsrMatrix {
 /// Efficient for column iteration (tree fit, linear algebra).
 /// `indptr[j]..indptr[j+1]` gives the range for column `j`.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct CscMatrix {
     /// Column pointers: length `n_cols + 1`.
@@ -386,7 +396,13 @@ impl CscMatrix {
             indptr[j + 1] = indices.len();
         }
 
-        Self { indptr, indices, data, n_rows, n_cols }
+        Self {
+            indptr,
+            indices,
+            data,
+            n_rows,
+            n_cols,
+        }
     }
 
     /// Number of rows.
@@ -660,10 +676,7 @@ mod tests {
 
     #[test]
     fn test_get_existing_and_missing() {
-        let csr = CsrMatrix::from_dense(&[
-            vec![0.0, 7.0],
-            vec![8.0, 0.0],
-        ]);
+        let csr = CsrMatrix::from_dense(&[vec![0.0, 7.0], vec![8.0, 0.0]]);
         assert_eq!(csr.get(0, 1), 7.0);
         assert_eq!(csr.get(1, 0), 8.0);
         assert_eq!(csr.get(0, 0), 0.0);
@@ -674,20 +687,14 @@ mod tests {
     fn test_dot_vec_csr() {
         // [1 2] * [3] = [1*3+2*4] = [11]
         // [0 3]   [4]   [0*3+3*4]   [12]
-        let csr = CsrMatrix::from_dense(&[
-            vec![1.0, 2.0],
-            vec![0.0, 3.0],
-        ]);
+        let csr = CsrMatrix::from_dense(&[vec![1.0, 2.0], vec![0.0, 3.0]]);
         let result = csr.dot_vec(&[3.0, 4.0]);
         assert_eq!(result, vec![11.0, 12.0]);
     }
 
     #[test]
     fn test_dot_vec_csc() {
-        let dense = vec![
-            vec![1.0, 2.0],
-            vec![0.0, 3.0],
-        ];
+        let dense = vec![vec![1.0, 2.0], vec![0.0, 3.0]];
         let csr = CsrMatrix::from_dense(&dense);
         let csc = csr.to_csc();
         let result = csc.dot_vec(&[3.0, 4.0]);
@@ -696,9 +703,7 @@ mod tests {
 
     #[test]
     fn test_sparse_row_iteration() {
-        let csr = CsrMatrix::from_dense(&[
-            vec![0.0, 5.0, 0.0, 7.0],
-        ]);
+        let csr = CsrMatrix::from_dense(&[vec![0.0, 5.0, 0.0, 7.0]]);
         let row = csr.row(0);
         let pairs: Vec<(usize, f64)> = row.iter().collect();
         assert_eq!(pairs, vec![(1, 5.0), (3, 7.0)]);
@@ -707,11 +712,7 @@ mod tests {
 
     #[test]
     fn test_sparse_col_iteration() {
-        let csr = CsrMatrix::from_dense(&[
-            vec![1.0, 0.0],
-            vec![0.0, 0.0],
-            vec![3.0, 0.0],
-        ]);
+        let csr = CsrMatrix::from_dense(&[vec![1.0, 0.0], vec![0.0, 0.0], vec![3.0, 0.0]]);
         let csc = csr.to_csc();
         let col = csc.col(0);
         let pairs: Vec<(usize, f64)> = col.iter().collect();
@@ -793,32 +794,23 @@ mod tests {
 
     #[test]
     fn test_csr_add() {
-        let a = CsrMatrix::from_dense(&[
-            vec![1.0, 0.0, 2.0],
-            vec![0.0, 3.0, 0.0],
-        ]);
-        let b = CsrMatrix::from_dense(&[
-            vec![0.0, 4.0, 0.0],
-            vec![5.0, 0.0, 6.0],
-        ]);
+        let a = CsrMatrix::from_dense(&[vec![1.0, 0.0, 2.0], vec![0.0, 3.0, 0.0]]);
+        let b = CsrMatrix::from_dense(&[vec![0.0, 4.0, 0.0], vec![5.0, 0.0, 6.0]]);
         let c = &a + &b;
-        assert_eq!(c.to_dense(), vec![
-            vec![1.0, 4.0, 2.0],
-            vec![5.0, 3.0, 6.0],
-        ]);
+        assert_eq!(
+            c.to_dense(),
+            vec![vec![1.0, 4.0, 2.0], vec![5.0, 3.0, 6.0],]
+        );
     }
 
     #[test]
     fn test_csr_scalar_mul() {
-        let a = CsrMatrix::from_dense(&[
-            vec![1.0, 0.0, 2.0],
-            vec![0.0, 3.0, 0.0],
-        ]);
+        let a = CsrMatrix::from_dense(&[vec![1.0, 0.0, 2.0], vec![0.0, 3.0, 0.0]]);
         let b = &a * 2.0;
-        assert_eq!(b.to_dense(), vec![
-            vec![2.0, 0.0, 4.0],
-            vec![0.0, 6.0, 0.0],
-        ]);
+        assert_eq!(
+            b.to_dense(),
+            vec![vec![2.0, 0.0, 4.0], vec![0.0, 6.0, 0.0],]
+        );
     }
 
     #[test]
@@ -857,9 +849,7 @@ mod tests {
 
     #[test]
     fn test_sparse_row_dot() {
-        let csr = CsrMatrix::from_dense(&[
-            vec![0.0, 2.0, 3.0],
-        ]);
+        let csr = CsrMatrix::from_dense(&[vec![0.0, 2.0, 3.0]]);
         let row = csr.row(0);
         assert!((row.dot(&[1.0, 10.0, 100.0]) - 320.0).abs() < 1e-10);
     }

@@ -194,7 +194,7 @@ impl WgpuRasterizer<'_> {
 
         let mut rast = WgpuRasterizer::with_context(ctx, w, h);
         rast.process_commands(canvas);
-        let rgba = rast.finish(canvas);
+        let rgba = rast.finish(canvas)?;
 
         Pixmap::from_vec(
             rgba,
@@ -240,9 +240,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
         }
 
         if !shapes.is_empty() {
-            self.shape_batches.push(ShapeBatch {
-                instances: shapes,
-            });
+            self.shape_batches.push(ShapeBatch { instances: shapes });
         }
         if !lines.is_empty() {
             self.line_batches.push(LineBatch { vertices: lines });
@@ -320,7 +318,12 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 stroke,
                 ..
             } => {
-                let color = [stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a];
+                let color = [
+                    stroke.color.r,
+                    stroke.color.g,
+                    stroke.color.b,
+                    stroke.color.a,
+                ];
                 emit_line_segment(lines, *x1, *y1, *x2, *y2, stroke.width, color);
             }
 
@@ -333,7 +336,12 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                     return;
                 }
                 let Some(stroke) = &style.stroke else { return };
-                let color = [stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a];
+                let color = [
+                    stroke.color.r,
+                    stroke.color.g,
+                    stroke.color.b,
+                    stroke.color.a,
+                ];
                 let width = stroke.width;
 
                 for window in points.windows(2) {
@@ -359,11 +367,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 }
             }
 
-            DrawCommand::Gradient {
-                rect,
-                gradient,
-                ..
-            } => {
+            DrawCommand::Gradient { rect, gradient, .. } => {
                 let mut stops = [GpuGradientStop {
                     color: [0.0; 4],
                     position: 0.0,
@@ -479,8 +483,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
         };
 
         // Offset transform so command renders at (0,0) in the temp pixmap
-        let offset =
-            tiny_skia::Transform::from_translate(-x0, -y0);
+        let offset = tiny_skia::Transform::from_translate(-x0, -y0);
         let mut pool = Vec::new();
         let mut grad_cache = std::collections::HashMap::new();
         Rasterizer::render_command(&mut pixmap, cmd, offset, &mut pool, &mut grad_cache);
@@ -496,7 +499,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
 
     /// Submit GPU work, read back pixels, and apply image overlays.
     #[allow(clippy::cast_precision_loss)]
-    fn finish(self, canvas: &PixelCanvas) -> Vec<u8> {
+    fn finish(self, canvas: &PixelCanvas) -> Result<Vec<u8>, PixelCanvasError> {
         let bg_color = canvas.background_color();
         let bg = wgpu::Color {
             r: f64::from(bg_color.r),
@@ -531,23 +534,21 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             if !self.gradient_draws.is_empty() {
                 render_pass.set_pipeline(&self.gradient_pipeline);
                 for gd in &self.gradient_draws {
-                    let buf =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("gradient_uniforms"),
-                                contents: bytemuck::bytes_of(&gd.uniforms),
-                                usage: wgpu::BufferUsages::UNIFORM,
-                            });
-                    let bg = self
+                    let buf = self
                         .device
-                        .create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("gradient_bg"),
-                            layout: &self.gradient_bgl,
-                            entries: &[wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: buf.as_entire_binding(),
-                            }],
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("gradient_uniforms"),
+                            contents: bytemuck::bytes_of(&gd.uniforms),
+                            usage: wgpu::BufferUsages::UNIFORM,
                         });
+                    let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("gradient_bg"),
+                        layout: &self.gradient_bgl,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buf.as_entire_binding(),
+                        }],
+                    });
                     render_pass.set_bind_group(0, &bg, &[]);
                     render_pass.draw(0..6, 0..1);
                 }
@@ -637,7 +638,9 @@ impl<'ctx> WgpuRasterizer<'ctx> {
         self.device.poll(wgpu::Maintain::Wait);
         rx.recv()
             .unwrap_or(Err(wgpu::BufferAsyncError))
-            .unwrap_or(());
+            .map_err(|_| {
+                PixelCanvasError::Rasterization("GPU buffer readback failed (device lost?)".into())
+            })?;
 
         let mapped = buffer_slice.get_mapped_range();
 
@@ -656,15 +659,15 @@ impl<'ctx> WgpuRasterizer<'ctx> {
 
         // --- Apply image overlays (CPU-rasterized fallbacks + images) ---
         if self.image_overlays.is_empty() {
-            return rgba;
+            return Ok(rgba);
         }
 
         let size = tiny_skia::IntSize::from_wh(self.width, self.height);
         let Some(size) = size else {
-            return rgba;
+            return Ok(rgba);
         };
         let Some(mut pixmap) = Pixmap::from_vec(rgba, size) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
 
         for overlay in &self.image_overlays {
@@ -688,7 +691,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             }
         }
 
-        pixmap.take()
+        Ok(pixmap.take())
     }
 }
 
@@ -708,8 +711,9 @@ impl<'ctx> WgpuRasterizer<'ctx> {
 pub fn rasterize_auto(canvas: &PixelCanvas) -> Result<Pixmap, PixelCanvasError> {
     match WgpuRasterizer::rasterize(canvas) {
         Ok(pixmap) => Ok(pixmap),
-        Err(_) => {
-            // GPU unavailable — fall back to CPU
+        Err(e) => {
+            // Log the GPU error for diagnostics, then fall back to CPU
+            eprintln!("[scry] GPU rasterization failed, falling back to CPU: {e}");
             Rasterizer::rasterize(canvas)
         }
     }
@@ -720,9 +724,7 @@ pub fn rasterize_auto(canvas: &PixelCanvas) -> Result<Pixmap, PixelCanvasError> 
 // ---------------------------------------------------------------------------
 
 /// Extract fill/stroke color and stroke width from a `ShapeStyle`.
-fn extract_style(
-    style: &crate::scene::style::ShapeStyle,
-) -> ([f32; 4], [f32; 4], f32) {
+fn extract_style(style: &crate::scene::style::ShapeStyle) -> ([f32; 4], [f32; 4], f32) {
     let fill_color = match &style.fill {
         Some(FillStyle::Solid(c)) => [c.r, c.g, c.b, c.a],
         Some(FillStyle::LinearGradient(_) | FillStyle::RadialGradient(_)) => {
@@ -767,13 +769,49 @@ fn emit_line_segment(
     let e = [x2, y2];
 
     // Triangle 1: p0, p1, p2
-    vertices.push(LineVertex { position: s, normal, color, line_width: half_width, edge_dist: 1.0 });
-    vertices.push(LineVertex { position: s, normal, color, line_width: half_width, edge_dist: -1.0 });
-    vertices.push(LineVertex { position: e, normal, color, line_width: half_width, edge_dist: 1.0 });
+    vertices.push(LineVertex {
+        position: s,
+        normal,
+        color,
+        line_width: half_width,
+        edge_dist: 1.0,
+    });
+    vertices.push(LineVertex {
+        position: s,
+        normal,
+        color,
+        line_width: half_width,
+        edge_dist: -1.0,
+    });
+    vertices.push(LineVertex {
+        position: e,
+        normal,
+        color,
+        line_width: half_width,
+        edge_dist: 1.0,
+    });
     // Triangle 2: p1, p3, p2
-    vertices.push(LineVertex { position: s, normal, color, line_width: half_width, edge_dist: -1.0 });
-    vertices.push(LineVertex { position: e, normal, color, line_width: half_width, edge_dist: -1.0 });
-    vertices.push(LineVertex { position: e, normal, color, line_width: half_width, edge_dist: 1.0 });
+    vertices.push(LineVertex {
+        position: s,
+        normal,
+        color,
+        line_width: half_width,
+        edge_dist: -1.0,
+    });
+    vertices.push(LineVertex {
+        position: e,
+        normal,
+        color,
+        line_width: half_width,
+        edge_dist: -1.0,
+    });
+    vertices.push(LineVertex {
+        position: e,
+        normal,
+        color,
+        line_width: half_width,
+        edge_dist: 1.0,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -867,14 +905,25 @@ mod tests {
 
         // Gradient center should be non-transparent
         let mid = (25 * 200 + 100) * 4;
-        assert!(data[mid + 3] > 0, "gradient center should be non-transparent");
+        assert!(
+            data[mid + 3] > 0,
+            "gradient center should be non-transparent"
+        );
 
         // Left and right sides should differ (gradient varies across width)
         let left = (25 * 200 + 10) * 4;
         let right = (25 * 200 + 190) * 4;
         let left_pixel = [data[left], data[left + 1], data[left + 2], data[left + 3]];
-        let right_pixel = [data[right], data[right + 1], data[right + 2], data[right + 3]];
-        assert_ne!(left_pixel, right_pixel, "gradient should show color variation");
+        let right_pixel = [
+            data[right],
+            data[right + 1],
+            data[right + 2],
+            data[right + 3],
+        ];
+        assert_ne!(
+            left_pixel, right_pixel,
+            "gradient should show color variation"
+        );
     }
 
     #[test]

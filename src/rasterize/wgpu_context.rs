@@ -70,18 +70,18 @@ pub(super) struct GpuGradientStop {
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub(super) struct GradientUniforms {
-    pub viewport: [f32; 2],         // offset 0,  size 8
-    pub rect_pos: [f32; 2],         // offset 8,  size 8
-    pub rect_size: [f32; 2],        // offset 16, size 8
-    pub grad_start: [f32; 2],       // offset 24, size 8
-    pub grad_end: [f32; 2],         // offset 32, size 8
-    pub grad_type: f32,             // offset 40, size 4
-    pub num_stops: f32,             // offset 44, size 4
-    pub _pad: [f32; 2],            // offset 48, size 8
+    pub viewport: [f32; 2],   // offset 0,  size 8
+    pub rect_pos: [f32; 2],   // offset 8,  size 8
+    pub rect_size: [f32; 2],  // offset 16, size 8
+    pub grad_start: [f32; 2], // offset 24, size 8
+    pub grad_end: [f32; 2],   // offset 32, size 8
+    pub grad_type: f32,       // offset 40, size 4
+    pub num_stops: f32,       // offset 44, size 4
+    pub _pad: [f32; 2],       // offset 48, size 8
     /// WGSL array<GradientStop,8> requires 16-byte alignment.
     /// Without this, the Rust field sits at offset 56 (not aligned to 16).
     /// This padding pushes stops to offset 64.
-    pub _pre_stops_pad: [f32; 2],  // offset 56, size 8
+    pub _pre_stops_pad: [f32; 2], // offset 56, size 8
     pub stops: [GpuGradientStop; 8], // offset 64, size 256 → total 320
 }
 

@@ -41,8 +41,16 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
         }
     }
 
-    let raw_x = if x_lo.is_finite() && x_hi.is_finite() { (x_lo, x_hi) } else { (0.0, 1.0) };
-    let raw_y = if y_lo.is_finite() && y_hi.is_finite() { (y_lo, y_hi) } else { (0.0, 1.0) };
+    let raw_x = if x_lo.is_finite() && x_hi.is_finite() {
+        (x_lo, x_hi)
+    } else {
+        (0.0, 1.0)
+    };
+    let raw_y = if y_lo.is_finite() && y_hi.is_finite() {
+        (y_lo, y_hi)
+    } else {
+        (0.0, 1.0)
+    };
 
     // Pre-compute Y extent for measurement-based layout
     let y_extent = resolve_y_extent(config, raw_y);

@@ -25,6 +25,7 @@ pub(crate) enum Storage {
 /// for cache-friendly access during tree split evaluation.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct Dataset {
     /// Feature columns: `features[feature_idx][sample_idx]`.
     pub features: Vec<Vec<f64>>,
@@ -52,12 +53,33 @@ pub struct Dataset {
 
 impl Dataset {
     /// Create a dataset from pre-computed features and target.
+    ///
+    /// # Panics
+    ///
+    /// Panics if feature columns have mismatched lengths, or if
+    /// `feature_names.len() != features.len()`.
     pub fn new(
         features: Vec<Vec<f64>>,
         target: Vec<f64>,
         feature_names: Vec<String>,
         target_name: impl Into<String>,
     ) -> Self {
+        assert!(
+            feature_names.len() == features.len(),
+            "feature_names.len()={} but features.len()={}",
+            feature_names.len(),
+            features.len(),
+        );
+        if let Some(first) = features.first() {
+            for (i, col) in features.iter().enumerate().skip(1) {
+                assert!(
+                    col.len() == first.len(),
+                    "feature column {i} has {} rows but column 0 has {}",
+                    col.len(),
+                    first.len(),
+                );
+            }
+        }
         let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Self {
             features,
@@ -140,7 +162,12 @@ impl Dataset {
         let mut rows: Vec<Vec<String>> = Vec::new();
         for result in csv_rdr.records() {
             let record = result.map_err(|e| ScryLearnError::Csv(e.to_string()))?;
-            rows.push(record.iter().map(std::string::ToString::to_string).collect());
+            rows.push(
+                record
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect(),
+            );
         }
 
         if rows.is_empty() {
@@ -148,9 +175,7 @@ impl Dataset {
         }
 
         // Determine which columns are features (all except target).
-        let feature_indices: Vec<usize> = (0..headers.len())
-            .filter(|&i| i != target_idx)
-            .collect();
+        let feature_indices: Vec<usize> = (0..headers.len()).filter(|&i| i != target_idx).collect();
 
         let n_samples = rows.len();
         let n_features = feature_indices.len();
@@ -423,10 +448,7 @@ fn parse_target_column(rows: &[Vec<String>], col_idx: usize) -> (Vec<f64>, Optio
     // Try parsing all as numeric first.
     let numeric: Vec<Option<f64>> = rows
         .iter()
-        .map(|row| {
-            row.get(col_idx)
-                .and_then(|s| s.parse::<f64>().ok())
-        })
+        .map(|row| row.get(col_idx).and_then(|s| s.parse::<f64>().ok()))
         .collect();
 
     let all_numeric = numeric.iter().all(std::option::Option::is_some);
@@ -458,12 +480,7 @@ mod tests {
     fn test_dataset_new() {
         let features = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]];
         let target = vec![0.0, 1.0, 0.0];
-        let ds = Dataset::new(
-            features,
-            target,
-            vec!["f1".into(), "f2".into()],
-            "label",
-        );
+        let ds = Dataset::new(features, target, vec!["f1".into(), "f2".into()], "label");
         assert_eq!(ds.n_samples(), 3);
         assert_eq!(ds.n_features(), 2);
         assert_eq!(ds.feature(0), &[1.0, 2.0, 3.0]);
@@ -543,21 +560,13 @@ mod tests {
         // 3 samples × 2 features (column-major):
         //   col 0: [1.0, 0.0, 3.0]
         //   col 1: [0.0, 2.0, 0.0]
-        CscMatrix::from_dense(&[
-            vec![1.0, 0.0, 3.0],
-            vec![0.0, 2.0, 0.0],
-        ])
+        CscMatrix::from_dense(&[vec![1.0, 0.0, 3.0], vec![0.0, 2.0, 0.0]])
     }
 
     #[test]
     fn test_from_sparse_basic() {
         let csc = sample_csc();
-        let ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 0.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        );
+        let ds = Dataset::from_sparse(csc, vec![0.0, 1.0, 0.0], vec!["a".into(), "b".into()], "t");
         assert!(ds.is_sparse());
         assert_eq!(ds.n_samples(), 3);
         assert_eq!(ds.n_features(), 2);
@@ -566,12 +575,7 @@ mod tests {
     #[test]
     fn test_sparse_csc_accessor() {
         let csc = sample_csc();
-        let ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 0.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        );
+        let ds = Dataset::from_sparse(csc, vec![0.0, 1.0, 0.0], vec!["a".into(), "b".into()], "t");
         let csc_ref = ds.sparse_csc().expect("should have CSC");
         assert_eq!(csc_ref.n_rows(), 3);
         assert_eq!(csc_ref.n_cols(), 2);
@@ -583,12 +587,7 @@ mod tests {
     #[test]
     fn test_sparse_csr_conversion() {
         let csc = sample_csc();
-        let ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 0.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        );
+        let ds = Dataset::from_sparse(csc, vec![0.0, 1.0, 0.0], vec!["a".into(), "b".into()], "t");
         let csr = ds.sparse_csr().expect("should convert to CSR");
         assert_eq!(csr.n_rows(), 3);
         assert_eq!(csr.n_cols(), 2);
@@ -600,12 +599,7 @@ mod tests {
     #[test]
     fn test_sparse_subset() {
         let csc = sample_csc();
-        let ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 2.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        );
+        let ds = Dataset::from_sparse(csc, vec![0.0, 1.0, 2.0], vec!["a".into(), "b".into()], "t");
         let sub = ds.subset(&[0, 2]);
         assert!(sub.is_sparse());
         assert_eq!(sub.n_samples(), 2);
@@ -619,13 +613,8 @@ mod tests {
     #[test]
     fn test_sparse_with_class_labels() {
         let csc = sample_csc();
-        let ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 0.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        )
-        .with_class_labels(vec!["cat".into(), "dog".into()]);
+        let ds = Dataset::from_sparse(csc, vec![0.0, 1.0, 0.0], vec!["a".into(), "b".into()], "t")
+            .with_class_labels(vec!["cat".into(), "dog".into()]);
         assert!(ds.is_sparse());
         assert_eq!(
             ds.class_labels,
@@ -643,24 +632,16 @@ mod tests {
             "t",
         );
         let csc = sample_csc();
-        let sparse_ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 0.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        );
+        let sparse_ds =
+            Dataset::from_sparse(csc, vec![0.0, 1.0, 0.0], vec!["a".into(), "b".into()], "t");
         assert_eq!(dense_ds.n_features(), sparse_ds.n_features());
     }
 
     #[test]
     fn test_ensure_dense() {
         let csc = sample_csc();
-        let mut ds = Dataset::from_sparse(
-            csc,
-            vec![0.0, 1.0, 0.0],
-            vec!["a".into(), "b".into()],
-            "t",
-        );
+        let mut ds =
+            Dataset::from_sparse(csc, vec![0.0, 1.0, 0.0], vec!["a".into(), "b".into()], "t");
         assert!(ds.features.is_empty());
         ds.ensure_dense();
         assert_eq!(ds.features.len(), 2);
@@ -670,12 +651,7 @@ mod tests {
 
     #[test]
     fn test_dense_not_sparse() {
-        let ds = Dataset::new(
-            vec![vec![1.0, 2.0]],
-            vec![0.0, 1.0],
-            vec!["x".into()],
-            "y",
-        );
+        let ds = Dataset::new(vec![vec![1.0, 2.0]], vec![0.0, 1.0], vec!["x".into()], "y");
         assert!(!ds.is_sparse());
         assert!(ds.sparse_csc().is_none());
         assert!(ds.sparse_csr().is_none());

@@ -16,9 +16,7 @@
 
 use std::time::Duration;
 
-use criterion::{
-    criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 use scry_learn::dataset::Dataset;
 use scry_learn::linear::LinearRegression;
@@ -160,10 +158,7 @@ fn bench_tree_scaling(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(3));
     group.measurement_time(Duration::from_secs(30));
 
-    for (label, n_rows, n_cols) in [
-        ("100k_50f", 100_000, 50),
-        ("1m_100f", 1_000_000, 100),
-    ] {
+    for (label, n_rows, n_cols) in [("100k_50f", 100_000, 50), ("1m_100f", 1_000_000, 100)] {
         group.bench_function(BenchmarkId::new("dt_classifier", label), |b| {
             let data = generate_classification_dataset(n_rows, n_cols, 3, 42);
             b.iter(|| {
@@ -176,9 +171,7 @@ fn bench_tree_scaling(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("rf_classifier", label), |b| {
             let data = generate_classification_dataset(n_rows, n_cols, 3, 42);
             b.iter(|| {
-                let mut model = RandomForestClassifier::new()
-                    .n_estimators(10)
-                    .max_depth(10);
+                let mut model = RandomForestClassifier::new().n_estimators(10).max_depth(10);
                 model.fit(&data).unwrap();
                 std::hint::black_box(&model);
             });

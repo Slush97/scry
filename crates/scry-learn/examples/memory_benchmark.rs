@@ -193,8 +193,10 @@ fn main() {
     }
 
     // Print table
-    println!("\n{:<30} {:>10} {:>12} {:>14} {:>10}",
-        "Model", "Samples", "RSS delta", "Serialized", "Fit (ms)");
+    println!(
+        "\n{:<30} {:>10} {:>12} {:>14} {:>10}",
+        "Model", "Samples", "RSS delta", "Serialized", "Fit (ms)"
+    );
     println!("{:-<78}", "");
 
     for r in &results {
@@ -212,7 +214,9 @@ fn main() {
             format!("{:.1} MB", r.rss_delta_kb as f64 / 1024.0)
         };
 
-        println!("{:<30} {:>10} {:>12} {:>14} {:>10}",
-            r.model_name, r.n_samples, rss_str, serial_str, r.fit_ms);
+        println!(
+            "{:<30} {:>10} {:>12} {:>14} {:>10}",
+            r.model_name, r.n_samples, rss_str, serial_str, r.fit_ms
+        );
     }
 }

@@ -1146,17 +1146,15 @@ fn draw_glyph(canvas: &mut PixelCanvas, x: f32, y: f32, bits: &[u8], color: C) {
     for (row, &byte) in bits.iter().enumerate() {
         for col in 0..5 {
             if byte & (1 << (4 - col)) != 0 {
-                canvas.push_command(
-                    scry_engine::scene::command::DrawCommand::Rectangle {
-                        rect: PxRect::new(x + col as f32, y + row as f32, 1.0, 1.0),
-                        corner_radius: 0.0,
-                        style: scry_engine::scene::style::ShapeStyle {
-                            fill: Some(scry_engine::scene::style::FillStyle::Solid(color)),
-                            stroke: None,
-                            anti_alias: false,
-                        },
+                canvas.push_command(scry_engine::scene::command::DrawCommand::Rectangle {
+                    rect: PxRect::new(x + col as f32, y + row as f32, 1.0, 1.0),
+                    corner_radius: 0.0,
+                    style: scry_engine::scene::style::ShapeStyle {
+                        fill: Some(scry_engine::scene::style::FillStyle::Solid(color)),
+                        stroke: None,
+                        anti_alias: false,
                     },
-                );
+                });
             }
         }
     }

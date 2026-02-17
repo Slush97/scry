@@ -8,6 +8,7 @@ use super::ComputeBackend;
 /// This is the default fallback backend. All operations are
 /// single-threaded (Rayon parallelism is handled at a higher level
 /// by the model training loop, not here).
+#[non_exhaustive]
 pub struct CpuBackend;
 
 impl ComputeBackend for CpuBackend {
@@ -28,11 +29,7 @@ impl ComputeBackend for CpuBackend {
         c
     }
 
-    fn xtx_xty(
-        &self,
-        features: &[Vec<f64>],
-        target: &[f64],
-    ) -> (Vec<f64>, Vec<f64>) {
+    fn xtx_xty(&self, features: &[Vec<f64>], target: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let n_samples = target.len();
         let n_features = features.len();
         let dim = n_features + 1; // +1 for intercept

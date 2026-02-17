@@ -22,6 +22,7 @@ use crate::preprocess::Transformer;
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct PolynomialFeatures {
     degree: usize,
     interaction_only: bool,
@@ -97,7 +98,14 @@ fn gen_combos(
                 continue;
             }
             current.push((col, power));
-            gen_combos(n_features, remaining_deg - power, col + 1, interaction_only, current, out);
+            gen_combos(
+                n_features,
+                remaining_deg - power,
+                col + 1,
+                interaction_only,
+                current,
+                out,
+            );
             current.pop();
         }
     }
@@ -122,7 +130,14 @@ fn enumerate_combos(
             }
         } else {
             let mut current = Vec::new();
-            gen_combos(n_features, deg, 0, interaction_only, &mut current, &mut result);
+            gen_combos(
+                n_features,
+                deg,
+                0,
+                interaction_only,
+                &mut current,
+                &mut result,
+            );
         }
     }
 
@@ -164,7 +179,9 @@ impl Transformer for PolynomialFeatures {
                 for (i, val) in col.iter_mut().enumerate() {
                     *val *= old_features[feat_idx][i].powi(exp);
                 }
-                let fname = data.feature_names.get(feat_idx)
+                let fname = data
+                    .feature_names
+                    .get(feat_idx)
                     .cloned()
                     .unwrap_or_else(|| format!("x{feat_idx}"));
                 if power == 1 {
@@ -252,9 +269,7 @@ mod tests {
             vec!["a".into(), "b".into()],
             "y",
         );
-        let mut poly = PolynomialFeatures::new()
-            .degree(2)
-            .include_bias(false);
+        let mut poly = PolynomialFeatures::new().degree(2).include_bias(false);
         poly.fit_transform(&mut ds).unwrap();
 
         // No bias column, so first col should be a feature, not 1.
@@ -264,15 +279,8 @@ mod tests {
 
     #[test]
     fn test_poly_degree3() {
-        let mut ds = Dataset::new(
-            vec![vec![2.0]],
-            vec![0.0],
-            vec!["x".into()],
-            "y",
-        );
-        let mut poly = PolynomialFeatures::new()
-            .degree(3)
-            .include_bias(true);
+        let mut ds = Dataset::new(vec![vec![2.0]], vec![0.0], vec!["x".into()], "y");
+        let mut poly = PolynomialFeatures::new().degree(3).include_bias(true);
         poly.fit_transform(&mut ds).unwrap();
 
         // [1, x, x^2, x^3] → [1, 2, 4, 8]
@@ -284,12 +292,7 @@ mod tests {
     #[test]
     fn test_poly_not_fitted() {
         let poly = PolynomialFeatures::new();
-        let mut ds = Dataset::new(
-            vec![vec![1.0]],
-            vec![0.0],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ds = Dataset::new(vec![vec![1.0]], vec![0.0], vec!["x".into()], "y");
         assert!(poly.transform(&mut ds).is_err());
     }
 }

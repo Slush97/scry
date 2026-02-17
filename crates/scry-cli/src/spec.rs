@@ -200,9 +200,8 @@ pub struct GroupSpec {
 /// An OHLC (Open-High-Low-Close) data point for candlestick charts.
 #[derive(Debug, Deserialize)]
 pub struct OhlcSpec {
-    /// X-axis value (index or timestamp)
-    #[serde(default)]
-    pub x: f64,
+    /// X-axis value (index or timestamp). When absent, the array index is used.
+    pub x: Option<f64>,
     /// Opening price
     pub open: f64,
     /// Highest price
@@ -343,9 +342,22 @@ impl ChartSpec {
     fn build_bar(&self, theme: Theme) -> Result<Chart, String> {
         let d = &self.data;
         let labels = d.labels.as_ref().ok_or("bar chart requires 'labels'")?;
-        let values = d.values.as_ref().ok_or("bar chart requires 'values'")?;
 
-        let mut chart = BarChart::new(labels.clone(), vec![Series::from_values(values.clone())]);
+        // Support multi-series bar charts: prefer data.series over data.values
+        let series_vec: Vec<Series> = if let Some(ref series) = d.series {
+            series
+                .iter()
+                .map(|s| Series::new(&s.label, s.values.clone()))
+                .collect()
+        } else {
+            let values = d
+                .values
+                .as_ref()
+                .ok_or("bar chart requires 'values' or 'series'")?;
+            vec![Series::from_values(values.clone())]
+        };
+
+        let mut chart = BarChart::new(labels.clone(), series_vec);
 
         chart = chart.theme(theme);
         if let Some(ref t) = self.title {
@@ -459,10 +471,7 @@ impl ChartSpec {
 
     fn build_radar(&self, theme: Theme) -> Result<Chart, String> {
         let d = &self.data;
-        let axes = d
-            .axes
-            .as_ref()
-            .ok_or("radar chart requires 'axes' data")?;
+        let axes = d.axes.as_ref().ok_or("radar chart requires 'axes' data")?;
         let radar_series = d
             .radar_series
             .as_ref()
@@ -493,11 +502,7 @@ impl ChartSpec {
             .iter()
             .enumerate()
             .map(|(i, o)| {
-                let x = if o.x == 0.0 && i > 0 {
-                    i as f64
-                } else {
-                    o.x
-                };
+                let x = o.x.unwrap_or(i as f64);
                 OhlcEntry::new(x, o.open, o.high, o.low, o.close)
             })
             .collect();
@@ -555,7 +560,10 @@ impl ChartSpec {
 
     fn build_violin(&self, theme: Theme) -> Result<Chart, String> {
         let d = &self.data;
-        let groups = d.groups.as_ref().ok_or("violin plot requires 'groups' data")?;
+        let groups = d
+            .groups
+            .as_ref()
+            .ok_or("violin plot requires 'groups' data")?;
 
         let group_data: Vec<(String, Vec<f64>)> = groups
             .iter()
@@ -621,14 +629,8 @@ impl ChartSpec {
 
     fn build_funnel(&self, theme: Theme) -> Result<Chart, String> {
         let d = &self.data;
-        let labels = d
-            .labels
-            .as_ref()
-            .ok_or("funnel chart requires 'labels'")?;
-        let values = d
-            .values
-            .as_ref()
-            .ok_or("funnel chart requires 'values'")?;
+        let labels = d.labels.as_ref().ok_or("funnel chart requires 'labels'")?;
+        let values = d.values.as_ref().ok_or("funnel chart requires 'values'")?;
 
         let mut chart = FunnelChart::new(labels.clone(), values.clone());
 

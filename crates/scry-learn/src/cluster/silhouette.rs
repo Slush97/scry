@@ -48,7 +48,11 @@ pub fn silhouette_score(features: &[Vec<f64>], labels: &[usize]) -> f64 {
 ///
 /// Samples in clusters of size 1 get a silhouette of 0.
 pub fn silhouette_samples(features: &[Vec<f64>], labels: &[usize]) -> Vec<f64> {
-    assert_eq!(features.len(), labels.len(), "features and labels must have the same length");
+    assert_eq!(
+        features.len(),
+        labels.len(),
+        "features and labels must have the same length"
+    );
 
     let n = features.len();
     if n <= 1 {
@@ -116,7 +120,6 @@ pub fn silhouette_samples(features: &[Vec<f64>], labels: &[usize]) -> Vec<f64> {
     scores
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,8 +128,12 @@ mod tests {
     fn test_silhouette_perfect_clusters() {
         // Two well-separated blobs.
         let features = vec![
-            vec![0.0, 0.0], vec![1.0, 0.0], vec![0.5, 0.5],
-            vec![100.0, 100.0], vec![101.0, 100.0], vec![100.5, 100.5],
+            vec![0.0, 0.0],
+            vec![1.0, 0.0],
+            vec![0.5, 0.5],
+            vec![100.0, 100.0],
+            vec![101.0, 100.0],
+            vec![100.5, 100.5],
         ];
         let labels = vec![0, 0, 0, 1, 1, 1];
         let score = silhouette_score(&features, &labels);
@@ -154,7 +161,10 @@ mod tests {
         let scores = silhouette_samples(&features, &labels);
         assert_eq!(scores.len(), 4);
         for &s in &scores {
-            assert!(s >= -1.0 && s <= 1.0, "silhouette must be in [-1, 1], got {s}");
+            assert!(
+                s >= -1.0 && s <= 1.0,
+                "silhouette must be in [-1, 1], got {s}"
+            );
         }
     }
 }

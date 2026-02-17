@@ -251,9 +251,7 @@ fn push_command_mutable_api() {
         cy: 50.0,
         radius: 25.0,
         style: scry_engine::scene::style::ShapeStyle {
-            fill: Some(scry_engine::scene::style::FillStyle::Solid(
-                Color::RED,
-            )),
+            fill: Some(scry_engine::scene::style::FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
         },
@@ -294,9 +292,7 @@ fn dirty_tiles_detected_on_pixel_change() {
         cy: 16.0,
         radius: 5.0,
         style: scry_engine::scene::style::ShapeStyle {
-            fill: Some(scry_engine::scene::style::FillStyle::Solid(
-                Color::RED,
-            )),
+            fill: Some(scry_engine::scene::style::FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
         },

@@ -19,9 +19,7 @@
 
 use std::time::Duration;
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 
 use scry_learn::cluster::{Dbscan, KMeans};
 use scry_learn::dataset::Dataset;
@@ -52,7 +50,11 @@ fn gen_classification(n: usize, n_features: usize, seed: u64) -> Dataset {
     for i in 0..n {
         let class = if i < n / 2 { 0.0 } else { 1.0 };
         for (j, col) in features.iter_mut().enumerate() {
-            let offset = if class == 0.0 { 0.0 } else { 3.0 + j as f64 * 0.5 };
+            let offset = if class == 0.0 {
+                0.0
+            } else {
+                3.0 + j as f64 * 0.5
+            };
             col.push(rng.f64() * 2.0 + offset);
         }
         target.push(class);
@@ -70,7 +72,11 @@ fn gen_multiclass(n: usize, n_features: usize, n_classes: usize, seed: u64) -> D
     let per_class = n / n_classes;
 
     for c in 0..n_classes {
-        let count = if c == n_classes - 1 { n - per_class * c } else { per_class };
+        let count = if c == n_classes - 1 {
+            n - per_class * c
+        } else {
+            per_class
+        };
         for _ in 0..count {
             for (j, col) in features.iter_mut().enumerate() {
                 let offset = c as f64 * 3.0 + j as f64 * 0.2;
@@ -326,15 +332,19 @@ fn bench_dataset_scaling(c: &mut Criterion) {
             });
         });
 
-        group.bench_with_input(BenchmarkId::new("random_forest/10t", n), &data, |b, data| {
-            b.iter(|| {
-                let mut rf = RandomForestClassifier::new()
-                    .n_estimators(10)
-                    .max_depth(8)
-                    .seed(42);
-                rf.fit(black_box(data)).unwrap();
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("random_forest/10t", n),
+            &data,
+            |b, data| {
+                b.iter(|| {
+                    let mut rf = RandomForestClassifier::new()
+                        .n_estimators(10)
+                        .max_depth(8)
+                        .seed(42);
+                    rf.fit(black_box(data)).unwrap();
+                });
+            },
+        );
 
         if n <= 5000 {
             // KNN training is O(1) but prediction is O(n²) — skip huge datasets
@@ -447,13 +457,9 @@ fn bench_forest_scaling(c: &mut Criterion) {
             .seed(42);
         rf.fit(&data).unwrap();
 
-        group.bench_with_input(
-            BenchmarkId::new("predict", n_trees),
-            &rf,
-            |b, rf| {
-                b.iter(|| rf.predict(black_box(&features)).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("predict", n_trees), &rf, |b, rf| {
+            b.iter(|| rf.predict(black_box(&features)).unwrap());
+        });
     }
 
     group.finish();
@@ -587,11 +593,7 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
         b.iter(|| {
             let mut pipeline = Pipeline::new()
                 .add_transformer(StandardScaler::new())
-                .set_model(
-                    LogisticRegression::new()
-                        .max_iter(200)
-                        .learning_rate(0.1),
-                );
+                .set_model(LogisticRegression::new().max_iter(200).learning_rate(0.1));
             pipeline.fit(black_box(&train)).unwrap();
             let preds = pipeline.predict(black_box(&test)).unwrap();
             black_box(accuracy(&test.target, &preds));
@@ -679,7 +681,10 @@ fn bench_multiclass(c: &mut Criterion) {
     // Pre-train for prediction benchmarks.
     let mut dt = DecisionTreeClassifier::new().max_depth(10);
     dt.fit(&data).unwrap();
-    let mut rf = RandomForestClassifier::new().n_estimators(20).max_depth(8).seed(42);
+    let mut rf = RandomForestClassifier::new()
+        .n_estimators(20)
+        .max_depth(8)
+        .seed(42);
     rf.fit(&data).unwrap();
     let mut svc = LinearSVC::new().c(1.0).max_iter(500);
     svc.fit(&scaled).unwrap();
@@ -704,9 +709,7 @@ fn bench_multiclass(c: &mut Criterion) {
 // ─────────────────────────────────────────────────────────────────
 
 fn bench_hist_gbt(c: &mut Criterion) {
-    use scry_learn::tree::{
-        GradientBoostingRegressor, HistGradientBoostingRegressor,
-    };
+    use scry_learn::tree::{GradientBoostingRegressor, HistGradientBoostingRegressor};
 
     let mut group = c.benchmark_group("hist_gbt_scaling");
     group.sample_size(10);
@@ -719,38 +722,36 @@ fn bench_hist_gbt(c: &mut Criterion) {
             .collect();
         let target: Vec<f64> = (0..n_rows)
             .map(|i| {
-                features.iter().enumerate().map(|(j, col)| col[i] * (j as f64 + 1.0)).sum::<f64>()
+                features
+                    .iter()
+                    .enumerate()
+                    .map(|(j, col)| col[i] * (j as f64 + 1.0))
+                    .sum::<f64>()
             })
             .collect();
         let names: Vec<String> = (0..n_features).map(|i| format!("f{i}")).collect();
         let data = Dataset::new(features, target, names, "y");
 
-        group.bench_function(
-            &format!("standard_gbt_{n_rows}"),
-            |b| {
-                b.iter(|| {
-                    let mut m = GradientBoostingRegressor::new()
-                        .n_estimators(20)
-                        .learning_rate(0.1)
-                        .max_depth(4);
-                    m.fit(&data).unwrap();
-                });
-            },
-        );
+        group.bench_function(&format!("standard_gbt_{n_rows}"), |b| {
+            b.iter(|| {
+                let mut m = GradientBoostingRegressor::new()
+                    .n_estimators(20)
+                    .learning_rate(0.1)
+                    .max_depth(4);
+                m.fit(&data).unwrap();
+            });
+        });
 
-        group.bench_function(
-            &format!("hist_gbt_{n_rows}"),
-            |b| {
-                b.iter(|| {
-                    let mut m = HistGradientBoostingRegressor::new()
-                        .n_estimators(20)
-                        .learning_rate(0.1)
-                        .max_leaf_nodes(15)
-                        .min_samples_leaf(5);
-                    m.fit(&data).unwrap();
-                });
-            },
-        );
+        group.bench_function(&format!("hist_gbt_{n_rows}"), |b| {
+            b.iter(|| {
+                let mut m = HistGradientBoostingRegressor::new()
+                    .n_estimators(20)
+                    .learning_rate(0.1)
+                    .max_leaf_nodes(15)
+                    .min_samples_leaf(5);
+                m.fit(&data).unwrap();
+            });
+        });
     }
 
     group.finish();
@@ -771,24 +772,18 @@ fn bench_thread_scaling(c: &mut Criterion) {
     let data = gen_classification(n, n_features, 42);
 
     for threads in [1, 2, 4, 8] {
-        group.bench_with_input(
-            BenchmarkId::new("rf_100t", threads),
-            &threads,
-            |b, &t| {
-                let pool = rayon::ThreadPoolBuilder::new()
-                    .num_threads(t)
-                    .build()
-                    .unwrap();
-                pool.install(|| {
-                    b.iter(|| {
-                        let mut rf = RandomForestClassifier::new()
-                            .n_estimators(100)
-                            .max_depth(8);
-                        rf.fit(black_box(&data)).unwrap();
-                    });
+        group.bench_with_input(BenchmarkId::new("rf_100t", threads), &threads, |b, &t| {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(t)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                b.iter(|| {
+                    let mut rf = RandomForestClassifier::new().n_estimators(100).max_depth(8);
+                    rf.fit(black_box(&data)).unwrap();
                 });
-            },
-        );
+            });
+        });
     }
 
     group.finish();

@@ -909,6 +909,845 @@ impl<T: Lerp + 'static> AnyTransition for TypedTransition<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Physics Spring — Damped Harmonic Oscillator
+// ---------------------------------------------------------------------------
+
+/// Configuration for a damped harmonic oscillator spring.
+///
+/// Instead of specifying duration + easing curve, you define the physical
+/// properties: **stiffness**, **damping**, and **mass**. The spring
+/// self-determines when it has settled (displacement < ε), so there is no
+/// fixed duration — it simply feels right.
+///
+/// Use the named presets (`GENTLE`, `BOUNCY`, `STIFF`, `SLOW`, `SNAPPY`)
+/// to skip parameter tuning entirely.
+///
+/// # Example
+///
+/// ```
+/// use std::time::Duration;
+/// use scry_engine::scene::animation::{Spring, SpringConfig};
+///
+/// let mut s = Spring::new(0.0_f32, 100.0_f32, SpringConfig::BOUNCY);
+/// for _ in 0..120 {
+///     s.advance(Duration::from_secs_f32(1.0 / 60.0));
+/// }
+/// assert!(s.is_settled());
+/// assert!((s.value() - 100.0).abs() < 0.5);
+/// ```
+#[derive(Clone, Debug)]
+pub struct SpringConfig {
+    /// Spring constant *k*. Higher = snappier response.
+    pub stiffness: f32,
+    /// Friction coefficient. Higher = less oscillation.
+    pub damping: f32,
+    /// Mass of the virtual object. Higher = more sluggish.
+    pub mass: f32,
+    /// Displacement threshold below which the spring is considered settled.
+    /// Default: `0.01`.
+    pub rest_threshold: f32,
+    /// Velocity threshold below which the spring is considered settled.
+    /// Default: `0.01`.
+    pub velocity_threshold: f32,
+}
+
+impl SpringConfig {
+    /// Gentle, slow spring with minimal overshoot.
+    /// Good for background transitions and subtle UI shifts.
+    pub const GENTLE: Self = Self {
+        stiffness: 100.0,
+        damping: 20.0,
+        mass: 1.0,
+        rest_threshold: 0.01,
+        velocity_threshold: 0.01,
+    };
+
+    /// Bouncy spring with noticeable overshoot and oscillation.
+    /// Great for playful UI elements, pop-ins, and attention-grabbing motion.
+    pub const BOUNCY: Self = Self {
+        stiffness: 300.0,
+        damping: 10.0,
+        mass: 1.0,
+        rest_threshold: 0.01,
+        velocity_threshold: 0.01,
+    };
+
+    /// Stiff, fast spring with very little overshoot.
+    /// Ideal for responsive controls and immediate feedback.
+    pub const STIFF: Self = Self {
+        stiffness: 500.0,
+        damping: 30.0,
+        mass: 1.0,
+        rest_threshold: 0.01,
+        velocity_threshold: 0.01,
+    };
+
+    /// Slow, heavy spring for dramatic, weighted motion.
+    /// Use for large elements or cinematic transitions.
+    pub const SLOW: Self = Self {
+        stiffness: 80.0,
+        damping: 15.0,
+        mass: 2.0,
+        rest_threshold: 0.01,
+        velocity_threshold: 0.01,
+    };
+
+    /// Very snappy spring that overshoots slightly then settles fast.
+    /// The default "feels good" choice for most UI animations.
+    pub const SNAPPY: Self = Self {
+        stiffness: 400.0,
+        damping: 25.0,
+        mass: 1.0,
+        rest_threshold: 0.01,
+        velocity_threshold: 0.01,
+    };
+
+    /// Compute the damping ratio ζ = c / (2√(km)).
+    ///
+    /// - ζ < 1: underdamped (oscillates)
+    /// - ζ = 1: critically damped (fastest without oscillation)
+    /// - ζ > 1: overdamped (sluggish, no oscillation)
+    #[must_use]
+    pub fn damping_ratio(&self) -> f32 {
+        self.damping / (2.0 * (self.stiffness * self.mass).sqrt())
+    }
+
+    /// Natural frequency ω₀ = √(k/m).
+    #[must_use]
+    pub fn natural_frequency(&self) -> f32 {
+        (self.stiffness / self.mass).sqrt()
+    }
+}
+
+impl Default for SpringConfig {
+    fn default() -> Self {
+        Self::SNAPPY
+    }
+}
+
+/// A physics-driven spring that animates a [`Lerp`]-able value.
+///
+/// Unlike [`Transition`], a `Spring` has no fixed duration — it runs until
+/// the value settles within the configured thresholds. The motion is computed
+/// via semi-implicit Euler integration of the damped harmonic oscillator
+/// equation: `F = -kx - cv`.
+///
+/// # Example
+///
+/// ```
+/// use std::time::Duration;
+/// use scry_engine::scene::animation::{Spring, SpringConfig};
+///
+/// let mut spring = Spring::new(0.0_f32, 1.0_f32, SpringConfig::STIFF);
+/// while !spring.is_settled() {
+///     spring.advance(Duration::from_secs_f32(1.0 / 60.0));
+/// }
+/// assert!((spring.value() - 1.0).abs() < 0.05);
+/// ```
+#[derive(Clone, Debug)]
+pub struct Spring<T: Lerp> {
+    from: T,
+    to: T,
+    config: SpringConfig,
+    /// Current displacement from target (normalized 0–1 space, starts at -1).
+    displacement: f32,
+    /// Current velocity in normalized space.
+    velocity: f32,
+    /// Whether the spring has settled.
+    settled: bool,
+}
+
+impl<T: Lerp> Spring<T> {
+    /// Create a new spring animating from `from` to `to`.
+    #[must_use]
+    pub fn new(from: T, to: T, config: SpringConfig) -> Self {
+        Self {
+            from,
+            to,
+            config,
+            displacement: -1.0, // start fully displaced (at `from`)
+            velocity: 0.0,
+            settled: false,
+        }
+    }
+
+    /// Advance the spring simulation by `dt`.
+    ///
+    /// Uses semi-implicit Euler integration for stability:
+    /// 1. `a = (-k * x - c * v) / m`
+    /// 2. `v += a * dt`
+    /// 3. `x += v * dt`
+    pub fn advance(&mut self, dt: Duration) {
+        if self.settled {
+            return;
+        }
+
+        let dt_secs = dt.as_secs_f32();
+        if dt_secs <= 0.0 {
+            return;
+        }
+
+        let k = self.config.stiffness;
+        let c = self.config.damping;
+        let m = self.config.mass;
+
+        // Semi-implicit Euler (velocity-first for better energy conservation)
+        let acceleration = (-k * self.displacement - c * self.velocity) / m;
+        self.velocity += acceleration * dt_secs;
+        self.displacement += self.velocity * dt_secs;
+
+        // Check if settled
+        if self.displacement.abs() < self.config.rest_threshold
+            && self.velocity.abs() < self.config.velocity_threshold
+        {
+            self.displacement = 0.0;
+            self.velocity = 0.0;
+            self.settled = true;
+        }
+    }
+
+    /// The current interpolated value.
+    ///
+    /// Maps the internal displacement (where 0 = target) back to the
+    /// `from`/`to` range.
+    #[must_use]
+    pub fn value(&self) -> T {
+        // displacement of -1 = at `from`, 0 = at `to`
+        let t = 1.0 + self.displacement;
+        self.from.lerp(&self.to, t.clamp(0.0, 2.0))
+    }
+
+    /// Whether the spring has settled at its target value.
+    #[must_use]
+    pub const fn is_settled(&self) -> bool {
+        self.settled
+    }
+
+    /// Retarget the spring to a new destination without resetting velocity.
+    ///
+    /// This produces beautiful interrupted animations — the spring smoothly
+    /// redirects mid-flight instead of snapping.
+    pub fn retarget(&mut self, new_to: T) {
+        // Current value becomes the new `from`
+        let current = self.value();
+        self.from = current;
+        self.to = new_to;
+        self.displacement = -1.0;
+        // Keep velocity for momentum continuity
+        self.settled = false;
+    }
+
+    /// Reset the spring to its initial state.
+    pub fn reset(&mut self) {
+        self.displacement = -1.0;
+        self.velocity = 0.0;
+        self.settled = false;
+    }
+
+    /// Current velocity (in normalized space).
+    #[must_use]
+    pub const fn velocity(&self) -> f32 {
+        self.velocity
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Animation Sequence — Coroutine-Style Choreography
+// ---------------------------------------------------------------------------
+
+/// A single step in an animation sequence.
+///
+/// Steps execute one after another (like screenplay directions), except
+/// for `Parallel` which runs multiple sub-steps simultaneously.
+#[derive(Clone, Debug)]
+pub enum Step {
+    /// Instantly set a named value.
+    Set {
+        /// Animation name.
+        id: String,
+        /// Value to set (stored as f32 for simplicity; use Tween with 0 duration for other types).
+        value: f32,
+    },
+    /// Tween a named f32 value from → to over a duration with easing.
+    Tween {
+        /// Animation name.
+        id: String,
+        /// Starting value.
+        from: f32,
+        /// Ending value.
+        to: f32,
+        /// Duration of the tween.
+        duration: Duration,
+        /// Easing curve.
+        easing: Easing,
+    },
+    /// Animate a named f32 value using a physics spring.
+    SpringTo {
+        /// Animation name.
+        id: String,
+        /// Starting value.
+        from: f32,
+        /// Target value.
+        to: f32,
+        /// Spring configuration.
+        config: SpringConfig,
+    },
+    /// Pause for a duration before the next step.
+    Wait {
+        /// How long to wait.
+        duration: Duration,
+    },
+    /// Run multiple sub-sequences simultaneously. The parallel step completes
+    /// when the longest sub-sequence finishes.
+    Parallel {
+        /// Sub-sequences to run in parallel.
+        branches: Vec<Vec<Step>>,
+    },
+    /// Like Parallel, but each branch starts after a stagger delay.
+    /// Branch 0 starts immediately, branch 1 after `delay`, branch 2 after `2*delay`, etc.
+    Stagger {
+        /// Delay between each branch start.
+        delay: Duration,
+        /// Sub-sequences, each started at an offset.
+        branches: Vec<Vec<Step>>,
+    },
+}
+
+/// A builder for constructing animation sequences declaratively.
+///
+/// Reads like a screenplay — each method adds the next "direction" in the
+/// animation timeline.
+///
+/// # Example
+///
+/// ```
+/// use std::time::Duration;
+/// use scry_engine::scene::animation::{AnimationSequence, Easing, SpringConfig};
+///
+/// fn ms(n: u64) -> Duration { Duration::from_millis(n) }
+///
+/// let seq = AnimationSequence::new()
+///     .tween("opacity", 0.0, 1.0, ms(300), Easing::EaseOutCubic)
+///     .wait(ms(100))
+///     .spring_to("scale", 0.8, 1.0, SpringConfig::BOUNCY)
+///     .parallel(|p| {
+///         p.branch(|b| b.tween("x", 0.0, 100.0, ms(500), Easing::EaseOutQuint))
+///          .branch(|b| b.tween("y", 0.0, 50.0, ms(500), Easing::Linear))
+///     });
+///
+/// assert_eq!(seq.steps().len(), 4);
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct AnimationSequence {
+    steps: Vec<Step>,
+}
+
+impl AnimationSequence {
+    /// Create an empty animation sequence.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { steps: Vec::new() }
+    }
+
+    /// Add a tween step: animate a named f32 value from → to.
+    #[must_use]
+    pub fn tween(
+        mut self,
+        id: &str,
+        from: f32,
+        to: f32,
+        duration: Duration,
+        easing: Easing,
+    ) -> Self {
+        self.steps.push(Step::Tween {
+            id: id.to_string(),
+            from,
+            to,
+            duration,
+            easing,
+        });
+        self
+    }
+
+    /// Add a spring step: animate a named f32 value using physics.
+    #[must_use]
+    pub fn spring_to(mut self, id: &str, from: f32, to: f32, config: SpringConfig) -> Self {
+        self.steps.push(Step::SpringTo {
+            id: id.to_string(),
+            from,
+            to,
+            config,
+        });
+        self
+    }
+
+    /// Add a wait/pause step.
+    #[must_use]
+    pub fn wait(mut self, duration: Duration) -> Self {
+        self.steps.push(Step::Wait { duration });
+        self
+    }
+
+    /// Instantly set a named value.
+    #[must_use]
+    pub fn set(mut self, id: &str, value: f32) -> Self {
+        self.steps.push(Step::Set {
+            id: id.to_string(),
+            value,
+        });
+        self
+    }
+
+    /// Add parallel branches. The closure receives a [`ParallelBuilder`].
+    #[must_use]
+    pub fn parallel<F: FnOnce(ParallelBuilder) -> ParallelBuilder>(mut self, f: F) -> Self {
+        let builder = f(ParallelBuilder::new());
+        self.steps.push(Step::Parallel {
+            branches: builder.branches,
+        });
+        self
+    }
+
+    /// Add staggered branches with a delay between each start.
+    #[must_use]
+    pub fn stagger<F: FnOnce(ParallelBuilder) -> ParallelBuilder>(
+        mut self,
+        delay: Duration,
+        f: F,
+    ) -> Self {
+        let builder = f(ParallelBuilder::new());
+        self.steps.push(Step::Stagger {
+            delay,
+            branches: builder.branches,
+        });
+        self
+    }
+
+    /// Access the steps in this sequence.
+    #[must_use]
+    pub fn steps(&self) -> &[Step] {
+        &self.steps
+    }
+
+    /// Number of steps.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.steps.len()
+    }
+
+    /// Whether the sequence is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty()
+    }
+}
+
+/// Builder for parallel/stagger branches within an [`AnimationSequence`].
+#[derive(Clone, Debug, Default)]
+pub struct ParallelBuilder {
+    branches: Vec<Vec<Step>>,
+}
+
+impl ParallelBuilder {
+    /// Create a new parallel builder.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            branches: Vec::new(),
+        }
+    }
+
+    /// Add a branch. The closure receives an [`AnimationSequence`] and should
+    /// return it with steps added.
+    #[must_use]
+    pub fn branch<F: FnOnce(AnimationSequence) -> AnimationSequence>(mut self, f: F) -> Self {
+        let seq = f(AnimationSequence::new());
+        self.branches.push(seq.steps);
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sequence Player
+// ---------------------------------------------------------------------------
+
+/// Active state for a single playing step.
+#[derive(Clone, Debug)]
+enum ActiveStep {
+    /// A tween in progress.
+    Tween {
+        id: String,
+        transition: Transition<f32>,
+    },
+    /// A spring in progress.
+    Spring { id: String, spring: Spring<f32> },
+    /// A wait/delay timer.
+    Wait { remaining: Duration },
+    /// Parallel branches, each a nested `SequencePlayer`.
+    Parallel { players: Vec<SequencePlayer> },
+    /// Stagger = parallel with delayed starts.
+    Stagger {
+        delay: Duration,
+        players: Vec<SequencePlayer>,
+        started: usize,
+        elapsed: Duration,
+    },
+}
+
+impl ActiveStep {
+    /// Advance this active step, returning `true` when complete.
+    fn advance(&mut self, dt: Duration, values: &mut HashMap<String, f32>) -> bool {
+        match self {
+            Self::Tween { id, transition } => {
+                transition.advance(dt);
+                values.insert(id.clone(), transition.value());
+                transition.is_complete()
+            }
+            Self::Spring { id, spring } => {
+                spring.advance(dt);
+                values.insert(id.clone(), spring.value());
+                spring.is_settled()
+            }
+            Self::Wait { remaining } => {
+                if dt >= *remaining {
+                    *remaining = Duration::ZERO;
+                    true
+                } else {
+                    *remaining -= dt;
+                    false
+                }
+            }
+            Self::Parallel { players } => {
+                for player in players.iter_mut() {
+                    player.advance(dt);
+                }
+                players.iter().all(SequencePlayer::is_complete)
+            }
+            Self::Stagger {
+                delay,
+                players,
+                started,
+                elapsed,
+            } => {
+                *elapsed = elapsed.saturating_add(dt);
+                // Start any players whose stagger delay has elapsed
+                while *started < players.len() {
+                    let trigger_at = delay.mul_f32(*started as f32);
+                    if *elapsed >= trigger_at {
+                        *started += 1;
+                    } else {
+                        break;
+                    }
+                }
+                // Advance all started players
+                for player in players.iter_mut().take(*started) {
+                    player.advance(dt);
+                }
+                *started == players.len() && players.iter().all(SequencePlayer::is_complete)
+            }
+        }
+    }
+}
+
+/// Plays an [`AnimationSequence`], stepping through each stage and
+/// maintaining a map of current named values.
+///
+/// # Example
+///
+/// ```
+/// use std::time::Duration;
+/// use scry_engine::scene::animation::{AnimationSequence, Easing, SequencePlayer};
+///
+/// fn ms(n: u64) -> Duration { Duration::from_millis(n) }
+///
+/// let seq = AnimationSequence::new()
+///     .tween("x", 0.0, 100.0, ms(500), Easing::Linear);
+///
+/// let mut player = SequencePlayer::new(seq);
+/// player.advance(ms(250));
+/// assert!((player.get("x").unwrap_or(0.0) - 50.0).abs() < 1.0);
+/// ```
+#[derive(Clone, Debug)]
+pub struct SequencePlayer {
+    steps: Vec<Step>,
+    cursor: usize,
+    active: Option<ActiveStep>,
+    values: HashMap<String, f32>,
+    complete: bool,
+}
+
+impl SequencePlayer {
+    /// Create a new player for the given sequence.
+    #[must_use]
+    pub fn new(sequence: AnimationSequence) -> Self {
+        let mut player = Self {
+            steps: sequence.steps,
+            cursor: 0,
+            active: None,
+            values: HashMap::new(),
+            complete: false,
+        };
+        player.activate_current();
+        player
+    }
+
+    /// Advance the player by `dt`. Call this each frame.
+    pub fn advance(&mut self, dt: Duration) {
+        if self.complete {
+            return;
+        }
+
+        loop {
+            // If no active step, try to activate the next one
+            if self.active.is_none() {
+                if !self.activate_current() {
+                    self.complete = true;
+                    return;
+                }
+            }
+
+            // Advance the active step
+            if let Some(ref mut active) = self.active {
+                let done = active.advance(dt, &mut self.values);
+                if done {
+                    self.active = None;
+                    self.cursor += 1;
+                    // For instant steps (Set), we continue to the next step
+                    // within the same frame. For timed steps, we break.
+                    continue;
+                }
+            }
+
+            break;
+        }
+    }
+
+    /// Get the current value of a named animation property.
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<f32> {
+        self.values.get(id).copied()
+    }
+
+    /// Whether all steps have completed.
+    #[must_use]
+    pub const fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    /// All current values as a map.
+    #[must_use]
+    pub fn values(&self) -> &HashMap<String, f32> {
+        &self.values
+    }
+
+    /// Activate the step at the current cursor position.
+    /// Returns `false` if there are no more steps.
+    fn activate_current(&mut self) -> bool {
+        if self.cursor >= self.steps.len() {
+            return false;
+        }
+
+        let step = self.steps[self.cursor].clone();
+        match step {
+            Step::Set { id, value } => {
+                self.values.insert(id, value);
+                self.cursor += 1;
+                // Recurse to activate the next step (Set is instantaneous)
+                self.activate_current()
+            }
+            Step::Tween {
+                id,
+                from,
+                to,
+                duration,
+                easing,
+            } => {
+                self.values.insert(id.clone(), from);
+                self.active = Some(ActiveStep::Tween {
+                    id,
+                    transition: Transition::new(from, to, duration).easing(easing),
+                });
+                true
+            }
+            Step::SpringTo {
+                id,
+                from,
+                to,
+                config,
+            } => {
+                self.values.insert(id.clone(), from);
+                self.active = Some(ActiveStep::Spring {
+                    id,
+                    spring: Spring::new(from, to, config),
+                });
+                true
+            }
+            Step::Wait { duration } => {
+                self.active = Some(ActiveStep::Wait {
+                    remaining: duration,
+                });
+                true
+            }
+            Step::Parallel { branches } => {
+                let players = branches
+                    .into_iter()
+                    .map(|steps| SequencePlayer::new(AnimationSequence { steps }))
+                    .collect();
+                self.active = Some(ActiveStep::Parallel { players });
+                true
+            }
+            Step::Stagger { delay, branches } => {
+                let players: Vec<_> = branches
+                    .into_iter()
+                    .map(|steps| SequencePlayer::new(AnimationSequence { steps }))
+                    .collect();
+                let initial_started = if players.is_empty() { 0 } else { 1 };
+                self.active = Some(ActiveStep::Stagger {
+                    delay,
+                    players,
+                    started: initial_started, // first starts immediately
+                    elapsed: Duration::ZERO,
+                });
+                true
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Animation Presets
+// ---------------------------------------------------------------------------
+
+/// Curated preset animation sequences for common UI patterns.
+///
+/// Each function returns an [`AnimationSequence`] ready to be played with
+/// a [`SequencePlayer`]. The `id` parameter is the name used to read the
+/// animated value via `player.get(id)`.
+///
+/// # Example
+///
+/// ```
+/// use std::time::Duration;
+/// use scry_engine::scene::animation::{preset, SequencePlayer};
+///
+/// let seq = preset::fade_in("opacity", Duration::from_millis(300));
+/// let mut player = SequencePlayer::new(seq);
+/// player.advance(Duration::from_millis(300));
+/// assert!((player.get("opacity").unwrap_or(0.0) - 1.0).abs() < 0.05);
+/// ```
+pub mod preset {
+    use super::*;
+
+    /// Fade in: opacity 0 → 1 with ease-out.
+    #[must_use]
+    pub fn fade_in(id: &str, duration: Duration) -> AnimationSequence {
+        AnimationSequence::new().tween(id, 0.0, 1.0, duration, Easing::EaseOutCubic)
+    }
+
+    /// Fade out: opacity 1 → 0 with ease-in.
+    #[must_use]
+    pub fn fade_out(id: &str, duration: Duration) -> AnimationSequence {
+        AnimationSequence::new().tween(id, 1.0, 0.0, duration, Easing::EaseInCubic)
+    }
+
+    /// Slide in from the left: combines x-offset and opacity.
+    ///
+    /// Produces two values: `{id}_x` (position) and `{id}_opacity`.
+    #[must_use]
+    pub fn slide_in_left(id: &str, distance: f32, duration: Duration) -> AnimationSequence {
+        let x_id = format!("{id}_x");
+        let opacity_id = format!("{id}_opacity");
+        AnimationSequence::new().parallel(|p| {
+            p.branch(|b| b.tween(&x_id, -distance, 0.0, duration, Easing::EaseOutCubic))
+                .branch(|b| b.tween(&opacity_id, 0.0, 1.0, duration, Easing::EaseOutCubic))
+        })
+    }
+
+    /// Slide in from the right: combines x-offset and opacity.
+    ///
+    /// Produces two values: `{id}_x` (position) and `{id}_opacity`.
+    #[must_use]
+    pub fn slide_in_right(id: &str, distance: f32, duration: Duration) -> AnimationSequence {
+        let x_id = format!("{id}_x");
+        let opacity_id = format!("{id}_opacity");
+        AnimationSequence::new().parallel(|p| {
+            p.branch(|b| b.tween(&x_id, distance, 0.0, duration, Easing::EaseOutCubic))
+                .branch(|b| b.tween(&opacity_id, 0.0, 1.0, duration, Easing::EaseOutCubic))
+        })
+    }
+
+    /// Pop in: scale 0 → 1 with a bouncy spring.
+    ///
+    /// Produces `{id}` (scale value).
+    #[must_use]
+    pub fn pop_in(id: &str) -> AnimationSequence {
+        AnimationSequence::new().spring_to(id, 0.0, 1.0, SpringConfig::BOUNCY)
+    }
+
+    /// Bounce in: scale 0 → 1 with a gentle spring and slight overshoot.
+    ///
+    /// Produces `{id}` (scale value).
+    #[must_use]
+    pub fn bounce_in(id: &str) -> AnimationSequence {
+        AnimationSequence::new().spring_to(
+            id,
+            0.0,
+            1.0,
+            SpringConfig {
+                stiffness: 200.0,
+                damping: 12.0,
+                mass: 1.0,
+                rest_threshold: 0.01,
+                velocity_threshold: 0.01,
+            },
+        )
+    }
+
+    /// Pulse: scale up slightly then back to 1.0.
+    ///
+    /// Produces `{id}` (scale value).
+    #[must_use]
+    pub fn pulse(id: &str, duration: Duration) -> AnimationSequence {
+        let half = duration / 2;
+        AnimationSequence::new()
+            .tween(id, 1.0, 1.2, half, Easing::EaseOutCubic)
+            .tween(id, 1.2, 1.0, half, Easing::EaseInCubic)
+    }
+
+    /// Shake: horizontal wiggle for attention.
+    ///
+    /// Produces `{id}` (x-offset value that returns to 0).
+    #[must_use]
+    pub fn shake(id: &str, intensity: f32, duration: Duration) -> AnimationSequence {
+        let quarter = duration / 4;
+        AnimationSequence::new()
+            .tween(id, 0.0, intensity, quarter, Easing::EaseOutQuad)
+            .tween(id, intensity, -intensity, quarter, Easing::EaseInOutQuad)
+            .tween(
+                id,
+                -intensity,
+                intensity * 0.5,
+                quarter,
+                Easing::EaseInOutQuad,
+            )
+            .tween(id, intensity * 0.5, 0.0, quarter, Easing::EaseOutQuad)
+    }
+
+    /// Scale up from 0 with a snappy spring, combined with fade-in.
+    ///
+    /// Produces `{id}_scale` and `{id}_opacity`.
+    #[must_use]
+    pub fn scale_fade_in(id: &str, duration: Duration) -> AnimationSequence {
+        let scale_id = format!("{id}_scale");
+        let opacity_id = format!("{id}_opacity");
+        AnimationSequence::new().parallel(|p| {
+            p.branch(|b| b.spring_to(&scale_id, 0.0, 1.0, SpringConfig::SNAPPY))
+                .branch(|b| b.tween(&opacity_id, 0.0, 1.0, duration, Easing::EaseOutCubic))
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1340,5 +2179,308 @@ mod tests {
         state.start("b", 0.0_f32, 1.0, Duration::from_secs(1), Easing::Linear);
         state.cancel_all();
         assert!(state.is_idle());
+    }
+
+    // ---- Spring tests ----
+
+    #[test]
+    fn spring_converges_to_target() {
+        let mut s = Spring::new(0.0_f32, 100.0, SpringConfig::SNAPPY);
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        for _ in 0..300 {
+            s.advance(dt);
+        }
+        assert!(s.is_settled(), "spring should settle within 5 seconds");
+        assert!(
+            (s.value() - 100.0).abs() < 0.5,
+            "spring value should be near target: got {}",
+            s.value()
+        );
+    }
+
+    #[test]
+    fn spring_bouncy_overshoots() {
+        let mut s = Spring::new(0.0_f32, 100.0, SpringConfig::BOUNCY);
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        let mut max_val = 0.0_f32;
+        for _ in 0..300 {
+            s.advance(dt);
+            max_val = max_val.max(s.value());
+        }
+        assert!(
+            max_val > 100.0,
+            "bouncy spring should overshoot target: max was {max_val}"
+        );
+    }
+
+    #[test]
+    fn spring_stiff_minimal_overshoot() {
+        let mut s = Spring::new(0.0_f32, 100.0, SpringConfig::STIFF);
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        let mut max_val = 0.0_f32;
+        for _ in 0..300 {
+            s.advance(dt);
+            max_val = max_val.max(s.value());
+        }
+        // Stiff spring should have very little overshoot (< 10%)
+        assert!(
+            max_val < 115.0,
+            "stiff spring overshoot should be small: max was {max_val}"
+        );
+    }
+
+    #[test]
+    fn spring_retarget_preserves_velocity() {
+        let mut s = Spring::new(0.0_f32, 100.0, SpringConfig::SNAPPY);
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        // Advance a bit to build velocity
+        for _ in 0..10 {
+            s.advance(dt);
+        }
+        let vel_before = s.velocity();
+        assert!(vel_before.abs() > 0.0, "should have velocity mid-flight");
+
+        // Retarget
+        s.retarget(200.0_f32);
+        assert!(!s.is_settled());
+        assert!(
+            (s.velocity() - vel_before).abs() < f32::EPSILON,
+            "velocity should be preserved"
+        );
+    }
+
+    #[test]
+    fn spring_config_damping_ratios() {
+        assert!(
+            SpringConfig::BOUNCY.damping_ratio() < 1.0,
+            "BOUNCY should be underdamped"
+        );
+        assert!(
+            SpringConfig::STIFF.damping_ratio() > 0.5,
+            "STIFF should be near critically damped"
+        );
+    }
+
+    #[test]
+    fn spring_all_configs_converge() {
+        let configs = [
+            SpringConfig::GENTLE,
+            SpringConfig::BOUNCY,
+            SpringConfig::STIFF,
+            SpringConfig::SLOW,
+            SpringConfig::SNAPPY,
+        ];
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        for config in configs {
+            let mut s = Spring::new(0.0_f32, 1.0, config.clone());
+            for _ in 0..600 {
+                // 10 seconds at 60fps
+                s.advance(dt);
+            }
+            assert!(
+                s.is_settled(),
+                "{:?} spring didn't settle in 10 seconds",
+                config
+            );
+        }
+    }
+
+    // ---- Sequence tests ----
+
+    #[test]
+    fn sequence_tween_basic() {
+        let seq = AnimationSequence::new().tween(
+            "x",
+            0.0,
+            100.0,
+            Duration::from_millis(500),
+            Easing::Linear,
+        );
+        let mut player = SequencePlayer::new(seq);
+
+        player.advance(Duration::from_millis(250));
+        let val = player.get("x").unwrap();
+        assert!((val - 50.0).abs() < 2.0, "at 50% should be ~50, got {val}");
+
+        player.advance(Duration::from_millis(300));
+        assert!(player.is_complete());
+        let final_val = player.get("x").unwrap();
+        assert!(
+            (final_val - 100.0).abs() < 0.1,
+            "final value should be 100, got {final_val}"
+        );
+    }
+
+    #[test]
+    fn sequence_wait_then_tween() {
+        let seq = AnimationSequence::new()
+            .wait(Duration::from_millis(100))
+            .tween("y", 0.0, 50.0, Duration::from_millis(200), Easing::Linear);
+        let mut player = SequencePlayer::new(seq);
+
+        // During wait, no "y" value yet
+        player.advance(Duration::from_millis(50));
+        assert!(!player.is_complete());
+
+        // After wait completes, tween starts
+        player.advance(Duration::from_millis(60));
+        // Wait just completed; tween should now be starting
+
+        // Advance through tween
+        player.advance(Duration::from_millis(200));
+        assert!(player.is_complete());
+        let val = player.get("y").unwrap();
+        assert!((val - 50.0).abs() < 0.5, "final y should be 50, got {val}");
+    }
+
+    #[test]
+    fn sequence_set_is_instantaneous() {
+        let seq = AnimationSequence::new().set("flag", 42.0).tween(
+            "x",
+            0.0,
+            10.0,
+            Duration::from_millis(100),
+            Easing::Linear,
+        );
+        let player = SequencePlayer::new(seq);
+
+        // Set should have fired immediately during construction
+        assert_eq!(player.get("flag"), Some(42.0));
+        // And the tween should already be active
+        assert!(!player.is_complete());
+    }
+
+    #[test]
+    fn sequence_parallel_runs_simultaneously() {
+        let seq = AnimationSequence::new().parallel(|p| {
+            p.branch(|b| b.tween("a", 0.0, 10.0, Duration::from_millis(500), Easing::Linear))
+                .branch(|b| b.tween("b", 0.0, 20.0, Duration::from_millis(500), Easing::Linear))
+        });
+        let mut player = SequencePlayer::new(seq);
+        player.advance(Duration::from_millis(500));
+        assert!(player.is_complete());
+
+        // Both branches should have independent values accessible via nested players
+        // The parallel step itself completes when both finish
+    }
+
+    #[test]
+    fn sequence_spring_step() {
+        let seq = AnimationSequence::new().spring_to("s", 0.0, 1.0, SpringConfig::STIFF);
+        let mut player = SequencePlayer::new(seq);
+
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        for _ in 0..300 {
+            player.advance(dt);
+        }
+        assert!(player.is_complete());
+        let val = player.get("s").unwrap();
+        assert!(
+            (val - 1.0).abs() < 0.1,
+            "spring should settle at 1.0, got {val}"
+        );
+    }
+
+    #[test]
+    fn sequence_multi_step_screenplay() {
+        // The "screenplay" pattern: tween → wait → spring → done
+        let seq = AnimationSequence::new()
+            .tween(
+                "opacity",
+                0.0,
+                1.0,
+                Duration::from_millis(200),
+                Easing::EaseOutCubic,
+            )
+            .wait(Duration::from_millis(50))
+            .spring_to("scale", 0.8, 1.0, SpringConfig::STIFF);
+
+        assert_eq!(seq.len(), 3);
+        let mut player = SequencePlayer::new(seq);
+
+        // Step through the whole thing
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        for _ in 0..600 {
+            player.advance(dt);
+            if player.is_complete() {
+                break;
+            }
+        }
+        assert!(player.is_complete());
+    }
+
+    // ---- Preset tests ----
+
+    #[test]
+    fn preset_fade_in() {
+        let seq = preset::fade_in("op", Duration::from_millis(300));
+        let mut player = SequencePlayer::new(seq);
+        player.advance(Duration::from_millis(300));
+        let val = player.get("op").unwrap();
+        assert!(
+            (val - 1.0).abs() < 0.05,
+            "fade_in should reach 1.0, got {val}"
+        );
+    }
+
+    #[test]
+    fn preset_fade_out() {
+        let seq = preset::fade_out("op", Duration::from_millis(300));
+        let mut player = SequencePlayer::new(seq);
+        player.advance(Duration::from_millis(300));
+        let val = player.get("op").unwrap();
+        assert!(val.abs() < 0.05, "fade_out should reach 0.0, got {val}");
+    }
+
+    #[test]
+    fn preset_pop_in_overshoots() {
+        let seq = preset::pop_in("scale");
+        let mut player = SequencePlayer::new(seq);
+
+        let dt = Duration::from_secs_f32(1.0 / 60.0);
+        let mut max_val = 0.0_f32;
+        for _ in 0..300 {
+            player.advance(dt);
+            if let Some(v) = player.get("scale") {
+                max_val = max_val.max(v);
+            }
+        }
+        assert!(
+            max_val > 1.0,
+            "pop_in should overshoot 1.0: max was {max_val}"
+        );
+    }
+
+    #[test]
+    fn preset_pulse_returns_to_one() {
+        let seq = preset::pulse("s", Duration::from_millis(400));
+        let mut player = SequencePlayer::new(seq);
+
+        player.advance(Duration::from_millis(400));
+        assert!(player.is_complete());
+        let val = player.get("s").unwrap();
+        assert!(
+            (val - 1.0).abs() < 0.05,
+            "pulse should return to 1.0, got {val}"
+        );
+    }
+
+    #[test]
+    fn preset_shake_returns_to_zero() {
+        let seq = preset::shake("x", 10.0, Duration::from_millis(400));
+        let mut player = SequencePlayer::new(seq);
+        player.advance(Duration::from_millis(400));
+        assert!(player.is_complete());
+        let val = player.get("x").unwrap();
+        assert!(val.abs() < 0.5, "shake should return to 0, got {val}");
+    }
+
+    #[test]
+    fn preset_slide_in_left_produces_both_values() {
+        let seq = preset::slide_in_left("card", 50.0, Duration::from_millis(300));
+        let mut player = SequencePlayer::new(seq);
+        player.advance(Duration::from_millis(300));
+        // Should have both x and opacity values in nested players
+        assert!(player.is_complete());
     }
 }

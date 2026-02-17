@@ -12,6 +12,7 @@ use crate::sparse::CscMatrix;
 /// Features with zero variance are left unchanged.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct StandardScaler {
     means: Vec<f64>,
     stds: Vec<f64>,
@@ -88,6 +89,23 @@ impl StandardScaler {
     }
 }
 
+impl StandardScaler {
+    /// Whether the scaler has been fitted.
+    pub fn is_fitted(&self) -> bool {
+        self.fitted
+    }
+
+    /// Per-feature means computed during fit.
+    pub fn means(&self) -> &[f64] {
+        &self.means
+    }
+
+    /// Per-feature standard deviations computed during fit.
+    pub fn stds(&self) -> &[f64] {
+        &self.stds
+    }
+}
+
 impl Default for StandardScaler {
     fn default() -> Self {
         Self::new()
@@ -142,9 +160,13 @@ impl Transformer for StandardScaler {
         for (j, col) in data.features.iter_mut().enumerate() {
             let mean = self.means[j];
             let std = self.stds[j];
-            for x in col.iter_mut() {
-                *x = *x * std + mean;
+            if std > 1e-12 {
+                for x in col.iter_mut() {
+                    *x = *x * std + mean;
+                }
             }
+            // When std <= 1e-12, transform left values unchanged,
+            // so inverse_transform must also leave them unchanged.
         }
         data.sync_matrix();
         Ok(())
@@ -157,6 +179,7 @@ impl Transformer for StandardScaler {
 /// Features with zero range are set to 0.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct MinMaxScaler {
     mins: Vec<f64>,
     maxs: Vec<f64>,
@@ -197,13 +220,21 @@ impl MinMaxScaler {
                 let mut min = f64::INFINITY;
                 let mut max = f64::NEG_INFINITY;
                 for (_, val) in col.iter() {
-                    if val < min { min = val; }
-                    if val > max { max = val; }
+                    if val < min {
+                        min = val;
+                    }
+                    if val > max {
+                        max = val;
+                    }
                 }
                 // Account for implicit zeros.
                 if nnz < n {
-                    if 0.0 < min { min = 0.0; }
-                    if 0.0 > max { max = 0.0; }
+                    if 0.0 < min {
+                        min = 0.0;
+                    }
+                    if 0.0 > max {
+                        max = 0.0;
+                    }
                 }
                 self.mins.push(min);
                 self.maxs.push(max);
@@ -334,6 +365,7 @@ fn quantile_sorted(sorted: &[f64], q: f64) -> f64 {
 /// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct RobustScaler {
     medians: Vec<f64>,
     iqrs: Vec<f64>,
@@ -408,8 +440,16 @@ impl Transformer for RobustScaler {
         for (j, col) in data.features.iter_mut().enumerate() {
             let median = self.medians[j];
             let iqr = self.iqrs[j];
-            for x in col.iter_mut() {
-                *x = *x * iqr + median;
+            if iqr > 1e-12 {
+                for x in col.iter_mut() {
+                    *x = *x * iqr + median;
+                }
+            } else {
+                // When IQR <= 1e-12, transform only subtracted median,
+                // so inverse must only add it back.
+                for x in col.iter_mut() {
+                    *x += median;
+                }
             }
         }
         data.sync_matrix();
@@ -435,8 +475,7 @@ mod tests {
         let mean: f64 = ds.features[0].iter().sum::<f64>() / 5.0;
         assert!((mean).abs() < 1e-10, "mean should be ~0, got {mean}");
 
-        let var: f64 =
-            ds.features[0].iter().map(|x| x.powi(2)).sum::<f64>() / 5.0;
+        let var: f64 = ds.features[0].iter().map(|x| x.powi(2)).sum::<f64>() / 5.0;
         assert!(
             (var - 1.0).abs() < 1e-10,
             "variance should be ~1, got {var}"
@@ -461,24 +500,14 @@ mod tests {
     #[test]
     fn test_standard_scaler_not_fitted() {
         let scaler = StandardScaler::new();
-        let mut ds = Dataset::new(
-            vec![vec![1.0]],
-            vec![0.0],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ds = Dataset::new(vec![vec![1.0]], vec![0.0], vec!["x".into()], "y");
         assert!(scaler.transform(&mut ds).is_err());
     }
 
     #[test]
     fn test_standard_scaler_roundtrip() {
         let original = vec![2.0, 4.0, 6.0, 8.0];
-        let mut ds = Dataset::new(
-            vec![original.clone()],
-            vec![0.0; 4],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ds = Dataset::new(vec![original.clone()], vec![0.0; 4], vec!["x".into()], "y");
         let mut scaler = StandardScaler::new();
         scaler.fit_transform(&mut ds).unwrap();
         scaler.inverse_transform(&mut ds).unwrap();
@@ -514,22 +543,12 @@ mod tests {
         let data = vec![1.0, 2.0, 3.0, 4.0, 1000.0];
 
         // StandardScaler: the outlier heavily influences mean/std
-        let mut ds_std = Dataset::new(
-            vec![data.clone()],
-            vec![0.0; 5],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ds_std = Dataset::new(vec![data.clone()], vec![0.0; 5], vec!["x".into()], "y");
         let mut std_scaler = StandardScaler::new();
         std_scaler.fit_transform(&mut ds_std).unwrap();
 
         // RobustScaler: outlier has minimal effect on median/IQR
-        let mut ds_rob = Dataset::new(
-            vec![data],
-            vec![0.0; 5],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ds_rob = Dataset::new(vec![data], vec![0.0; 5], vec!["x".into()], "y");
         let mut rob_scaler = RobustScaler::new();
         rob_scaler.fit_transform(&mut ds_rob).unwrap();
 
@@ -547,12 +566,7 @@ mod tests {
     #[test]
     fn test_robust_scaler_roundtrip() {
         let original = vec![2.0, 4.0, 6.0, 8.0];
-        let mut ds = Dataset::new(
-            vec![original.clone()],
-            vec![0.0; 4],
-            vec!["x".into()],
-            "y",
-        );
+        let mut ds = Dataset::new(vec![original.clone()], vec![0.0; 4], vec!["x".into()], "y");
         let mut scaler = RobustScaler::new();
         scaler.fit_transform(&mut ds).unwrap();
         scaler.inverse_transform(&mut ds).unwrap();
@@ -571,9 +585,7 @@ mod tests {
         scaler.fit_sparse(&csc).unwrap();
 
         // Also fit dense for comparison.
-        let mut ds = Dataset::new(
-            cols, vec![0.0; 5], vec!["x".into()], "y",
-        );
+        let mut ds = Dataset::new(cols, vec![0.0; 5], vec!["x".into()], "y");
         let mut scaler_d = StandardScaler::new();
         scaler_d.fit(&mut ds).unwrap();
 
@@ -581,7 +593,8 @@ mod tests {
         assert!(
             (scaler.means[0] - scaler_d.means[0]).abs() < 1e-10,
             "Sparse mean={} vs Dense mean={}",
-            scaler.means[0], scaler_d.means[0]
+            scaler.means[0],
+            scaler_d.means[0]
         );
     }
 

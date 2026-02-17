@@ -8,10 +8,10 @@
 
 pub mod model_viz;
 
-use scry_chart::chart::{Chart, Heatmap, LineChart, BarChart, BoxPlot, ScatterChart};
+use crate::metrics::{ClassificationReport, ConfusionMatrix, PrCurve, RocCurve};
+use scry_chart::chart::{BarChart, BoxPlot, Chart, Heatmap, LineChart, ScatterChart};
 use scry_chart::data::Series;
 use scry_chart::theme::Theme;
-use crate::metrics::{ConfusionMatrix, ClassificationReport, RocCurve, PrCurve};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,8 +21,6 @@ use crate::metrics::{ConfusionMatrix, ClassificationReport, RocCurve, PrCurve};
 fn ml_theme() -> Theme {
     Theme::dark()
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Phase 1 — Audited existing functions
@@ -79,8 +77,16 @@ pub fn roc_chart(curves: &[(&str, &RocCurve)]) -> Chart {
         series.push(Series::new(&label, curve.tpr.clone()));
     }
 
-    // Random baseline — explicit 2-point diagonal.
-    series.push(Series::new("Random", vec![0.0, 1.0]));
+    // Use FPR of first curve as shared x values.
+    let x_vals = curves.first().map(|(_, c)| c.fpr.clone());
+
+    // Random baseline — diagonal y=x. Must match x_values length to avoid
+    // series/x mismatch in LineChart.
+    if let Some(ref x) = x_vals {
+        series.push(Series::new("Random", x.clone()));
+    } else {
+        series.push(Series::new("Random", vec![0.0, 1.0]));
+    }
 
     let mut chart = LineChart::new(series)
         .title("ROC Curve")
@@ -91,9 +97,8 @@ pub fn roc_chart(curves: &[(&str, &RocCurve)]) -> Chart {
         .dash_lines()
         .theme(ml_theme());
 
-    // Use FPR of first curve as x values.
-    if let Some((_, first_curve)) = curves.first() {
-        chart = chart.x_values(first_curve.fpr.clone());
+    if let Some(x) = x_vals {
+        chart = chart.x_values(x);
     }
 
     chart.build()
@@ -137,7 +142,9 @@ pub fn feature_importance_chart(
     top_n: Option<usize>,
 ) -> Chart {
     // Sort by importance descending.
-    let mut pairs: Vec<(String, f64)> = names.iter().cloned()
+    let mut pairs: Vec<(String, f64)> = names
+        .iter()
+        .cloned()
         .zip(importances.iter().copied())
         .collect();
     pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -161,7 +168,8 @@ pub fn feature_importance_chart(
 ///
 /// Includes a zero reference line to highlight bias.
 pub fn residual_plot(y_true: &[f64], y_pred: &[f64]) -> Chart {
-    let residuals: Vec<f64> = y_true.iter()
+    let residuals: Vec<f64> = y_true
+        .iter()
         .zip(y_pred.iter())
         .map(|(t, p)| t - p)
         .collect();
@@ -188,9 +196,10 @@ pub fn regularization_path_chart(
     let mut series = Vec::with_capacity(n_features);
 
     for (feat_idx, name) in feature_names.iter().enumerate() {
-        let values: Vec<f64> = coefficients.iter().map(|coefs| {
-            coefs.get(feat_idx).copied().unwrap_or(0.0)
-        }).collect();
+        let values: Vec<f64> = coefficients
+            .iter()
+            .map(|coefs| coefs.get(feat_idx).copied().unwrap_or(0.0))
+            .collect();
         series.push(Series::new(name, values));
     }
 
@@ -215,11 +224,7 @@ pub fn regularization_path_chart(
 ///
 /// `train_sizes` is the x-axis (number of samples).
 /// `train_scores` and `val_scores` are mean metric values at each size.
-pub fn learning_curve(
-    train_sizes: &[f64],
-    train_scores: &[f64],
-    val_scores: &[f64],
-) -> Chart {
+pub fn learning_curve(train_sizes: &[f64], train_scores: &[f64], val_scores: &[f64]) -> Chart {
     LineChart::new(vec![
         Series::new("Training", train_scores.to_vec()),
         Series::new("Validation", val_scores.to_vec()),
@@ -249,7 +254,11 @@ pub fn prediction_error_chart(y_true: &[f64], y_pred: &[f64]) -> Chart {
         Series::new("Predicted vs Actual", y_pred.to_vec()),
     )
     // Add ideal diagonal as a connected second series.
-    .add_named_series("Ideal", &[lo - margin, hi + margin], &[lo - margin, hi + margin])
+    .add_named_series(
+        "Ideal",
+        &[lo - margin, hi + margin],
+        &[lo - margin, hi + margin],
+    )
     .connected()
     .title("Prediction Error")
     .x_label("Actual")
@@ -273,8 +282,13 @@ pub fn calibration_chart(curves: &[(&str, &[f64], &[f64])]) -> Chart {
         }
     }
 
-    // Ideal calibration diagonal.
-    series.push(Series::new("Perfectly calibrated", vec![0.0, 1.0]));
+    // Ideal calibration diagonal y=x. Must match x_values length to avoid
+    // series/x mismatch in LineChart.
+    if let Some(ref x) = x_vals {
+        series.push(Series::new("Perfectly calibrated", x.clone()));
+    } else {
+        series.push(Series::new("Perfectly calibrated", vec![0.0, 1.0]));
+    }
 
     let mut chart = LineChart::new(series)
         .title("Calibration Curve")
@@ -326,10 +340,7 @@ pub fn class_report_chart(report: &ClassificationReport) -> Chart {
 ///
 /// `model_names` are the category labels. Each `(metric_name, values)` tuple
 /// adds a grouped series.
-pub fn metric_comparison_chart(
-    model_names: &[String],
-    metrics: &[(&str, &[f64])],
-) -> Chart {
+pub fn metric_comparison_chart(model_names: &[String], metrics: &[(&str, &[f64])]) -> Chart {
     let mut series = Vec::new();
     for (metric_name, values) in metrics {
         series.push(Series::new(*metric_name, values.to_vec()));
@@ -372,16 +383,28 @@ pub fn elbow_chart(ks: &[usize], inertias: &[f64], optimal_k: Option<usize>) -> 
 ///
 /// `labels` contains the integer cluster label for each point.
 pub fn cluster_scatter(x: &[f64], y: &[f64], labels: &[usize]) -> Chart {
+    let n = x.len().min(y.len()).min(labels.len());
+
+    // Empty input — return a minimal scatter with a placeholder point to
+    // avoid passing empty series to ScatterChart.
+    if n == 0 {
+        return ScatterChart::new(
+            Series::new("Cluster 0 x", vec![0.0]),
+            Series::new("Cluster 0", vec![0.0]),
+        )
+        .title("Cluster Assignments (no data)")
+        .theme(ml_theme())
+        .build();
+    }
+
     // Group points by cluster.
-    let max_label = labels.iter().max().copied().unwrap_or(0);
+    let max_label = labels[..n].iter().max().copied().unwrap_or(0);
     let mut cluster_x: Vec<Vec<f64>> = vec![Vec::new(); max_label + 1];
     let mut cluster_y: Vec<Vec<f64>> = vec![Vec::new(); max_label + 1];
 
-    for (i, &lbl) in labels.iter().enumerate() {
-        if i < x.len() && i < y.len() {
-            cluster_x[lbl].push(x[i]);
-            cluster_y[lbl].push(y[i]);
-        }
+    for i in 0..n {
+        cluster_x[labels[i]].push(x[i]);
+        cluster_y[labels[i]].push(y[i]);
     }
 
     // First cluster as primary series.
@@ -393,11 +416,7 @@ pub fn cluster_scatter(x: &[f64], y: &[f64], labels: &[usize]) -> Chart {
     // Remaining clusters as extra series.
     for k in 1..=max_label {
         if !cluster_x[k].is_empty() {
-            chart = chart.add_named_series(
-                format!("Cluster {k}"),
-                &cluster_x[k],
-                &cluster_y[k],
-            );
+            chart = chart.add_named_series(format!("Cluster {k}"), &cluster_x[k], &cluster_y[k]);
         }
     }
 
@@ -415,9 +434,8 @@ pub fn cluster_scatter(x: &[f64], y: &[f64], labels: &[usize]) -> Chart {
 /// `scores` is the silhouette coefficient for each sample.
 pub fn silhouette_chart(labels: &[usize], scores: &[f64]) -> Chart {
     // Sort samples by (cluster, score descending) and flatten into a bar chart.
-    let mut samples: Vec<(usize, f64)> = labels.iter().copied()
-        .zip(scores.iter().copied())
-        .collect();
+    let mut samples: Vec<(usize, f64)> =
+        labels.iter().copied().zip(scores.iter().copied()).collect();
     samples.sort_by(|a, b| {
         a.0.cmp(&b.0)
             .then(b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -574,22 +592,14 @@ pub fn decision_boundary_chart(
     // Add remaining mesh classes.
     for k in 1..n_classes {
         if !mesh_x[k].is_empty() {
-            chart = chart.add_named_series(
-                format!("Region {k}"),
-                &mesh_x[k],
-                &mesh_y[k],
-            );
+            chart = chart.add_named_series(format!("Region {k}"), &mesh_x[k], &mesh_y[k]);
         }
     }
 
     // Overlay original data as named series.
     for k in 0..n_classes {
         if !data_x[k].is_empty() {
-            chart = chart.add_named_series(
-                format!("Class {k}"),
-                &data_x[k],
-                &data_y[k],
-            );
+            chart = chart.add_named_series(format!("Class {k}"), &data_x[k], &data_y[k]);
         }
     }
 
@@ -639,8 +649,15 @@ pub fn scatter3d_data(
         x.push(x_col[i]);
         y.push(y_col[i]);
         z.push(z_col[i]);
-        // Target is f64; convert to usize for class labels
-        labels.push(dataset.target[i] as usize);
+        // Target is f64; convert to usize for class labels.
+        // Guard against NaN/negative/infinite values that would silently
+        // corrupt the label via `as usize` saturation.
+        let t = dataset.target[i];
+        labels.push(if t.is_finite() && t >= 0.0 {
+            t as usize
+        } else {
+            0
+        });
     }
 
     (x, y, z, labels)
@@ -669,20 +686,30 @@ pub fn scatter3d_chart(
 ) -> scry_chart::chart3d::Chart3D {
     let (x, y, z, labels) = scatter3d_data(dataset, feat_x, feat_y, feat_z);
 
-    let x_name = dataset.feature_names.get(feat_x)
+    let x_name = dataset
+        .feature_names
+        .get(feat_x)
         .map_or("X", |s| s.as_str());
-    let y_name = dataset.feature_names.get(feat_y)
+    let y_name = dataset
+        .feature_names
+        .get(feat_y)
         .map_or("Y", |s| s.as_str());
-    let z_name = dataset.feature_names.get(feat_z)
+    let z_name = dataset
+        .feature_names
+        .get(feat_z)
         .map_or("Z", |s| s.as_str());
 
     let title = dataset.class_labels.as_ref().map_or_else(
         || format!("{x_name} × {y_name} × {z_name}"),
-        |class_labels| format!(
-            "{} × {} × {} (colored by {})",
-            x_name, y_name, z_name,
-            class_labels.join("/")
-        ),
+        |class_labels| {
+            format!(
+                "{} × {} × {} (colored by {})",
+                x_name,
+                y_name,
+                z_name,
+                class_labels.join("/")
+            )
+        },
     );
 
     scry_chart::chart3d::Chart3D::scatter(&x, &y, &z)
@@ -694,13 +721,101 @@ pub fn scatter3d_chart(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 6 — Training visualization (callback-based)
+// ---------------------------------------------------------------------------
+
+use crate::neural::callback::TrainingHistory;
+
+/// Render training and validation loss over epochs.
+///
+/// If the history contains validation losses, both curves are shown.
+pub fn training_loss_chart(history: &TrainingHistory) -> Chart {
+    let train = history.train_losses();
+    let x: Vec<f64> = (1..=train.len()).map(|i| i as f64).collect();
+
+    let val = history.val_losses();
+    let mut series = vec![Series::new("Train Loss", train)];
+    if val.len() == x.len() {
+        series.push(Series::new("Val Loss", val));
+    }
+
+    LineChart::new(series)
+        .x_values(x)
+        .title("Training Loss")
+        .x_label("Epoch")
+        .y_label("Loss")
+        .with_points()
+        .dash_lines()
+        .theme(ml_theme())
+        .build()
+}
+
+/// Render training and validation metric (accuracy / R²) over epochs.
+///
+/// Shows both curves when validation metrics are available.
+pub fn training_metric_chart(history: &TrainingHistory) -> Chart {
+    let train = history.train_metrics();
+    let x: Vec<f64> = (1..=train.len()).map(|i| i as f64).collect();
+
+    let val = history.val_metrics();
+    let mut series = vec![Series::new("Train Metric", train)];
+    if val.len() == x.len() {
+        series.push(Series::new("Val Metric", val));
+    }
+
+    LineChart::new(series)
+        .x_values(x)
+        .title("Training Metric")
+        .x_label("Epoch")
+        .y_label("Metric")
+        .with_points()
+        .dash_lines()
+        .theme(ml_theme())
+        .build()
+}
+
+/// Render gradient L2 norm over epochs.
+///
+/// Helps diagnose vanishing or exploding gradients.
+pub fn gradient_norm_chart(history: &TrainingHistory) -> Chart {
+    let norms = history.grad_norms();
+    let x: Vec<f64> = (1..=norms.len()).map(|i| i as f64).collect();
+
+    LineChart::new(vec![Series::new("Gradient Norm", norms)])
+        .x_values(x)
+        .title("Gradient Norm per Epoch")
+        .x_label("Epoch")
+        .y_label("L₂ Norm")
+        .with_points()
+        .theme(ml_theme())
+        .build()
+}
+
+/// Render wall-clock epoch time in milliseconds.
+///
+/// Useful for profiling training throughput and spotting bottlenecks.
+pub fn epoch_time_chart(history: &TrainingHistory) -> Chart {
+    let times: Vec<f64> = history.epoch_times_ms().iter().map(|&t| t as f64).collect();
+    let x: Vec<f64> = (1..=times.len()).map(|i| i as f64).collect();
+
+    LineChart::new(vec![Series::new("Time (ms)", times)])
+        .x_values(x)
+        .title("Epoch Time")
+        .x_label("Epoch")
+        .y_label("Time (ms)")
+        .with_points()
+        .theme(ml_theme())
+        .build()
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::{confusion_matrix, roc_curve, pr_curve, classification_report};
+    use crate::metrics::{classification_report, confusion_matrix, pr_curve, roc_curve};
 
     #[test]
     fn test_confusion_matrix_chart_raw() {
@@ -877,7 +992,11 @@ mod tests {
         let y = vec![0.0, 0.1, 1.0, 1.1];
         let labels = vec![0, 0, 1, 1];
         let predict = |px: f64, _py: f64| -> usize {
-            if px < 0.5 { 0 } else { 1 }
+            if px < 0.5 {
+                0
+            } else {
+                1
+            }
         };
         let chart = decision_boundary_chart(&x, &y, &labels, &predict, 10);
         assert!(matches!(chart, Chart::Scatter(_)));
@@ -923,6 +1042,10 @@ mod tests {
 
         // Verify it can render
         let result = chart.render(200, 150);
-        assert!(result.is_ok(), "scatter3d_chart should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "scatter3d_chart should render: {:?}",
+            result.err()
+        );
     }
 }

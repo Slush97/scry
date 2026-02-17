@@ -35,7 +35,8 @@ fn load_csv_dataset(name: &str) -> Dataset {
     }
 
     let mut rdr = csv::Reader::from_path(&target_path).unwrap();
-    let target: Vec<f64> = rdr.records()
+    let target: Vec<f64> = rdr
+        .records()
         .map(|r| r.unwrap()[0].parse::<f64>().unwrap())
         .collect();
 
@@ -57,7 +58,11 @@ fn convergence_logistic_regression() {
     let (train, test) = train_test_split(&ds, 0.2, 42);
 
     let test_rows: Vec<Vec<f64>> = (0..test.n_samples())
-        .map(|i| (0..test.n_features()).map(|j| test.features[j][i]).collect())
+        .map(|i| {
+            (0..test.n_features())
+                .map(|j| test.features[j][i])
+                .collect()
+        })
         .collect();
 
     println!("\n{}", "=".repeat(65));
@@ -94,7 +99,11 @@ fn convergence_lasso() {
     let (train, test) = train_test_split(&ds, 0.2, 42);
 
     let test_rows: Vec<Vec<f64>> = (0..test.n_samples())
-        .map(|i| (0..test.n_features()).map(|j| test.features[j][i]).collect())
+        .map(|i| {
+            (0..test.n_features())
+                .map(|j| test.features[j][i])
+                .collect()
+        })
         .collect();
 
     println!("\n{}", "=".repeat(65));
@@ -133,7 +142,11 @@ fn convergence_elastic_net() {
     let (train, test) = train_test_split(&ds, 0.2, 42);
 
     let test_rows: Vec<Vec<f64>> = (0..test.n_samples())
-        .map(|i| (0..test.n_features()).map(|j| test.features[j][i]).collect())
+        .map(|i| {
+            (0..test.n_features())
+                .map(|j| test.features[j][i])
+                .collect()
+        })
         .collect();
 
     println!("\n{}", "=".repeat(65));
@@ -172,7 +185,11 @@ fn convergence_linear_svc() {
     let (train, test) = train_test_split(&ds, 0.2, 42);
 
     let test_rows: Vec<Vec<f64>> = (0..test.n_samples())
-        .map(|i| (0..test.n_features()).map(|j| test.features[j][i]).collect())
+        .map(|i| {
+            (0..test.n_features())
+                .map(|j| test.features[j][i])
+                .collect()
+        })
         .collect();
 
     println!("\n{}", "=".repeat(65));
@@ -223,7 +240,10 @@ fn convergence_kmeans() {
 
     let mut prev_inertia = f64::MAX;
     for &mi in ITER_STEPS {
-        let mut km = scry_learn::cluster::KMeans::new(3).seed(42).max_iter(mi).n_init(1);
+        let mut km = scry_learn::cluster::KMeans::new(3)
+            .seed(42)
+            .max_iter(mi)
+            .n_init(1);
         km.fit(&ds).unwrap();
         let inertia = km.inertia();
         println!("  {:>10} {:>14.4}", mi, inertia);
@@ -247,7 +267,11 @@ fn convergence_gradient_boosting() {
     let (train, test) = train_test_split(&ds, 0.2, 42);
 
     let test_rows: Vec<Vec<f64>> = (0..test.n_samples())
-        .map(|i| (0..test.n_features()).map(|j| test.features[j][i]).collect())
+        .map(|i| {
+            (0..test.n_features())
+                .map(|j| test.features[j][i])
+                .collect()
+        })
         .collect();
 
     let estimator_steps: &[usize] = &[1, 5, 10, 25, 50, 100];

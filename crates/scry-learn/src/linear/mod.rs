@@ -21,18 +21,18 @@
 //! All other sklearn linear models (`Ridge`, `Lasso`, `ElasticNet`) already use
 //! `alpha`, so those translate directly.
 
-mod regression;
-mod logistic;
-mod lasso;
 mod elastic_net;
+mod lasso;
 mod lbfgs;
-pub(crate) mod svd;
+mod logistic;
 pub(crate) mod qr;
+mod regression;
+pub(crate) mod svd;
 
-pub use regression::LinearRegression;
-pub use logistic::{LogisticRegression, Penalty, Solver};
-pub use lasso::LassoRegression;
 pub use elastic_net::ElasticNet;
+pub use lasso::LassoRegression;
+pub use logistic::{LogisticRegression, Penalty, Solver};
+pub use regression::LinearRegression;
 
 use crate::dataset::Dataset;
 use crate::error::Result;
@@ -60,6 +60,7 @@ use crate::error::Result;
 /// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct Ridge {
     inner: LinearRegression,
 }

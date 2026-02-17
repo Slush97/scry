@@ -7,6 +7,7 @@ authors = ["esoc"]
 description = "Unified CLI tool for pixel-perfect terminal graphics, charts, and animations"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Slush97/scry"
+documentation = "https://docs.rs/scry-cli"
 keywords = ["chart", "cli", "kitty", "graphics", "terminal"]
 categories = ["command-line-utilities", "visualization"]
 readme = "README.md"

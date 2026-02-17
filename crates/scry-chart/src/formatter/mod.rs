@@ -849,19 +849,37 @@ mod tests {
     #[test]
     fn zoom_level_from_span() {
         // Full view → Overview
-        assert_eq!(ZoomLevel::from_domain_span(100.0, 100.0), ZoomLevel::Overview);
+        assert_eq!(
+            ZoomLevel::from_domain_span(100.0, 100.0),
+            ZoomLevel::Overview
+        );
         // 80% → still Overview
-        assert_eq!(ZoomLevel::from_domain_span(80.0, 100.0), ZoomLevel::Overview);
+        assert_eq!(
+            ZoomLevel::from_domain_span(80.0, 100.0),
+            ZoomLevel::Overview
+        );
         // 50% → Standard
-        assert_eq!(ZoomLevel::from_domain_span(50.0, 100.0), ZoomLevel::Standard);
+        assert_eq!(
+            ZoomLevel::from_domain_span(50.0, 100.0),
+            ZoomLevel::Standard
+        );
         // 10% → Detailed
-        assert_eq!(ZoomLevel::from_domain_span(10.0, 100.0), ZoomLevel::Detailed);
+        assert_eq!(
+            ZoomLevel::from_domain_span(10.0, 100.0),
+            ZoomLevel::Detailed
+        );
         // 2% → Microscope
-        assert_eq!(ZoomLevel::from_domain_span(2.0, 100.0), ZoomLevel::Microscope);
+        assert_eq!(
+            ZoomLevel::from_domain_span(2.0, 100.0),
+            ZoomLevel::Microscope
+        );
         // Edge: zero full_span → Standard (safe fallback)
         assert_eq!(ZoomLevel::from_domain_span(10.0, 0.0), ZoomLevel::Standard);
         // Edge: NaN → Standard
-        assert_eq!(ZoomLevel::from_domain_span(f64::NAN, 100.0), ZoomLevel::Standard);
+        assert_eq!(
+            ZoomLevel::from_domain_span(f64::NAN, 100.0),
+            ZoomLevel::Standard
+        );
     }
 
     #[test]

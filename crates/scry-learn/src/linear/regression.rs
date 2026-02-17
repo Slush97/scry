@@ -33,6 +33,7 @@ pub enum LinRegSolver {
 /// the XᵀX/Xᵀy computation is automatically offloaded to GPU compute shaders.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct LinearRegression {
     /// Learned coefficients (one per feature).
     coefficients: Vec<f64>,
@@ -86,6 +87,8 @@ impl LinearRegression {
             LinRegSolver::Qr => self.fit_qr(data),
             LinRegSolver::Svd => self.fit_svd(data),
             LinRegSolver::Auto => {
+                // Normal equations are fast (~350µs). Fall back to SVD for
+                // underdetermined systems or singular matrices.
                 if m >= n {
                     return self.fit_svd(data);
                 }
@@ -229,7 +232,9 @@ impl LinearRegression {
         }
         if target.len() != n {
             return Err(ScryLearnError::InvalidParameter(format!(
-                "target length {} != n_rows {}", target.len(), n
+                "target length {} != n_rows {}",
+                target.len(),
+                n
             )));
         }
 
@@ -557,12 +562,14 @@ mod tests {
         assert!(
             (lr_dense.coefficients()[0] - lr_sparse.coefficients()[0]).abs() < 1e-6,
             "Dense={} vs Sparse={}",
-            lr_dense.coefficients()[0], lr_sparse.coefficients()[0]
+            lr_dense.coefficients()[0],
+            lr_sparse.coefficients()[0]
         );
         assert!(
             (lr_dense.intercept() - lr_sparse.intercept()).abs() < 1e-6,
             "Dense intercept={} vs Sparse={}",
-            lr_dense.intercept(), lr_sparse.intercept()
+            lr_dense.intercept(),
+            lr_sparse.intercept()
         );
     }
 
@@ -582,10 +589,7 @@ mod tests {
         let preds_sparse = lr.predict_sparse(&csr).unwrap();
 
         for (d, s) in preds_dense.iter().zip(preds_sparse.iter()) {
-            assert!(
-                (d - s).abs() < 1e-6,
-                "Dense pred={d} vs Sparse pred={s}"
-            );
+            assert!((d - s).abs() < 1e-6, "Dense pred={d} vs Sparse pred={s}");
         }
     }
 
@@ -595,9 +599,7 @@ mod tests {
         let features = vec![(0..20).map(|i| i as f64).collect::<Vec<f64>>()];
         let target: Vec<f64> = (0..20).map(|i| 2.0 * i as f64 + 3.0).collect();
         let csc = CscMatrix::from_dense(&features);
-        let data = crate::dataset::Dataset::from_sparse(
-            csc, target, vec!["x".into()], "y",
-        );
+        let data = crate::dataset::Dataset::from_sparse(csc, target, vec!["x".into()], "y");
 
         let mut lr = LinearRegression::new();
         lr.fit(&data).unwrap();
@@ -634,6 +636,10 @@ mod gpu_tests {
 
         assert!(lr.coefficients().len() == m);
         let preds = lr.predict(&[vec![1.0; m]]).unwrap();
-        assert!(preds[0].is_finite(), "prediction must be finite, got {}", preds[0]);
+        assert!(
+            preds[0].is_finite(),
+            "prediction must be finite, got {}",
+            preds[0]
+        );
     }
 }

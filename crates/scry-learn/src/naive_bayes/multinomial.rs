@@ -27,7 +27,7 @@
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::sparse::{CscMatrix, CsrMatrix};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 /// Multinomial Naive Bayes — for count/frequency features.
 ///
@@ -37,6 +37,7 @@ use crate::weights::{ClassWeight, compute_sample_weights};
 /// Uses Laplace smoothing (additive smoothing) to handle zero counts.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct MultinomialNB {
     /// Laplace smoothing parameter.
     alpha: f64,
@@ -94,7 +95,9 @@ impl MultinomialNB {
 
         for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate() {
             let c = target_val as usize;
-            if c >= self.n_classes { continue; }
+            if c >= self.n_classes {
+                continue;
+            }
             class_weight_sum[c] += sw;
             for (j, feat_col) in data.features.iter().enumerate() {
                 feature_sum[c][j] += sw * feat_col[i];
@@ -134,7 +137,9 @@ impl MultinomialNB {
         }
         if target.len() != n {
             return Err(ScryLearnError::InvalidParameter(format!(
-                "target length {} != n_rows {}", target.len(), n
+                "target length {} != n_rows {}",
+                target.len(),
+                n
             )));
         }
 
@@ -263,7 +268,9 @@ impl MultinomialNB {
                     .map(|c| {
                         let mut lp = self.log_priors[c];
                         for (j, &x) in row.iter().enumerate() {
-                            if j >= self.log_probs[c].len() { continue; }
+                            if j >= self.log_probs[c].len() {
+                                continue;
+                            }
                             // Multinomial likelihood: x_j * log P(x_j | c).
                             lp += x * self.log_probs[c][j];
                         }
@@ -289,7 +296,6 @@ impl Default for MultinomialNB {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,7 +308,12 @@ mod tests {
             vec![0.0, 1.0, 0.0, 5.0, 6.0, 4.0],
         ];
         let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-        let data = Dataset::new(features, target, vec!["word_a".into(), "word_b".into()], "class");
+        let data = Dataset::new(
+            features,
+            target,
+            vec!["word_a".into(), "word_b".into()],
+            "class",
+        );
 
         let mut nb = MultinomialNB::new();
         nb.fit(&data).unwrap();
@@ -314,10 +325,7 @@ mod tests {
 
     #[test]
     fn test_multinomial_nb_predict_proba() {
-        let features = vec![
-            vec![5.0, 5.0, 0.0, 0.0],
-            vec![0.0, 0.0, 5.0, 5.0],
-        ];
+        let features = vec![vec![5.0, 5.0, 0.0, 0.0], vec![0.0, 0.0, 5.0, 5.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["f0".into(), "f1".into()], "class");
 
@@ -327,7 +335,10 @@ mod tests {
         let probas = nb.predict_proba(&[vec![4.0, 0.0]]).unwrap();
         assert_eq!(probas[0].len(), 2);
         let sum: f64 = probas[0].iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9, "probabilities must sum to 1.0, got {sum}");
+        assert!(
+            (sum - 1.0).abs() < 1e-9,
+            "probabilities must sum to 1.0, got {sum}"
+        );
     }
 
     #[test]
@@ -337,7 +348,12 @@ mod tests {
             vec![0.0, 1.0, 0.0, 5.0, 6.0, 4.0],
         ];
         let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-        let data = Dataset::new(features.clone(), target.clone(), vec!["w_a".into(), "w_b".into()], "class");
+        let data = Dataset::new(
+            features.clone(),
+            target.clone(),
+            vec!["w_a".into(), "w_b".into()],
+            "class",
+        );
 
         let mut nb_dense = MultinomialNB::new();
         nb_dense.fit(&data).unwrap();

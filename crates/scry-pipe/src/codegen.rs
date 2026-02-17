@@ -99,9 +99,7 @@ impl RustCodegen {
     /// (e.g. empty input schema).
     pub fn generate(&self, def: &PipelineDef) -> Result<String, PipeError> {
         if def.input_schema.is_empty() {
-            return Err(PipeError::Codegen(
-                "pipeline has no input features".into(),
-            ));
+            return Err(PipeError::Codegen("pipeline has no input features".into()));
         }
 
         let n_input = def.input_schema.len();
@@ -150,21 +148,17 @@ impl RustCodegen {
         .map_err(|e| PipeError::Codegen(e.to_string()))?;
 
         if let Some(ref name) = self.module_name {
-            writeln!(out, "// Module: {name}")
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "// Module: {name}").map_err(|e| PipeError::Codegen(e.to_string()))?;
         }
 
         if self.no_std {
-            writeln!(out, "#![no_std]")
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "#![no_std]").map_err(|e| PipeError::Codegen(e.to_string()))?;
         }
 
         if self.emit_batch {
             writeln!(out).map_err(|e| PipeError::Codegen(e.to_string()))?;
-            writeln!(out, "extern crate alloc;")
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            writeln!(out, "use alloc::vec::Vec;")
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "extern crate alloc;").map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "use alloc::vec::Vec;").map_err(|e| PipeError::Codegen(e.to_string()))?;
         }
 
         writeln!(out).map_err(|e| PipeError::Codegen(e.to_string()))?;
@@ -183,8 +177,7 @@ impl RustCodegen {
             "/// Transform a single input row into model-ready features."
         )
         .map_err(|e| PipeError::Codegen(e.to_string()))?;
-        writeln!(out, "///")
-            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        writeln!(out, "///").map_err(|e| PipeError::Codegen(e.to_string()))?;
         writeln!(
             out,
             "/// All scaling constants are baked at compile time from the"
@@ -195,8 +188,7 @@ impl RustCodegen {
             "/// Python training environment. Mathematical parity guaranteed."
         )
         .map_err(|e| PipeError::Codegen(e.to_string()))?;
-        writeln!(out, "#[inline]")
-            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        writeln!(out, "#[inline]").map_err(|e| PipeError::Codegen(e.to_string()))?;
         writeln!(
             out,
             "pub fn transform(input: &[f64; {n_input}]) -> [f64; {n_output}] {{"
@@ -218,12 +210,15 @@ impl RustCodegen {
             let feat_idx = step.feature_idx;
             let current_out = out_idx[feat_idx];
 
-            // Feature name for the comment.
+            // Feature name for the comment — sanitized to prevent code injection.
             let feat_name = def
                 .input_schema
                 .iter()
                 .find(|f| f.index == feat_idx)
-                .map_or_else(|| format!("feature_{feat_idx}"), |f| f.name.clone());
+                .map_or_else(
+                    || format!("feature_{feat_idx}"),
+                    |f| sanitize_comment_text(&f.name),
+                );
 
             emit_step(
                 out,
@@ -237,15 +232,21 @@ impl RustCodegen {
             )?;
         }
 
-        writeln!(out, "    out")
-            .map_err(|e| PipeError::Codegen(e.to_string()))?;
-        writeln!(out, "}}")
-            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        writeln!(out, "    out").map_err(|e| PipeError::Codegen(e.to_string()))?;
+        writeln!(out, "}}").map_err(|e| PipeError::Codegen(e.to_string()))?;
         writeln!(out).map_err(|e| PipeError::Codegen(e.to_string()))?;
 
         Ok(())
     }
+}
 
+/// Sanitize a string for safe inclusion in a Rust `//` comment.
+///
+/// Strips newlines, carriage returns, and comment-closing sequences
+/// that could otherwise inject code when feature names are interpolated
+/// into generated source comments.
+fn sanitize_comment_text(s: &str) -> String {
+    s.replace('\n', "_").replace('\r', "_").replace("*/", "_ /")
 }
 
 /// Emit code for a single pipeline step.
@@ -260,235 +261,214 @@ fn emit_step(
     out_idx: &mut [usize],
     next_out: &mut usize,
 ) -> Result<(), PipeError> {
-        match op {
-            TransformOp::StandardScale { mean, std_dev } => {
-                writeln!(
-                    out,
-                    "    // Step {step_num}: standard_scale(\"{feat_name}\") — μ={mean}, σ={std_dev}"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "    out[{current_out}] = (input[{feat_idx}] - {mean}_f64) / {std_dev}_f64;"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::MinMaxScale { min, max } => {
-                let range = max - min;
-                writeln!(
-                    out,
-                    "    // Step {step_num}: min_max_scale(\"{feat_name}\") — min={min}, max={max}"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "    out[{current_out}] = (input[{feat_idx}] - {min}_f64) / {range}_f64;"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::RobustScale { median, iqr } => {
-                writeln!(
+    match op {
+        TransformOp::StandardScale { mean, std_dev } => {
+            writeln!(
+                out,
+                "    // Step {step_num}: standard_scale(\"{feat_name}\") — μ={mean}, σ={std_dev}"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(
+                out,
+                "    out[{current_out}] = (input[{feat_idx}] - {mean}_f64) / {std_dev}_f64;"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        }
+        TransformOp::MinMaxScale { min, max } => {
+            let range = max - min;
+            writeln!(
+                out,
+                "    // Step {step_num}: min_max_scale(\"{feat_name}\") — min={min}, max={max}"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(
+                out,
+                "    out[{current_out}] = (input[{feat_idx}] - {min}_f64) / {range}_f64;"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        }
+        TransformOp::RobustScale { median, iqr } => {
+            writeln!(
                     out,
                     "    // Step {step_num}: robust_scale(\"{feat_name}\") — median={median}, iqr={iqr}"
                 )
                 .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "    out[{current_out}] = (input[{feat_idx}] - {median}_f64) / {iqr}_f64;"
-                )
+            writeln!(
+                out,
+                "    out[{current_out}] = (input[{feat_idx}] - {median}_f64) / {iqr}_f64;"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        }
+        TransformOp::Clip { lower, upper } => {
+            writeln!(
+                out,
+                "    // Step {step_num}: clip(\"{feat_name}\") — [{lower}, {upper}]"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            // Clip operates on the current output value (may have been
+            // transformed by a prior step on the same feature).
+            writeln!(
+                out,
+                "    out[{current_out}] = out[{current_out}].clamp({lower}_f64, {upper}_f64);"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        }
+        TransformOp::Log1p => {
+            writeln!(out, "    // Step {step_num}: log1p(\"{feat_name}\")")
                 .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::Clip { lower, upper } => {
-                writeln!(
-                    out,
-                    "    // Step {step_num}: clip(\"{feat_name}\") — [{lower}, {upper}]"
-                )
+            // Use ln_1p() which is the Rust stdlib method matching the
+            // engine's implementation for exact parity.
+            writeln!(out, "    out[{current_out}] = out[{current_out}].ln_1p();")
                 .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                // Clip operates on the current output value (may have been
-                // transformed by a prior step on the same feature).
-                writeln!(
-                    out,
-                    "    out[{current_out}] = out[{current_out}].clamp({lower}_f64, {upper}_f64);"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::Log1p => {
-                writeln!(
-                    out,
-                    "    // Step {step_num}: log1p(\"{feat_name}\")"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                // Use ln_1p() which is the Rust stdlib method matching the
-                // engine's implementation for exact parity.
-                writeln!(
-                    out,
-                    "    out[{current_out}] = out[{current_out}].ln_1p();"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::Impute {
-                strategy,
-                fill_value,
-            } => {
-                writeln!(
-                    out,
-                    "    // Step {step_num}: impute(\"{feat_name}\") — {strategy:?}, fill={fill_value}"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
+        }
+        TransformOp::Impute {
+            strategy,
+            fill_value,
+        } => {
+            writeln!(
+                out,
+                "    // Step {step_num}: impute(\"{feat_name}\") — {strategy:?}, fill={fill_value}"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(
                     out,
                     "    out[{current_out}] = if input[{feat_idx}].is_nan() {{ {fill_value}_f64 }} else {{ input[{feat_idx}] }};"
                 )
                 .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::LabelEncode { classes } => {
-                let class_list = classes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| format!("\"{c}\"={i}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+        }
+        TransformOp::LabelEncode { classes } => {
+            let class_list = classes
+                .iter()
+                .enumerate()
+                .map(|(i, c)| format!("\"{c}\"={i}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                out,
+                "    // Step {step_num}: label_encode(\"{feat_name}\") — [{class_list}]"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(
+                out,
+                "    out[{current_out}] = input[{feat_idx}]; // pre-encoded as f64 index"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+        }
+        TransformOp::OneHotEncode { categories } => {
+            let n = categories.len();
+            writeln!(
+                out,
+                "    // Step {step_num}: one_hot_encode(\"{feat_name}\") — {n} categories"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(
+                out,
+                "    let ohe_val_{step_num} = input[{feat_idx}] as usize;"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            for (cat_i, cat_name) in categories.iter().enumerate() {
+                let out_pos = current_out + cat_i;
                 writeln!(
-                    out,
-                    "    // Step {step_num}: label_encode(\"{feat_name}\") — [{class_list}]"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "    out[{current_out}] = input[{feat_idx}]; // pre-encoded as f64 index"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::OneHotEncode { categories } => {
-                let n = categories.len();
-                writeln!(
-                    out,
-                    "    // Step {step_num}: one_hot_encode(\"{feat_name}\") — {n} categories"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "    let ohe_val_{step_num} = input[{feat_idx}] as usize;"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                for (cat_i, cat_name) in categories.iter().enumerate() {
-                    let out_pos = current_out + cat_i;
-                    writeln!(
                         out,
                         "    out[{out_pos}] = if ohe_val_{step_num} == {cat_i} {{ 1.0 }} else {{ 0.0 }}; // \"{cat_name}\""
                     )
                     .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                }
-
-                // Update index map: the original feature now occupies N slots.
-                // Shift all features after this one by (N - 1).
-                let expansion = n - 1;
-                if expansion > 0 {
-                    for idx in out_idx.iter_mut() {
-                        if *idx > current_out {
-                            *idx += expansion;
-                        }
-                    }
-                    *next_out += expansion;
-                }
             }
-            TransformOp::BinDiscretize { bin_edges } => {
-                writeln!(
-                    out,
-                    "    // Step {step_num}: bin_discretize(\"{feat_name}\") — {} edges",
-                    bin_edges.len()
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "    out[{current_out}] = {{"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(
-                    out,
-                    "        let x = input[{feat_idx}];"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
 
-                // Emit a chain of if-else for the binary search.
-                for (i, edge) in bin_edges.iter().enumerate() {
-                    if i == 0 {
-                        writeln!(out, "        if x <= {edge}_f64 {{ 0.0_f64 }}")
-                            .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                    } else {
-                        let bin = i as f64;
-                        writeln!(
-                            out,
-                            "        else if x <= {edge}_f64 {{ {bin}_f64 }}"
-                        )
-                        .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            // Update index map: the original feature now occupies N slots.
+            // Shift all features after this one by (N - 1).
+            let expansion = n - 1;
+            if expansion > 0 {
+                for idx in out_idx.iter_mut() {
+                    if *idx > current_out {
+                        *idx += expansion;
                     }
                 }
-                let last_bin = bin_edges.len() as f64;
-                writeln!(out, "        else {{ {last_bin}_f64 }}")
-                    .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                writeln!(out, "    }};")
-                    .map_err(|e| PipeError::Codegen(e.to_string()))?;
-            }
-            TransformOp::Polynomial { degree } => {
-                let d = *degree as usize;
-                writeln!(
-                    out,
-                    "    // Step {step_num}: polynomial(\"{feat_name}\") — degree {degree}"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                // Keep x^1 in the original slot.
-                writeln!(
-                    out,
-                    "    out[{current_out}] = input[{feat_idx}];"
-                )
-                .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                // Emit x^2, x^3, …, x^degree in subsequent slots.
-                for p in 2..=d {
-                    let slot = current_out + p - 1;
-                    if p == 2 {
-                        writeln!(
-                            out,
-                            "    out[{slot}] = input[{feat_idx}] * input[{feat_idx}];"
-                        )
-                        .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                    } else {
-                        let prev_slot = current_out + p - 2;
-                        writeln!(
-                            out,
-                            "    out[{slot}] = out[{prev_slot}] * input[{feat_idx}];"
-                        )
-                        .map_err(|e| PipeError::Codegen(e.to_string()))?;
-                    }
-                }
-
-                // Shift indices for features after this one.
-                let expansion = d.saturating_sub(1);
-                if expansion > 0 {
-                    for idx in out_idx.iter_mut() {
-                        if *idx > current_out {
-                            *idx += expansion;
-                        }
-                    }
-                    *next_out += expansion;
-                }
+                *next_out += expansion;
             }
         }
+        TransformOp::BinDiscretize { bin_edges } => {
+            writeln!(
+                out,
+                "    // Step {step_num}: bin_discretize(\"{feat_name}\") — {} edges",
+                bin_edges.len()
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "    out[{current_out}] = {{")
+                .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "        let x = input[{feat_idx}];")
+                .map_err(|e| PipeError::Codegen(e.to_string()))?;
 
-        writeln!(out).map_err(|e| PipeError::Codegen(e.to_string()))?;
-        Ok(())
+            // Emit a chain of if-else for the binary search.
+            for (i, edge) in bin_edges.iter().enumerate() {
+                if i == 0 {
+                    writeln!(out, "        if x <= {edge}_f64 {{ 0.0_f64 }}")
+                        .map_err(|e| PipeError::Codegen(e.to_string()))?;
+                } else {
+                    let bin = i as f64;
+                    writeln!(out, "        else if x <= {edge}_f64 {{ {bin}_f64 }}")
+                        .map_err(|e| PipeError::Codegen(e.to_string()))?;
+                }
+            }
+            let last_bin = bin_edges.len() as f64;
+            writeln!(out, "        else {{ {last_bin}_f64 }}")
+                .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            writeln!(out, "    }};").map_err(|e| PipeError::Codegen(e.to_string()))?;
+        }
+        TransformOp::Polynomial { degree } => {
+            let d = *degree as usize;
+            writeln!(
+                out,
+                "    // Step {step_num}: polynomial(\"{feat_name}\") — degree {degree}"
+            )
+            .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            // Keep x^1 in the original slot.
+            writeln!(out, "    out[{current_out}] = input[{feat_idx}];")
+                .map_err(|e| PipeError::Codegen(e.to_string()))?;
+            // Emit x^2, x^3, …, x^degree in subsequent slots.
+            for p in 2..=d {
+                let slot = current_out + p - 1;
+                if p == 2 {
+                    writeln!(
+                        out,
+                        "    out[{slot}] = input[{feat_idx}] * input[{feat_idx}];"
+                    )
+                    .map_err(|e| PipeError::Codegen(e.to_string()))?;
+                } else {
+                    let prev_slot = current_out + p - 2;
+                    writeln!(
+                        out,
+                        "    out[{slot}] = out[{prev_slot}] * input[{feat_idx}];"
+                    )
+                    .map_err(|e| PipeError::Codegen(e.to_string()))?;
+                }
+            }
+
+            // Shift indices for features after this one.
+            let expansion = d.saturating_sub(1);
+            if expansion > 0 {
+                for idx in out_idx.iter_mut() {
+                    if *idx > current_out {
+                        *idx += expansion;
+                    }
+                }
+                *next_out += expansion;
+            }
+        }
+    }
+
+    writeln!(out).map_err(|e| PipeError::Codegen(e.to_string()))?;
+    Ok(())
 }
 
 /// Emit the optional `transform_batch` function.
-fn emit_batch_fn(
-    out: &mut String,
-    n_input: usize,
-    n_output: usize,
-) -> Result<(), PipeError> {
-    writeln!(out, "/// Batch transform. Allocates a `Vec` for the results.")
-        .map_err(|e| PipeError::Codegen(e.to_string()))?;
-    writeln!(out, "#[inline]")
-        .map_err(|e| PipeError::Codegen(e.to_string()))?;
+fn emit_batch_fn(out: &mut String, n_input: usize, n_output: usize) -> Result<(), PipeError> {
+    writeln!(
+        out,
+        "/// Batch transform. Allocates a `Vec` for the results."
+    )
+    .map_err(|e| PipeError::Codegen(e.to_string()))?;
+    writeln!(out, "#[inline]").map_err(|e| PipeError::Codegen(e.to_string()))?;
     writeln!(
         out,
         "pub fn transform_batch(inputs: &[[f64; {n_input}]]) -> Vec<[f64; {n_output}]> {{"
@@ -496,8 +476,7 @@ fn emit_batch_fn(
     .map_err(|e| PipeError::Codegen(e.to_string()))?;
     writeln!(out, "    inputs.iter().map(transform).collect()")
         .map_err(|e| PipeError::Codegen(e.to_string()))?;
-    writeln!(out, "}}")
-        .map_err(|e| PipeError::Codegen(e.to_string()))?;
+    writeln!(out, "}}").map_err(|e| PipeError::Codegen(e.to_string()))?;
 
     Ok(())
 }
@@ -696,11 +675,31 @@ mod tests {
                 },
             ],
             input_schema: vec![
-                FeatureSpec { name: "a".into(), dtype: DType::Float64, index: 0 },
-                FeatureSpec { name: "b".into(), dtype: DType::Float64, index: 1 },
-                FeatureSpec { name: "c".into(), dtype: DType::Float64, index: 2 },
-                FeatureSpec { name: "d".into(), dtype: DType::Float64, index: 3 },
-                FeatureSpec { name: "e".into(), dtype: DType::Float64, index: 4 },
+                FeatureSpec {
+                    name: "a".into(),
+                    dtype: DType::Float64,
+                    index: 0,
+                },
+                FeatureSpec {
+                    name: "b".into(),
+                    dtype: DType::Float64,
+                    index: 1,
+                },
+                FeatureSpec {
+                    name: "c".into(),
+                    dtype: DType::Float64,
+                    index: 2,
+                },
+                FeatureSpec {
+                    name: "d".into(),
+                    dtype: DType::Float64,
+                    index: 3,
+                },
+                FeatureSpec {
+                    name: "e".into(),
+                    dtype: DType::Float64,
+                    index: 4,
+                },
             ],
         };
         let codegen = RustCodegen::new().emit_batch(false).no_std(false);
@@ -792,7 +791,11 @@ mod tests {
                 index: 0,
             }],
         };
-        let code = RustCodegen::new().no_std(false).emit_batch(false).generate(&def).unwrap();
+        let code = RustCodegen::new()
+            .no_std(false)
+            .emit_batch(false)
+            .generate(&def)
+            .unwrap();
         assert!(code.contains("is_nan()"), "impute should emit is_nan check");
         assert!(code.contains("99"), "impute should embed fill_value");
     }
@@ -816,7 +819,11 @@ mod tests {
                 index: 0,
             }],
         };
-        let code = RustCodegen::new().no_std(false).emit_batch(false).generate(&def).unwrap();
+        let code = RustCodegen::new()
+            .no_std(false)
+            .emit_batch(false)
+            .generate(&def)
+            .unwrap();
         assert!(code.contains("robust_scale"));
         assert!(code.contains("5"));
         assert!(code.contains("3"));
@@ -846,14 +853,29 @@ mod tests {
                 },
             ],
             input_schema: vec![
-                FeatureSpec { name: "cat".into(), dtype: DType::Float64, index: 0 },
-                FeatureSpec { name: "num".into(), dtype: DType::Float64, index: 1 },
+                FeatureSpec {
+                    name: "cat".into(),
+                    dtype: DType::Float64,
+                    index: 0,
+                },
+                FeatureSpec {
+                    name: "num".into(),
+                    dtype: DType::Float64,
+                    index: 1,
+                },
             ],
         };
-        let code = RustCodegen::new().no_std(false).emit_batch(false).generate(&def).unwrap();
+        let code = RustCodegen::new()
+            .no_std(false)
+            .emit_batch(false)
+            .generate(&def)
+            .unwrap();
         assert!(code.contains("N_OUTPUT: usize = 4"), "3 OHE + 1 = 4");
         // Feature 1's scale should target out[3] after OHE expansion.
-        assert!(code.contains("out[3]"), "feature 1 should be at index 3 after OHE shift");
+        assert!(
+            code.contains("out[3]"),
+            "feature 1 should be at index 3 after OHE shift"
+        );
     }
 
     #[test]
@@ -903,8 +925,46 @@ mod tests {
         // in-place. Clip on feature_idx=0 modifies row[0], Log1p on
         // feature_idx=1 modifies row[1]. So the engine output is 3 values.
         assert_eq!(engine_out.len(), 3);
-        assert!((engine_out[0] - step3).abs() < 1e-10, "age after scale+clip");
-        assert!((engine_out[1] - step4).abs() < 1e-10, "income after scale+log1p");
+        assert!(
+            (engine_out[0] - step3).abs() < 1e-10,
+            "age after scale+clip"
+        );
+        assert!(
+            (engine_out[1] - step4).abs() < 1e-10,
+            "income after scale+log1p"
+        );
         assert!((engine_out[2] - step2).abs() < 1e-10, "city label");
+    }
+
+    #[test]
+    fn sanitize_feature_name_with_newlines() {
+        let def = PipelineDef {
+            name: "sanitize".into(),
+            version: "0.1.0".into(),
+            created_at: "2026-01-01".into(),
+            steps: vec![PipelineStep {
+                feature_idx: 0,
+                op: TransformOp::Log1p,
+            }],
+            input_schema: vec![FeatureSpec {
+                name: "evil\nlet x = 1;".into(),
+                dtype: DType::Float64,
+                index: 0,
+            }],
+        };
+        let code = RustCodegen::new()
+            .no_std(false)
+            .emit_batch(false)
+            .generate(&def)
+            .unwrap();
+        // The newline should have been replaced with '_'
+        assert!(
+            !code.contains("evil\n"),
+            "newlines must be sanitized out of comments"
+        );
+        assert!(
+            code.contains("evil_let x = 1;"),
+            "newline replaced with underscore"
+        );
     }
 }

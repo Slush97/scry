@@ -5,7 +5,7 @@
 //! [`ModelViz`] builder.  From there, model-family-specific methods produce
 //! [`Chart`] instances ready for terminal rendering, PNG, or SVG export.
 
-use scry_chart::chart::{Chart, BarChart, Heatmap, LineChart};
+use scry_chart::chart::{BarChart, Chart, Heatmap, LineChart};
 use scry_chart::data::Series;
 use scry_chart::theme::Theme;
 
@@ -113,10 +113,9 @@ macro_rules! impl_tree_viz {
 }
 
 use crate::tree::{
-    DecisionTreeClassifier, DecisionTreeRegressor,
+    DecisionTreeClassifier, DecisionTreeRegressor, GradientBoostingClassifier,
+    GradientBoostingRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor,
     RandomForestClassifier, RandomForestRegressor,
-    GradientBoostingClassifier, GradientBoostingRegressor,
-    HistGradientBoostingClassifier, HistGradientBoostingRegressor,
 };
 
 impl_tree_viz!(
@@ -131,6 +130,38 @@ impl_tree_viz!(
 );
 
 // ---------------------------------------------------------------------------
+// Gradient Boosting — training history charts
+// ---------------------------------------------------------------------------
+
+macro_rules! impl_gb_training_viz {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl ModelViz<'_, $ty> {
+                /// Training and validation loss chart from boosting history.
+                pub fn training_loss(&self) -> Result<Chart> {
+                    self.model.history().map(super::training_loss_chart)
+                        .ok_or(ScryLearnError::NotFitted)
+                }
+
+                /// Gradient norm per boosting round chart.
+                pub fn gradient_norms(&self) -> Result<Chart> {
+                    self.model.history().map(super::gradient_norm_chart)
+                        .ok_or(ScryLearnError::NotFitted)
+                }
+
+                /// Wall-clock time per boosting round chart.
+                pub fn epoch_times(&self) -> Result<Chart> {
+                    self.model.history().map(super::epoch_time_chart)
+                        .ok_or(ScryLearnError::NotFitted)
+                }
+            }
+        )+
+    };
+}
+
+impl_gb_training_viz!(GradientBoostingClassifier, GradientBoostingRegressor,);
+
+// ---------------------------------------------------------------------------
 // Linear models — coefficient chart
 // ---------------------------------------------------------------------------
 
@@ -140,9 +171,7 @@ trait HasCoefficients {
 }
 
 /// Generate a coefficient bar chart.
-fn linear_coefficient_chart<M: HasCoefficients>(
-    viz: &ModelViz<'_, M>,
-) -> Chart {
+fn linear_coefficient_chart<M: HasCoefficients>(viz: &ModelViz<'_, M>) -> Chart {
     let coefs = viz.model.coef_vec();
     let n = coefs.len();
     let names = viz
@@ -150,10 +179,7 @@ fn linear_coefficient_chart<M: HasCoefficients>(
         .clone()
         .unwrap_or_else(|| default_feature_names(n));
 
-    let mut pairs: Vec<(String, f64)> = names
-        .into_iter()
-        .zip(coefs.iter().copied())
-        .collect();
+    let mut pairs: Vec<(String, f64)> = names.into_iter().zip(coefs.iter().copied()).collect();
     // Sort by absolute value descending.
     pairs.sort_by(|a, b| {
         b.1.abs()
@@ -187,22 +213,30 @@ macro_rules! impl_linear_viz {
     };
 }
 
-use crate::linear::{LinearRegression, LassoRegression, ElasticNet, Ridge};
+use crate::linear::{ElasticNet, LassoRegression, LinearRegression, Ridge};
 
 impl HasCoefficients for LinearRegression {
-    fn coef_vec(&self) -> &[f64] { self.coefficients() }
+    fn coef_vec(&self) -> &[f64] {
+        self.coefficients()
+    }
 }
 
 impl HasCoefficients for LassoRegression {
-    fn coef_vec(&self) -> &[f64] { self.coefficients() }
+    fn coef_vec(&self) -> &[f64] {
+        self.coefficients()
+    }
 }
 
 impl HasCoefficients for ElasticNet {
-    fn coef_vec(&self) -> &[f64] { self.coefficients() }
+    fn coef_vec(&self) -> &[f64] {
+        self.coefficients()
+    }
 }
 
 impl HasCoefficients for Ridge {
-    fn coef_vec(&self) -> &[f64] { self.coefficients() }
+    fn coef_vec(&self) -> &[f64] {
+        self.coefficients()
+    }
 }
 
 impl_linear_viz!(LinearRegression, LassoRegression, ElasticNet, Ridge);
@@ -219,7 +253,11 @@ impl ModelViz<'_, LogisticRegression> {
     /// For multiclass, shows the mean absolute weight per feature.
     pub fn coefficient_chart(&self) -> Chart {
         let weights = self.model.weights();
-        let n_features = if weights.is_empty() { 0 } else { weights[0].len() };
+        let n_features = if weights.is_empty() {
+            0
+        } else {
+            weights[0].len()
+        };
         let names = self
             .feature_names
             .clone()
@@ -237,10 +275,7 @@ impl ModelViz<'_, LogisticRegression> {
                 .collect()
         };
 
-        let mut pairs: Vec<(String, f64)> = names
-            .into_iter()
-            .zip(coefs)
-            .collect();
+        let mut pairs: Vec<(String, f64)> = names.into_iter().zip(coefs).collect();
         pairs.sort_by(|a, b| {
             b.1.abs()
                 .partial_cmp(&a.1.abs())
@@ -271,11 +306,15 @@ trait HasClusterLabels {
 }
 
 impl HasClusterLabels for KMeans {
-    fn label_slice(&self) -> &[usize] { self.labels() }
+    fn label_slice(&self) -> &[usize] {
+        self.labels()
+    }
 }
 
 impl HasClusterLabels for MiniBatchKMeans {
-    fn label_slice(&self) -> &[usize] { self.labels() }
+    fn label_slice(&self) -> &[usize] {
+        self.labels()
+    }
 }
 
 macro_rules! impl_cluster_viz {
@@ -601,24 +640,20 @@ impl ModelViz<'_, MLPClassifier> {
             return Err(ScryLearnError::NotFitted);
         }
         let x: Vec<f64> = (1..=curve.len()).map(|i| i as f64).collect();
-        Ok(LineChart::new(vec![
-            Series::new("Training Loss", curve.to_vec()),
-        ])
-        .x_values(x)
-        .title("MLP Learning Curve")
-        .x_label("Epoch")
-        .y_label("Loss")
-        .with_points()
-        .theme(ml_theme())
-        .build())
+        Ok(
+            LineChart::new(vec![Series::new("Training Loss", curve.to_vec())])
+                .x_values(x)
+                .title("MLP Learning Curve")
+                .x_label("Epoch")
+                .y_label("Loss")
+                .with_points()
+                .theme(ml_theme())
+                .build(),
+        )
     }
 
     /// Confusion matrix heatmap.
-    pub fn confusion_matrix(
-        &self,
-        test_x: &[Vec<f64>],
-        test_y: &[f64],
-    ) -> Result<Chart> {
+    pub fn confusion_matrix(&self, test_x: &[Vec<f64>], test_y: &[f64]) -> Result<Chart> {
         classifier_confusion_matrix(self.model, test_x, test_y)
     }
 
@@ -627,11 +662,39 @@ impl ModelViz<'_, MLPClassifier> {
     /// Returns one heatmap per layer showing the weight matrix.
     /// For networks with many layers, pass `layer_idx` to select one.
     pub fn weight_heatmap(&self, layer_idx: Option<usize>) -> Result<Chart> {
-        weight_heatmap_impl(
-            self.model.weights(),
-            self.model.layer_dims(),
-            layer_idx,
-        )
+        weight_heatmap_impl(self.model.weights(), self.model.layer_dims(), layer_idx)
+    }
+
+    /// Training and validation loss chart from training history.
+    pub fn training_loss(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::training_loss_chart)
+            .ok_or(ScryLearnError::NotFitted)
+    }
+
+    /// Training and validation metric (accuracy) chart.
+    pub fn training_metric(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::training_metric_chart)
+            .ok_or(ScryLearnError::NotFitted)
+    }
+
+    /// Gradient L2 norm per epoch chart.
+    pub fn gradient_norms(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::gradient_norm_chart)
+            .ok_or(ScryLearnError::NotFitted)
+    }
+
+    /// Wall-clock epoch time chart.
+    pub fn epoch_times(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::epoch_time_chart)
+            .ok_or(ScryLearnError::NotFitted)
     }
 }
 
@@ -651,33 +714,25 @@ impl ModelViz<'_, MLPRegressor> {
             return Err(ScryLearnError::NotFitted);
         }
         let x: Vec<f64> = (1..=curve.len()).map(|i| i as f64).collect();
-        Ok(LineChart::new(vec![
-            Series::new("Training Loss (MSE)", curve.to_vec()),
-        ])
-        .x_values(x)
-        .title("MLP Learning Curve")
-        .x_label("Epoch")
-        .y_label("MSE")
-        .with_points()
-        .theme(ml_theme())
-        .build())
+        Ok(
+            LineChart::new(vec![Series::new("Training Loss (MSE)", curve.to_vec())])
+                .x_values(x)
+                .title("MLP Learning Curve")
+                .x_label("Epoch")
+                .y_label("MSE")
+                .with_points()
+                .theme(ml_theme())
+                .build(),
+        )
     }
 
     /// Residual plot (residuals vs fitted values).
-    pub fn residual_plot(
-        &self,
-        test_x: &[Vec<f64>],
-        test_y: &[f64],
-    ) -> Result<Chart> {
+    pub fn residual_plot(&self, test_x: &[Vec<f64>], test_y: &[f64]) -> Result<Chart> {
         regressor_residual_plot(self.model, test_x, test_y)
     }
 
     /// Prediction error chart (predicted vs actual).
-    pub fn prediction_error(
-        &self,
-        test_x: &[Vec<f64>],
-        test_y: &[f64],
-    ) -> Result<Chart> {
+    pub fn prediction_error(&self, test_x: &[Vec<f64>], test_y: &[f64]) -> Result<Chart> {
         regressor_prediction_error(self.model, test_x, test_y)
     }
 
@@ -686,11 +741,39 @@ impl ModelViz<'_, MLPRegressor> {
     /// Returns one heatmap per layer showing the weight matrix.
     /// For networks with many layers, pass `layer_idx` to select one.
     pub fn weight_heatmap(&self, layer_idx: Option<usize>) -> Result<Chart> {
-        weight_heatmap_impl(
-            self.model.weights(),
-            self.model.layer_dims(),
-            layer_idx,
-        )
+        weight_heatmap_impl(self.model.weights(), self.model.layer_dims(), layer_idx)
+    }
+
+    /// Training and validation loss chart from training history.
+    pub fn training_loss(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::training_loss_chart)
+            .ok_or(ScryLearnError::NotFitted)
+    }
+
+    /// Training and validation metric (R²) chart.
+    pub fn training_metric(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::training_metric_chart)
+            .ok_or(ScryLearnError::NotFitted)
+    }
+
+    /// Gradient L2 norm per epoch chart.
+    pub fn gradient_norms(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::gradient_norm_chart)
+            .ok_or(ScryLearnError::NotFitted)
+    }
+
+    /// Wall-clock epoch time chart.
+    pub fn epoch_times(&self) -> Result<Chart> {
+        self.model
+            .history()
+            .map(super::epoch_time_chart)
+            .ok_or(ScryLearnError::NotFitted)
     }
 }
 
@@ -718,9 +801,10 @@ fn weight_heatmap_impl(
     }
     let idx = layer_idx.unwrap_or(0);
     if idx >= weights.len() {
-        return Err(ScryLearnError::InvalidParameter(
-            format!("layer index {idx} out of range (0..{})", weights.len()),
-        ));
+        return Err(ScryLearnError::InvalidParameter(format!(
+            "layer index {idx} out of range (0..{})",
+            weights.len()
+        )));
     }
 
     let (ref w, _) = weights[idx];
@@ -745,7 +829,10 @@ fn weight_heatmap_impl(
         .row_labels(row_labels)
         .col_labels(col_labels)
         .range(-abs_max, abs_max)
-        .title(&format!("Layer {} Weights ({in_size} -> {out_size})", idx + 1))
+        .title(&format!(
+            "Layer {} Weights ({in_size} -> {out_size})",
+            idx + 1
+        ))
         .theme(ml_theme())
         .build())
 }
@@ -778,9 +865,7 @@ mod tests {
     }
 
     fn regression_dataset() -> Dataset {
-        let features = vec![
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        ];
+        let features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]];
         let target = vec![2.1, 4.0, 5.9, 8.1, 9.8, 12.0, 14.1, 16.0];
         Dataset::new(features, target, vec!["x".into()], "y")
     }

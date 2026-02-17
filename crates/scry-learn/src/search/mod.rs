@@ -276,30 +276,19 @@ mod tests {
         let mut grid = ParamGrid::new();
         grid.insert(
             "n_estimators".into(),
-            vec![
-                ParamValue::Int(3),
-                ParamValue::Int(5),
-                ParamValue::Int(10),
-            ],
+            vec![ParamValue::Int(3), ParamValue::Int(5), ParamValue::Int(10)],
         );
         grid.insert(
             "max_depth".into(),
-            vec![
-                ParamValue::Int(2),
-                ParamValue::Int(4),
-                ParamValue::Int(6),
-            ],
+            vec![ParamValue::Int(2), ParamValue::Int(4), ParamValue::Int(6)],
         );
 
-        let result = RandomizedSearchCV::new(
-            RandomForestClassifier::new(),
-            grid,
-        )
-        .n_iter(5)
-        .cv(3)
-        .seed(99)
-        .fit(&data)
-        .unwrap();
+        let result = RandomizedSearchCV::new(RandomForestClassifier::new(), grid)
+            .n_iter(5)
+            .cv(3)
+            .seed(99)
+            .fit(&data)
+            .unwrap();
 
         // Should have evaluated exactly 5 combos (out of 9 total).
         assert_eq!(result.cv_results().len(), 5);
@@ -316,7 +305,10 @@ mod tests {
     fn test_cartesian_product() {
         let mut grid = ParamGrid::new();
         grid.insert("a".into(), vec![ParamValue::Int(1), ParamValue::Int(2)]);
-        grid.insert("b".into(), vec![ParamValue::Float(0.1), ParamValue::Float(0.2)]);
+        grid.insert(
+            "b".into(),
+            vec![ParamValue::Float(0.1), ParamValue::Float(0.2)],
+        );
         let combos = cartesian_product(&grid);
         assert_eq!(combos.len(), 4);
     }
@@ -334,8 +326,7 @@ mod tests {
     fn test_empty_grid() {
         let data = iris_like();
         let grid = ParamGrid::new();
-        let result = GridSearchCV::new(DecisionTreeClassifier::new(), grid)
-            .fit(&data);
+        let result = GridSearchCV::new(DecisionTreeClassifier::new(), grid).fit(&data);
         assert!(result.is_err());
     }
 
@@ -343,20 +334,22 @@ mod tests {
     fn test_grid_search_logistic() {
         let data = iris_like();
         let mut grid = ParamGrid::new();
-        grid.insert("max_iter".into(), vec![
-            ParamValue::Int(50), ParamValue::Int(200),
-        ]);
-        let result = GridSearchCV::new(
-            crate::linear::LogisticRegression::new(),
-            grid,
-        )
-        .cv(3)
-        .scoring(crate::metrics::accuracy)
-        .fit(&data)
-        .unwrap();
+        grid.insert(
+            "max_iter".into(),
+            vec![ParamValue::Int(50), ParamValue::Int(200)],
+        );
+        let result = GridSearchCV::new(crate::linear::LogisticRegression::new(), grid)
+            .cv(3)
+            .scoring(crate::metrics::accuracy)
+            .fit(&data)
+            .unwrap();
 
         assert_eq!(result.cv_results().len(), 2);
-        assert!(result.best_score() > 0.5, "logistic best score too low: {:.3}", result.best_score());
+        assert!(
+            result.best_score() > 0.5,
+            "logistic best score too low: {:.3}",
+            result.best_score()
+        );
         assert!(result.best_params().contains_key("max_iter"));
     }
 
@@ -364,20 +357,22 @@ mod tests {
     fn test_grid_search_knn() {
         let data = iris_like();
         let mut grid = ParamGrid::new();
-        grid.insert("k".into(), vec![
-            ParamValue::Int(1), ParamValue::Int(3), ParamValue::Int(5),
-        ]);
-        let result = GridSearchCV::new(
-            crate::neighbors::KnnClassifier::new(),
-            grid,
-        )
-        .cv(3)
-        .scoring(crate::metrics::accuracy)
-        .fit(&data)
-        .unwrap();
+        grid.insert(
+            "k".into(),
+            vec![ParamValue::Int(1), ParamValue::Int(3), ParamValue::Int(5)],
+        );
+        let result = GridSearchCV::new(crate::neighbors::KnnClassifier::new(), grid)
+            .cv(3)
+            .scoring(crate::metrics::accuracy)
+            .fit(&data)
+            .unwrap();
 
         assert_eq!(result.cv_results().len(), 3);
-        assert!(result.best_score() > 0.7, "knn best score too low: {:.3}", result.best_score());
+        assert!(
+            result.best_score() > 0.7,
+            "knn best score too low: {:.3}",
+            result.best_score()
+        );
         assert!(result.best_params().contains_key("k"));
     }
 
@@ -385,23 +380,26 @@ mod tests {
     fn test_grid_search_gbc() {
         let data = iris_like();
         let mut grid = ParamGrid::new();
-        grid.insert("n_estimators".into(), vec![
-            ParamValue::Int(10), ParamValue::Int(20),
-        ]);
-        grid.insert("max_depth".into(), vec![
-            ParamValue::Int(2), ParamValue::Int(3),
-        ]);
-        let result = GridSearchCV::new(
-            crate::tree::GradientBoostingClassifier::new(),
-            grid,
-        )
-        .cv(3)
-        .scoring(crate::metrics::accuracy)
-        .fit(&data)
-        .unwrap();
+        grid.insert(
+            "n_estimators".into(),
+            vec![ParamValue::Int(10), ParamValue::Int(20)],
+        );
+        grid.insert(
+            "max_depth".into(),
+            vec![ParamValue::Int(2), ParamValue::Int(3)],
+        );
+        let result = GridSearchCV::new(crate::tree::GradientBoostingClassifier::new(), grid)
+            .cv(3)
+            .scoring(crate::metrics::accuracy)
+            .fit(&data)
+            .unwrap();
 
         assert_eq!(result.cv_results().len(), 4);
-        assert!(result.best_score() > 0.6, "gbc best score too low: {:.3}", result.best_score());
+        assert!(
+            result.best_score() > 0.6,
+            "gbc best score too low: {:.3}",
+            result.best_score()
+        );
         assert!(result.best_params().contains_key("n_estimators"));
         assert!(result.best_params().contains_key("max_depth"));
     }
@@ -413,27 +411,28 @@ mod tests {
         let mut rng = crate::rng::FastRng::new(42);
         let x: Vec<f64> = (0..n).map(|i| i as f64 / 10.0).collect();
         let target: Vec<f64> = x.iter().map(|&xi| 2.0 * xi + rng.f64() * 0.5).collect();
-        let data = crate::dataset::Dataset::new(
-            vec![x],
-            target,
-            vec!["x".into()],
-            "y",
-        );
+        let data = crate::dataset::Dataset::new(vec![x], target, vec!["x".into()], "y");
         let mut grid = ParamGrid::new();
-        grid.insert("alpha".into(), vec![
-            ParamValue::Float(0.01), ParamValue::Float(0.1), ParamValue::Float(1.0),
-        ]);
-        let result = GridSearchCV::new(
-            crate::linear::LassoRegression::new(),
-            grid,
-        )
-        .cv(3)
-        .scoring(crate::metrics::r2_score)
-        .fit(&data)
-        .unwrap();
+        grid.insert(
+            "alpha".into(),
+            vec![
+                ParamValue::Float(0.01),
+                ParamValue::Float(0.1),
+                ParamValue::Float(1.0),
+            ],
+        );
+        let result = GridSearchCV::new(crate::linear::LassoRegression::new(), grid)
+            .cv(3)
+            .scoring(crate::metrics::r2_score)
+            .fit(&data)
+            .unwrap();
 
         assert_eq!(result.cv_results().len(), 3);
-        assert!(result.best_score() > 0.5, "lasso r2 too low: {:.3}", result.best_score());
+        assert!(
+            result.best_score() > 0.5,
+            "lasso r2 too low: {:.3}",
+            result.best_score()
+        );
         assert!(result.best_params().contains_key("alpha"));
     }
 

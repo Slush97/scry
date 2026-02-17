@@ -25,7 +25,7 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use crate::weights::{ClassWeight, compute_sample_weights};
+use crate::weights::{compute_sample_weights, ClassWeight};
 
 /// Bernoulli Naive Bayes — for binary/boolean features.
 ///
@@ -36,6 +36,7 @@ use crate::weights::{ClassWeight, compute_sample_weights};
 /// converted to binary using the threshold before fitting/predicting.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct BernoulliNB {
     /// Laplace smoothing parameter.
     alpha: f64,
@@ -102,11 +103,15 @@ impl BernoulliNB {
 
         for (i, (&sw, &target_val)) in sample_weights.iter().zip(data.target.iter()).enumerate() {
             let c = target_val as usize;
-            if c >= self.n_classes { continue; }
+            if c >= self.n_classes {
+                continue;
+            }
             class_weight_sum[c] += sw;
             for (j, feat_col) in data.features.iter().enumerate() {
                 let val = feat_col[i];
-                let binary = self.binarize.map_or(val, |thresh| if val > thresh { 1.0 } else { 0.0 });
+                let binary = self
+                    .binarize
+                    .map_or(val, |thresh| if val > thresh { 1.0 } else { 0.0 });
                 feature_count[c][j] += sw * binary;
             }
         }
@@ -162,8 +167,12 @@ impl BernoulliNB {
                     .map(|c| {
                         let mut lp = self.log_priors[c];
                         for (j, &x) in row.iter().enumerate() {
-                            if j >= self.log_probs[c].len() { continue; }
-                            let binary = self.binarize.map_or(x, |thresh| if x > thresh { 1.0 } else { 0.0 });
+                            if j >= self.log_probs[c].len() {
+                                continue;
+                            }
+                            let binary =
+                                self.binarize
+                                    .map_or(x, |thresh| if x > thresh { 1.0 } else { 0.0 });
                             let p = self.log_probs[c][j];
                             if binary > 0.5 {
                                 lp += p.ln();
@@ -192,7 +201,6 @@ impl Default for BernoulliNB {
         Self::new()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -236,10 +244,7 @@ mod tests {
 
     #[test]
     fn test_bernoulli_nb_predict_proba() {
-        let features = vec![
-            vec![1.0, 1.0, 0.0, 0.0],
-            vec![0.0, 0.0, 1.0, 1.0],
-        ];
+        let features = vec![vec![1.0, 1.0, 0.0, 0.0], vec![0.0, 0.0, 1.0, 1.0]];
         let target = vec![0.0, 0.0, 1.0, 1.0];
         let data = Dataset::new(features, target, vec!["f0".into(), "f1".into()], "class");
 
@@ -249,6 +254,9 @@ mod tests {
         let probas = nb.predict_proba(&[vec![1.0, 0.0]]).unwrap();
         assert_eq!(probas[0].len(), 2);
         let sum: f64 = probas[0].iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9, "probabilities must sum to 1.0, got {sum}");
+        assert!(
+            (sum - 1.0).abs() < 1e-9,
+            "probabilities must sum to 1.0, got {sum}"
+        );
     }
 }

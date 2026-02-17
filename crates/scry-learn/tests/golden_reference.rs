@@ -10,7 +10,9 @@ use std::path::PathBuf;
 // ─── Fixture loading helpers ─────────────────────────────────────────────
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 /// Load a feature CSV into column-major format for Dataset.
@@ -73,7 +75,11 @@ fn accuracy(y_true: &[f64], y_pred: &[f64]) -> f64 {
 /// Compute R² score.
 fn r2_score(y_true: &[f64], y_pred: &[f64]) -> f64 {
     let mean = y_true.iter().sum::<f64>() / y_true.len() as f64;
-    let ss_res: f64 = y_true.iter().zip(y_pred).map(|(t, p)| (t - p).powi(2)).sum();
+    let ss_res: f64 = y_true
+        .iter()
+        .zip(y_pred)
+        .map(|(t, p)| (t - p).powi(2))
+        .sum();
     let ss_tot: f64 = y_true.iter().map(|t| (t - mean).powi(2)).sum();
     1.0 - ss_res / ss_tot
 }
@@ -201,7 +207,9 @@ fn golden_logreg_iris() {
     let sklearn = load_sklearn_json();
     let sklearn_acc = sklearn["logreg_iris"]["accuracy"].as_f64().unwrap();
 
-    let mut lr = scry_learn::linear::LogisticRegression::new().alpha(0.0).max_iter(200);
+    let mut lr = scry_learn::linear::LogisticRegression::new()
+        .alpha(0.0)
+        .max_iter(200);
     lr.fit(&data).unwrap();
     let matrix = data.feature_matrix();
     let preds = lr.predict(&matrix).unwrap();
@@ -251,7 +259,10 @@ fn golden_kmeans_iris() {
     let sklearn = load_sklearn_json();
     let sklearn_inertia = sklearn["kmeans_iris"]["inertia"].as_f64().unwrap();
 
-    let mut km = scry_learn::cluster::KMeans::new(3).seed(42).max_iter(300).n_init(10);
+    let mut km = scry_learn::cluster::KMeans::new(3)
+        .seed(42)
+        .max_iter(300)
+        .n_init(10);
     km.fit(&data).unwrap();
     let inertia = km.inertia();
 
@@ -273,9 +284,17 @@ fn golden_scaler_iris() {
     let data = load_dataset("iris");
     let sklearn = load_sklearn_json();
     let sklearn_means: Vec<f64> = sklearn["scaler_iris"]["means"]
-        .as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
     let sklearn_stds: Vec<f64> = sklearn["scaler_iris"]["stds"]
-        .as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
 
     let mut scaler = scry_learn::preprocess::StandardScaler::new();
     scry_learn::preprocess::Transformer::fit(&mut scaler, &data).unwrap();
@@ -293,7 +312,10 @@ fn golden_scaler_iris() {
     // Check stds.
     for j in 0..data.n_features() {
         let mean = data.features[j].iter().sum::<f64>() / data.n_samples() as f64;
-        let var = data.features[j].iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+        let var = data.features[j]
+            .iter()
+            .map(|v| (v - mean).powi(2))
+            .sum::<f64>()
             / data.n_samples() as f64;
         let std = var.sqrt();
         assert!(
@@ -313,7 +335,11 @@ fn golden_pca_iris() {
     let data = load_dataset("iris");
     let sklearn = load_sklearn_json();
     let sklearn_evr: Vec<f64> = sklearn["pca_iris"]["explained_variance_ratio"]
-        .as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
 
     let mut pca = scry_learn::preprocess::Pca::with_n_components(2);
     scry_learn::preprocess::Transformer::fit(&mut pca, &data).unwrap();
@@ -360,8 +386,5 @@ fn golden_knn_digits() {
     let acc = accuracy(&data.target, &preds);
 
     // KNN on digits with k=5 should get ≥98% on training data.
-    assert!(
-        acc >= 0.98,
-        "KNN Digits: scry accuracy {acc:.4} < 98%"
-    );
+    assert!(acc >= 0.98, "KNN Digits: scry accuracy {acc:.4} < 98%");
 }

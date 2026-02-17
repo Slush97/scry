@@ -11,11 +11,18 @@ use super::RenderedChart;
 
 pub(crate) fn render_sparkline(sp: &Sparkline, w: u32, h: u32) -> RenderedChart {
     let theme = &sp.config.theme;
-    let color = sp.color.unwrap_or_else(|| theme.resolve_series_color(0, &crate::data::SeriesStyle::default()));
+    let color = sp
+        .color
+        .unwrap_or_else(|| theme.resolve_series_color(0, &crate::data::SeriesStyle::default()));
 
     let mut canvas = PixelCanvas::new(w, h).background(theme.background);
 
-    let finite_vals: Vec<f64> = sp.values.iter().copied().filter(|v| v.is_finite()).collect();
+    let finite_vals: Vec<f64> = sp
+        .values
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
     if finite_vals.is_empty() {
         return RenderedChart {
             canvas,
@@ -29,7 +36,11 @@ pub(crate) fn render_sparkline(sp: &Sparkline, w: u32, h: u32) -> RenderedChart 
 
     let lo = finite_vals.iter().copied().reduce(f64::min).unwrap();
     let hi = finite_vals.iter().copied().reduce(f64::max).unwrap();
-    let range = if (hi - lo).abs() < f64::EPSILON { 1.0 } else { hi - lo };
+    let range = if (hi - lo).abs() < f64::EPSILON {
+        1.0
+    } else {
+        hi - lo
+    };
     let n = sp.values.len();
 
     let pad = 1.0_f32; // 1px padding
@@ -41,7 +52,9 @@ pub(crate) fn render_sparkline(sp: &Sparkline, w: u32, h: u32) -> RenderedChart 
             // Build points
             let mut points: Vec<(f32, f32)> = Vec::with_capacity(n);
             for (i, &v) in sp.values.iter().enumerate() {
-                if !v.is_finite() { continue; }
+                if !v.is_finite() {
+                    continue;
+                }
                 let px = pad + (i as f32 / (n - 1).max(1) as f32) * wf;
                 let py = pad + (1.0 - ((v - lo) / range) as f32) * hf;
                 points.push((px, py));
@@ -66,7 +79,9 @@ pub(crate) fn render_sparkline(sp: &Sparkline, w: u32, h: u32) -> RenderedChart 
             let gap = (bar_w * 0.15).max(0.5);
             let bar_inner = bar_w - gap;
             for (i, &v) in sp.values.iter().enumerate() {
-                if !v.is_finite() { continue; }
+                if !v.is_finite() {
+                    continue;
+                }
                 let t = ((v - lo) / range) as f32;
                 let bar_h = (t * hf).max(1.0);
                 let bx = pad + i as f32 * bar_w;
@@ -88,14 +103,20 @@ pub(crate) fn render_sparkline(sp: &Sparkline, w: u32, h: u32) -> RenderedChart 
                 scry_engine::style::Color::from_rgba8(200, 80, 80, 220)
             };
             for (i, &v) in sp.values.iter().enumerate() {
-                if !v.is_finite() { continue; }
+                if !v.is_finite() {
+                    continue;
+                }
                 let bx = pad + i as f32 * bar_w;
                 if v >= 0.0 {
-                    canvas = canvas.rect(bx, center_y - half_h, bar_inner, half_h)
-                        .fill(win_color).done();
+                    canvas = canvas
+                        .rect(bx, center_y - half_h, bar_inner, half_h)
+                        .fill(win_color)
+                        .done();
                 } else {
-                    canvas = canvas.rect(bx, center_y, bar_inner, half_h)
-                        .fill(loss_color).done();
+                    canvas = canvas
+                        .rect(bx, center_y, bar_inner, half_h)
+                        .fill(loss_color)
+                        .done();
                 }
             }
         }

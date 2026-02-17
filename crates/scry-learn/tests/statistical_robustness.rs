@@ -35,7 +35,8 @@ fn iris_dataset() -> Dataset {
     }
 
     let mut rdr = csv::Reader::from_path(&target_path).unwrap();
-    let target: Vec<f64> = rdr.records()
+    let target: Vec<f64> = rdr
+        .records()
         .map(|r| r.unwrap()[0].parse::<f64>().unwrap())
         .collect();
 
@@ -47,13 +48,12 @@ fn gen_regression_dataset(n: usize, seed: u64) -> Dataset {
     let mut rng = fastrand::Rng::with_seed(seed);
     let x1: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
     let x2: Vec<f64> = (0..n).map(|_| rng.f64() * 10.0).collect();
-    let y: Vec<f64> = x1.iter().zip(x2.iter())
+    let y: Vec<f64> = x1
+        .iter()
+        .zip(x2.iter())
         .map(|(&a, &b)| 2.0 * a + 3.0 * b + 1.0 + rng.f64() * 0.5)
         .collect();
-    Dataset::new(
-        vec![x1, x2], y,
-        vec!["x1".into(), "x2".into()], "y",
-    )
+    Dataset::new(vec![x1, x2], y, vec!["x1".into(), "x2".into()], "y")
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,11 +85,22 @@ fn multi_seed_random_forest_classifier() {
     let std = (accs.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / accs.len() as f64).sqrt();
 
     eprintln!("RF Classifier 50-seed: mean={mean:.4}, std={std:.4}");
-    eprintln!("  min={:.4}, max={:.4}", accs.iter().cloned().fold(f64::INFINITY, f64::min),
-        accs.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+    eprintln!(
+        "  min={:.4}, max={:.4}",
+        accs.iter().cloned().fold(f64::INFINITY, f64::min),
+        accs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+    );
 
-    assert!(mean >= 0.90, "RF mean accuracy should be ≥90% (got {:.1}%)", mean * 100.0);
-    assert!(std <= 0.10, "RF std should be ≤10% (got {:.1}%)", std * 100.0);
+    assert!(
+        mean >= 0.90,
+        "RF mean accuracy should be ≥90% (got {:.1}%)",
+        mean * 100.0
+    );
+    assert!(
+        std <= 0.10,
+        "RF std should be ≤10% (got {:.1}%)",
+        std * 100.0
+    );
 }
 
 /// RandomForestRegressor on y=2x₁+3x₂+1 across 50 seeds:
@@ -117,8 +128,14 @@ fn multi_seed_random_forest_regressor() {
     let std = (r2s.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / r2s.len() as f64).sqrt();
 
     eprintln!("RF Regressor 50-seed: mean R²={mean:.4}, std={std:.4}");
-    assert!(mean >= 0.85, "RF Regressor mean R² should be ≥0.85 (got {mean:.4})");
-    assert!(std <= 0.10, "RF Regressor std should be ≤0.10 (got {std:.4})");
+    assert!(
+        mean >= 0.85,
+        "RF Regressor mean R² should be ≥0.85 (got {mean:.4})"
+    );
+    assert!(
+        std <= 0.10,
+        "RF Regressor std should be ≤0.10 (got {std:.4})"
+    );
 }
 
 /// GradientBoostingClassifier on Iris across 50 seeds:
@@ -147,8 +164,16 @@ fn multi_seed_gbt_classifier() {
     let std = (accs.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / accs.len() as f64).sqrt();
 
     eprintln!("GBT Classifier 50-seed: mean={mean:.4}, std={std:.4}");
-    assert!(mean >= 0.90, "GBT mean accuracy should be ≥90% (got {:.1}%)", mean * 100.0);
-    assert!(std <= 0.10, "GBT std should be ≤10% (got {:.1}%)", std * 100.0);
+    assert!(
+        mean >= 0.90,
+        "GBT mean accuracy should be ≥90% (got {:.1}%)",
+        mean * 100.0
+    );
+    assert!(
+        std <= 0.10,
+        "GBT std should be ≤10% (got {:.1}%)",
+        std * 100.0
+    );
 }
 
 /// GradientBoostingRegressor on y=2x₁+3x₂+1 across 50 seeds:
@@ -177,8 +202,14 @@ fn multi_seed_gbt_regressor() {
     let std = (r2s.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / r2s.len() as f64).sqrt();
 
     eprintln!("GBT Regressor 50-seed: mean R²={mean:.4}, std={std:.4}");
-    assert!(mean >= 0.85, "GBT Regressor mean R² should be ≥0.85 (got {mean:.4})");
-    assert!(std <= 0.10, "GBT Regressor std should be ≤0.10 (got {std:.4})");
+    assert!(
+        mean >= 0.85,
+        "GBT Regressor mean R² should be ≥0.85 (got {mean:.4})"
+    );
+    assert!(
+        std <= 0.10,
+        "GBT Regressor std should be ≤0.10 (got {std:.4})"
+    );
 }
 
 /// KMeans on Iris across 50 seeds:
@@ -203,7 +234,10 @@ fn multi_seed_kmeans() {
     let std = (scores.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / scores.len() as f64).sqrt();
 
     eprintln!("KMeans 50-seed: mean silhouette={mean:.4}, std={std:.4}");
-    assert!(mean >= 0.40, "KMeans mean silhouette should be ≥0.40 (got {mean:.4})");
+    assert!(
+        mean >= 0.40,
+        "KMeans mean silhouette should be ≥0.40 (got {mean:.4})"
+    );
     assert!(std <= 0.15, "KMeans std should be ≤0.15 (got {std:.4})");
 }
 
@@ -247,8 +281,11 @@ fn scaling_dt_accuracy_vs_dataset_size() {
     }
 
     // Final accuracy (120 samples) should be reasonable
-    assert!(prev_acc >= 0.70,
-        "DT with 120 Iris samples should achieve ≥70% (got {:.1}%)", prev_acc * 100.0);
+    assert!(
+        prev_acc >= 0.70,
+        "DT with 120 Iris samples should achieve ≥70% (got {:.1}%)",
+        prev_acc * 100.0
+    );
 }
 
 /// Regularization effect: Lasso with high alpha produces sparser model.
@@ -258,9 +295,8 @@ fn regularization_lasso_sparsity_increases_with_alpha() {
 
     let data = gen_regression_dataset(300, 42);
 
-    let count_zeros = |coefs: &[f64], thresh: f64| -> usize {
-        coefs.iter().filter(|c| c.abs() < thresh).count()
-    };
+    let count_zeros =
+        |coefs: &[f64], thresh: f64| -> usize { coefs.iter().filter(|c| c.abs() < thresh).count() };
 
     // Low alpha: less regularization, more non-zero coefficients.
     let mut lasso_low = LassoRegression::new().alpha(0.001).max_iter(5000);
@@ -290,9 +326,7 @@ fn overfitting_rf_train_vs_test() {
     let (train, test) = scry_learn::split::train_test_split(&data, 0.3, 42);
 
     // Deep forest with no max_depth → should overfit training data.
-    let mut rf = RandomForestClassifier::new()
-        .n_estimators(100)
-        .seed(42);
+    let mut rf = RandomForestClassifier::new().n_estimators(100).seed(42);
     rf.fit(&train).unwrap();
 
     let train_preds = rf.predict(&train.feature_matrix()).unwrap();
@@ -301,7 +335,11 @@ fn overfitting_rf_train_vs_test() {
     let train_acc = accuracy(&train.target, &train_preds);
     let test_acc = accuracy(&test.target, &test_preds);
 
-    eprintln!("RF train acc: {:.1}%, test acc: {:.1}%", train_acc * 100.0, test_acc * 100.0);
+    eprintln!(
+        "RF train acc: {:.1}%, test acc: {:.1}%",
+        train_acc * 100.0,
+        test_acc * 100.0
+    );
 
     // Training accuracy should be ≥ test accuracy (model fits training data better)
     assert!(
@@ -330,11 +368,17 @@ fn determinism_rf_same_seed() {
     let data = iris_dataset();
     let (train, test) = scry_learn::split::train_test_split(&data, 0.2, 42);
 
-    let mut rf1 = RandomForestClassifier::new().n_estimators(50).max_depth(5).seed(123);
+    let mut rf1 = RandomForestClassifier::new()
+        .n_estimators(50)
+        .max_depth(5)
+        .seed(123);
     rf1.fit(&train).unwrap();
     let preds1 = rf1.predict(&test.feature_matrix()).unwrap();
 
-    let mut rf2 = RandomForestClassifier::new().n_estimators(50).max_depth(5).seed(123);
+    let mut rf2 = RandomForestClassifier::new()
+        .n_estimators(50)
+        .max_depth(5)
+        .seed(123);
     rf2.fit(&train).unwrap();
     let preds2 = rf2.predict(&test.feature_matrix()).unwrap();
 
@@ -357,12 +401,18 @@ fn determinism_gbt_same_seed() {
     let (train, test) = scry_learn::split::train_test_split(&data, 0.2, 42);
 
     let mut gbt1 = GradientBoostingClassifier::new()
-        .n_estimators(50).learning_rate(0.1).max_depth(3).seed(123);
+        .n_estimators(50)
+        .learning_rate(0.1)
+        .max_depth(3)
+        .seed(123);
     gbt1.fit(&train).unwrap();
     let preds1 = gbt1.predict(&test.feature_matrix()).unwrap();
 
     let mut gbt2 = GradientBoostingClassifier::new()
-        .n_estimators(50).learning_rate(0.1).max_depth(3).seed(123);
+        .n_estimators(50)
+        .learning_rate(0.1)
+        .max_depth(3)
+        .seed(123);
     gbt2.fit(&train).unwrap();
     let preds2 = gbt2.predict(&test.feature_matrix()).unwrap();
 
@@ -390,7 +440,10 @@ fn determinism_kmeans_same_seed() {
     km2.fit(&data).unwrap();
     let labels2: Vec<usize> = km2.labels().to_vec();
 
-    assert_eq!(labels1, labels2, "KMeans with same seed should produce identical labels");
+    assert_eq!(
+        labels1, labels2,
+        "KMeans with same seed should produce identical labels"
+    );
     eprintln!("KMeans determinism: identical labels across 2 runs with same seed ✓");
 }
 
@@ -430,15 +483,25 @@ fn convergence_logreg_solvers_agree() {
     eprintln!("LogReg GD accuracy:     {:.1}%", acc_gd * 100.0);
 
     // Both solvers should achieve reasonable accuracy on the same data.
-    assert!(acc_lbfgs >= 0.90, "L-BFGS should achieve ≥90% (got {:.1}%)", acc_lbfgs * 100.0);
-    assert!(acc_gd >= 0.85, "GD should achieve ≥85% (got {:.1}%)", acc_gd * 100.0);
+    assert!(
+        acc_lbfgs >= 0.90,
+        "L-BFGS should achieve ≥90% (got {:.1}%)",
+        acc_lbfgs * 100.0
+    );
+    assert!(
+        acc_gd >= 0.85,
+        "GD should achieve ≥85% (got {:.1}%)",
+        acc_gd * 100.0
+    );
 
     // They should be within 10% of each other.
     let diff = (acc_lbfgs - acc_gd).abs();
     assert!(
         diff <= 0.10,
         "L-BFGS and GD should converge to similar accuracy: L-BFGS={:.1}%, GD={:.1}% (gap={:.1}%)",
-        acc_lbfgs * 100.0, acc_gd * 100.0, diff * 100.0
+        acc_lbfgs * 100.0,
+        acc_gd * 100.0,
+        diff * 100.0
     );
 }
 
@@ -460,8 +523,12 @@ fn convergence_gbt_error_decreases_with_estimators() {
         gbt.fit(&data).unwrap();
 
         let preds = gbt.predict(&data.feature_matrix()).unwrap();
-        let mse: f64 = preds.iter().zip(data.target.iter())
-            .map(|(p, t)| (p - t).powi(2)).sum::<f64>() / data.target.len() as f64;
+        let mse: f64 = preds
+            .iter()
+            .zip(data.target.iter())
+            .map(|(p, t)| (p - t).powi(2))
+            .sum::<f64>()
+            / data.target.len() as f64;
 
         eprintln!("GBT n_estimators={n_est}: MSE={mse:.4}");
         assert!(
