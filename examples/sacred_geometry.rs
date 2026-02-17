@@ -163,10 +163,80 @@ fn glow_color(mode: ColorMode, time: f32) -> C {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut geo = GeoState::new();
+    let start = Instant::now();
+    let mut frozen_time = 0.0_f32;
+
+    run_loop_continuous(
+        960,
+        640,
+        "Sacred Geometry",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::Digit1 => geo.jump_to(0, frozen_time),
+                    WKey::Digit2 => geo.jump_to(1, frozen_time),
+                    WKey::Digit3 => geo.jump_to(2, frozen_time),
+                    WKey::KeyC => geo.color_mode = geo.color_mode.next(),
+                    WKey::Space => geo.paused = !geo.paused,
+                    _ => {}
+                }
+            }
+
+            let elapsed = if geo.paused {
+                frozen_time
+            } else {
+                let e = start.elapsed().as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            if !geo.paused {
+                geo.advance(elapsed);
+            }
+
+            let canvas = build_scene(w, h, &geo, elapsed);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -208,7 +278,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let area = chunks[0];
 
-            let canvas = build_scene(area, &px_state, &geo, elapsed);
+            let font = px_state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            let canvas = build_scene(w, h, &geo, elapsed);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).skip_cache().z_index(-1),
@@ -254,10 +327,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Scene builder — dispatches to pattern builders
 // ═══════════════════════════════════════════════════════════════════
 
-fn build_scene(area: Rect, px_state: &PixelCanvasState, geo: &GeoState, time: f32) -> PixelCanvas {
-    let font = px_state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_scene(w: u32, h: u32, geo: &GeoState, time: f32) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }

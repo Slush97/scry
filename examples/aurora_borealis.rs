@@ -148,10 +148,77 @@ impl AuroraState {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut aurora = AuroraState::new();
+    let start = Instant::now();
+    let mut frozen_time = 0.0_f32;
+
+    run_loop_continuous(
+        960,
+        640,
+        "Aurora Borealis",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::Digit1 => aurora.preset_idx = 0,
+                    WKey::Digit2 => aurora.preset_idx = 1,
+                    WKey::Digit3 => aurora.preset_idx = 2,
+                    WKey::KeyS => aurora.show_stars = !aurora.show_stars,
+                    WKey::KeyR => aurora.show_reflection = !aurora.show_reflection,
+                    WKey::Space => aurora.paused = !aurora.paused,
+                    _ => {}
+                }
+            }
+
+            let elapsed = if aurora.paused {
+                frozen_time
+            } else {
+                let e = start.elapsed().as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            let canvas = build_aurora_scene(w, h, &aurora, elapsed);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -188,7 +255,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
-            let canvas = build_aurora_scene(area, &px_state, &aurora, elapsed);
+            let font = px_state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            let canvas = build_aurora_scene(w, h, &aurora, elapsed);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).skip_cache().z_index(-1),
@@ -236,15 +306,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Scene builder
 // ═══════════════════════════════════════════════════════════════════
 
-fn build_aurora_scene(
-    area: Rect,
-    px_state: &PixelCanvasState,
-    aurora: &AuroraState,
-    time: f32,
-) -> PixelCanvas {
-    let font = px_state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_aurora_scene(w: u32, h: u32, aurora: &AuroraState, time: f32) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }

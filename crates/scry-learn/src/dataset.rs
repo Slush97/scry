@@ -350,10 +350,10 @@ impl Dataset {
             for j in 0..csc.n_cols() {
                 for (i, v) in csc.col(j).iter() {
                     if !v.is_finite() {
-                        let name = self.feature_names.get(j).map_or_else(
-                            || format!("feature[{j}]"),
-                            |n| n.clone(),
-                        );
+                        let name = self
+                            .feature_names
+                            .get(j)
+                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
                         return Err(ScryLearnError::InvalidData(format!(
                             "non-finite value ({v}) in {name} at sample {i}"
                         )));
@@ -364,10 +364,10 @@ impl Dataset {
             for (j, col) in self.features.iter().enumerate() {
                 for (i, &v) in col.iter().enumerate() {
                     if !v.is_finite() {
-                        let name = self.feature_names.get(j).map_or_else(
-                            || format!("feature[{j}]"),
-                            |n| n.clone(),
-                        );
+                        let name = self
+                            .feature_names
+                            .get(j)
+                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
                         return Err(ScryLearnError::InvalidData(format!(
                             "non-finite value ({v}) in {name} at sample {i}"
                         )));
@@ -394,10 +394,10 @@ impl Dataset {
             for j in 0..csc.n_cols() {
                 for (i, v) in csc.col(j).iter() {
                     if v.is_infinite() {
-                        let name = self.feature_names.get(j).map_or_else(
-                            || format!("feature[{j}]"),
-                            |n| n.clone(),
-                        );
+                        let name = self
+                            .feature_names
+                            .get(j)
+                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
                         return Err(ScryLearnError::InvalidData(format!(
                             "infinite value ({v}) in {name} at sample {i}"
                         )));
@@ -408,10 +408,10 @@ impl Dataset {
             for (j, col) in self.features.iter().enumerate() {
                 for (i, &v) in col.iter().enumerate() {
                     if v.is_infinite() {
-                        let name = self.feature_names.get(j).map_or_else(
-                            || format!("feature[{j}]"),
-                            |n| n.clone(),
-                        );
+                        let name = self
+                            .feature_names
+                            .get(j)
+                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
                         return Err(ScryLearnError::InvalidData(format!(
                             "infinite value ({v}) in {name} at sample {i}"
                         )));

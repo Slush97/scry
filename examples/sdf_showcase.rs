@@ -10,9 +10,12 @@
 //!   `1`–`4`  — switch scene preset
 //!   `Space`  — pause/resume animation
 //!   `p`      — toggle per-stage profiler
-//!   `q`      — quit
+//!   `F3`     — toggle stats overlay (window mode)
+//!   `q`/`Esc` — quit
 //!
-//! Run with: `cargo run --example sdf_showcase --features sdf --release`
+//! Run with:
+//!   Terminal: `cargo run --example sdf_showcase --features sdf --release`
+//!   Window:   `cargo run --example sdf_showcase --features "sdf,window" --release -- --window`
 
 #![allow(
     clippy::cast_precision_loss,
@@ -43,7 +46,7 @@ use scry_engine::transport::backend::{ProtocolBackend, TerminalPosition};
 use scry_engine::transport::{self, Picker, ProtocolKind};
 
 // ═══════════════════════════════════════════════════════════════════
-// Resolution cap
+// Resolution cap (terminal mode only)
 // ═══════════════════════════════════════════════════════════════════
 
 const MAX_RENDER_W: u32 = 640;
@@ -205,10 +208,111 @@ fn set_camera(scene: &mut SdfScene, preset: usize, time: f32) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Main loop — direct transport, no widget/rasterizer overhead
+// Render scale steps (shared between terminal and window mode)
 // ═══════════════════════════════════════════════════════════════════
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+const SCALE_STEPS: [f32; 4] = [0.25, 0.5, 0.75, 1.0];
+
+// ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::sdf::overlay::StatsOverlay;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut scenes = build_scenes();
+    let mut preset_idx: usize = 0;
+    let mut paused = false;
+    let start = Instant::now();
+    let mut frozen_time = 0.0_f32;
+    let mut scale_idx: usize = 1; // default 50% — use +/- to adjust
+    let mut show_overlay = true;
+    let mut profile_history = SdfProfileHistory::new(32);
+    let mut stats_overlay = StatsOverlay::new(120);
+
+    run_loop_continuous(
+        960,
+        640,
+        "SDF Showcase",
+        true,
+        move |backend, keys, (w, h)| {
+            // Handle keyboard input
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::Digit1 => preset_idx = 0,
+                    WKey::Digit2 => preset_idx = 1,
+                    WKey::Digit3 => preset_idx = 2,
+                    WKey::Digit4 => preset_idx = 3,
+                    WKey::Space => paused = !paused,
+                    WKey::F3 => show_overlay = !show_overlay,
+                    WKey::Equal => {
+                        if scale_idx < SCALE_STEPS.len() - 1 {
+                            scale_idx += 1;
+                        }
+                    }
+                    WKey::Minus => {
+                        if scale_idx > 0 {
+                            scale_idx -= 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let elapsed = if paused {
+                frozen_time
+            } else {
+                let e = start.elapsed().as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            if w == 0 || h == 0 {
+                return LoopAction::Continue;
+            }
+
+            let render_scale = SCALE_STEPS[scale_idx];
+            set_camera(&mut scenes[preset_idx], preset_idx, elapsed);
+
+            let (mut pixmap, profile) = match SdfRenderer::render_to_pixmap_upscaled_profiled(
+                &scenes[preset_idx],
+                w,
+                h,
+                render_scale,
+                elapsed,
+            ) {
+                Ok(r) => r,
+                Err(_) => return LoopAction::Continue,
+            };
+            profile_history.push(profile);
+
+            if show_overlay {
+                stats_overlay.tick();
+                let summary = profile_history.summary();
+                let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
+                stats_overlay.render_overlay(&mut pixmap, &summary, pct, PRESET_NAMES[preset_idx]);
+            }
+
+            let _ = backend.blit(&pixmap);
+            LoopAction::Continue
+        },
+    )?;
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Terminal mode — direct transport, no widget/rasterizer overhead
+// ═══════════════════════════════════════════════════════════════════
+
+fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     let mut out = stdout();
     out.execute(terminal::EnterAlternateScreen)?;
@@ -233,8 +337,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut profiling = false;
     let mut profile_history = SdfProfileHistory::new(32);
 
-    // Render scale (bicubic upscaler)
-    const SCALE_STEPS: [f32; 4] = [0.25, 0.5, 0.75, 1.0];
     let mut scale_idx: usize = 3; // default 1.0 (full resolution)
 
     loop {
@@ -380,4 +482,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Main
+// ═══════════════════════════════════════════════════════════════════
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            eprintln!("  cargo run --example sdf_showcase --features \"sdf,window\" --release -- --window");
+            std::process::exit(1);
+        }
+    }
+
+    run_terminal()
 }

@@ -84,8 +84,10 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(), target_f64.clone(),
-                (0..nf).map(|j| format!("f{j}")).collect(), "y",
+                col_major.clone(),
+                target_f64.clone(),
+                (0..nf).map(|j| format!("f{j}")).collect(),
+                "y",
             );
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
@@ -96,7 +98,12 @@ fn main() {
             let t1 = Instant::now();
             let _ = std::hint::black_box(m.predict(test).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "DT  scry".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "DT  scry".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
         // smartcore
         {
@@ -107,15 +114,23 @@ fn main() {
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
             let m = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
-                &x, &target_i32, params,
-            ).unwrap();
+                &x,
+                &target_i32,
+                params,
+            )
+            .unwrap();
             let fit_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let rss1 = read_rss_kb();
             let test_x = DenseMatrix::from_2d_vec(&test.to_vec()).unwrap();
             let t1 = Instant::now();
             let _: Vec<i32> = std::hint::black_box(m.predict(&test_x).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "DT  smartcore".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "DT  smartcore".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
     }
 
@@ -127,20 +142,29 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(), target_f64.clone(),
-                (0..nf).map(|j| format!("f{j}")).collect(), "y",
+                col_major.clone(),
+                target_f64.clone(),
+                (0..nf).map(|j| format!("f{j}")).collect(),
+                "y",
             );
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
             let mut m = scry_learn::tree::RandomForestClassifier::new()
-                .n_estimators(50).max_depth(10).seed(42);
+                .n_estimators(50)
+                .max_depth(10)
+                .seed(42);
             m.fit(&ds).unwrap();
             let fit_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let rss1 = read_rss_kb();
             let t1 = Instant::now();
             let _ = std::hint::black_box(m.predict(test).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "RF  scry".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "RF  scry".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
         // smartcore
         {
@@ -152,15 +176,23 @@ fn main() {
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
             let m = smartcore::ensemble::random_forest_classifier::RandomForestClassifier::fit(
-                &x, &target_i32, params,
-            ).unwrap();
+                &x,
+                &target_i32,
+                params,
+            )
+            .unwrap();
             let fit_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let rss1 = read_rss_kb();
             let test_x = DenseMatrix::from_2d_vec(&test.to_vec()).unwrap();
             let t1 = Instant::now();
             let _: Vec<i32> = std::hint::black_box(m.predict(&test_x).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "RF  smartcore".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "RF  smartcore".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
     }
 
@@ -172,8 +204,10 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(), target.clone(),
-                (0..nf).map(|j| format!("f{j}")).collect(), "y",
+                col_major.clone(),
+                target.clone(),
+                (0..nf).map(|j| format!("f{j}")).collect(),
+                "y",
             );
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
@@ -184,23 +218,36 @@ fn main() {
             let t1 = Instant::now();
             let _ = std::hint::black_box(m.predict(test).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "LinReg  scry".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "LinReg  scry".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
         // smartcore
         {
             use smartcore::linalg::basic::matrix::DenseMatrix;
             let x = DenseMatrix::from_2d_vec(&row_major).unwrap();
-            let params = smartcore::linear::linear_regression::LinearRegressionParameters::default();
+            let params =
+                smartcore::linear::linear_regression::LinearRegressionParameters::default();
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
-            let m = smartcore::linear::linear_regression::LinearRegression::fit(&x, &target, params).unwrap();
+            let m =
+                smartcore::linear::linear_regression::LinearRegression::fit(&x, &target, params)
+                    .unwrap();
             let fit_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let rss1 = read_rss_kb();
             let test_x = DenseMatrix::from_2d_vec(&test.to_vec()).unwrap();
             let t1 = Instant::now();
             let _ = std::hint::black_box(m.predict(&test_x).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "LinReg  smartcore".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "LinReg  smartcore".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
     }
 
@@ -212,8 +259,10 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(), target_f64.clone(),
-                (0..nf).map(|j| format!("f{j}")).collect(), "y",
+                col_major.clone(),
+                target_f64.clone(),
+                (0..nf).map(|j| format!("f{j}")).collect(),
+                "y",
             );
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
@@ -224,24 +273,36 @@ fn main() {
             let t1 = Instant::now();
             let _ = std::hint::black_box(m.predict(test).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "KNN  scry".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "KNN  scry".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
         // smartcore
         {
             use smartcore::linalg::basic::matrix::DenseMatrix;
             let x = DenseMatrix::from_2d_vec(&row_major).unwrap();
-            let params = smartcore::neighbors::knn_classifier::KNNClassifierParameters::default()
-                .with_k(5);
+            let params =
+                smartcore::neighbors::knn_classifier::KNNClassifierParameters::default().with_k(5);
             let rss0 = read_rss_kb();
             let t0 = Instant::now();
-            let m = smartcore::neighbors::knn_classifier::KNNClassifier::fit(&x, &target_i32, params).unwrap();
+            let m =
+                smartcore::neighbors::knn_classifier::KNNClassifier::fit(&x, &target_i32, params)
+                    .unwrap();
             let fit_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let rss1 = read_rss_kb();
             let test_x = DenseMatrix::from_2d_vec(&test.to_vec()).unwrap();
             let t1 = Instant::now();
             let _: Vec<i32> = std::hint::black_box(m.predict(&test_x).unwrap());
             let predict_us = t1.elapsed().as_secs_f64() * 1e6;
-            rows.push(Row { label: "KNN  smartcore".into(), rss_kb: rss1 as isize - rss0 as isize, fit_ms, predict_us });
+            rows.push(Row {
+                label: "KNN  smartcore".into(),
+                rss_kb: rss1 as isize - rss0 as isize,
+                fit_ms,
+                predict_us,
+            });
         }
     }
 
@@ -258,28 +319,41 @@ fn main() {
         let other = &pair[1];
 
         let fmt_rss = |kb: isize| -> String {
-            if kb.abs() < 1024 { format!("{kb} KB") }
-            else { format!("{:.1} MB", kb as f64 / 1024.0) }
+            if kb.abs() < 1024 {
+                format!("{kb} KB")
+            } else {
+                format!("{:.1} MB", kb as f64 / 1024.0)
+            }
         };
         let fmt_pred = |us: f64| -> String {
-            if us < 1000.0 { format!("{us:.0}us") }
-            else { format!("{:.1}ms", us / 1000.0) }
+            if us < 1000.0 {
+                format!("{us:.0}us")
+            } else {
+                format!("{:.1}ms", us / 1000.0)
+            }
         };
 
         println!(
             "{:<20} {:>10} {:>12.2} {:>14}",
-            format!("{} scry", labels[idx]), fmt_rss(scry.rss_kb), scry.fit_ms, fmt_pred(scry.predict_us)
+            format!("{} scry", labels[idx]),
+            fmt_rss(scry.rss_kb),
+            scry.fit_ms,
+            fmt_pred(scry.predict_us)
         );
         println!(
             "{:<20} {:>10} {:>12.2} {:>14}",
-            format!("{} smartcore", labels[idx]), fmt_rss(other.rss_kb), other.fit_ms, fmt_pred(other.predict_us)
+            format!("{} smartcore", labels[idx]),
+            fmt_rss(other.rss_kb),
+            other.fit_ms,
+            fmt_pred(other.predict_us)
         );
         // speedup line
         let fit_ratio = other.fit_ms / scry.fit_ms.max(0.001);
         let pred_ratio = other.predict_us / scry.predict_us.max(0.001);
         println!(
             "{:<20} {:>10} {:>12} {:>14}",
-            "", "---",
+            "",
+            "---",
             format!("{fit_ratio:.1}x"),
             format!("{pred_ratio:.1}x"),
         );

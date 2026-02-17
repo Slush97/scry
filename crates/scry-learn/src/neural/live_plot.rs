@@ -139,11 +139,9 @@ impl LivePlotCallback {
     /// Render a final frame. Called automatically when training ends.
     fn finish(&mut self) {
         if self.frame_number > 0 {
-            let _ = self.chart.render_frame(
-                self.config.width,
-                self.config.height,
-                self.frame_number,
-            );
+            let _ =
+                self.chart
+                    .render_frame(self.config.width, self.config.height, self.frame_number);
             self.frame_number += 1;
         }
     }
@@ -164,15 +162,11 @@ impl TrainingCallback for LivePlotCallback {
 
         // Rate-limited rendering (always render first frame).
         let elapsed = self.last_render.elapsed();
-        if self.frame_number == 0
-            || elapsed.as_millis() as u64 >= self.config.render_interval_ms
-        {
+        if self.frame_number == 0 || elapsed.as_millis() as u64 >= self.config.render_interval_ms {
             // Silently ignore render failures (non-terminal, CI, etc.).
-            let _ = self.chart.render_frame(
-                self.config.width,
-                self.config.height,
-                self.frame_number,
-            );
+            let _ =
+                self.chart
+                    .render_frame(self.config.width, self.config.height, self.frame_number);
             self.frame_number += 1;
             self.last_render = std::time::Instant::now();
         }

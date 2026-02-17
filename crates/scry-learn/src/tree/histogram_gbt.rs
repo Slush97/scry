@@ -79,8 +79,14 @@ fn build_histograms(
     {
         if let Ok(gpu) = crate::accel::GpuBackend::new() {
             use crate::accel::ComputeBackend;
-            let accel_hists =
-                gpu.build_histograms(binned, gradients, hessians, sample_indices, n_features, NUM_BINS);
+            let accel_hists = gpu.build_histograms(
+                binned,
+                gradients,
+                hessians,
+                sample_indices,
+                n_features,
+                NUM_BINS,
+            );
             return accel_hists
                 .into_iter()
                 .map(|feat_bins| {

@@ -12,6 +12,7 @@
 //!    shake, slide) firing in sequence with stagger.
 //!
 //! Run with: `cargo run --example spring_sequence_demo`
+//! Window:   `cargo run --example spring_sequence_demo --features window -- --window`
 
 use std::io::stdout;
 use std::time::{Duration, Instant};
@@ -60,10 +61,114 @@ impl Page {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut page_idx: usize = 0;
+    let mut last_frame = Instant::now();
+
+    let mut springs = create_spring_race();
+    let mut seq_player = create_screenplay();
+    let mut preset_players = create_preset_gallery();
+    let mut preset_start = Instant::now();
+
+    run_loop_continuous(
+        960,
+        640,
+        "Spring + Sequence Demo",
+        true,
+        move |backend, keys, (w, h)| {
+            let now = Instant::now();
+            let dt = now - last_frame;
+            last_frame = now;
+            let page = Page::ALL[page_idx];
+
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::ArrowRight | WKey::KeyL => {
+                        page_idx = (page_idx + 1) % Page::ALL.len();
+                    }
+                    WKey::ArrowLeft | WKey::KeyH => {
+                        page_idx = page_idx.checked_sub(1).unwrap_or(Page::ALL.len() - 1);
+                    }
+                    WKey::KeyR => {
+                        springs = create_spring_race();
+                        seq_player = create_screenplay();
+                        preset_players = create_preset_gallery();
+                        preset_start = Instant::now();
+                    }
+                    _ => {}
+                }
+            }
+
+            // Tick active page
+            match page {
+                Page::SpringRace => {
+                    for (spring, _, _) in &mut springs {
+                        spring.advance(dt);
+                    }
+                }
+                Page::SequenceScreenplay => {
+                    seq_player.advance(dt);
+                    if seq_player.is_complete() {
+                        seq_player = create_screenplay();
+                    }
+                }
+                Page::PresetGallery => {
+                    for player in &mut preset_players {
+                        player.advance(dt);
+                    }
+                    if now.duration_since(preset_start) > Duration::from_secs(4) {
+                        preset_players = create_preset_gallery();
+                        preset_start = now;
+                    }
+                }
+            }
+
+            let canvas = match page {
+                Page::SpringRace => build_spring_race_page(w, h, &springs),
+                Page::SequenceScreenplay => build_screenplay_page(w, h, &seq_player),
+                Page::PresetGallery => build_preset_page(w, h, &preset_players),
+            };
+
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -141,10 +246,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
+            let font = state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+
             let canvas = match page {
-                Page::SpringRace => build_spring_race_page(area, &state, &springs),
-                Page::SequenceScreenplay => build_screenplay_page(area, &state, &seq_player),
-                Page::PresetGallery => build_preset_page(area, &state, &preset_players),
+                Page::SpringRace => build_spring_race_page(w, h, &springs),
+                Page::SequenceScreenplay => build_screenplay_page(w, h, &seq_player),
+                Page::PresetGallery => build_preset_page(w, h, &preset_players),
             };
 
             frame.render_stateful_widget(
@@ -232,14 +341,7 @@ fn create_spring_race() -> Vec<SpringEntry> {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn build_spring_race_page(
-    area: Rect,
-    pxstate: &PixelCanvasState,
-    springs: &[SpringEntry],
-) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_spring_race_page(w: u32, h: u32, springs: &[SpringEntry]) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 
@@ -358,14 +460,7 @@ fn create_screenplay() -> SequencePlayer {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn build_screenplay_page(
-    area: Rect,
-    pxstate: &PixelCanvasState,
-    player: &SequencePlayer,
-) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_screenplay_page(w: u32, h: u32, player: &SequencePlayer) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 
@@ -467,14 +562,7 @@ fn create_preset_gallery() -> Vec<SequencePlayer> {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn build_preset_page(
-    area: Rect,
-    pxstate: &PixelCanvasState,
-    players: &[SequencePlayer],
-) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_preset_page(w: u32, h: u32, players: &[SequencePlayer]) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 

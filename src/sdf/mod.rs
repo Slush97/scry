@@ -28,6 +28,7 @@
 pub mod materials;
 pub mod math;
 pub mod noise;
+pub mod overlay;
 pub mod primitives;
 pub mod profiler;
 pub mod renderer;

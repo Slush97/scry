@@ -358,8 +358,7 @@ fn regression_audit_lasso() {
     let mut feat_std = vec![0.0f64; n_features];
     for j in 0..n_features {
         let mean = train_row.iter().map(|r| r[j]).sum::<f64>() / n_train as f64;
-        let var =
-            train_row.iter().map(|r| (r[j] - mean).powi(2)).sum::<f64>() / n_train as f64;
+        let var = train_row.iter().map(|r| (r[j] - mean).powi(2)).sum::<f64>() / n_train as f64;
         feat_mean[j] = mean;
         feat_std[j] = var.sqrt().max(1e-10);
     }
@@ -374,8 +373,7 @@ fn regression_audit_lasso() {
     };
 
     let train_flat = standardize(&train_row);
-    let train_x_nd =
-        ndarray::Array2::from_shape_vec((n_train, n_features), train_flat).unwrap();
+    let train_x_nd = ndarray::Array2::from_shape_vec((n_train, n_features), train_flat).unwrap();
     let train_y_nd = ndarray::Array1::from_vec(train_target);
     let linfa_train_ds = linfa::Dataset::new(train_x_nd, train_y_nd);
 
@@ -452,8 +450,7 @@ fn regression_audit_elastic_net() {
     let mut feat_std = vec![0.0f64; n_features];
     for j in 0..n_features {
         let mean = train_row.iter().map(|r| r[j]).sum::<f64>() / n_train as f64;
-        let var =
-            train_row.iter().map(|r| (r[j] - mean).powi(2)).sum::<f64>() / n_train as f64;
+        let var = train_row.iter().map(|r| (r[j] - mean).powi(2)).sum::<f64>() / n_train as f64;
         feat_mean[j] = mean;
         feat_std[j] = var.sqrt().max(1e-10);
     }
@@ -468,8 +465,7 @@ fn regression_audit_elastic_net() {
     };
 
     let train_flat = standardize(&train_row);
-    let train_x_nd =
-        ndarray::Array2::from_shape_vec((n_train, n_features), train_flat).unwrap();
+    let train_x_nd = ndarray::Array2::from_shape_vec((n_train, n_features), train_flat).unwrap();
     let train_y_nd = ndarray::Array1::from_vec(train_target);
     let linfa_train_ds = linfa::Dataset::new(train_x_nd, train_y_nd);
 

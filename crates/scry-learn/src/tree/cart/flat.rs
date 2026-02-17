@@ -28,6 +28,17 @@ pub struct FlatNode {
     pub threshold: f64,
 }
 
+impl FlatNode {
+    /// Create a new `FlatNode`.
+    pub fn new(right: u32, feature_idx: u32, threshold: f64) -> Self {
+        Self {
+            right,
+            feature_idx,
+            threshold,
+        }
+    }
+}
+
 /// A cache-optimal decision tree stored as a contiguous DFS pre-ordered array.
 ///
 /// - Left child is always the **next** node in memory (free prefetch)
@@ -58,6 +69,23 @@ pub struct FlatTree {
 }
 
 impl FlatTree {
+    /// Create a `FlatTree` from raw components.
+    pub fn new(
+        nodes: Vec<FlatNode>,
+        predictions: Vec<f64>,
+        leaf_probas: Vec<f32>,
+        n_classes_stored: u32,
+    ) -> Self {
+        let node_counts = vec![0; nodes.len()];
+        Self {
+            nodes,
+            predictions,
+            leaf_probas,
+            n_classes_stored,
+            node_counts,
+        }
+    }
+
     /// Flatten a recursive `TreeNode` into a DFS pre-ordered `FlatTree`.
     ///
     /// Predictions and probabilities are stored **only for leaf nodes**.
@@ -136,7 +164,15 @@ impl FlatTree {
                 node_counts.push(*n_samples);
 
                 // Recurse left — left child is always my_idx + 1.
-                Self::flatten_dfs(left, nodes, predictions, leaf_probas, leaf_count, n_classes, node_counts);
+                Self::flatten_dfs(
+                    left,
+                    nodes,
+                    predictions,
+                    leaf_probas,
+                    leaf_count,
+                    n_classes,
+                    node_counts,
+                );
 
                 // Right child index = current length (after entire left subtree).
                 nodes[my_idx].right = nodes.len() as u32;
@@ -342,5 +378,172 @@ impl FlatTree {
             .iter()
             .filter(|n| n.right == LEAF_SENTINEL)
             .count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a single-leaf tree (root is a leaf).
+    fn single_leaf_tree() -> FlatTree {
+        let nodes = vec![FlatNode::new(LEAF_SENTINEL, 0, 0.0)];
+        let predictions = vec![42.0];
+        let leaf_probas = vec![0.3f32, 0.7];
+        FlatTree::new(nodes, predictions, leaf_probas, 2)
+    }
+
+    /// Build a balanced binary tree of depth 3 (7 nodes, 4 leaves).
+    ///
+    /// ```text
+    ///         [0: f0 <= 0.5]
+    ///        /              \
+    ///   [1: f1 <= 0.3]     [4: f1 <= 0.7]
+    ///    /       \          /       \
+    ///  [2:L0]  [3:L1]    [5:L2]  [6:L3]
+    /// ```
+    fn balanced_tree() -> FlatTree {
+        let nodes = vec![
+            FlatNode::new(4, 0, 0.5),  // node 0: split on f0 <= 0.5
+            FlatNode::new(3, 1, 0.3),  // node 1: split on f1 <= 0.3
+            FlatNode::new(LEAF_SENTINEL, 0, 0.0), // node 2: leaf 0
+            FlatNode::new(LEAF_SENTINEL, 1, 0.0), // node 3: leaf 1
+            FlatNode::new(6, 1, 0.7),  // node 4: split on f1 <= 0.7
+            FlatNode::new(LEAF_SENTINEL, 2, 0.0), // node 5: leaf 2
+            FlatNode::new(LEAF_SENTINEL, 3, 0.0), // node 6: leaf 3
+        ];
+        let predictions = vec![1.0, 2.0, 3.0, 4.0];
+        let leaf_probas = vec![
+            1.0, 0.0,  // leaf 0
+            0.0, 1.0,  // leaf 1
+            0.6, 0.4,  // leaf 2
+            0.2, 0.8,  // leaf 3
+        ];
+        FlatTree::new(nodes, predictions, leaf_probas, 2)
+    }
+
+    /// Build an all-left tree of depth 5 (5 internal nodes + 6 leaves).
+    /// Every internal node goes left, so the leftmost path is the deepest.
+    fn all_left_tree(depth: usize) -> FlatTree {
+        let mut nodes = Vec::new();
+        let mut predictions = Vec::new();
+        let mut leaf_count = 0u32;
+
+        fn build(
+            nodes: &mut Vec<FlatNode>,
+            predictions: &mut Vec<f64>,
+            leaf_count: &mut u32,
+            depth: usize,
+            max_depth: usize,
+        ) {
+            if depth >= max_depth {
+                let li = *leaf_count;
+                *leaf_count += 1;
+                nodes.push(FlatNode::new(LEAF_SENTINEL, li, 0.0));
+                predictions.push(li as f64);
+                return;
+            }
+            let my_idx = nodes.len();
+            nodes.push(FlatNode::new(0, 0, 0.5)); // split on f0 <= 0.5
+            // left child
+            build(nodes, predictions, leaf_count, depth + 1, max_depth);
+            // patch right
+            nodes[my_idx].right = nodes.len() as u32;
+            // right child is always a leaf
+            let li = *leaf_count;
+            *leaf_count += 1;
+            nodes.push(FlatNode::new(LEAF_SENTINEL, li, 0.0));
+            predictions.push(li as f64);
+        }
+
+        build(&mut nodes, &mut predictions, &mut leaf_count, 0, depth);
+        FlatTree::new(nodes, predictions, vec![], 0)
+    }
+
+    /// Build an all-right tree of depth 5.
+    fn all_right_tree(depth: usize) -> FlatTree {
+        let mut nodes = Vec::new();
+        let mut predictions = Vec::new();
+        let mut leaf_count = 0u32;
+
+        fn build(
+            nodes: &mut Vec<FlatNode>,
+            predictions: &mut Vec<f64>,
+            leaf_count: &mut u32,
+            depth: usize,
+            max_depth: usize,
+        ) {
+            if depth >= max_depth {
+                let li = *leaf_count;
+                *leaf_count += 1;
+                nodes.push(FlatNode::new(LEAF_SENTINEL, li, 0.0));
+                predictions.push(li as f64);
+                return;
+            }
+            let my_idx = nodes.len();
+            nodes.push(FlatNode::new(0, 0, 0.5)); // split on f0 <= 0.5
+            // left child is always a leaf
+            let li = *leaf_count;
+            *leaf_count += 1;
+            nodes.push(FlatNode::new(LEAF_SENTINEL, li, 0.0));
+            predictions.push(li as f64);
+            // patch right
+            nodes[my_idx].right = nodes.len() as u32;
+            // right child
+            build(nodes, predictions, leaf_count, depth + 1, max_depth);
+        }
+
+        build(&mut nodes, &mut predictions, &mut leaf_count, 0, depth);
+        FlatTree::new(nodes, predictions, vec![], 0)
+    }
+
+    /// Miri-compatible test exercising unsafe predict paths on boundary trees.
+    #[test]
+    fn test_flat_tree_predict_boundaries() {
+        // Single leaf tree.
+        let tree = single_leaf_tree();
+        assert_eq!(tree.predict_sample(&[0.0, 1.0]), 42.0);
+        assert_eq!(tree.predict_sample(&[99.0]), 42.0);
+        let proba = tree.predict_proba_sample(&[0.0], 2);
+        assert!((proba[0] - 0.3).abs() < 1e-5);
+        assert!((proba[1] - 0.7).abs() < 1e-5);
+        assert_eq!(tree.apply_sample(&[0.0]), 0);
+
+        // Balanced tree — test all four leaf paths.
+        let tree = balanced_tree();
+        // f0=0.0 <= 0.5 (left), f1=0.0 <= 0.3 (left) → leaf 0, pred=1.0
+        assert_eq!(tree.predict_sample(&[0.0, 0.0]), 1.0);
+        // f0=0.0 <= 0.5 (left), f1=0.5 > 0.3 (right) → leaf 1, pred=2.0
+        assert_eq!(tree.predict_sample(&[0.0, 0.5]), 2.0);
+        // f0=0.8 > 0.5 (right), f1=0.5 <= 0.7 (left) → leaf 2, pred=3.0
+        assert_eq!(tree.predict_sample(&[0.8, 0.5]), 3.0);
+        // f0=0.8 > 0.5 (right), f1=0.9 > 0.7 (right) → leaf 3, pred=4.0
+        assert_eq!(tree.predict_sample(&[0.8, 0.9]), 4.0);
+        // predict_proba for leaf 3
+        let proba = tree.predict_proba_sample(&[0.8, 0.9], 2);
+        assert!((proba[0] - 0.2).abs() < 1e-5);
+        assert!((proba[1] - 0.8).abs() < 1e-5);
+        // apply
+        assert_eq!(tree.apply_sample(&[0.0, 0.0]), 2); // node index of leaf 0
+        assert_eq!(tree.apply_sample(&[0.8, 0.9]), 6); // node index of leaf 3
+
+        // All-left tree (max_depth=5) — deepest left path has 5 splits + 1 leaf = depth 6.
+        let tree = all_left_tree(5);
+        assert_eq!(tree.depth(), 6);
+        // Sample with f0=0.0 always goes left → reaches deepest leaf.
+        let _ = tree.predict_sample(&[0.0]);
+        // Sample with f0=1.0 always goes right → first right leaf.
+        let _ = tree.predict_sample(&[1.0]);
+        // Predict batch.
+        let preds = tree.predict(&[vec![0.0], vec![1.0], vec![0.5]]);
+        assert_eq!(preds.len(), 3);
+
+        // All-right tree (max_depth=5) — same depth structure.
+        let tree = all_right_tree(5);
+        assert_eq!(tree.depth(), 6);
+        let _ = tree.predict_sample(&[0.0]);
+        let _ = tree.predict_sample(&[1.0]);
+        let preds = tree.predict(&[vec![0.0], vec![1.0]]);
+        assert_eq!(preds.len(), 2);
     }
 }

@@ -33,7 +33,103 @@ struct WaveSource {
     phase: f32,
 }
 
+fn default_sources() -> Vec<WaveSource> {
+    vec![
+        WaveSource {
+            x: 0.35,
+            y: 0.5,
+            phase: 0.0,
+        },
+        WaveSource {
+            x: 0.65,
+            y: 0.5,
+            phase: 0.0,
+        },
+    ]
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut sources = default_sources();
+    // Add a few extra sources in interesting positions for the window demo
+    sources.push(WaveSource {
+        x: 0.5,
+        y: 0.25,
+        phase: 0.5,
+    });
+    sources.push(WaveSource {
+        x: 0.5,
+        y: 0.75,
+        phase: 1.0,
+    });
+    let start = Instant::now();
+
+    run_loop_continuous(
+        960,
+        640,
+        "Wave Interference",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::KeyC => {
+                        sources = default_sources();
+                        sources.push(WaveSource {
+                            x: 0.5,
+                            y: 0.25,
+                            phase: 0.5,
+                        });
+                        sources.push(WaveSource {
+                            x: 0.5,
+                            y: 0.75,
+                            phase: 1.0,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+
+            let t = start.elapsed().as_secs_f32();
+            let canvas = build_wave_pattern(w, h, &sources, t);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Main
+// ═══════════════════════════════════════════════════════════════════
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     crossterm::execute!(
         stdout(),
@@ -52,18 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
     // Start with two sources
-    let mut sources = vec![
-        WaveSource {
-            x: 0.35,
-            y: 0.5,
-            phase: 0.0,
-        },
-        WaveSource {
-            x: 0.65,
-            y: 0.5,
-            phase: 0.0,
-        },
-    ];
+    let mut sources = default_sources();
 
     // Track the main render area for mouse coordinate mapping
     let mut render_area = Rect::default();
@@ -110,18 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                     KeyCode::Char('q') => break,
                     KeyCode::Char('c') => {
-                        sources = vec![
-                            WaveSource {
-                                x: 0.35,
-                                y: 0.5,
-                                phase: 0.0,
-                            },
-                            WaveSource {
-                                x: 0.65,
-                                y: 0.5,
-                                phase: 0.0,
-                            },
-                        ];
+                        sources = default_sources();
                     }
                     _ => {}
                 },

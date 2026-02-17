@@ -26,7 +26,11 @@ mod serde_tests {
         let loaded: LinearRegression = serde_json::from_str(&json).unwrap();
 
         let preds = loaded.predict(&[vec![3.0]]).unwrap();
-        assert!(preds[0] > 5.0 && preds[0] < 7.0, "prediction should be ~6.0, got {}", preds[0]);
+        assert!(
+            preds[0] > 5.0 && preds[0] < 7.0,
+            "prediction should be ~6.0, got {}",
+            preds[0]
+        );
     }
 
     #[test]
@@ -48,7 +52,10 @@ mod serde_tests {
             "expected InvalidParameter for version mismatch, got: {err}"
         );
         let msg = err.to_string();
-        assert!(msg.contains("schema version"), "error should mention schema version: {msg}");
+        assert!(
+            msg.contains("schema version"),
+            "error should mention schema version: {msg}"
+        );
     }
 
     #[test]
@@ -61,7 +68,8 @@ mod serde_tests {
 
         // Remove the _schema_version field entirely to simulate old payload.
         // serde(default) will set it to 0.
-        let stripped = json.replace(",\"_schema_version\":1", "")
+        let stripped = json
+            .replace(",\"_schema_version\":1", "")
             .replace("\"_schema_version\":1,", "");
 
         let loaded: LinearRegression = serde_json::from_str(&stripped).unwrap();

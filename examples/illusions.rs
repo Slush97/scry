@@ -35,7 +35,55 @@ use scry_engine::scene::style::{BlendMode, Color as C, Rect as PxRect, Transform
 use scry_engine::scene::PixelCanvas;
 use scry_engine::transport;
 
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let start = std::time::Instant::now();
+
+    run_loop_continuous(
+        960,
+        640,
+        "Optical Illusions Gallery",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    _ => {}
+                }
+            }
+
+            let t = start.elapsed().as_secs_f32();
+            let canvas = build_illusions(w, h, t);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -58,7 +106,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .constraints([Constraint::Min(1), Constraint::Length(3)])
                 .split(frame.area());
 
-            let canvas = build_illusions(chunks[0], &state, t);
+            let font = state.font_size();
+            let w = u32::from(chunks[0].width) * u32::from(font.width);
+            let h = u32::from(chunks[0].height) * u32::from(font.height);
+            let canvas = build_illusions(w, h, t);
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).z_index(-1),
                 chunks[0],
@@ -116,10 +167,7 @@ fn cell(col: usize, row: usize, total_w: f32, total_h: f32, cols: usize, rows: u
 // Scene builder
 // ═════════════════════════════════════════════════════════════════════════════
 
-fn build_illusions(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
-    let font = state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_illusions(w: u32, h: u32, t: f32) -> PixelCanvas {
     let wf = w as f32;
     let hf = h as f32;
 

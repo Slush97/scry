@@ -33,6 +33,7 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 sdf = ["dep:rayon"]
 input = []
 window = ["dep:winit", "dep:softbuffer"]
+full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "input", "window"]
 
 [dependencies]
 tiny-skia = "0.11"

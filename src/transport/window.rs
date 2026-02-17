@@ -7,22 +7,23 @@
 //! # Usage
 //!
 //! Because `winit` requires the event loop to own the main thread, this
-//! backend provides [`run_loop`] — a helper that opens a window and calls
-//! your rendering closure each frame.
+//! backend provides [`run_loop`] for static scenes and [`run_loop_continuous`]
+//! for animations with keyboard input.
 //!
 //! ```no_run
-//! use scry_engine::transport::window::run_loop;
+//! use scry_engine::transport::window::{run_loop_continuous, LoopAction};
 //! use scry_engine::scene::{PixelCanvas, Color};
 //! use scry_engine::rasterize::Rasterizer;
 //!
-//! run_loop(400, 300, "My App", |backend| {
-//!     let canvas = PixelCanvas::new(400, 300)
+//! run_loop_continuous(400, 300, "My App", true, |backend, keys, (w, h)| {
+//!     let canvas = PixelCanvas::new(w, h)
 //!         .background(Color::from_rgba8(30, 30, 40, 255))
 //!         .circle(200.0, 150.0, 80.0)
 //!             .fill(Color::from_rgba8(70, 130, 180, 255))
 //!             .done();
 //!     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
-//!     backend.blit(&pixmap);
+//!     backend.blit(&pixmap).unwrap();
+//!     LoopAction::Continue
 //! }).unwrap();
 //! ```
 
@@ -33,6 +34,7 @@ use tiny_skia::Pixmap;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use crate::transport::backend::{ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
@@ -122,9 +124,8 @@ impl WindowBackend {
             buf[i] = (r << 16) | (g << 8) | b;
         }
 
-        buf.present().map_err(|e| {
-            PixelCanvasError::Rasterization(format!("surface present failed: {e}"))
-        })?;
+        buf.present()
+            .map_err(|e| PixelCanvasError::Rasterization(format!("surface present failed: {e}")))?;
 
         Ok(())
     }
@@ -132,6 +133,16 @@ impl WindowBackend {
     /// Get a reference to the underlying winit window.
     pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    /// Current surface width.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Current surface height.
+    pub fn height(&self) -> u32 {
+        self.height
     }
 }
 
@@ -171,7 +182,31 @@ impl ProtocolBackend for WindowBackend {
 }
 
 // ---------------------------------------------------------------------------
-// run_loop — convenience entry point
+// LoopAction + WindowKeyEvent
+// ---------------------------------------------------------------------------
+
+/// Action returned by the render callback to control the loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LoopAction {
+    /// Keep running.
+    Continue,
+    /// Exit the loop.
+    Exit,
+}
+
+/// A keyboard event forwarded from winit to the render callback.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct WindowKeyEvent {
+    /// The physical key code.
+    pub code: KeyCode,
+    /// Whether this is a press (true) or release (false).
+    pub pressed: bool,
+}
+
+// ---------------------------------------------------------------------------
+// run_loop — static scenes (Wait control flow)
 // ---------------------------------------------------------------------------
 
 /// Open a native window and run a rendering loop.
@@ -202,9 +237,8 @@ pub fn run_loop<F>(width: u32, height: u32, title: &str, render: F) -> Result<()
 where
     F: FnMut(&mut WindowBackend) + 'static,
 {
-    let event_loop = EventLoop::new().map_err(|e| {
-        PixelCanvasError::Rasterization(format!("event loop creation failed: {e}"))
-    })?;
+    let event_loop = EventLoop::new()
+        .map_err(|e| PixelCanvasError::Rasterization(format!("event loop creation failed: {e}")))?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let mut app = App {
@@ -213,11 +247,12 @@ where
         title: title.to_string(),
         backend: None,
         render: Box::new(render),
+        resizable: false,
     };
 
-    event_loop.run_app(&mut app).map_err(|e| {
-        PixelCanvasError::Rasterization(format!("event loop failed: {e}"))
-    })?;
+    event_loop
+        .run_app(&mut app)
+        .map_err(|e| PixelCanvasError::Rasterization(format!("event loop failed: {e}")))?;
 
     Ok(())
 }
@@ -228,6 +263,7 @@ struct App {
     title: String,
     backend: Option<WindowBackend>,
     render: Box<dyn FnMut(&mut WindowBackend)>,
+    resizable: bool,
 }
 
 impl std::fmt::Debug for App {
@@ -249,7 +285,7 @@ impl ApplicationHandler for App {
         let attrs = Window::default_attributes()
             .with_title(&self.title)
             .with_inner_size(winit::dpi::PhysicalSize::new(self.width, self.height))
-            .with_resizable(false);
+            .with_resizable(self.resizable);
 
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
@@ -285,6 +321,146 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut backend) = self.backend {
                     (self.render)(backend);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// run_loop_continuous — animated scenes (Poll control flow + keyboard)
+// ---------------------------------------------------------------------------
+
+/// Open a native window with continuous rendering and keyboard input.
+///
+/// Unlike [`run_loop`], this uses `ControlFlow::Poll` for continuous frame
+/// delivery and forwards keyboard events to the render callback.
+///
+/// The `render` callback receives:
+/// - `&mut WindowBackend` for blitting
+/// - `&[WindowKeyEvent]` — keyboard events since last frame
+/// - `(u32, u32)` — current window size in pixels (updates on resize)
+///
+/// Return [`LoopAction::Exit`] to close the window.
+///
+/// # Errors
+///
+/// Returns an error if the event loop or window cannot be created.
+pub fn run_loop_continuous<F>(
+    width: u32,
+    height: u32,
+    title: &str,
+    resizable: bool,
+    render: F,
+) -> Result<(), PixelCanvasError>
+where
+    F: FnMut(&mut WindowBackend, &[WindowKeyEvent], (u32, u32)) -> LoopAction + 'static,
+{
+    let event_loop = EventLoop::new()
+        .map_err(|e| PixelCanvasError::Rasterization(format!("event loop creation failed: {e}")))?;
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
+    let mut app = ContinuousApp {
+        width,
+        height,
+        title: title.to_string(),
+        backend: None,
+        render: Box::new(render),
+        pending_keys: Vec::new(),
+        resizable,
+    };
+
+    event_loop
+        .run_app(&mut app)
+        .map_err(|e| PixelCanvasError::Rasterization(format!("event loop failed: {e}")))?;
+
+    Ok(())
+}
+
+struct ContinuousApp {
+    width: u32,
+    height: u32,
+    title: String,
+    backend: Option<WindowBackend>,
+    render: Box<dyn FnMut(&mut WindowBackend, &[WindowKeyEvent], (u32, u32)) -> LoopAction>,
+    pending_keys: Vec<WindowKeyEvent>,
+    resizable: bool,
+}
+
+impl std::fmt::Debug for ContinuousApp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContinuousApp")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("title", &self.title)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ApplicationHandler for ContinuousApp {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.backend.is_some() {
+            return;
+        }
+
+        let attrs = Window::default_attributes()
+            .with_title(&self.title)
+            .with_inner_size(winit::dpi::PhysicalSize::new(self.width, self.height))
+            .with_resizable(self.resizable);
+
+        let window = match event_loop.create_window(attrs) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                eprintln!("scry: failed to create window: {e}");
+                event_loop.exit();
+                return;
+            }
+        };
+
+        match WindowBackend::new(window.clone(), self.width, self.height) {
+            Ok(backend) => {
+                self.backend = Some(backend);
+                window.request_redraw();
+            }
+            Err(e) => {
+                eprintln!("scry: failed to create window backend: {e}");
+                event_loop.exit();
+            }
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
+            WindowEvent::Resized(size) => {
+                self.width = size.width.max(1);
+                self.height = size.height.max(1);
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    self.pending_keys.push(WindowKeyEvent {
+                        code,
+                        pressed: event.state.is_pressed(),
+                    });
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                if let Some(ref mut backend) = self.backend {
+                    let keys: Vec<WindowKeyEvent> = self.pending_keys.drain(..).collect();
+                    let action = (self.render)(backend, &keys, (self.width, self.height));
+                    if action == LoopAction::Exit {
+                        event_loop.exit();
+                        return;
+                    }
+                    backend.window().request_redraw();
                 }
             }
             _ => {}

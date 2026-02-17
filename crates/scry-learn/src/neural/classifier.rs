@@ -20,7 +20,9 @@
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neural::activation::Activation;
-use crate::neural::callback::{self, CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory};
+use crate::neural::callback::{
+    self, CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory,
+};
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};

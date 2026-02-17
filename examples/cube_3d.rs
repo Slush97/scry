@@ -126,10 +126,69 @@ const EDGES: [(usize, usize); 12] = [
 ];
 
 // ───────────────────────────────────────────────────────────────────
+// Window mode
+// ───────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut angle_y: f32 = 0.0;
+    let mut angle_x: f32 = 0.3;
+
+    run_loop_continuous(
+        960,
+        640,
+        "3D Wireframe Cube",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::ArrowLeft => angle_y -= 0.15,
+                    WKey::ArrowRight => angle_y += 0.15,
+                    WKey::ArrowUp => angle_x -= 0.15,
+                    WKey::ArrowDown => angle_x += 0.15,
+                    _ => {}
+                }
+            }
+
+            // Auto-rotate
+            angle_y += 0.02;
+
+            let canvas = build_cube_scene(w, h, angle_y, angle_x);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Main loop
 // ───────────────────────────────────────────────────────────────────
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -152,7 +211,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
-            let canvas = build_cube_scene(area, &state, angle_y, angle_x);
+            let font = state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            let canvas = build_cube_scene(w, h, angle_y, angle_x);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).z_index(-1),
@@ -196,16 +258,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // ───────────────────────────────────────────────────────────────────
 
 #[allow(clippy::cast_precision_loss)]
-fn build_cube_scene(
-    area: Rect,
-    state: &PixelCanvasState,
-    angle_y: f32,
-    angle_x: f32,
-) -> PixelCanvas {
-    let font = state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
-
+fn build_cube_scene(w: u32, h: u32, angle_y: f32, angle_x: f32) -> PixelCanvas {
     let cx = w as f32 / 2.0;
     let cy = h as f32 / 2.0;
     let fov = h as f32 * 0.8; // field of view scales with window

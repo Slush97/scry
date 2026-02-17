@@ -101,12 +101,12 @@ pub mod prelude {
     pub use crate::neighbors::{
         Algorithm, DistanceMetric, KdTree, KnnClassifier, KnnRegressor, WeightFunction,
     };
-    #[cfg(feature = "live-plot")]
-    pub use crate::neural::{LivePlotCallback, LivePlotConfig};
     pub use crate::neural::{
         Activation, BackwardOutput, CallbackAction, Conv2D, Flatten, Layer, MLPClassifier,
         MLPRegressor, MaxPool2D, OptimizerKind, TrainingCallback,
     };
+    #[cfg(feature = "live-plot")]
+    pub use crate::neural::{LivePlotCallback, LivePlotConfig};
     pub use crate::partial_fit::PartialFit;
     pub use crate::pipeline::Pipeline;
     pub use crate::preprocess::{

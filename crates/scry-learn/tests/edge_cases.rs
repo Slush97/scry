@@ -683,7 +683,10 @@ fn nan_knn_no_panic() {
     let mut model = scry_learn::neighbors::KnnClassifier::new().k(1);
     // NaN data should be rejected at fit() with InvalidData error.
     let err = model.fit(&data).unwrap_err();
-    assert!(matches!(err, scry_learn::error::ScryLearnError::InvalidData(_)));
+    assert!(matches!(
+        err,
+        scry_learn::error::ScryLearnError::InvalidData(_)
+    ));
 }
 
 #[test]

@@ -8,10 +8,11 @@
 //! of anti-aliased circles at small scales.
 //!
 //! Controls:
-//! - `r` — randomize interaction rules  
+//! - `r` — randomize interaction rules
 //! - `q` — quit
 //!
 //! Run with: `cargo run --example particle_life --release`
+//! Window:   `cargo run --example particle_life --release --features window -- --window`
 
 use std::io::stdout;
 use std::time::Instant;
@@ -158,7 +159,94 @@ const fn type_color(kind: usize) -> PxColor {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Scene builder
+// ═══════════════════════════════════════════════════════════════════
+
+fn build_particle_scene(w: u32, h: u32, sim: &Simulation) -> PixelCanvas {
+    let mut canvas = PixelCanvas::new(w, h).background(PxColor::from_rgba8(8, 8, 14, 255));
+
+    // Draw particles with glow effect
+    for p in &sim.particles {
+        let color = type_color(p.kind);
+        // Outer glow
+        canvas = canvas
+            .circle(p.x, p.y, 5.0)
+            .fill(color.with_alpha(0.15))
+            .done();
+        // Inner body
+        canvas = canvas.circle(p.x, p.y, 2.5).fill(color).done();
+    }
+
+    canvas
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut sim = Simulation::new(960.0, 640.0);
+    let mut last_frame = Instant::now();
+
+    run_loop_continuous(
+        960,
+        640,
+        "Particle Life",
+        true,
+        move |backend, keys, (w, h)| {
+            let now = Instant::now();
+            let dt = (now - last_frame).as_secs_f32().min(0.05);
+            last_frame = now;
+
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::KeyR => sim.randomize_rules(),
+                    _ => {}
+                }
+            }
+
+            sim.resize(w as f32, h as f32);
+            sim.step(dt * 20.0);
+
+            let canvas = build_particle_scene(w, h, &sim);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Main
+// ═══════════════════════════════════════════════════════════════════
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -195,23 +283,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             sim.resize(w as f32, h as f32);
 
-            let mut canvas = PixelCanvas::new(w, h)
-                .background(PxColor::from_rgba8(8, 8, 14, 255));
-
-            // Draw particles with glow effect
-            for p in &sim.particles {
-                let color = type_color(p.kind);
-                // Outer glow
-                canvas = canvas
-                    .circle(p.x, p.y, 5.0)
-                    .fill(color.with_alpha(0.15))
-                    .done();
-                // Inner body
-                canvas = canvas
-                    .circle(p.x, p.y, 2.5)
-                    .fill(color)
-                    .done();
-            }
+            let canvas = build_particle_scene(w, h, &sim);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).skip_cache(),

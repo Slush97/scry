@@ -83,7 +83,74 @@ const PALETTES: [Palette; 3] = [
     },
 ];
 
+// ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let start = Instant::now();
+    let mut palette_idx = 0usize;
+    let mut paused = false;
+    let mut frozen_time = 0.0_f32;
+
+    run_loop_continuous(
+        960,
+        640,
+        "Postmodern Manifesto",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::KeyC => {
+                        palette_idx = (palette_idx + 1) % PALETTES.len();
+                    }
+                    WKey::Space => paused = !paused,
+                    _ => {}
+                }
+            }
+
+            let elapsed = if paused {
+                frozen_time
+            } else {
+                let t = start.elapsed().as_secs_f32();
+                frozen_time = t;
+                t
+            };
+            let palette = PALETTES[palette_idx];
+
+            let canvas = build_postmodern_scene(w, h, elapsed, palette);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -131,7 +198,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
-            let canvas = build_postmodern_scene(area, &px_state, elapsed, palette);
+            let font = px_state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            let canvas = build_postmodern_scene(w, h, elapsed, palette);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).z_index(-1).skip_cache(),
@@ -170,13 +240,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn build_postmodern_scene(
-    area: Rect,
-    px_state: &PixelCanvasState,
-    t: f32,
-    palette: Palette,
-) -> PixelCanvas {
-    let (w, h, wf, hf) = pixel_size(area, px_state);
+fn build_postmodern_scene(w: u32, h: u32, t: f32, palette: Palette) -> PixelCanvas {
+    let (w, h, wf, hf) = if w == 0 || h == 0 {
+        (1, 1, 1.0, 1.0)
+    } else {
+        (w, h, w as f32, h as f32)
+    };
     let mut canvas = PixelCanvas::new(w, h).background(palette.bg_a);
 
     let cx = wf * 0.5;
@@ -421,16 +490,6 @@ fn build_postmodern_scene(
         .done();
 
     canvas
-}
-
-fn pixel_size(area: Rect, state: &PixelCanvasState) -> (u32, u32, f32, f32) {
-    let font = state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
-    if w == 0 || h == 0 {
-        return (1, 1, 1.0, 1.0);
-    }
-    (w, h, w as f32, h as f32)
 }
 
 fn regular_polygon(cx: f32, cy: f32, radius: f32, sides: usize, rotation: f32) -> Vec<(f32, f32)> {

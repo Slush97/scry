@@ -5,6 +5,7 @@
 //! in real time.
 //!
 //! Run with: `cargo run --example animation_demo`
+//! Window:   `cargo run --example animation_demo --features window -- --window`
 
 use std::io::stdout;
 use std::time::{Duration, Instant};
@@ -57,10 +58,95 @@ impl Page {
 }
 
 // ───────────────────────────────────────────────────────────────────
+// Window mode
+// ───────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut page_idx: usize = 0;
+    let start = Instant::now();
+    let mut last_frame = start;
+
+    let mut anim_state = AnimationState::new();
+    setup_orchestrator_anims(&mut anim_state);
+
+    run_loop_continuous(
+        960,
+        640,
+        "Animation Demo",
+        true,
+        move |backend, keys, (w, h)| {
+            let now = Instant::now();
+            let dt = now - last_frame;
+            last_frame = now;
+            let elapsed = now.duration_since(start);
+            let page = Page::ALL[page_idx];
+
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::ArrowRight | WKey::KeyL => {
+                        page_idx = (page_idx + 1) % Page::ALL.len();
+                    }
+                    WKey::ArrowLeft | WKey::KeyH => {
+                        page_idx = page_idx.checked_sub(1).unwrap_or(Page::ALL.len() - 1);
+                    }
+                    WKey::KeyR => {
+                        setup_orchestrator_anims(&mut anim_state);
+                    }
+                    _ => {}
+                }
+            }
+
+            if page == Page::AnimationOrchestrator {
+                anim_state.tick(dt);
+                if anim_state.is_idle() {
+                    setup_orchestrator_anims(&mut anim_state);
+                }
+            }
+
+            let canvas = match page {
+                Page::EasingShowcase => build_easing_page(w, h, elapsed),
+                Page::KeyframeTimeline => build_keyframe_page(w, h, elapsed),
+                Page::AnimationOrchestrator => build_orchestrator_page(w, h, &anim_state),
+                Page::ColorTransitions => build_color_page(w, h, elapsed),
+            };
+
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+
+    Ok(())
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Main
 // ───────────────────────────────────────────────────────────────────
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -120,13 +206,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
+            let font = state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+
             let canvas = match page {
-                Page::EasingShowcase => build_easing_page(area, &state, elapsed),
-                Page::KeyframeTimeline => build_keyframe_page(area, &state, elapsed),
+                Page::EasingShowcase => build_easing_page(w, h, elapsed),
+                Page::KeyframeTimeline => build_keyframe_page(w, h, elapsed),
                 Page::AnimationOrchestrator => {
-                    build_orchestrator_page(area, &state, &anim_state)
+                    build_orchestrator_page(w, h, &anim_state)
                 }
-                Page::ColorTransitions => build_color_page(area, &state, elapsed),
+                Page::ColorTransitions => build_color_page(w, h, elapsed),
             };
 
             frame.render_stateful_widget(
@@ -191,10 +281,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Animates circles across the screen, each using a different easing curve.
 /// The animation loops every 3 seconds.
 #[allow(clippy::cast_precision_loss)]
-fn build_easing_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_easing_page(w: u32, h: u32, elapsed: Duration) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 
@@ -264,10 +351,7 @@ fn build_easing_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) 
 
 /// Demonstrates `Keyframes<T>` with a multi-stop position + color timeline.
 #[allow(clippy::cast_precision_loss)]
-fn build_keyframe_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_keyframe_page(w: u32, h: u32, elapsed: Duration) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 
@@ -462,14 +546,7 @@ fn setup_orchestrator_anims(anim: &mut AnimationState) {
 
 /// Shows `AnimationState` managing 5 independent named transitions.
 #[allow(clippy::cast_precision_loss)]
-fn build_orchestrator_page(
-    area: Rect,
-    pxstate: &PixelCanvasState,
-    anim: &AnimationState,
-) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_orchestrator_page(w: u32, h: u32, anim: &AnimationState) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 
@@ -565,10 +642,7 @@ fn build_orchestrator_page(
 
 /// Demonstrates `Color::mix`, `Color::from_hsla`, and `Transition<Color>`.
 #[allow(clippy::cast_precision_loss)]
-fn build_color_page(area: Rect, pxstate: &PixelCanvasState, elapsed: Duration) -> PixelCanvas {
-    let font = pxstate.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_color_page(w: u32, h: u32, elapsed: Duration) -> PixelCanvas {
     let w_f = w as f32;
     let h_f = h as f32;
 

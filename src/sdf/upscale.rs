@@ -30,13 +30,7 @@ fn catmull_rom_weights(t: f32) -> [f32; 4] {
 /// `Vec<u8>` of length `dst_w * dst_h * 4`.
 ///
 /// Edge pixels are handled by clamping source indices (no wrapping).
-pub fn upscale_bicubic(
-    src: &[u8],
-    src_w: u32,
-    src_h: u32,
-    dst_w: u32,
-    dst_h: u32,
-) -> Vec<u8> {
+pub fn upscale_bicubic(src: &[u8], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<u8> {
     debug_assert_eq!(src.len(), (src_w * src_h * 4) as usize);
 
     if src_w == dst_w && src_h == dst_h {
@@ -127,10 +121,7 @@ mod tests {
         let out = upscale_bicubic(&src, 4, 4, 16, 16);
         // Every pixel should be very close to 42 (exact for uniform input)
         for &v in &out {
-            assert!(
-                (v as i32 - 42).unsigned_abs() <= 1,
-                "expected ~42, got {v}"
-            );
+            assert!((v as i32 - 42).unsigned_abs() <= 1, "expected ~42, got {v}");
         }
     }
 
@@ -142,7 +133,10 @@ mod tests {
         assert_eq!(out.len(), 16);
         // Middle pixels should be interpolated (not just black or white)
         let mid_r = out[4]; // pixel 1 red channel
-        assert!(mid_r > 0 && mid_r < 255, "expected interpolated value, got {mid_r}");
+        assert!(
+            mid_r > 0 && mid_r < 255,
+            "expected interpolated value, got {mid_r}"
+        );
     }
 
     #[test]

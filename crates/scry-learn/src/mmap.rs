@@ -639,4 +639,89 @@ mod tests {
             "expected Io error, got: {err:?}"
         );
     }
+
+    // Test 11: Miri-compatible write→open→batch round-trip exercising the unsafe mmap path.
+    //
+    // Miri does not support mmap syscalls, so this test is skipped under miri.
+    // Under normal execution it validates the unsafe `Mmap::map()` path with
+    // various dataset shapes.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_mmap_unsafe_roundtrip() {
+        // Single row, single feature.
+        let path = temp_path("miri_1x1");
+        let ds = Dataset::new(vec![vec![3.14]], vec![1.0], vec!["x".into()], "y");
+        save_scry(&ds, &path).unwrap();
+        let mmap = MmapDataset::open(&path).unwrap();
+        assert_eq!(mmap.n_samples(), 1);
+        assert_eq!(mmap.n_features(), 1);
+        assert_eq!(mmap.col(0), &[3.14]);
+        assert_eq!(mmap.target(), &[1.0]);
+        let batch = mmap.batch(0, 1);
+        assert_eq!(batch.n_samples(), 1);
+        assert_eq!(batch.features[0][0], 3.14);
+        std::fs::remove_file(&path).ok();
+
+        // Exact boundary: batch(0, n) == to_dataset().
+        let path = temp_path("miri_boundary");
+        let ds = sample_dataset(10, 3);
+        save_scry(&ds, &path).unwrap();
+        let mmap = MmapDataset::open(&path).unwrap();
+        let full = mmap.to_dataset();
+        let batch_full = mmap.batch(0, 10);
+        for j in 0..3 {
+            assert_eq!(full.features[j], batch_full.features[j]);
+        }
+        assert_eq!(full.target, batch_full.target);
+        std::fs::remove_file(&path).ok();
+
+        // Edge: batch(5, 5) — zero-length batch.
+        let path = temp_path("miri_zero_batch");
+        let ds = sample_dataset(10, 2);
+        save_scry(&ds, &path).unwrap();
+        let mmap = MmapDataset::open(&path).unwrap();
+        let batch = mmap.batch(5, 5);
+        assert_eq!(batch.n_samples(), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    // Test 12: Header rejection — malformed files must return Err, not panic/UB.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_malformed_headers() {
+        // Too-short file.
+        let path = temp_path("miri_short");
+        std::fs::write(&path, &[0u8; 10]).unwrap();
+        assert!(MmapDataset::open(&path).is_err());
+        std::fs::remove_file(&path).ok();
+
+        // Bad magic.
+        let path = temp_path("miri_bad_magic");
+        let mut buf = vec![0u8; 128];
+        buf[0..4].copy_from_slice(b"NOPE");
+        std::fs::write(&path, &buf).unwrap();
+        assert!(MmapDataset::open(&path).is_err());
+        std::fs::remove_file(&path).ok();
+
+        // Wrong version.
+        let path = temp_path("miri_bad_version");
+        let mut buf = vec![0u8; 128];
+        buf[0..4].copy_from_slice(b"SCRY");
+        buf[4..8].copy_from_slice(&99u32.to_le_bytes()); // version 99
+        std::fs::write(&path, &buf).unwrap();
+        assert!(MmapDataset::open(&path).is_err());
+        std::fs::remove_file(&path).ok();
+
+        // Truncated data section (valid header, but data section is too small).
+        let path = temp_path("miri_truncated");
+        let ds = sample_dataset(100, 5);
+        save_scry(&ds, &path).unwrap();
+        // Truncate the file to just the header.
+        let metadata = std::fs::metadata(&path).unwrap();
+        let truncated_len = (metadata.len() / 2) as usize;
+        let full = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &full[..truncated_len]).unwrap();
+        assert!(MmapDataset::open(&path).is_err());
+        std::fs::remove_file(&path).ok();
+    }
 }

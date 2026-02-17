@@ -106,10 +106,77 @@ fn pixel_size(area: Rect, state: &PixelCanvasState) -> (u32, u32, f32, f32) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Window mode
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut page = Page::Moire;
+    let start = std::time::Instant::now();
+
+    run_loop_continuous(
+        960,
+        640,
+        "Mind Benders",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::ArrowLeft => {
+                        let idx = page.index();
+                        page = Page::ALL[(idx + Page::ALL.len() - 1) % Page::ALL.len()];
+                    }
+                    WKey::ArrowRight => {
+                        let idx = page.index();
+                        page = Page::ALL[(idx + 1) % Page::ALL.len()];
+                    }
+                    _ => {}
+                }
+            }
+
+            let t = start.elapsed().as_secs_f32();
+            let canvas = match page {
+                Page::Moire => build_moire(w, h, t),
+                Page::RotatingSnakes => build_rotating_snakes(w, h, t),
+                Page::LilacChaser => build_lilac_chaser(w, h, t),
+                Page::MotionBlindness => build_motion_blindness(w, h, t),
+                Page::PenroseTriangle => build_penrose(w, h, t),
+            };
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Main
 // ═════════════════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -134,12 +201,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
+            let (w, h, _, _) = pixel_size(area, &state);
             let canvas = match page {
-                Page::Moire => build_moire(area, &state, t),
-                Page::RotatingSnakes => build_rotating_snakes(area, &state, t),
-                Page::LilacChaser => build_lilac_chaser(area, &state, t),
-                Page::MotionBlindness => build_motion_blindness(area, &state, t),
-                Page::PenroseTriangle => build_penrose(area, &state, t),
+                Page::Moire => build_moire(w, h, t),
+                Page::RotatingSnakes => build_rotating_snakes(w, h, t),
+                Page::LilacChaser => build_lilac_chaser(w, h, t),
+                Page::MotionBlindness => build_motion_blindness(w, h, t),
+                Page::PenroseTriangle => build_penrose(w, h, t),
             };
 
             // skip_cache: these scenes change every frame, so content
@@ -195,8 +263,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // that don't exist in either grid alone — they're fabricated by your visual
 // cortex trying to parse a pattern from noise.
 
-fn build_moire(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
-    let (w, h, wf, hf) = pixel_size(area, state);
+fn build_moire(w: u32, h: u32, t: f32) -> PixelCanvas {
+    let wf = w as f32;
+    let hf = h as f32;
     let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(2, 2, 8, 255));
 
     let cx = wf / 2.0;
@@ -254,8 +323,9 @@ fn build_moire(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
 //
 // For best effect: don't stare at any single disc — let your eyes wander.
 
-fn build_rotating_snakes(area: Rect, state: &PixelCanvasState, _t: f32) -> PixelCanvas {
-    let (w, h, wf, hf) = pixel_size(area, state);
+fn build_rotating_snakes(w: u32, h: u32, _t: f32) -> PixelCanvas {
+    let wf = w as f32;
+    let hf = h as f32;
     let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(128, 128, 128, 255));
 
     // The critical color sequence for the Kitaoka illusion:
@@ -341,8 +411,9 @@ fn build_rotating_snakes(area: Rect, state: &PixelCanvasState, _t: f32) -> Pixel
 //
 // These are real, documented neurological phenomena.
 
-fn build_lilac_chaser(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
-    let (w, h, wf, hf) = pixel_size(area, state);
+fn build_lilac_chaser(w: u32, h: u32, t: f32) -> PixelCanvas {
+    let wf = w as f32;
+    let hf = h as f32;
     let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(180, 180, 180, 255));
 
     let cx = wf / 2.0;
@@ -421,8 +492,9 @@ fn build_lilac_chaser(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanv
 // This is not a trick. The dots are always being drawn. Your brain just
 // stops perceiving them.
 
-fn build_motion_blindness(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
-    let (w, h, wf, hf) = pixel_size(area, state);
+fn build_motion_blindness(w: u32, h: u32, t: f32) -> PixelCanvas {
+    let wf = w as f32;
+    let hf = h as f32;
     let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(3, 3, 12, 255));
 
     let cx = wf / 2.0;
@@ -525,8 +597,9 @@ fn build_motion_blindness(area: Rect, state: &PixelCanvasState, t: f32) -> Pixel
 //
 // Slowly rotates to let people study the impossibility from all angles.
 
-fn build_penrose(area: Rect, state: &PixelCanvasState, t: f32) -> PixelCanvas {
-    let (w, h, wf, hf) = pixel_size(area, state);
+fn build_penrose(w: u32, h: u32, t: f32) -> PixelCanvas {
+    let wf = w as f32;
+    let hf = h as f32;
     let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(12, 12, 20, 255));
 
     let cx = wf / 2.0;

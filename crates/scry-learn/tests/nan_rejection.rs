@@ -6,10 +6,7 @@ use scry_learn::error::ScryLearnError;
 
 fn make_clean_dataset() -> Dataset {
     Dataset::new(
-        vec![
-            vec![1.0, 2.0, 3.0, 4.0, 5.0],
-            vec![5.0, 3.0, 8.0, 2.0, 7.0],
-        ],
+        vec![vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5.0, 3.0, 8.0, 2.0, 7.0]],
         vec![2.0, 4.0, 6.0, 3.0, 5.0],
         vec!["f1".into(), "f2".into()],
         "target",
@@ -30,10 +27,7 @@ fn make_nan_feature_dataset() -> Dataset {
 
 fn make_inf_target_dataset() -> Dataset {
     Dataset::new(
-        vec![
-            vec![1.0, 2.0, 3.0, 4.0, 5.0],
-            vec![5.0, 3.0, 8.0, 2.0, 7.0],
-        ],
+        vec![vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5.0, 3.0, 8.0, 2.0, 7.0]],
         vec![2.0, f64::INFINITY, 6.0, 3.0, 5.0],
         vec!["f1".into(), "f2".into()],
         "target",
@@ -66,8 +60,14 @@ fn nan_feature_fails_validation() {
     let err = data.validate_finite().unwrap_err();
     assert!(matches!(err, ScryLearnError::InvalidData(_)));
     let msg = err.to_string();
-    assert!(msg.contains("NaN"), "error message should mention NaN: {msg}");
-    assert!(msg.contains("f1"), "error message should mention column name: {msg}");
+    assert!(
+        msg.contains("NaN"),
+        "error message should mention NaN: {msg}"
+    );
+    assert!(
+        msg.contains("f1"),
+        "error message should mention column name: {msg}"
+    );
 }
 
 #[test]
@@ -76,8 +76,14 @@ fn inf_target_fails_validation() {
     let err = data.validate_finite().unwrap_err();
     assert!(matches!(err, ScryLearnError::InvalidData(_)));
     let msg = err.to_string();
-    assert!(msg.contains("inf"), "error message should mention inf: {msg}");
-    assert!(msg.contains("target"), "error message should mention target: {msg}");
+    assert!(
+        msg.contains("inf"),
+        "error message should mention inf: {msg}"
+    );
+    assert!(
+        msg.contains("target"),
+        "error message should mention target: {msg}"
+    );
 }
 
 #[test]
@@ -92,7 +98,10 @@ fn neg_inf_feature_fails_validation() {
 #[test]
 fn nan_allowed_by_validate_no_inf() {
     let data = make_nan_feature_dataset();
-    assert!(data.validate_no_inf().is_ok(), "NaN should be allowed by validate_no_inf");
+    assert!(
+        data.validate_no_inf().is_ok(),
+        "NaN should be allowed by validate_no_inf"
+    );
 }
 
 #[test]
@@ -157,5 +166,7 @@ fn clean_data_fit_succeeds() {
     use scry_learn::linear::LinearRegression;
     let data = make_clean_dataset();
     let mut model = LinearRegression::new();
-    model.fit(&data).expect("clean data should fit successfully");
+    model
+        .fit(&data)
+        .expect("clean data should fit successfully");
 }

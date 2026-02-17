@@ -23,6 +23,7 @@ path = "../crates/scry-chart"
 
 [dependencies.scry-learn]
 path = "../crates/scry-learn"
+features = ["mmap"]
 
 [dependencies.scry-pipe]
 path = "../crates/scry-pipe"
@@ -116,6 +117,154 @@ bench = false
 [[bin]]
 name = "fuzz_pipeline_transform"
 path = "fuzz_targets/fuzz_pipeline_transform.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 5: Extended scry-learn fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_linear_fit"
+path = "fuzz_targets/fuzz_linear_fit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_svm_fit"
+path = "fuzz_targets/fuzz_svm_fit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_kmeans_fit"
+path = "fuzz_targets/fuzz_kmeans_fit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_sparse_ops"
+path = "fuzz_targets/fuzz_sparse_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_naive_bayes"
+path = "fuzz_targets/fuzz_naive_bayes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_text_vectorizer"
+path = "fuzz_targets/fuzz_text_vectorizer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pca_transform"
+path = "fuzz_targets/fuzz_pca_transform.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_tree_shap"
+path = "fuzz_targets/fuzz_tree_shap.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_iforest"
+path = "fuzz_targets/fuzz_iforest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mmap_parse"
+path = "fuzz_targets/fuzz_mmap_parse.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 6: Remaining scry-learn module coverage
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_knn"
+path = "fuzz_targets/fuzz_knn.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_random_forest"
+path = "fuzz_targets/fuzz_random_forest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_gradient_boosting"
+path = "fuzz_targets/fuzz_gradient_boosting.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_neural_regressor"
+path = "fuzz_targets/fuzz_neural_regressor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_preprocess_extra"
+path = "fuzz_targets/fuzz_preprocess_extra.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_feature_selection"
+path = "fuzz_targets/fuzz_feature_selection.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pipeline"
+path = "fuzz_targets/fuzz_pipeline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_metrics"
+path = "fuzz_targets/fuzz_metrics.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_agglomerative"
+path = "fuzz_targets/fuzz_agglomerative.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_hist_gbt"
+path = "fuzz_targets/fuzz_hist_gbt.rs"
 test = false
 doc = false
 bench = false

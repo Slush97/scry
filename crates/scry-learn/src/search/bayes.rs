@@ -308,8 +308,7 @@ impl BayesSearchCV {
                 let mut best_ei = f64::NEG_INFINITY;
 
                 for _ in 0..n_candidates {
-                    let candidate =
-                        sample_random(&self.param_space, &param_names, &mut rng);
+                    let candidate = sample_random(&self.param_space, &param_names, &mut rng);
                     let l = evaluate_kde(&good_kde, &candidate, &param_names, &self.param_space);
                     let g = evaluate_kde(&bad_kde, &candidate, &param_names, &self.param_space);
                     let ei = if g > 1e-300 { l / g } else { l * 1e300 };
@@ -786,15 +785,14 @@ mod tests {
             ParamDistribution::IntUniform { low: 2, high: 4 },
         );
 
-        let result =
-            BayesSearchCV::new(crate::tree::GradientBoostingClassifier::new(), space)
-                .n_iter(10)
-                .n_initial(5)
-                .cv(3)
-                .scoring(crate::metrics::accuracy)
-                .seed(42)
-                .fit(&data)
-                .unwrap();
+        let result = BayesSearchCV::new(crate::tree::GradientBoostingClassifier::new(), space)
+            .n_iter(10)
+            .n_initial(5)
+            .cv(3)
+            .scoring(crate::metrics::accuracy)
+            .seed(42)
+            .fit(&data)
+            .unwrap();
 
         assert!(
             result.best_score() > 0.5,

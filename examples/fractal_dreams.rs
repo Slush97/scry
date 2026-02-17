@@ -386,10 +386,84 @@ fn render_fractal(width: u32, height: u32, state: &FractalState, time: f32) -> V
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut fractal = FractalState::new();
+    let start = Instant::now();
+    let mut last_frame = Instant::now();
+
+    run_loop_continuous(
+        960,
+        640,
+        "Fractal Dreams",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::KeyM => fractal.mode = FractalMode::Mandelbrot,
+                    WKey::KeyJ => fractal.mode = FractalMode::Julia,
+                    WKey::Digit1 => fractal.palette_idx = 0,
+                    WKey::Digit2 => fractal.palette_idx = 1,
+                    WKey::Digit3 => fractal.palette_idx = 2,
+                    WKey::Digit4 => fractal.palette_idx = 3,
+                    WKey::Equal => {
+                        fractal.zoom_speed = (fractal.zoom_speed * 1.5).min(10.0);
+                    }
+                    WKey::Minus => {
+                        fractal.zoom_speed = (fractal.zoom_speed / 1.5).max(0.1);
+                    }
+                    WKey::Space => fractal.paused = !fractal.paused,
+                    WKey::KeyN => fractal.next_target(),
+                    _ => {}
+                }
+            }
+
+            let now = Instant::now();
+            let dt = now.duration_since(last_frame).as_secs_f64();
+            let elapsed = now.duration_since(start).as_secs_f64();
+            last_frame = now;
+
+            fractal.update(dt, elapsed);
+
+            let canvas = build_fractal_scene(w, h, &fractal, elapsed as f32);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -424,7 +498,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
-            let canvas = build_fractal_scene(area, &px_state, &fractal, elapsed as f32);
+            let font = px_state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            let canvas = build_fractal_scene(w, h, &fractal, elapsed as f32);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).skip_cache().z_index(-1),
@@ -482,16 +559,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Scene builder
 // ═══════════════════════════════════════════════════════════════════
 
-fn build_fractal_scene(
-    area: Rect,
-    px_state: &PixelCanvasState,
-    fractal: &FractalState,
-    time: f32,
-) -> PixelCanvas {
-    let font = px_state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
-
+fn build_fractal_scene(w: u32, h: u32, fractal: &FractalState, time: f32) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }

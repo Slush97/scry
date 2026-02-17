@@ -230,10 +230,73 @@ fn metatron_geometry(cx: f32, cy: f32, radius: f32, progress: f32) -> MetatronGe
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut state = MirrorState::new();
+    let start = Instant::now();
+    let mut frozen_time = 0.0_f32;
+
+    run_loop_continuous(
+        960,
+        640,
+        "Obsidian Mirror",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::KeyC => state.palette = state.palette.next(),
+                    WKey::Space => state.paused = !state.paused,
+                    _ => {}
+                }
+            }
+
+            let elapsed = if state.paused {
+                frozen_time
+            } else {
+                let e = start.elapsed().as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            let canvas = build_scene(w, h, &state, elapsed);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -270,7 +333,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(frame.area());
 
             let area = chunks[0];
-            let canvas = build_scene(area, &px_state, &state, elapsed);
+            let font = px_state.font_size();
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            let canvas = build_scene(w, h, &state, elapsed);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).skip_cache().z_index(-1),
@@ -324,15 +390,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Scene builder — phase dispatch
 // ═══════════════════════════════════════════════════════════════════
 
-fn build_scene(
-    area: Rect,
-    px_state: &PixelCanvasState,
-    state: &MirrorState,
-    time: f32,
-) -> PixelCanvas {
-    let font = px_state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_scene(w: u32, h: u32, state: &MirrorState, time: f32) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }

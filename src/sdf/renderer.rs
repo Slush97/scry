@@ -383,12 +383,7 @@ fn water_normal(x: f32, z: f32, time: f32, amplitude: f32, frequency: f32) -> Ve
 }
 
 /// Sphere-trace from `origin` along `dir`. Returns `Some((hit_point, obj_index, total_dist))`.
-fn ray_march(
-    scene: &SdfScene,
-    origin: Vec3,
-    dir: Vec3,
-    time: f32,
-) -> Option<(Vec3, usize, f32)> {
+fn ray_march(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32) -> Option<(Vec3, usize, f32)> {
     let mut t = 0.0_f32;
     for _ in 0..MAX_STEPS {
         let p = origin + dir * t;
@@ -429,9 +424,7 @@ fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) 
             if let Material::Fire { .. } = &obj.material {
                 let fire_color = march_fire_volume(origin, dir, obj, time);
                 if fire_color.a > 0.01 {
-                    let bg = if let Some((hit, idx, _)) =
-                        ray_march(scene, origin, dir, time)
-                    {
+                    let bg = if let Some((hit, idx, _)) = ray_march(scene, origin, dir, time) {
                         shade_surface(scene, hit, dir, idx, time, bounce)
                     } else {
                         scene.sky_color
@@ -466,8 +459,7 @@ fn shade_surface(
             reflectivity,
             specular,
         } => {
-            let mut result =
-                phong(scene, hit, normal, ray_dir, *color, *specular, time);
+            let mut result = phong(scene, hit, normal, ray_dir, *color, *specular, time);
 
             // Reflections
             if *reflectivity > 0.01 && bounce < scene.max_bounces {
@@ -801,9 +793,7 @@ fn shade_surface_profiled(
             reflectivity,
             specular,
         } => {
-            let result = phong_profiled(
-                scene, hit, normal, ray_dir, *color, *specular, time, prof,
-            );
+            let result = phong_profiled(scene, hit, normal, ray_dir, *color, *specular, time, prof);
 
             if *reflectivity > 0.01 && bounce < scene.max_bounces {
                 let t1 = std::time::Instant::now();

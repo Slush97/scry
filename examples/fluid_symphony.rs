@@ -12,6 +12,7 @@
 //!   `q`      — quit
 //!
 //! Run with: `cargo run --example fluid_symphony --release`
+//! Window:   `cargo run --example fluid_symphony --release --features window -- --window`
 
 #![allow(
     clippy::cast_precision_loss,
@@ -322,10 +323,101 @@ impl FluidState {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Window mode
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "window")]
+fn run_window() -> Result<(), Box<dyn std::error::Error>> {
+    use scry_engine::rasterize::Rasterizer;
+    use scry_engine::transport::window::{run_loop_continuous, LoopAction};
+    use winit::keyboard::KeyCode as WKey;
+
+    let mut fluid = FluidState::new();
+    let start = Instant::now();
+    let mut last_frame = Instant::now();
+    let mut frozen_time = 0.0_f32;
+
+    run_loop_continuous(
+        960,
+        640,
+        "Fluid Symphony",
+        true,
+        move |backend, keys, (w, h)| {
+            let now = Instant::now();
+            let dt = now.duration_since(last_frame).as_secs_f32().min(0.05);
+            last_frame = now;
+
+            let elapsed = if fluid.paused {
+                frozen_time
+            } else {
+                let e = now.duration_since(start).as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::Digit1 => {
+                        fluid.preset_idx = 0;
+                        fluid.reset();
+                    }
+                    WKey::Digit2 => {
+                        fluid.preset_idx = 1;
+                        fluid.reset();
+                    }
+                    WKey::Digit3 => {
+                        fluid.preset_idx = 2;
+                        fluid.reset();
+                    }
+                    WKey::KeyR => fluid.reset(),
+                    WKey::Equal => {
+                        fluid.target_count = (fluid.target_count + 200).min(3000);
+                    }
+                    WKey::Minus => {
+                        fluid.target_count = fluid.target_count.saturating_sub(200).max(100);
+                    }
+                    WKey::Space => fluid.paused = !fluid.paused,
+                    _ => {}
+                }
+            }
+
+            fluid.canvas_w = w as f32;
+            fluid.canvas_h = h as f32;
+            fluid.update(dt, elapsed);
+
+            let canvas = build_fluid_scene(w, h, &fluid, elapsed);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let use_window = std::env::args().any(|a| a == "--window");
+    if use_window {
+        #[cfg(feature = "window")]
+        {
+            return run_window();
+        }
+        #[cfg(not(feature = "window"))]
+        {
+            eprintln!("error: --window requires the `window` feature");
+            std::process::exit(1);
+        }
+    }
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -365,12 +457,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Update canvas dimensions
             let font = px_state.font_size();
-            fluid.canvas_w = (u32::from(area.width) * u32::from(font.width)) as f32;
-            fluid.canvas_h = (u32::from(area.height) * u32::from(font.height)) as f32;
+            let w = u32::from(area.width) * u32::from(font.width);
+            let h = u32::from(area.height) * u32::from(font.height);
+            fluid.canvas_w = w as f32;
+            fluid.canvas_h = h as f32;
 
             fluid.update(dt, elapsed);
 
-            let canvas = build_fluid_scene(area, &px_state, &fluid, elapsed);
+            let canvas = build_fluid_scene(w, h, &fluid, elapsed);
 
             frame.render_stateful_widget(
                 PixelCanvasWidget::new(canvas).skip_cache().z_index(-1),
@@ -430,15 +524,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Scene builder
 // ═══════════════════════════════════════════════════════════════════
 
-fn build_fluid_scene(
-    area: Rect,
-    px_state: &PixelCanvasState,
-    fluid: &FluidState,
-    _time: f32,
-) -> PixelCanvas {
-    let font = px_state.font_size();
-    let w = u32::from(area.width) * u32::from(font.width);
-    let h = u32::from(area.height) * u32::from(font.height);
+fn build_fluid_scene(w: u32, h: u32, fluid: &FluidState, _time: f32) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }

@@ -56,9 +56,9 @@ pub fn tree_shap(tree: &FlatTree, sample: &[f64], node_counts: &[usize]) -> Vec<
         node_counts,
         0,
         &mut path,
-        0,     // unique_depth
-        1.0,   // pz
-        1.0,   // po
+        0,      // unique_depth
+        1.0,    // pz
+        1.0,    // po
         -1_i64, // no incoming feature
         &mut phi,
     );
@@ -271,10 +271,8 @@ fn extend_path(
         let d = unique_depth; // the new depth index
         for i in (0..d).rev() {
             let old_pw = path[i].pweight;
-            path[i + 1].pweight +=
-                one_fraction * old_pw * ((i + 1) as f64) / ((d + 1) as f64);
-            path[i].pweight =
-                zero_fraction * old_pw * ((d - i) as f64) / ((d + 1) as f64);
+            path[i + 1].pweight += one_fraction * old_pw * ((i + 1) as f64) / ((d + 1) as f64);
+            path[i].pweight = zero_fraction * old_pw * ((d - i) as f64) / ((d + 1) as f64);
         }
     }
 }
@@ -289,14 +287,12 @@ fn unwind_path(path: &mut [PathEntry], unique_depth: usize, path_index: usize) {
 
     for i in (0..n).rev() {
         if one_fraction.abs() > 1e-30 {
-            let tmp =
-                next_one * ((n + 1) as f64) / (((i + 1) as f64) * one_fraction);
-            next_one = path[i].pweight
-                - tmp * zero_fraction * ((n - i) as f64) / ((n + 1) as f64);
+            let tmp = next_one * ((n + 1) as f64) / (((i + 1) as f64) * one_fraction);
+            next_one = path[i].pweight - tmp * zero_fraction * ((n - i) as f64) / ((n + 1) as f64);
             path[i].pweight = tmp;
         } else {
-            path[i].pweight = path[i].pweight * ((n + 1) as f64)
-                / (zero_fraction * ((n - i) as f64));
+            path[i].pweight =
+                path[i].pweight * ((n + 1) as f64) / (zero_fraction * ((n - i) as f64));
         }
     }
 
@@ -321,14 +317,11 @@ fn unwound_path_sum(path: &[PathEntry], unique_depth: usize, path_index: usize) 
 
     for i in (0..n).rev() {
         if one_fraction.abs() > 1e-30 {
-            let tmp =
-                next_one * ((n + 1) as f64) / (((i + 1) as f64) * one_fraction);
+            let tmp = next_one * ((n + 1) as f64) / (((i + 1) as f64) * one_fraction);
             total += tmp;
-            next_one = path[i].pweight
-                - tmp * zero_fraction * ((n - i) as f64) / ((n + 1) as f64);
+            next_one = path[i].pweight - tmp * zero_fraction * ((n - i) as f64) / ((n + 1) as f64);
         } else {
-            total += (path[i].pweight / zero_fraction)
-                / (((n - i) as f64) / ((n + 1) as f64));
+            total += (path[i].pweight / zero_fraction) / (((n - i) as f64) / ((n + 1) as f64));
         }
     }
 
