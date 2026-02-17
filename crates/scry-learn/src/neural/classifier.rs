@@ -20,7 +20,7 @@
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neural::activation::Activation;
-use crate::neural::callback::{self, EpochMetrics, TrainingHistory};
+use crate::neural::callback::{self, CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory};
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};
@@ -33,7 +33,6 @@ use crate::partial_fit::PartialFit;
 ///
 /// Defaults match sklearn: `hidden_layers=[100]`, Adam, lr=0.001,
 /// `max_iter=200`, `batch_size=200`, `alpha=0.0001`.
-#[derive(Clone)]
 #[non_exhaustive]
 pub struct MLPClassifier {
     hidden_layers: Vec<usize>,
@@ -59,6 +58,37 @@ pub struct MLPClassifier {
     pub loss_curve: Vec<f64>,
     /// Structured training history with per-epoch metrics.
     training_history: TrainingHistory,
+    /// User-supplied training callbacks (not cloned — session-specific).
+    callbacks: Vec<Box<dyn TrainingCallback>>,
+}
+
+impl Clone for MLPClassifier {
+    fn clone(&self) -> Self {
+        Self {
+            hidden_layers: self.hidden_layers.clone(),
+            activation: self.activation,
+            optimizer_kind: self.optimizer_kind,
+            learning_rate: self.learning_rate,
+            max_iter: self.max_iter,
+            batch_size: self.batch_size,
+            alpha: self.alpha,
+            tolerance: self.tolerance,
+            early_stopping: self.early_stopping,
+            validation_fraction: self.validation_fraction,
+            n_iter_no_change: self.n_iter_no_change,
+            seed: self.seed,
+            fitted: self.fitted,
+            n_features: self.n_features,
+            n_classes: self.n_classes,
+            class_labels: self.class_labels.clone(),
+            network_weights: self.network_weights.clone(),
+            network_dims: self.network_dims.clone(),
+            loss_curve: self.loss_curve.clone(),
+            training_history: self.training_history.clone(),
+            // Callbacks are session-specific and not cloned.
+            callbacks: Vec::new(),
+        }
+    }
 }
 
 impl MLPClassifier {
@@ -85,6 +115,7 @@ impl MLPClassifier {
             network_dims: Vec::new(),
             loss_curve: Vec::new(),
             training_history: TrainingHistory::new(),
+            callbacks: Vec::new(),
         }
     }
 
@@ -162,6 +193,12 @@ impl MLPClassifier {
     /// Set random seed. Default: 42.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
+        self
+    }
+
+    /// Add a training callback (invoked after each epoch).
+    pub fn callback(mut self, cb: Box<dyn TrainingCallback>) -> Self {
+        self.callbacks.push(cb);
         self
     }
 
@@ -249,6 +286,9 @@ impl MLPClassifier {
         let mut best_val_loss = f64::INFINITY;
         let mut best_weights: Option<Vec<(Vec<f64>, Vec<f64>)>> = None;
         let mut no_improve = 0;
+
+        // Take callbacks out so we can mutably borrow them during training.
+        let mut callbacks = std::mem::take(&mut self.callbacks);
 
         for epoch_idx in 0..self.max_iter {
             let epoch_start = std::time::Instant::now();
@@ -341,7 +381,7 @@ impl MLPClassifier {
             }
 
             let elapsed = epoch_start.elapsed();
-            self.training_history.push(EpochMetrics {
+            let metrics = EpochMetrics {
                 epoch: epoch_idx,
                 train_loss: avg_loss,
                 val_loss: val_loss_epoch,
@@ -350,7 +390,21 @@ impl MLPClassifier {
                 learning_rate: self.learning_rate,
                 grad_norm: last_grad_norm,
                 elapsed_ms: elapsed.as_millis() as u64,
-            });
+            };
+
+            // Invoke user callbacks.
+            let mut cb_stop = false;
+            for cb in &mut callbacks {
+                if cb.on_epoch_end(&metrics) == CallbackAction::Stop {
+                    cb_stop = true;
+                }
+            }
+
+            self.training_history.push(metrics);
+
+            if cb_stop {
+                break;
+            }
 
             if no_improve >= self.n_iter_no_change
                 && (self.early_stopping || self.loss_curve.len() >= 2)
@@ -358,6 +412,12 @@ impl MLPClassifier {
                 break;
             }
         }
+
+        // Notify callbacks that training is done, then put them back.
+        for cb in &mut callbacks {
+            cb.on_training_end();
+        }
+        self.callbacks = callbacks;
 
         // Restore best weights if early stopping found an improvement
         if let Some(ref best) = best_weights {

@@ -63,6 +63,10 @@ struct HistBin {
 type FeatureHistogram = [HistBin; NUM_BINS];
 
 /// Build histograms for all features from the binned data.
+///
+/// When the `gpu` feature is enabled and a GPU backend is available, this
+/// delegates to [`ComputeBackend::build_histograms`] for acceleration.
+/// Otherwise it falls back to the Rayon-parallel CPU path.
 fn build_histograms(
     binned: &[Vec<u8>], // [feature][sample]
     gradients: &[f64],
@@ -70,7 +74,31 @@ fn build_histograms(
     sample_indices: &[usize],
     n_features: usize,
 ) -> Vec<FeatureHistogram> {
-    // Parallel across features.
+    // Try GPU-accelerated path when the feature is enabled.
+    #[cfg(feature = "gpu")]
+    {
+        if let Ok(gpu) = crate::accel::GpuBackend::new() {
+            use crate::accel::ComputeBackend;
+            let accel_hists =
+                gpu.build_histograms(binned, gradients, hessians, sample_indices, n_features, NUM_BINS);
+            return accel_hists
+                .into_iter()
+                .map(|feat_bins| {
+                    let mut hist: FeatureHistogram = [HistBin::default(); NUM_BINS];
+                    for (b, &(g, h, c)) in feat_bins.iter().enumerate() {
+                        if b < NUM_BINS {
+                            hist[b].grad_sum = g;
+                            hist[b].hess_sum = h;
+                            hist[b].count = c as u32;
+                        }
+                    }
+                    hist
+                })
+                .collect();
+        }
+    }
+
+    // CPU fallback: parallel across features via Rayon.
     (0..n_features)
         .into_par_iter()
         .map(|f| {
@@ -124,6 +152,29 @@ enum HistNode {
         left: usize, // index into HistTree::nodes
         right: usize,
         gain: f64,
+    },
+}
+
+/// Public view of a HistNode for ONNX export, with bin thresholds converted
+/// to raw feature value thresholds.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum HistNodeView {
+    /// Leaf node.
+    Leaf {
+        /// Prediction value.
+        value: f64,
+    },
+    /// Internal split node.
+    Split {
+        /// Feature index.
+        feature: usize,
+        /// Raw feature threshold (≤ goes left).
+        threshold: f64,
+        /// Left child index.
+        left: usize,
+        /// Right child index.
+        right: usize,
     },
 }
 
@@ -205,6 +256,49 @@ impl HistTree {
             }
         }
         imp
+    }
+
+    /// Convert to public HistNodeView representation, translating bin
+    /// thresholds to raw feature value thresholds using the binner.
+    fn to_node_views(&self, binner: &FeatureBinner) -> Vec<HistNodeView> {
+        let edges = binner.bin_edges();
+        self.nodes
+            .iter()
+            .map(|node| match node {
+                HistNode::Leaf { value } => HistNodeView::Leaf { value: *value },
+                HistNode::Split {
+                    feature,
+                    bin_threshold,
+                    left,
+                    right,
+                    ..
+                } => {
+                    // Convert bin threshold to raw value threshold.
+                    // bin k corresponds to values in [edges[k-2], edges[k-1]).
+                    // bin <= bin_threshold means val < edges[bin_threshold - 1].
+                    // For ONNX BRANCH_LEQ (val <= T), use edges[bin_threshold - 1].
+                    let threshold = if *bin_threshold == 0 || *feature >= edges.len() {
+                        f64::NEG_INFINITY
+                    } else {
+                        let feat_edges = &edges[*feature];
+                        let idx = (*bin_threshold as usize).saturating_sub(1);
+                        if idx < feat_edges.len() {
+                            feat_edges[idx]
+                        } else if !feat_edges.is_empty() {
+                            *feat_edges.last().unwrap()
+                        } else {
+                            0.0
+                        }
+                    };
+                    HistNodeView::Split {
+                        feature: *feature,
+                        threshold,
+                        left: *left,
+                        right: *right,
+                    }
+                }
+            })
+            .collect()
     }
 }
 
@@ -752,6 +846,30 @@ impl HistGradientBoostingRegressor {
     pub fn n_trees(&self) -> usize {
         self.trees.len()
     }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
+
+    /// Learning rate value.
+    pub fn learning_rate_val(&self) -> f64 {
+        self.learning_rate
+    }
+
+    /// Initial (base) prediction value.
+    pub fn init_prediction_val(&self) -> f64 {
+        self.init_prediction
+    }
+
+    /// Convert internal HistTree nodes to public HistNodeView arrays for ONNX export.
+    /// Bin thresholds are converted to raw feature thresholds using the binner.
+    pub fn tree_node_views(&self) -> Vec<Vec<HistNodeView>> {
+        self.trees
+            .iter()
+            .map(|tree| tree.to_node_views(&self.binner))
+            .collect()
+    }
 }
 
 impl Default for HistGradientBoostingRegressor {
@@ -1149,6 +1267,35 @@ impl HistGradientBoostingClassifier {
     /// Number of classes.
     pub fn n_classes(&self) -> usize {
         self.n_classes
+    }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
+
+    /// Learning rate value.
+    pub fn learning_rate_val(&self) -> f64 {
+        self.learning_rate
+    }
+
+    /// Initial predictions per class.
+    pub fn init_predictions_val(&self) -> &[f64] {
+        &self.init_predictions
+    }
+
+    /// Convert internal HistTree nodes to public HistNodeView arrays for ONNX export.
+    /// Returns `class_tree_views[class_idx][tree_idx]` = Vec of HistNodeView.
+    pub fn class_tree_node_views(&self) -> Vec<Vec<Vec<HistNodeView>>> {
+        self.trees
+            .iter()
+            .map(|class_trees| {
+                class_trees
+                    .iter()
+                    .map(|tree| tree.to_node_views(&self.binner))
+                    .collect()
+            })
+            .collect()
     }
 }
 

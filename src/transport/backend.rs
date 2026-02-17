@@ -87,6 +87,8 @@ pub enum ProtocolKind {
     Iterm2,
     /// Unicode halfblock fallback (no protocol needed).
     Halfblock,
+    /// Native OS window via softbuffer (CPU framebuffer).
+    Window,
 }
 
 impl std::fmt::Display for ProtocolKind {
@@ -96,6 +98,7 @@ impl std::fmt::Display for ProtocolKind {
             Self::Sixel => write!(f, "Sixel"),
             Self::Iterm2 => write!(f, "iTerm2"),
             Self::Halfblock => write!(f, "Halfblock"),
+            Self::Window => write!(f, "Window"),
         }
     }
 }

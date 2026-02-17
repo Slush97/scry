@@ -40,6 +40,8 @@ pub mod cursor;
 pub mod data;
 pub mod error;
 pub mod export;
+#[cfg(feature = "inline")]
+pub mod inline;
 pub mod formatter;
 pub mod layout;
 pub mod legend;

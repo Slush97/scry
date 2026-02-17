@@ -38,6 +38,11 @@ pub mod builder;
 pub mod command;
 pub mod style;
 
+#[cfg(feature = "input")]
+pub mod hit;
+#[cfg(feature = "input")]
+pub mod input;
+
 // Re-export the main types at the module level for convenience.
 #[cfg(feature = "text")]
 pub use builder::TextBuilder;

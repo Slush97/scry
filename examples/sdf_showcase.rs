@@ -9,6 +9,7 @@
 //! Controls:
 //!   `1`–`4`  — switch scene preset
 //!   `Space`  — pause/resume animation
+//!   `p`      — toggle per-stage profiler
 //!   `q`      — quit
 //!
 //! Run with: `cargo run --example sdf_showcase --features sdf --release`
@@ -24,7 +25,7 @@
     clippy::needless_range_loop
 )]
 
-use std::io::{Write, stdout};
+use std::io::{stdout, Write};
 use std::time::{Duration, Instant};
 
 use crossterm::{
@@ -35,6 +36,7 @@ use crossterm::{
     ExecutableCommand, QueueableCommand,
 };
 
+use scry_engine::sdf::profiler::{render_profile_bar, SdfProfileHistory};
 use scry_engine::sdf::*;
 use scry_engine::style::Color as C;
 use scry_engine::transport::backend::{ProtocolBackend, TerminalPosition};
@@ -44,8 +46,8 @@ use scry_engine::transport::{self, Picker, ProtocolKind};
 // Resolution cap
 // ═══════════════════════════════════════════════════════════════════
 
-const MAX_RENDER_W: u32 = 320;
-const MAX_RENDER_H: u32 = 180;
+const MAX_RENDER_W: u32 = 640;
+const MAX_RENDER_H: u32 = 360;
 
 // ═══════════════════════════════════════════════════════════════════
 // Scene builders
@@ -63,8 +65,17 @@ fn orbit_camera(target: Vec3, radius: f32, height: f32, time: f32, fov: f32) -> 
     SdfCamera::new(eye, target, fov)
 }
 
-fn build_reflections_scene(time: f32) -> SdfScene {
-    SdfScene::new()
+/// Orbit camera parameters per preset: (target, radius, height, fov).
+const ORBIT_PARAMS: [(Vec3, f32, f32, f32); 4] = [
+    (Vec3::new(0.0, 0.6, 0.0), 5.0, 2.5, 50.0), // Reflections
+    (Vec3::new(0.0, 0.3, 0.0), 5.0, 2.0, 50.0), // Water
+    (Vec3::new(0.0, 1.2, 0.0), 5.5, 2.5, 50.0), // Fire
+    (Vec3::new(0.0, 1.0, 0.0), 5.5, 2.5, 50.0), // Blend
+];
+
+/// Build the static scene geometry (no camera — set per-frame).
+fn build_scenes() -> [SdfScene; 4] {
+    let reflections = SdfScene::new()
         .object(
             SdfObject::new(
                 SdfShape::Sphere { radius: 1.0 },
@@ -93,18 +104,9 @@ fn build_reflections_scene(time: f32) -> SdfScene {
             C::from_rgba8(150, 180, 255, 255),
             0.4,
         ))
-        .camera(orbit_camera(
-            Vec3::new(0.0, 0.6, 0.0),
-            5.0,
-            2.5,
-            time,
-            50.0,
-        ))
-        .sky_color(C::from_rgba8(60, 80, 120, 255))
-}
+        .sky_color(C::from_rgba8(60, 80, 120, 255));
 
-fn build_water_scene(time: f32) -> SdfScene {
-    SdfScene::new()
+    let water = SdfScene::new()
         .object(
             SdfObject::new(
                 SdfShape::Sphere { radius: 0.8 },
@@ -122,19 +124,10 @@ fn build_water_scene(time: f32) -> SdfScene {
             C::from_rgba8(255, 240, 220, 255),
             1.0,
         ))
-        .camera(orbit_camera(
-            Vec3::new(0.0, 0.3, 0.0),
-            5.0,
-            2.0,
-            time,
-            50.0,
-        ))
         .sky_color(C::from_rgba8(80, 130, 200, 255))
-        .max_bounces(2)
-}
+        .max_bounces(2);
 
-fn build_fire_scene(time: f32) -> SdfScene {
-    SdfScene::new()
+    let fire = SdfScene::new()
         .object(
             SdfObject::new(
                 SdfShape::Cylinder {
@@ -167,19 +160,10 @@ fn build_fire_scene(time: f32) -> SdfScene {
             C::from_rgba8(255, 200, 150, 255),
             0.3,
         ))
-        .camera(orbit_camera(
-            Vec3::new(0.0, 1.2, 0.0),
-            5.5,
-            2.5,
-            time,
-            50.0,
-        ))
         .sky_color(C::from_rgba8(10, 8, 15, 255))
-        .ambient(0.02)
-}
+        .ambient(0.02);
 
-fn build_blend_scene(time: f32) -> SdfScene {
-    SdfScene::new()
+    let blend = SdfScene::new()
         .object(
             SdfObject::new(
                 SdfShape::SmoothBlend {
@@ -209,24 +193,15 @@ fn build_blend_scene(time: f32) -> SdfScene {
             C::from_rgba8(180, 160, 255, 255),
             0.3,
         ))
-        .camera(orbit_camera(
-            Vec3::new(0.0, 1.0, 0.0),
-            5.5,
-            2.5,
-            time,
-            50.0,
-        ))
-        .sky_color(C::from_rgba8(50, 60, 90, 255))
+        .sky_color(C::from_rgba8(50, 60, 90, 255));
+
+    [reflections, water, fire, blend]
 }
 
-fn build_scene(preset: usize, time: f32) -> SdfScene {
-    match preset {
-        0 => build_reflections_scene(time),
-        1 => build_water_scene(time),
-        2 => build_fire_scene(time),
-        3 => build_blend_scene(time),
-        _ => build_reflections_scene(time),
-    }
+/// Set the orbit camera on a pre-built scene for the current frame.
+fn set_camera(scene: &mut SdfScene, preset: usize, time: f32) {
+    let (target, radius, height, fov) = ORBIT_PARAMS[preset];
+    scene.camera = orbit_camera(target, radius, height, time, fov);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -246,12 +221,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => Box::new(transport::halfblock::HalfblockBackend::new()),
     };
 
+    let mut scenes = build_scenes();
     let mut preset_idx: usize = 0;
     let mut paused = false;
     let start = Instant::now();
     let mut frozen_time = 0.0_f32;
     let mut last_fps = 0.0_f32;
     let mut handle: Option<transport::backend::ImageHandle> = None;
+
+    // Profiler state
+    let mut profiling = false;
+    let mut profile_history = SdfProfileHistory::new(32);
+
+    // Render scale (bicubic upscaler)
+    const SCALE_STEPS: [f32; 4] = [0.25, 0.5, 0.75, 1.0];
+    let mut scale_idx: usize = 1; // default 0.5
 
     loop {
         let frame_start = Instant::now();
@@ -266,24 +250,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Get terminal size in pixels
         let (cols, rows) = terminal::size()?;
+        let status_rows = if profiling { 3 } else { 1 };
         let full_w = u32::from(cols) * u32::from(font.width);
-        let full_h = u32::from(rows.saturating_sub(2)) * u32::from(font.height); // leave room for status
+        let full_h = u32::from(rows.saturating_sub(status_rows + 1)) * u32::from(font.height);
 
         if full_w > 0 && full_h > 0 {
-            // Render at reduced resolution
-            let scale = f32::min(
-                MAX_RENDER_W as f32 / full_w as f32,
-                MAX_RENDER_H as f32 / full_h as f32,
-            )
-            .min(1.0);
-            let render_w = ((full_w as f32 * scale) as u32).max(1);
-            let render_h = ((full_h as f32 * scale) as u32).max(1);
+            // Cap to max render resolution, then apply user render scale
+            let cap_w = full_w.min(MAX_RENDER_W);
+            let cap_h = full_h.min(MAX_RENDER_H);
+            let render_scale = SCALE_STEPS[scale_idx];
 
-            let scene = build_scene(preset_idx, elapsed);
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, render_w, render_h, elapsed)?;
+            // Update only the camera on the pre-built scene
+            set_camera(&mut scenes[preset_idx], preset_idx, elapsed);
+
+            let pixmap = if profiling {
+                let (pm, profile) = SdfRenderer::render_to_pixmap_upscaled_profiled(
+                    &scenes[preset_idx],
+                    cap_w,
+                    cap_h,
+                    render_scale,
+                    elapsed,
+                )?;
+                profile_history.push(profile);
+                pm
+            } else {
+                SdfRenderer::render_to_pixmap_upscaled(
+                    &scenes[preset_idx],
+                    cap_w,
+                    cap_h,
+                    render_scale,
+                    elapsed,
+                )?
+            };
 
             // Transmit directly to terminal — no widget/rasterizer overhead
-            let pos = TerminalPosition::new(0, 0, cols, rows.saturating_sub(2));
+            let pos = TerminalPosition::new(0, 0, cols, rows.saturating_sub(status_rows + 1));
 
             let new_handle = if let Some(ref old) = handle {
                 backend.replace(old, &pixmap, pos, -1)?
@@ -294,16 +295,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Status bar at bottom
-        let (_, rows) = terminal::size()?;
+        let (cols, rows) = terminal::size()?;
         let frame_ms = frame_start.elapsed().as_secs_f32();
         if frame_ms > 0.0 {
             last_fps = last_fps * 0.8 + (1.0 / frame_ms) * 0.2;
         }
-        out.queue(cursor::MoveTo(0, rows - 1))?;
-        out.queue(style::Print(format!(
-            " SDF: {} | {:.0} fps | [1-4] scene [space] pause [q] quit   ",
-            PRESET_NAMES[preset_idx], last_fps,
-        )))?;
+
+        if profiling {
+            let summary = profile_history.summary();
+            let total_ms = summary.total_us as f64 / 1000.0;
+
+            // Line 1: scene info + resolution + total time
+            let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
+            out.queue(cursor::MoveTo(0, rows.saturating_sub(3)))?;
+            out.queue(style::Print(format!(
+                "\x1b[K SDF: {} | {:.0} fps | {}x{} @{}% | {:.1}ms total",
+                PRESET_NAMES[preset_idx],
+                last_fps,
+                MAX_RENDER_W.min(full_w),
+                MAX_RENDER_H.min(full_h),
+                pct,
+                total_ms,
+            )))?;
+
+            // Line 2: colored bar chart
+            let bar_width = (cols as usize).saturating_sub(4).min(40);
+            let bar = render_profile_bar(&summary, bar_width);
+            out.queue(cursor::MoveTo(0, rows.saturating_sub(2)))?;
+            out.queue(style::Print(format!("\x1b[K {bar}")))?;
+
+            // Line 3: controls
+            out.queue(cursor::MoveTo(0, rows.saturating_sub(1)))?;
+            out.queue(style::Print(format!(
+                "\x1b[K [1-4] scene  [+/-] scale  [space] pause  [p] profile  [q] quit"
+            )))?;
+        } else {
+            let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
+            out.queue(cursor::MoveTo(0, rows - 1))?;
+            out.queue(style::Print(format!(
+                "\x1b[K SDF: {} | {:.0} fps | {}% upscale | [1-4] scene [+/-] scale [space] pause [p] profile [q] quit",
+                PRESET_NAMES[preset_idx], last_fps, pct,
+            )))?;
+        }
         out.flush()?;
 
         // Drain all pending events
@@ -325,6 +358,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Char('3') => preset_idx = 2,
                         KeyCode::Char('4') => preset_idx = 3,
                         KeyCode::Char(' ') => paused = !paused,
+                        KeyCode::Char('p') => {
+                            profiling = !profiling;
+                            if profiling {
+                                profile_history = SdfProfileHistory::new(32);
+                            }
+                        }
+                        KeyCode::Char('+') | KeyCode::Char('=') => {
+                            if scale_idx < SCALE_STEPS.len() - 1 {
+                                scale_idx += 1;
+                            }
+                        }
+                        KeyCode::Char('-') => {
+                            if scale_idx > 0 {
+                                scale_idx -= 1;
+                            }
+                        }
                         _ => {}
                     }
                 }

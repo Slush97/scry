@@ -52,6 +52,9 @@ pub struct FlatTree {
     pub leaf_probas: Vec<f32>,
     /// Number of classes (stride for `leaf_probas`).
     pub n_classes_stored: u32,
+    /// Number of training samples reaching each DFS node.
+    /// Used by TreeSHAP for coverage fractions.
+    pub node_counts: Vec<usize>,
 }
 
 impl FlatTree {
@@ -65,6 +68,7 @@ impl FlatTree {
         let mut predictions = Vec::new();
         let mut leaf_probas: Vec<f32> = Vec::new();
         let mut leaf_count: u32 = 0;
+        let mut node_counts = Vec::new();
         Self::flatten_dfs(
             root,
             &mut nodes,
@@ -72,12 +76,14 @@ impl FlatTree {
             &mut leaf_probas,
             &mut leaf_count,
             n_classes,
+            &mut node_counts,
         );
         FlatTree {
             nodes,
             predictions,
             leaf_probas,
             n_classes_stored: n_classes as u32,
+            node_counts,
         }
     }
 
@@ -93,6 +99,7 @@ impl FlatTree {
         leaf_probas: &mut Vec<f32>,
         leaf_count: &mut u32,
         n_classes: usize,
+        node_counts: &mut Vec<usize>,
     ) {
         match node {
             TreeNode::Leaf {
@@ -108,6 +115,7 @@ impl FlatTree {
                     feature_idx: li, // repurposed: leaf data index
                     threshold: 0.0,
                 });
+                node_counts.push(*n_samples);
                 predictions.push(*prediction);
                 Self::append_proba(leaf_probas, class_counts, *n_samples, n_classes);
             }
@@ -116,9 +124,7 @@ impl FlatTree {
                 threshold,
                 left,
                 right,
-                class_counts: _,
-                n_samples: _,
-                prediction: _,
+                n_samples,
                 ..
             } => {
                 let my_idx = nodes.len();
@@ -127,9 +133,10 @@ impl FlatTree {
                     feature_idx: *feature_idx as u32,
                     threshold: *threshold,
                 });
+                node_counts.push(*n_samples);
 
                 // Recurse left — left child is always my_idx + 1.
-                Self::flatten_dfs(left, nodes, predictions, leaf_probas, leaf_count, n_classes);
+                Self::flatten_dfs(left, nodes, predictions, leaf_probas, leaf_count, n_classes, node_counts);
 
                 // Right child index = current length (after entire left subtree).
                 nodes[my_idx].right = nodes.len() as u32;
@@ -140,6 +147,7 @@ impl FlatTree {
                     leaf_probas,
                     leaf_count,
                     n_classes,
+                    node_counts,
                 );
             }
         }

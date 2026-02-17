@@ -30,7 +30,9 @@ svg = ["dep:resvg"]
 serde = ["dep:serde"]
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
-sdf = []
+sdf = ["dep:rayon"]
+input = []
+window = ["dep:winit", "dep:softbuffer"]
 
 [dependencies]
 tiny-skia = "0.11"
@@ -48,10 +50,15 @@ fontdue = { version = "0.9", optional = true }
 libc = { version = "0.2", optional = true }
 # Optional: SVG rendering via resvg (uses tiny-skia internally)
 resvg = { version = "0.44", optional = true, default-features = false }
+# Optional: parallel ray marching for SDF renderer
+rayon = { version = "1", optional = true }
 # Optional: GPU-accelerated rasterization via wgpu
 wgpu = { version = "24", optional = true }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
+# Optional: native window display via softbuffer (CPU framebuffer)
+winit = { version = "0.30", optional = true }
+softbuffer = { version = "0.4", optional = true }
 # Optional: WASM bridge for rendering to HTML5 Canvas
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
@@ -83,6 +90,10 @@ required-features = ["svg", "widget"]
 [[example]]
 name = "sdf_showcase"
 required-features = ["sdf"]
+
+[[example]]
+name = "window_demo"
+required-features = ["window"]
 
 [[example]]
 name = "dual_y_demo"

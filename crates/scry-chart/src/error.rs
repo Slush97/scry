@@ -36,4 +36,8 @@ pub enum ChartError {
         /// The maximum bound that was provided.
         max: f64,
     },
+
+    /// An I/O error occurred (e.g., writing to terminal).
+    #[error("I/O error: {0}")]
+    Io(String),
 }

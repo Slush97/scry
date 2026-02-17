@@ -5,7 +5,14 @@
 //! protocol to use, and provides the font size needed for pixel ↔ cell
 //! coordinate conversion.
 
+use std::sync::OnceLock;
+
 use crate::transport::backend::{FontSize, ProtocolKind};
+use crate::transport::capabilities::{ProbeConfig, TerminalCapabilities};
+use crate::transport::probe;
+
+/// Globally cached terminal capabilities, computed once on first access.
+static CACHED_CAPABILITIES: OnceLock<TerminalCapabilities> = OnceLock::new();
 
 // ---------------------------------------------------------------------------
 // Picker
@@ -67,6 +74,62 @@ impl Picker {
     #[must_use]
     pub const fn font_size(&self) -> FontSize {
         self.font_size
+    }
+
+    /// Create a protocol backend matching the detected protocol.
+    ///
+    /// This is a convenience factory that eliminates the need for manual
+    /// `match` on [`protocol()`](Self::protocol) when constructing backends.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use scry_engine::transport::Picker;
+    ///
+    /// let picker = Picker::detect();
+    /// let backend = picker.create_backend();
+    /// ```
+    pub fn create_backend(&self) -> Box<dyn crate::transport::backend::ProtocolBackend> {
+        match self.protocol {
+            #[cfg(feature = "kitty")]
+            ProtocolKind::Kitty => {
+                Box::new(crate::transport::kitty::KittyBackend::new(self.font_size))
+            }
+            #[cfg(feature = "iterm2")]
+            ProtocolKind::Iterm2 => {
+                Box::new(crate::transport::iterm2::Iterm2Backend::new(self.font_size))
+            }
+            #[cfg(feature = "sixel")]
+            ProtocolKind::Sixel => {
+                Box::new(crate::transport::sixel::SixelBackend::new(self.font_size))
+            }
+            // Window backend requires caller-managed event loop — cannot be
+            // auto-created from Picker. Use `WindowBackend::new()` directly.
+            _ => Box::new(crate::transport::halfblock::HalfblockBackend::new()),
+        }
+    }
+
+    /// Auto-detect with an explicit probe configuration.
+    ///
+    /// Unlike [`detect()`](Self::detect), this does NOT use the global cache —
+    /// it always runs the full pipeline with the given config.
+    #[must_use]
+    pub fn detect_with_config(config: &ProbeConfig) -> Self {
+        let caps = probe::probe_capabilities(config);
+        let font_size = Self::detect_font_size();
+        Self {
+            protocol: caps.protocol,
+            font_size,
+        }
+    }
+
+    /// Get the globally cached terminal capabilities.
+    ///
+    /// On first call, runs the full detection pipeline (including active
+    /// terminal probing if stdout is a TTY). The result is cached in a
+    /// `OnceLock` — subsequent calls return immediately.
+    pub fn capabilities() -> &'static TerminalCapabilities {
+        CACHED_CAPABILITIES.get_or_init(|| probe::probe_capabilities(&ProbeConfig::default()))
     }
 
     /// Detect which protocol the terminal supports.

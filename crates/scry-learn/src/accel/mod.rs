@@ -85,6 +85,41 @@ pub trait ComputeBackend {
 
     /// Returns the backend name for diagnostics.
     fn name(&self) -> &'static str;
+
+    /// Build gradient/hessian histograms for histogram-based GBT.
+    ///
+    /// - `binned`: column-major binned features `[n_features][n_samples]` as u8
+    /// - `gradients`: per-sample gradients
+    /// - `hessians`: per-sample hessians
+    /// - `sample_indices`: active sample indices for this node
+    /// - `n_features`: number of features
+    /// - `n_bins`: max number of bins (typically 256)
+    /// - Returns: `[n_features][n_bins]` histogram bins as `(grad_sum, hess_sum, count)`
+    fn build_histograms(
+        &self,
+        binned: &[Vec<u8>],
+        gradients: &[f64],
+        hessians: &[f64],
+        sample_indices: &[usize],
+        n_features: usize,
+        n_bins: usize,
+    ) -> Vec<Vec<(f64, f64, f64)>> {
+        // Default CPU implementation
+        let mut histograms = vec![vec![(0.0_f64, 0.0_f64, 0.0_f64); n_bins]; n_features];
+        for &idx in sample_indices {
+            let g = gradients[idx];
+            let h = hessians[idx];
+            for f in 0..n_features {
+                let bin = binned[f][idx] as usize;
+                if bin < n_bins {
+                    histograms[f][bin].0 += g;
+                    histograms[f][bin].1 += h;
+                    histograms[f][bin].2 += 1.0;
+                }
+            }
+        }
+        histograms
+    }
 }
 
 /// Get the fastest available compute backend.

@@ -22,6 +22,9 @@
 
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "input")]
+use std::collections::HashMap;
+
 #[cfg(feature = "text")]
 use crate::scene::command::FontData;
 use crate::scene::command::{DrawCommand, ImageData, PathData};
@@ -45,6 +48,9 @@ pub struct PixelCanvas {
     background: Color,
     width: u32,
     height: u32,
+    /// Per-command hit-test tags. Keys are command indices.
+    #[cfg(feature = "input")]
+    hit_tags: HashMap<usize, crate::scene::hit::HitTag>,
 }
 
 impl PixelCanvas {
@@ -52,12 +58,14 @@ impl PixelCanvas {
     ///
     /// The canvas starts empty with a transparent background.
     #[must_use]
-    pub const fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         Self {
             commands: Vec::new(),
             background: Color::TRANSPARENT,
             width,
             height,
+            #[cfg(feature = "input")]
+            hit_tags: HashMap::new(),
         }
     }
 
@@ -348,7 +356,7 @@ impl PixelCanvas {
     /// Begin a transform group. All subsequent commands added via the returned
     /// [`GroupBuilder`] will have the given transform applied.
     #[must_use]
-    pub const fn group(self, transform: Transform) -> GroupBuilder {
+    pub fn group(self, transform: Transform) -> GroupBuilder {
         GroupBuilder::new(self, transform)
     }
 
@@ -380,6 +388,39 @@ impl PixelCanvas {
         self.height.hash(&mut hasher);
         self.commands.hash(&mut hasher);
         hasher.finish()
+    }
+
+    /// Tag the most recently added command for hit-testing.
+    ///
+    /// The tag is associated with the last command in the display list.
+    /// Commands without tags are ignored during hit-testing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the canvas has no commands (nothing to tag).
+    #[cfg(feature = "input")]
+    #[must_use]
+    pub fn with_tag(mut self, tag: crate::scene::hit::HitTag) -> Self {
+        assert!(
+            !self.commands.is_empty(),
+            "with_tag() requires at least one command"
+        );
+        let idx = self.commands.len() - 1;
+        self.hit_tags.insert(idx, tag);
+        self
+    }
+
+    /// Tag a specific command index for hit-testing.
+    #[cfg(feature = "input")]
+    pub fn tag_command(&mut self, index: usize, tag: crate::scene::hit::HitTag) {
+        self.hit_tags.insert(index, tag);
+    }
+
+    /// Get the hit-test tag map.
+    #[cfg(feature = "input")]
+    #[must_use]
+    pub fn hit_tags(&self) -> &HashMap<usize, crate::scene::hit::HitTag> {
+        &self.hit_tags
     }
 
     /// Push a command internally (used by builders).
@@ -781,7 +822,7 @@ pub struct GroupBuilder {
 }
 
 impl GroupBuilder {
-    const fn new(parent: PixelCanvas, transform: Transform) -> Self {
+    fn new(parent: PixelCanvas, transform: Transform) -> Self {
         let child = PixelCanvas::new(parent.width, parent.height);
         Self {
             parent,

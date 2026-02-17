@@ -15,7 +15,7 @@
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neural::activation::Activation;
-use crate::neural::callback::{self, EpochMetrics, TrainingHistory};
+use crate::neural::callback::{self, CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory};
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
 use crate::neural::optimizer::{OptimizerKind, OptimizerState};
@@ -28,7 +28,6 @@ use crate::partial_fit::PartialFit;
 ///
 /// Defaults match sklearn: `hidden_layers=[100]`, Adam, lr=0.001,
 /// `max_iter=200`, `batch_size=200`, `alpha=0.0001`.
-#[derive(Clone)]
 #[non_exhaustive]
 pub struct MLPRegressor {
     hidden_layers: Vec<usize>,
@@ -52,6 +51,34 @@ pub struct MLPRegressor {
     pub loss_curve: Vec<f64>,
     /// Structured training history with per-epoch metrics.
     training_history: TrainingHistory,
+    /// User-supplied training callbacks (not cloned — session-specific).
+    callbacks: Vec<Box<dyn TrainingCallback>>,
+}
+
+impl Clone for MLPRegressor {
+    fn clone(&self) -> Self {
+        Self {
+            hidden_layers: self.hidden_layers.clone(),
+            activation: self.activation,
+            optimizer_kind: self.optimizer_kind,
+            learning_rate: self.learning_rate,
+            max_iter: self.max_iter,
+            batch_size: self.batch_size,
+            alpha: self.alpha,
+            tolerance: self.tolerance,
+            early_stopping: self.early_stopping,
+            validation_fraction: self.validation_fraction,
+            n_iter_no_change: self.n_iter_no_change,
+            seed: self.seed,
+            fitted: self.fitted,
+            n_features: self.n_features,
+            network_weights: self.network_weights.clone(),
+            network_dims: self.network_dims.clone(),
+            loss_curve: self.loss_curve.clone(),
+            training_history: self.training_history.clone(),
+            callbacks: Vec::new(),
+        }
+    }
 }
 
 impl MLPRegressor {
@@ -76,6 +103,7 @@ impl MLPRegressor {
             network_dims: Vec::new(),
             loss_curve: Vec::new(),
             training_history: TrainingHistory::new(),
+            callbacks: Vec::new(),
         }
     }
 
@@ -156,6 +184,12 @@ impl MLPRegressor {
         self
     }
 
+    /// Add a training callback (invoked after each epoch).
+    pub fn callback(mut self, cb: Box<dyn TrainingCallback>) -> Self {
+        self.callbacks.push(cb);
+        self
+    }
+
     /// Train the regressor on a dataset.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
         let n_samples = data.n_samples();
@@ -217,6 +251,8 @@ impl MLPRegressor {
         let mut best_val_loss = f64::INFINITY;
         let mut best_weights: Option<Vec<(Vec<f64>, Vec<f64>)>> = None;
         let mut no_improve = 0;
+
+        let mut callbacks = std::mem::take(&mut self.callbacks);
 
         for epoch_idx in 0..self.max_iter {
             let epoch_start = std::time::Instant::now();
@@ -318,7 +354,7 @@ impl MLPRegressor {
             }
 
             let elapsed = epoch_start.elapsed();
-            self.training_history.push(EpochMetrics {
+            let metrics = EpochMetrics {
                 epoch: epoch_idx,
                 train_loss: avg_loss,
                 val_loss: val_loss_epoch,
@@ -327,7 +363,20 @@ impl MLPRegressor {
                 learning_rate: self.learning_rate,
                 grad_norm: last_grad_norm,
                 elapsed_ms: elapsed.as_millis() as u64,
-            });
+            };
+
+            let mut cb_stop = false;
+            for cb in &mut callbacks {
+                if cb.on_epoch_end(&metrics) == CallbackAction::Stop {
+                    cb_stop = true;
+                }
+            }
+
+            self.training_history.push(metrics);
+
+            if cb_stop {
+                break;
+            }
 
             if no_improve >= self.n_iter_no_change
                 && (self.early_stopping || self.loss_curve.len() >= 2)
@@ -335,6 +384,11 @@ impl MLPRegressor {
                 break;
             }
         }
+
+        for cb in &mut callbacks {
+            cb.on_training_end();
+        }
+        self.callbacks = callbacks;
 
         if let Some(ref best) = best_weights {
             net.restore_weights(best);

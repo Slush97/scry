@@ -29,11 +29,13 @@
 //! | [`halfblock::HalfblockBackend`] | always | 1×2 per cell | ❌ |
 
 pub mod backend;
+pub mod capabilities;
 #[cfg(feature = "kitty")]
 pub mod kitty;
 
 pub mod halfblock;
 pub mod picker;
+pub mod probe;
 
 #[cfg(feature = "sixel")]
 pub mod sixel;
@@ -41,8 +43,14 @@ pub mod sixel;
 #[cfg(feature = "iterm2")]
 pub mod iterm2;
 
+#[cfg(feature = "window")]
+pub mod window;
+
 #[cfg(feature = "shm")]
 pub(crate) mod shm;
 
 pub use backend::{FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
+pub use capabilities::{
+    DetectionMethod, KittyFeatures, Multiplexer, ProbeConfig, SixelFeatures, TerminalCapabilities,
+};
 pub use picker::Picker;

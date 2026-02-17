@@ -46,6 +46,7 @@ pub mod dataset;
 pub mod distance;
 pub mod ensemble;
 pub mod error;
+pub mod explain;
 pub mod feature_selection;
 pub mod linear;
 pub mod matrix;
@@ -80,6 +81,7 @@ pub mod prelude {
     pub use crate::dataset::Dataset;
     pub use crate::ensemble::{StackingClassifier, Voting, VotingClassifier};
     pub use crate::error::ScryLearnError;
+    pub use crate::explain::{ensemble_tree_shap, permutation_importance, tree_shap};
     pub use crate::feature_selection::{f_classif, ScoreFn, SelectKBest, VarianceThreshold};
     pub use crate::linear::{
         ElasticNet, LassoRegression, LinearRegression, LogisticRegression, Penalty, Ridge, Solver,
@@ -98,9 +100,11 @@ pub mod prelude {
     pub use crate::neighbors::{
         Algorithm, DistanceMetric, KdTree, KnnClassifier, KnnRegressor, WeightFunction,
     };
+    #[cfg(feature = "live-plot")]
+    pub use crate::neural::{LivePlotCallback, LivePlotConfig};
     pub use crate::neural::{
-        Activation, BackwardOutput, Conv2D, Flatten, Layer, MLPClassifier, MLPRegressor,
-        MaxPool2D, OptimizerKind,
+        Activation, BackwardOutput, CallbackAction, Conv2D, Flatten, Layer, MLPClassifier,
+        MLPRegressor, MaxPool2D, OptimizerKind, TrainingCallback,
     };
     pub use crate::partial_fit::PartialFit;
     pub use crate::pipeline::Pipeline;
@@ -110,7 +114,8 @@ pub mod prelude {
         Strategy, Transformer, UnknownStrategy,
     };
     pub use crate::search::{
-        CvResult, GridSearchCV, ParamGrid, ParamValue, RandomizedSearchCV, Tunable,
+        BayesSearchCV, CvResult, GridSearchCV, ParamDistribution, ParamGrid, ParamSpace,
+        ParamValue, RandomizedSearchCV, Tunable,
     };
     pub use crate::sparse::{CscMatrix, CsrMatrix};
     pub use crate::split::{

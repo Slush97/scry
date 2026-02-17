@@ -36,6 +36,8 @@ pub mod classifier;
 pub mod conv;
 pub mod flatten;
 pub(crate) mod layer;
+#[cfg(feature = "live-plot")]
+pub mod live_plot;
 pub(crate) mod network;
 pub(crate) mod optimizer;
 pub mod pool;
@@ -47,6 +49,8 @@ pub use callback::{CallbackAction, EpochMetrics, TrainingCallback, TrainingHisto
 pub use classifier::MLPClassifier;
 pub use conv::Conv2D;
 pub use flatten::Flatten;
+#[cfg(feature = "live-plot")]
+pub use live_plot::{LivePlotCallback, LivePlotConfig};
 pub use optimizer::OptimizerKind;
 pub use pool::MaxPool2D;
 pub use regressor::MLPRegressor;

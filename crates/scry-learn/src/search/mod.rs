@@ -23,10 +23,12 @@
 //! println!("Best score: {}", result.best_score());
 //! ```
 
+mod bayes;
 mod grid;
 mod random;
 mod tunable;
 
+pub use bayes::{BayesSearchCV, ParamDistribution, ParamSpace};
 pub use grid::GridSearchCV;
 pub use random::RandomizedSearchCV;
 pub use tunable::Tunable;

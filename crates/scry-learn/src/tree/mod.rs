@@ -15,5 +15,7 @@ pub use cart::{
 pub use gradient_boosting::{
     GradientBoostingClassifier, GradientBoostingRegressor, RegressionLoss,
 };
-pub use histogram_gbt::{HistGradientBoostingClassifier, HistGradientBoostingRegressor};
+pub use histogram_gbt::{
+    HistGradientBoostingClassifier, HistGradientBoostingRegressor, HistNodeView,
+};
 pub use random_forest::{MaxFeatures, RandomForestClassifier, RandomForestRegressor};

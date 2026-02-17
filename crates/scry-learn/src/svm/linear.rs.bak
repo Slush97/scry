@@ -8,7 +8,6 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use crate::sparse::{CscMatrix, CsrMatrix};
 use crate::weights::{compute_sample_weights, ClassWeight};
 
 // ─────────────────────────────────────────────────────────────────
@@ -115,12 +114,8 @@ impl LinearSVC {
     /// Train the SVM on the given dataset.
     ///
     /// Uses Pegasos-style SGD with one-vs-rest decomposition for
-    /// multiclass problems (≥ 3 classes). Auto-dispatches to sparse
-    /// kernels when the dataset uses sparse storage.
+    /// multiclass problems (≥ 3 classes).
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
-        if let Some(csc) = data.sparse_csc() {
-            return self.fit_sparse(csc, &data.target);
-        }
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -179,104 +174,6 @@ impl LinearSVC {
 
         self.fitted = true;
         Ok(())
-    }
-
-    /// Train on sparse data (CSC format).
-    fn fit_sparse(&mut self, csc: &CscMatrix, target: &[f64]) -> Result<()> {
-        let csr = csc.to_csr();
-        let n = csr.n_rows();
-        let m = csc.n_cols();
-        if n == 0 {
-            return Err(ScryLearnError::EmptyDataset);
-        }
-        if self.c <= 0.0 || !self.c.is_finite() {
-            return Err(ScryLearnError::InvalidParameter(
-                "C must be finite and positive".into(),
-            ));
-        }
-
-        self.n_classes = {
-            let mut max_class = 0usize;
-            for &t in target {
-                let c = t as usize;
-                if c > max_class {
-                    max_class = c;
-                }
-            }
-            max_class + 1
-        };
-        let sample_weights = compute_sample_weights(target, &self.class_weight);
-
-        self.weights = Vec::with_capacity(self.n_classes);
-        self.platt_params = Vec::with_capacity(self.n_classes);
-
-        for cls in 0..self.n_classes {
-            let binary_target: Vec<f64> = target
-                .iter()
-                .map(|&t| if t as usize == cls { 1.0 } else { -1.0 })
-                .collect();
-
-            let w = pegasos_train_sparse(
-                &csr,
-                &binary_target,
-                &sample_weights,
-                m,
-                n,
-                self.c,
-                self.max_iter,
-                self.tol,
-            );
-
-            let ab = if self.probability {
-                let dvals: Vec<f64> = (0..n)
-                    .map(|i| {
-                        let row = csr.row(i);
-                        let mut score = w[m]; // bias
-                        for (col, val) in row.iter() {
-                            score += w[col] * val;
-                        }
-                        score
-                    })
-                    .collect();
-                platt_fit(&dvals, &binary_target)
-            } else {
-                (0.0, 0.0)
-            };
-            self.platt_params.push(ab);
-            self.weights.push(w);
-        }
-
-        self.fitted = true;
-        Ok(())
-    }
-
-    /// Predict class labels from sparse input (CSR format).
-    pub fn predict_sparse(&self, csr: &CsrMatrix) -> Result<Vec<f64>> {
-        if !self.fitted {
-            return Err(ScryLearnError::NotFitted);
-        }
-        let n = csr.n_rows();
-        let mut preds = Vec::with_capacity(n);
-        for i in 0..n {
-            let row = csr.row(i);
-            let mut best_cls = 0usize;
-            let mut best_score = f64::NEG_INFINITY;
-            for (cls, w) in self.weights.iter().enumerate() {
-                let m = w.len() - 1;
-                let mut score = w[m]; // bias
-                for (col, val) in row.iter() {
-                    if col < m {
-                        score += w[col] * val;
-                    }
-                }
-                if score > best_score {
-                    best_score = score;
-                    best_cls = cls;
-                }
-            }
-            preds.push(best_cls as f64);
-        }
-        Ok(preds)
     }
 
     /// Predict class labels for the given row-major feature matrix.
@@ -460,12 +357,7 @@ impl LinearSVR {
     }
 
     /// Train the SVR on the given dataset.
-    ///
-    /// Auto-dispatches to sparse kernels when the dataset uses sparse storage.
     pub fn fit(&mut self, data: &Dataset) -> Result<()> {
-        if let Some(csc) = data.sparse_csc() {
-            return self.fit_sparse(csc, &data.target);
-        }
         let n = data.n_samples();
         let m = data.n_features();
         if n == 0 {
@@ -497,6 +389,10 @@ impl LinearSVR {
 
                 let residual = pred - data.target[i];
 
+                // ε-insensitive sub-gradient:
+                // If |residual| <= epsilon → sub-gradient is 0 (inside tube).
+                // If residual > epsilon → sub-gradient direction is +1.
+                // If residual < -epsilon → sub-gradient direction is -1.
                 let sign = if residual > self.epsilon {
                     1.0
                 } else if residual < -self.epsilon {
@@ -505,78 +401,17 @@ impl LinearSVR {
                     0.0
                 };
 
+                // Update weights: w ← (1 - η·λ)·w - η·sign·x
+                // (Pegasos step size η = 1/(λ·t) already encodes the
+                //  regularisation-vs-loss tradeoff, so no extra C or /n.)
                 for (wj, feat_col) in w.iter_mut().zip(data.features.iter()) {
                     *wj = (1.0 - eta * lambda) * *wj - eta * sign * feat_col[i];
                 }
+                // Bias (no regularisation decay, same gradient scale).
                 w[m] -= eta * sign;
             }
 
-            let max_delta = w
-                .iter()
-                .zip(prev_w.iter())
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0_f64, f64::max);
-            if max_delta < self.tol {
-                break;
-            }
-            prev_w.copy_from_slice(&w);
-        }
-
-        self.weights = w;
-        self.fitted = true;
-        Ok(())
-    }
-
-    /// Train on sparse data (CSC format).
-    fn fit_sparse(&mut self, csc: &CscMatrix, target: &[f64]) -> Result<()> {
-        let csr = csc.to_csr();
-        let n = csr.n_rows();
-        let m = csc.n_cols();
-        if n == 0 {
-            return Err(ScryLearnError::EmptyDataset);
-        }
-        if self.c <= 0.0 || !self.c.is_finite() {
-            return Err(ScryLearnError::InvalidParameter(
-                "C must be finite and positive".into(),
-            ));
-        }
-
-        let lambda = 1.0 / (self.c * n as f64);
-        let mut w = vec![0.0; m + 1];
-        let mut t = 1.0_f64;
-        let mut prev_w = w.clone();
-
-        for _epoch in 0..self.max_iter {
-            for i in 0..n {
-                let eta = 1.0 / (lambda * t);
-                t += 1.0;
-
-                let row = csr.row(i);
-                let mut pred = w[m]; // bias
-                for (col, val) in row.iter() {
-                    pred += w[col] * val;
-                }
-
-                let residual = pred - target[i];
-                let sign = if residual > self.epsilon {
-                    1.0
-                } else if residual < -self.epsilon {
-                    -1.0
-                } else {
-                    0.0
-                };
-
-                // Regularise all weights, then update non-zero entries.
-                let decay = 1.0 - eta * lambda;
-                for wj in w.iter_mut().take(m) {
-                    *wj *= decay;
-                }
-                for (col, val) in row.iter() {
-                    w[col] -= eta * sign * val;
-                }
-                w[m] -= eta * sign;
-            }
-
+            // Convergence check: max absolute weight change.
             let max_delta = w
                 .iter()
                 .zip(prev_w.iter())
@@ -609,27 +444,6 @@ impl LinearSVR {
                 pred
             })
             .collect())
-    }
-
-    /// Predict continuous target values from sparse input (CSR format).
-    pub fn predict_sparse(&self, csr: &CsrMatrix) -> Result<Vec<f64>> {
-        if !self.fitted {
-            return Err(ScryLearnError::NotFitted);
-        }
-        let m = self.weights.len() - 1;
-        let n = csr.n_rows();
-        let mut preds = Vec::with_capacity(n);
-        for i in 0..n {
-            let row = csr.row(i);
-            let mut pred = self.weights[m]; // bias
-            for (col, val) in row.iter() {
-                if col < m {
-                    pred += self.weights[col] * val;
-                }
-            }
-            preds.push(pred);
-        }
-        Ok(preds)
     }
 }
 
@@ -714,88 +528,6 @@ fn pegasos_train(
         }
 
         // Convergence: max weight change.
-        let max_delta = w
-            .iter()
-            .zip(prev_w.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0_f64, f64::max);
-        if max_delta < tol {
-            break;
-        }
-        prev_w.copy_from_slice(&w);
-    }
-
-    best_w
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Sparse Pegasos SGD helper (used by LinearSVC sparse path)
-// ─────────────────────────────────────────────────────────────────
-
-/// Train a single binary SVM on sparse data via batch sub-gradient descent.
-///
-/// Mirrors `pegasos_train` but operates on a CSR matrix for efficient
-/// row access. Returns weight vector of length `m + 1` (last = bias).
-#[allow(clippy::too_many_arguments)]
-fn pegasos_train_sparse(
-    csr: &CsrMatrix,
-    binary_target: &[f64],
-    sample_weights: &[f64],
-    m: usize,
-    n: usize,
-    c: f64,
-    max_iter: usize,
-    tol: f64,
-) -> Vec<f64> {
-    let lambda = 1.0 / (c * n as f64);
-    let mut w = vec![0.0; m + 1];
-    let mut best_w = w.clone();
-    let mut best_loss = f64::INFINITY;
-    let mut prev_w = w.clone();
-
-    for epoch in 0..max_iter {
-        let eta = 1.0 / (1.0 + 0.01 * epoch as f64);
-
-        let mut grad = vec![0.0; m + 1];
-        let mut hinge_loss = 0.0_f64;
-
-        for i in 0..n {
-            let row = csr.row(i);
-            let mut score = w[m]; // bias
-            for (col, val) in row.iter() {
-                score += w[col] * val;
-            }
-
-            let y = binary_target[i];
-            let sw = sample_weights[i];
-            let margin = y * score;
-
-            if margin < 1.0 {
-                hinge_loss += sw * (1.0 - margin);
-                for (col, val) in row.iter() {
-                    grad[col] -= sw * y * val;
-                }
-                grad[m] -= sw * y;
-            }
-        }
-
-        // Average hinge gradient + L2 penalty.
-        for j in 0..m {
-            grad[j] = grad[j] / n as f64 + lambda * w[j];
-        }
-        grad[m] /= n as f64;
-
-        for j in 0..=m {
-            w[j] -= eta * grad[j];
-        }
-
-        let total_loss =
-            hinge_loss / n as f64 + 0.5 * lambda * w.iter().take(m).map(|x| x * x).sum::<f64>();
-        if total_loss < best_loss {
-            best_loss = total_loss;
-            best_w.copy_from_slice(&w);
-        }
-
         let max_delta = w
             .iter()
             .zip(prev_w.iter())

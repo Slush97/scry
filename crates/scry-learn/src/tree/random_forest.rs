@@ -395,6 +395,16 @@ impl RandomForestClassifier {
     pub fn trees(&self) -> &[DecisionTreeClassifier] {
         &self.trees
     }
+
+    /// Number of classes the model was trained on.
+    pub fn n_classes(&self) -> usize {
+        self.n_classes
+    }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
 }
 
 impl Default for RandomForestClassifier {
@@ -555,6 +565,16 @@ impl RandomForestRegressor {
             return Err(ScryLearnError::NotFitted);
         }
         Ok(self.feature_importances_.clone())
+    }
+
+    /// Get individual trees (for inspection or ONNX export).
+    pub fn trees(&self) -> &[DecisionTreeRegressor] {
+        &self.trees
+    }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
     }
 }
 

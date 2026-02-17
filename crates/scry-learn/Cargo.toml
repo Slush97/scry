@@ -19,6 +19,7 @@ serde = ["dep:serde"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 polars = ["dep:polars"]
 mmap = ["dep:memmap2", "dep:bytemuck"]
+live-plot = ["scry-chart/inline"]
 
 [dependencies]
 scry-chart = { version = "0.7.0", path = "../scry-chart" }
@@ -92,6 +93,10 @@ name = "benchmark_report"
 [[example]]
 name = "memory_benchmark"
 required-features = ["serde"]
+
+[[example]]
+name = "live_training"
+required-features = ["live-plot"]
 
 [lints.rust]
 missing_docs = "warn"

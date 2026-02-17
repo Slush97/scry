@@ -17,6 +17,7 @@ default = ["widget"]
 widget = ["dep:ratatui", "dep:crossterm", "scry-engine/widget"]
 serde = ["dep:serde", "scry-engine/serde"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+inline = ["dep:base64"]
 
 [dependencies]
 scry-engine = { version = "0.7.0", path = "../..", features = ["kitty"] }
@@ -26,6 +27,7 @@ fontdue = "0.9.3"
 serde = { version = "1", features = ["derive"], optional = true }
 crossterm = { version = "0.28", optional = true }
 thiserror = "2"
+base64 = { version = "0.22", optional = true }
 wgpu = { version = "24", optional = true }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }

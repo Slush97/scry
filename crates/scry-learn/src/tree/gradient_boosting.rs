@@ -13,7 +13,7 @@
 
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
-use crate::neural::callback::{EpochMetrics, TrainingHistory};
+use crate::neural::callback::{CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory};
 use crate::tree::cart::{presort_indices, DecisionTreeRegressor};
 use crate::weights::{compute_sample_weights, ClassWeight};
 
@@ -220,7 +220,6 @@ fn quantile(data: &[f64], alpha: f64) -> f64 {
 /// let preds = gbr.predict(&[vec![3.0]]).unwrap();
 /// assert!((preds[0] - 6.0).abs() < 1.0);
 /// ```
-#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct GradientBoostingRegressor {
@@ -242,6 +241,34 @@ pub struct GradientBoostingRegressor {
     fitted: bool,
     n_estimators_used: usize,
     history: Option<TrainingHistory>,
+    /// User-supplied training callbacks (not cloned or serialized).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    callbacks: Vec<Box<dyn TrainingCallback>>,
+}
+
+impl Clone for GradientBoostingRegressor {
+    fn clone(&self) -> Self {
+        Self {
+            n_estimators: self.n_estimators,
+            learning_rate: self.learning_rate,
+            max_depth: self.max_depth,
+            min_samples_split: self.min_samples_split,
+            min_samples_leaf: self.min_samples_leaf,
+            subsample: self.subsample,
+            seed: self.seed,
+            loss: self.loss.clone(),
+            validation_fraction: self.validation_fraction,
+            n_iter_no_change: self.n_iter_no_change,
+            tol: self.tol,
+            trees: self.trees.clone(),
+            init_prediction: self.init_prediction,
+            n_features: self.n_features,
+            fitted: self.fitted,
+            n_estimators_used: self.n_estimators_used,
+            history: self.history.clone(),
+            callbacks: Vec::new(),
+        }
+    }
 }
 
 impl GradientBoostingRegressor {
@@ -265,6 +292,7 @@ impl GradientBoostingRegressor {
             fitted: false,
             n_estimators_used: 0,
             history: None,
+            callbacks: Vec::new(),
         }
     }
 
@@ -327,6 +355,12 @@ impl GradientBoostingRegressor {
     /// Set tolerance for early stopping (default: 1e-4).
     pub fn tol(mut self, t: f64) -> Self {
         self.tol = t;
+        self
+    }
+
+    /// Add a training callback (invoked after each boosting round).
+    pub fn callback(mut self, cb: Box<dyn TrainingCallback>) -> Self {
+        self.callbacks.push(cb);
         self
     }
 
@@ -423,6 +457,7 @@ impl GradientBoostingRegressor {
         let patience = self.n_iter_no_change.unwrap_or(usize::MAX);
 
         let mut history = TrainingHistory::new();
+        let mut callbacks = std::mem::take(&mut self.callbacks);
 
         for round in 0..self.n_estimators {
             let round_start = std::time::Instant::now();
@@ -501,7 +536,7 @@ impl GradientBoostingRegressor {
 
             let elapsed = round_start.elapsed().as_millis() as u64;
 
-            history.push(EpochMetrics {
+            let metrics = EpochMetrics {
                 epoch: round,
                 train_loss: train_mse,
                 val_loss: None, // updated below if early stopping
@@ -510,7 +545,27 @@ impl GradientBoostingRegressor {
                 learning_rate: self.learning_rate,
                 grad_norm,
                 elapsed_ms: elapsed,
-            });
+            };
+
+            let mut cb_stop = false;
+            for cb in &mut callbacks {
+                if cb.on_epoch_end(&metrics) == CallbackAction::Stop {
+                    cb_stop = true;
+                }
+            }
+
+            history.push(metrics);
+
+            if cb_stop {
+                self.n_estimators_used = round + 1;
+                self.fitted = true;
+                for cb in &mut callbacks {
+                    cb.on_training_end();
+                }
+                self.callbacks = callbacks;
+                self.history = Some(history);
+                return Ok(());
+            }
 
             // ── Check early stopping ──
             if let Some(ref val) = val_data {
@@ -544,6 +599,10 @@ impl GradientBoostingRegressor {
                     if no_improve_count >= patience {
                         self.n_estimators_used = round + 1;
                         self.fitted = true;
+                        for cb in &mut callbacks {
+                            cb.on_training_end();
+                        }
+                        self.callbacks = callbacks;
                         self.history = Some(history);
                         return Ok(());
                     }
@@ -553,6 +612,10 @@ impl GradientBoostingRegressor {
 
         self.n_estimators_used = self.trees.len();
         self.fitted = true;
+        for cb in &mut callbacks {
+            cb.on_training_end();
+        }
+        self.callbacks = callbacks;
         self.history = Some(history);
         Ok(())
     }
@@ -616,6 +679,26 @@ impl GradientBoostingRegressor {
     pub fn history(&self) -> Option<&TrainingHistory> {
         self.history.as_ref()
     }
+
+    /// Get individual trees (for inspection or ONNX export).
+    pub fn trees(&self) -> &[DecisionTreeRegressor] {
+        &self.trees
+    }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
+
+    /// Learning rate value.
+    pub fn learning_rate_val(&self) -> f64 {
+        self.learning_rate
+    }
+
+    /// Initial (base) prediction value.
+    pub fn init_prediction_val(&self) -> f64 {
+        self.init_prediction
+    }
 }
 
 impl Default for GradientBoostingRegressor {
@@ -659,7 +742,6 @@ impl Default for GradientBoostingRegressor {
 /// assert_eq!(preds[0], 0.0);
 /// assert_eq!(preds[1], 1.0);
 /// ```
-#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct GradientBoostingClassifier {
@@ -678,6 +760,31 @@ pub struct GradientBoostingClassifier {
     n_features: usize,
     fitted: bool,
     history: Option<TrainingHistory>,
+    /// User-supplied training callbacks (not cloned or serialized).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    callbacks: Vec<Box<dyn TrainingCallback>>,
+}
+
+impl Clone for GradientBoostingClassifier {
+    fn clone(&self) -> Self {
+        Self {
+            n_estimators: self.n_estimators,
+            learning_rate: self.learning_rate,
+            max_depth: self.max_depth,
+            min_samples_split: self.min_samples_split,
+            min_samples_leaf: self.min_samples_leaf,
+            subsample: self.subsample,
+            seed: self.seed,
+            class_weight: self.class_weight.clone(),
+            trees: self.trees.clone(),
+            init_predictions: self.init_predictions.clone(),
+            n_classes: self.n_classes,
+            n_features: self.n_features,
+            fitted: self.fitted,
+            history: self.history.clone(),
+            callbacks: Vec::new(),
+        }
+    }
 }
 
 impl GradientBoostingClassifier {
@@ -698,6 +805,7 @@ impl GradientBoostingClassifier {
             n_features: 0,
             fitted: false,
             history: None,
+            callbacks: Vec::new(),
         }
     }
 
@@ -746,6 +854,12 @@ impl GradientBoostingClassifier {
     /// Set class weighting strategy for imbalanced datasets.
     pub fn class_weight(mut self, cw: ClassWeight) -> Self {
         self.class_weight = cw;
+        self
+    }
+
+    /// Add a training callback (invoked after each boosting round).
+    pub fn callback(mut self, cb: Box<dyn TrainingCallback>) -> Self {
+        self.callbacks.push(cb);
         self
     }
 
@@ -819,6 +933,7 @@ impl GradientBoostingClassifier {
         let mut f_vals = vec![f0; n];
         let mut trees_seq = Vec::with_capacity(self.n_estimators);
         let mut history = TrainingHistory::new();
+        let mut callbacks = std::mem::take(&mut self.callbacks);
 
         // Reusable dataset — share features, replace target each round.
         let mut temp_data = Dataset::new(
@@ -895,7 +1010,7 @@ impl GradientBoostingClassifier {
 
             let elapsed = round_start.elapsed().as_millis() as u64;
 
-            history.push(EpochMetrics {
+            let metrics = EpochMetrics {
                 epoch: round,
                 train_loss,
                 val_loss: None,
@@ -904,11 +1019,28 @@ impl GradientBoostingClassifier {
                 learning_rate: self.learning_rate,
                 grad_norm,
                 elapsed_ms: elapsed,
-            });
+            };
+
+            let mut cb_stop = false;
+            for cb in &mut callbacks {
+                if cb.on_epoch_end(&metrics) == CallbackAction::Stop {
+                    cb_stop = true;
+                }
+            }
+
+            history.push(metrics);
+
+            if cb_stop {
+                break;
+            }
         }
 
         self.trees = vec![trees_seq];
         self.fitted = true;
+        for cb in &mut callbacks {
+            cb.on_training_end();
+        }
+        self.callbacks = callbacks;
         self.history = Some(history);
         Ok(())
     }
@@ -955,6 +1087,7 @@ impl GradientBoostingClassifier {
             .map(|_| Vec::with_capacity(self.n_estimators))
             .collect();
         let mut history = TrainingHistory::new();
+        let mut callbacks = std::mem::take(&mut self.callbacks);
 
         // Reusable dataset — share features, replace target each round.
         let mut temp_data = Dataset::new(
@@ -1030,7 +1163,7 @@ impl GradientBoostingClassifier {
 
             let elapsed = round_start.elapsed().as_millis() as u64;
 
-            history.push(EpochMetrics {
+            let metrics = EpochMetrics {
                 epoch: round,
                 train_loss,
                 val_loss: None,
@@ -1039,11 +1172,28 @@ impl GradientBoostingClassifier {
                 learning_rate: self.learning_rate,
                 grad_norm,
                 elapsed_ms: elapsed,
-            });
+            };
+
+            let mut cb_stop = false;
+            for cb in &mut callbacks {
+                if cb.on_epoch_end(&metrics) == CallbackAction::Stop {
+                    cb_stop = true;
+                }
+            }
+
+            history.push(metrics);
+
+            if cb_stop {
+                break;
+            }
         }
 
         self.trees = trees_all;
         self.fitted = true;
+        for cb in &mut callbacks {
+            cb.on_training_end();
+        }
+        self.callbacks = callbacks;
         self.history = Some(history);
         Ok(())
     }
@@ -1162,6 +1312,27 @@ impl GradientBoostingClassifier {
     /// Return training history (populated after `fit()`).
     pub fn history(&self) -> Option<&TrainingHistory> {
         self.history.as_ref()
+    }
+
+    /// Get tree sequences per class (for inspection or ONNX export).
+    /// `class_trees()[class_idx][estimator_idx]` is the tree for that class/round.
+    pub fn class_trees(&self) -> &[Vec<DecisionTreeRegressor>] {
+        &self.trees
+    }
+
+    /// Number of features the model was trained on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
+
+    /// Learning rate value.
+    pub fn learning_rate_val(&self) -> f64 {
+        self.learning_rate
+    }
+
+    /// Initial predictions per class.
+    pub fn init_predictions_val(&self) -> &[f64] {
+        &self.init_predictions
     }
 }
 

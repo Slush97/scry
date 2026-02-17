@@ -87,6 +87,7 @@
 #![deny(unsafe_code)]
 
 pub mod rasterize;
+pub mod render;
 pub mod scene;
 pub mod transport;
 
@@ -129,6 +130,10 @@ pub enum PixelCanvasError {
     /// Font size could not be detected.
     #[error("font size detection failed — please provide manually")]
     FontSizeUnknown,
+
+    /// Terminal probing failed.
+    #[error("terminal probe failed: {0}")]
+    ProbeFailed(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +149,7 @@ pub mod prelude {
     #[cfg(feature = "gpu")]
     pub use crate::rasterize::{rasterize_auto, WgpuContext2D, WgpuRasterizer};
     pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
+    pub use crate::render::IncrementalRenderer;
     pub use crate::scene::animation::{
         preset, AnimationSequence, AnimationState, Easing, Keyframe, Keyframes, Lerp,
         SequencePlayer, Spring, SpringConfig, Transition,
@@ -152,6 +158,11 @@ pub mod prelude {
     pub use crate::scene::PixelCanvas;
     pub use crate::transport::{FontSize, Picker, ProtocolKind};
     pub use crate::PixelCanvasError;
+
+    #[cfg(feature = "input")]
+    pub use crate::scene::hit::{HitResult, HitTag, HitTestConfig, HitTester};
+    #[cfg(feature = "input")]
+    pub use crate::scene::input::{InputHandler, Interaction, MouseButton};
 
     #[cfg(feature = "widget")]
     pub use crate::widget::{PixelCanvasState, PixelCanvasWidget};

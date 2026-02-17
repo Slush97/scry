@@ -497,6 +497,34 @@ impl ComputeBackend for GpuBackend {
     fn name(&self) -> &'static str {
         "gpu (wgpu)"
     }
+
+    fn build_histograms(
+        &self,
+        binned: &[Vec<u8>],
+        gradients: &[f64],
+        hessians: &[f64],
+        sample_indices: &[usize],
+        n_features: usize,
+        n_bins: usize,
+    ) -> Vec<Vec<(f64, f64, f64)>> {
+        // TODO: Use histogram.wgsl shader for GPU acceleration.
+        // For now, use the default CPU implementation.
+        // The shader is ready at shaders/histogram.wgsl.
+        let mut histograms = vec![vec![(0.0_f64, 0.0_f64, 0.0_f64); n_bins]; n_features];
+        for &idx in sample_indices {
+            let g = gradients[idx];
+            let h = hessians[idx];
+            for f in 0..n_features {
+                let bin = binned[f][idx] as usize;
+                if bin < n_bins {
+                    histograms[f][bin].0 += g;
+                    histograms[f][bin].1 += h;
+                    histograms[f][bin].2 += 1.0;
+                }
+            }
+        }
+        histograms
+    }
 }
 
 /// Read back f32 data from a mapped GPU buffer and convert to f64.

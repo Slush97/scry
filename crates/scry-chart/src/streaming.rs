@@ -356,6 +356,32 @@ impl StreamingChart {
         let chart = self.snapshot().ok_or(ChartError::EmptyData)?;
         crate::export::render_to_rgba(&chart, width, height).map_err(|_| ChartError::EmptyData)
     }
+
+    /// Render and display inline in the terminal (one-shot).
+    ///
+    /// Renders the chart to PNG and displays it using the auto-detected
+    /// terminal graphics protocol (Kitty/iTerm2).
+    #[cfg(feature = "inline")]
+    pub fn render_inline(&self, width: u32, height: u32) -> Result<(), ChartError> {
+        let png = self.render(width, height)?;
+        crate::inline::display_inline_auto(&png).map_err(|e| ChartError::Io(e.to_string()))
+    }
+
+    /// Render one frame of a live-updating chart.
+    ///
+    /// On `frame_number == 0`, displays normally. On subsequent frames,
+    /// moves the cursor up to overwrite the previous image for smooth updates.
+    #[cfg(feature = "inline")]
+    pub fn render_frame(
+        &self,
+        width: u32,
+        height: u32,
+        frame_number: u64,
+    ) -> Result<(), ChartError> {
+        let png = self.render(width, height)?;
+        crate::inline::display_frame(&png, height, frame_number)
+            .map_err(|e| ChartError::Io(e.to_string()))
+    }
 }
 
 impl Default for StreamingChart {

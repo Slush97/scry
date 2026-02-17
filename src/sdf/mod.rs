@@ -29,10 +29,14 @@ pub mod materials;
 pub mod math;
 pub mod noise;
 pub mod primitives;
+pub mod profiler;
 pub mod renderer;
 pub mod scene;
+pub mod upscale;
 
 pub use materials::Material;
 pub use math::Vec3;
+pub use profiler::{SdfProfile, SdfProfileHistory, SdfStage};
 pub use renderer::SdfRenderer;
 pub use scene::{SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape};
+pub use upscale::upscale_bicubic;

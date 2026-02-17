@@ -172,6 +172,14 @@ pub struct SdfScene {
     pub max_bounces: u32,
     /// Ambient light contribution (0–1, default 0.05).
     pub ambient: f32,
+    /// Cached: whether any object uses a `Fire` material (avoids per-ray scan).
+    pub has_fire: bool,
+    /// Cached: whether any object uses a `Water` material (disables over-relaxation + sky fast-path).
+    pub has_water: bool,
+    /// Center of the bounding sphere around all finite (non-Plane) objects.
+    pub scene_center: Vec3,
+    /// Radius of the bounding sphere around all finite objects.
+    pub scene_radius: f32,
 }
 
 impl SdfScene {
@@ -184,13 +192,83 @@ impl SdfScene {
             sky_color: Color::from_rgba8(40, 50, 70, 255),
             max_bounces: 2,
             ambient: 0.05,
+            has_fire: false,
+            has_water: false,
+            scene_center: Vec3::ZERO,
+            scene_radius: 0.0,
         }
     }
 
     /// Add an object to the scene.
     pub fn object(mut self, obj: SdfObject) -> Self {
-        self.objects.push(obj);
+        if matches!(obj.material, Material::Fire { .. }) {
+            self.has_fire = true;
+        }
+        if matches!(obj.material, Material::Water { .. }) {
+            self.has_water = true;
+        }
+
+        // Update bounding sphere for finite (non-Plane) objects
+        let obj_radius = match &obj.shape {
+            SdfShape::Plane => None,
+            SdfShape::Sphere { radius } => Some(*radius),
+            SdfShape::Box { half_extents } => Some(half_extents.length()),
+            SdfShape::Torus { major, minor } => Some(*major + *minor),
+            SdfShape::Cylinder {
+                radius,
+                half_height,
+            } => Some(radius.hypot(*half_height)),
+            SdfShape::SmoothBlend { .. } => Some(3.0), // conservative estimate
+        };
+
+        if let Some(r) = obj_radius {
+            self.objects.push(obj);
+            self.recompute_bounds(r);
+        } else {
+            self.objects.push(obj);
+        }
+
         self
+    }
+
+    /// Recompute the bounding sphere to encompass all finite objects.
+    fn recompute_bounds(&mut self, new_obj_radius: f32) {
+        // Simple approach: average position of finite objects as center,
+        // max distance + object radius as scene radius.
+        let mut center = Vec3::ZERO;
+        let mut count = 0u32;
+        for o in &self.objects {
+            if !matches!(o.shape, SdfShape::Plane) {
+                center = center + o.position;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            self.scene_center = center * (1.0 / count as f32);
+
+            let mut max_r = 0.0_f32;
+            for o in &self.objects {
+                let r = match &o.shape {
+                    SdfShape::Plane => continue,
+                    SdfShape::Sphere { radius } => *radius,
+                    SdfShape::Box { half_extents } => half_extents.length(),
+                    SdfShape::Torus { major, minor } => *major + *minor,
+                    SdfShape::Cylinder {
+                        radius,
+                        half_height,
+                    } => radius.hypot(*half_height),
+                    SdfShape::SmoothBlend { .. } => 3.0,
+                };
+                let dist = (o.position - self.scene_center).length() + r;
+                max_r = max_r.max(dist);
+            }
+            self.scene_radius = max_r;
+        } else {
+            // Only planes, no finite objects
+            self.scene_center = Vec3::ZERO;
+            self.scene_radius = 0.0;
+        }
+        let _ = new_obj_radius; // used implicitly via objects list
     }
 
     /// Add a point light.

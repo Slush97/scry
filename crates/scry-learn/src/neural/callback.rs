@@ -137,6 +137,11 @@ pub trait TrainingCallback: Send {
     ///
     /// Return [`CallbackAction::Stop`] to halt training early.
     fn on_epoch_end(&mut self, metrics: &EpochMetrics) -> CallbackAction;
+
+    /// Called when training finishes (after the last epoch).
+    ///
+    /// Default implementation does nothing.
+    fn on_training_end(&mut self) {}
 }
 
 /// Compute the L2 norm of all gradients across layers.
