@@ -21,6 +21,7 @@
 
 /// Snapshot of metrics at the end of one training epoch.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EpochMetrics {
     /// Zero-indexed epoch number.
     pub epoch: usize,
@@ -44,6 +45,7 @@ pub struct EpochMetrics {
 ///
 /// Access via `model.history()` on any iterative model.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TrainingHistory {
     /// Per-epoch snapshots.
     pub epochs: Vec<EpochMetrics>,

@@ -235,7 +235,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Render scale (bicubic upscaler)
     const SCALE_STEPS: [f32; 4] = [0.25, 0.5, 0.75, 1.0];
-    let mut scale_idx: usize = 1; // default 0.5
+    let mut scale_idx: usize = 3; // default 1.0 (full resolution)
 
     loop {
         let frame_start = Instant::now();

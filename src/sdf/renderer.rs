@@ -22,45 +22,11 @@ use super::scene::{SdfObject, SdfScene, SdfShape};
 
 // ── Constants ───────────────────────────────────────────────────────
 
+const MAX_STEPS: u32 = 48;
+const SHADOW_MAX_STEPS: u32 = 24;
 const MAX_DIST: f32 = 50.0;
 const SURF_DIST: f32 = 0.002;
 const NORMAL_EPS: f32 = 0.002;
-
-/// Over-relaxation factor for enhanced sphere tracing (Keinert et al. 2014).
-const OMEGA: f32 = 1.6;
-
-
-/// Soft shadow penumbra sharpness.
-const SHADOW_K: f32 = 16.0;
-
-/// Per-bounce quality budget that degrades gracefully for deeper bounces.
-struct RayBudget {
-    march_steps: u32,
-    shadow_steps: u32,
-    do_shadows: bool,
-}
-
-impl RayBudget {
-    fn for_bounce(bounce: u32) -> Self {
-        match bounce {
-            0 => Self {
-                march_steps: 48,
-                shadow_steps: 20,
-                do_shadows: true,
-            },
-            1 => Self {
-                march_steps: 32,
-                shadow_steps: 10,
-                do_shadows: true,
-            },
-            _ => Self {
-                march_steps: 24,
-                shadow_steps: 0,
-                do_shadows: false,
-            },
-        }
-    }
-}
 
 // ── Public API ──────────────────────────────────────────────────────
 
@@ -362,15 +328,15 @@ fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
     }
 }
 
-/// Estimate the surface normal, using analytical shortcuts where possible.
+/// Estimate the surface normal via the tetrahedron technique.
 ///
-/// For simple shapes (Plane, Sphere, Box, Cylinder) we compute the normal
-/// directly. For water planes, we compute the normal from the displacement
-/// gradient (4 displacement evals instead of 4 full `scene_sdf` evals).
-/// Falls back to the tetrahedron technique for complex shapes.
+/// For water planes we use an optimised displacement-gradient path
+/// (4 cheap displacement evals instead of 4 full `scene_sdf` evals).
+/// Everything else uses the numerical tetrahedron technique on the
+/// *combined* scene SDF so that normals are correct at inter-object
+/// boundaries (e.g. where a sphere meets the ground plane).
 fn estimate_normal(scene: &SdfScene, point: Vec3, obj_idx: usize, time: f32) -> Vec3 {
     let obj = &scene.objects[obj_idx];
-    let local = primitives::translate(point, obj.position);
 
     // Water plane: compute normal from displacement gradient directly
     if let Material::Water {
@@ -384,53 +350,8 @@ fn estimate_normal(scene: &SdfScene, point: Vec3, obj_idx: usize, time: f32) -> 
         }
     }
 
-    // Analytical normals for simple shapes
-    match &obj.shape {
-        SdfShape::Plane => Vec3::UP,
-        SdfShape::Sphere { .. } => {
-            let n = local.normalize();
-            if n.length() > 0.5 {
-                return n;
-            }
-            estimate_normal_numerical(scene, point, time)
-        }
-        SdfShape::Box { half_extents } => {
-            let ax = (local.x.abs() - half_extents.x).abs();
-            let ay = (local.y.abs() - half_extents.y).abs();
-            let az = (local.z.abs() - half_extents.z).abs();
-            let mut sorted = [ax, ay, az];
-            sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-            // Near an edge or corner — the two smallest are close together,
-            // so the single-axis pick is arbitrary. Fall back to numerical.
-            if sorted[1] - sorted[0] < 0.01 {
-                estimate_normal_numerical(scene, point, time)
-            } else if ax < ay && ax < az {
-                Vec3::new(local.x.signum(), 0.0, 0.0)
-            } else if ay < az {
-                Vec3::new(0.0, local.y.signum(), 0.0)
-            } else {
-                Vec3::new(0.0, 0.0, local.z.signum())
-            }
-        }
-        SdfShape::Cylinder {
-            radius,
-            half_height,
-        } => {
-            let r_dist = (local.length_xz() - radius).abs();
-            let y_dist = (local.y.abs() - half_height).abs();
-            if y_dist < r_dist {
-                Vec3::new(0.0, local.y.signum(), 0.0)
-            } else {
-                let n = Vec3::new(local.x, 0.0, local.z).normalize();
-                if n.length() > 0.5 {
-                    n
-                } else {
-                    estimate_normal_numerical(scene, point, time)
-                }
-            }
-        }
-        _ => estimate_normal_numerical(scene, point, time),
-    }
+    // Numerical normal via the combined scene SDF — correct everywhere.
+    estimate_normal_numerical(scene, point, time)
 }
 
 /// Tetrahedron technique fallback for normals (4 SDF evals).
@@ -461,65 +382,21 @@ fn water_normal(x: f32, z: f32, time: f32, amplitude: f32, frequency: f32) -> Ve
     Vec3::new(-dx / (2.0 * e), 1.0, -dz / (2.0 * e)).normalize()
 }
 
-/// Distance threshold for adaptive over-relaxation. When `d > RELAX_DIST`,
-/// the ray is far enough from all surfaces that ω=1.6 is safe regardless of
-/// ray angle or scene content (water displacement max is ~0.18, well within).
-const RELAX_DIST: f32 = 0.3;
-
-/// Sphere-trace from `origin` along `dir` with distance-adaptive over-relaxation.
-///
-/// Uses two regimes:
-/// - **Far from surfaces** (`d > RELAX_DIST`): full ω=1.6 with overshoot
-///   detection and rewind (Keinert et al. 2014). Safe for all ray types
-///   because the SDF is reliably Lipschitz-1 far from water displacement.
-/// - **Near surfaces** (`d ≤ RELAX_DIST`): conservative ω=1.0 to avoid
-///   grazing-angle artifacts on bounce rays and water overshoot.
-///
-/// Primary rays in non-water scenes additionally use full ω=1.6 at all
-/// distances for maximum speed (their near-surface convergence is robust).
+/// Sphere-trace from `origin` along `dir`. Returns `Some((hit_point, obj_index, total_dist))`.
 fn ray_march(
     scene: &SdfScene,
     origin: Vec3,
     dir: Vec3,
     time: f32,
-    max_steps: u32,
-    bounce: u32,
 ) -> Option<(Vec3, usize, f32)> {
     let mut t = 0.0_f32;
-    let mut prev_d = 0.0_f32;
-    let mut prev_step = 0.0_f32;
-    // Primary rays on non-water scenes: always use full relaxation.
-    let always_relax = bounce == 0 && !scene.has_water;
-    let mut omega = if always_relax { OMEGA } else { 1.0 };
-
-    for _ in 0..max_steps {
+    for _ in 0..MAX_STEPS {
         let p = origin + dir * t;
         let (d, idx) = scene_sdf(scene, p, time);
         if d < SURF_DIST {
             return Some((p, idx, t));
         }
-
-        if !always_relax {
-            // Distance-adaptive: relax when far from surfaces, conservative when close.
-            omega = if d > RELAX_DIST { OMEGA } else { 1.0 };
-        }
-
-        // Over-relaxation with automatic fallback: if the two successive SDF
-        // balls don't cover the step we took, we may have overshot a surface.
-        // Rewind to the safe conservative position and go conservative (ω=1)
-        // for the rest of the march.
-        if omega > 1.0 && prev_step > 0.0 && d + prev_d < prev_step {
-            t -= prev_step - prev_d; // rewind to prev_pos + prev_d (safe)
-            omega = 1.0;
-            prev_d = 0.0;
-            prev_step = 0.0;
-            continue; // re-evaluate SDF at the safe position
-        }
-
-        let step = d * omega;
-        prev_d = d;
-        prev_step = step;
-        t += step;
+        t += d;
         if t > MAX_DIST {
             break;
         }
@@ -527,67 +404,25 @@ fn ray_march(
     None
 }
 
-/// Soft shadow march — returns a shadow factor in `[0.0, 1.0]`.
-///
-/// 1.0 = fully lit, 0.0 = fully occluded. Near-misses produce smooth penumbra
-/// based on closest approach, giving visually better shadows and allowing fewer
-/// steps without jagged artifacts.
-fn shadow_march(
-    scene: &SdfScene,
-    origin: Vec3,
-    dir: Vec3,
-    max_t: f32,
-    time: f32,
-    max_steps: u32,
-) -> f32 {
-    let mut t = SURF_DIST * 4.0;
-    let mut shadow = 1.0_f32;
-
-    for _ in 0..max_steps {
+/// Fast shadow test — only needs to know if *anything* is hit before `max_t`.
+fn shadow_march(scene: &SdfScene, origin: Vec3, dir: Vec3, max_t: f32, time: f32) -> bool {
+    let mut t = SURF_DIST * 4.0; // start past the surface
+    for _ in 0..SHADOW_MAX_STEPS {
         let p = origin + dir * t;
         let (d, _) = scene_sdf(scene, p, time);
         if d < SURF_DIST {
-            return 0.0; // fully in shadow
-        }
-        // Track closest approach for soft penumbra
-        shadow = shadow.min(SHADOW_K * d / t);
-        if shadow < 0.01 {
-            return 0.0; // effectively fully occluded, skip remaining steps
+            return true; // in shadow
         }
         t += d;
         if t > max_t {
             break;
         }
     }
-    shadow.clamp(0.0, 1.0)
+    false
 }
 
 /// Top-level per-ray shading: march, hit → shade surface, miss → sky.
 fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) -> Color {
-    let budget = RayBudget::for_bounce(bounce);
-
-    // Sky fast-path for bounce rays: if the ray misses the bounding sphere
-    // of all finite objects, return sky immediately.
-    // Disabled for water scenes — upward bounce rays can still graze the
-    // displaced water surface just above y=0.
-    if bounce > 0 && !scene.has_water && scene.scene_radius > 0.0 {
-        let oc = scene.scene_center - origin;
-        let proj = oc.dot(dir);
-        // Ray-sphere intersection: check perpendicular distance to sphere center
-        let oc_sq = oc.dot(oc);
-        let perp_sq = oc_sq - proj * proj;
-        let r_sq = scene.scene_radius * scene.scene_radius;
-        if perp_sq > r_sq || (proj < 0.0 && oc_sq > r_sq) {
-            // Ray misses the bounding sphere entirely, or sphere is behind us
-            // and we're outside it — only sky (or ground plane) ahead.
-            if dir.y > 0.0 {
-                return scene.sky_color;
-            }
-            // Downward ray: will hit the ground plane. Let the march handle it
-            // but it will converge quickly since plane SDF is cheap.
-        }
-    }
-
     // Only check fire on primary rays and only if fire objects exist
     if bounce == 0 && scene.has_fire {
         for obj in &scene.objects {
@@ -595,7 +430,7 @@ fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) 
                 let fire_color = march_fire_volume(origin, dir, obj, time);
                 if fire_color.a > 0.01 {
                     let bg = if let Some((hit, idx, _)) =
-                        ray_march(scene, origin, dir, time, budget.march_steps, bounce)
+                        ray_march(scene, origin, dir, time)
                     {
                         shade_surface(scene, hit, dir, idx, time, bounce)
                     } else {
@@ -607,7 +442,7 @@ fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) 
         }
     }
 
-    match ray_march(scene, origin, dir, time, budget.march_steps, bounce) {
+    match ray_march(scene, origin, dir, time) {
         Some((hit, idx, _)) => shade_surface(scene, hit, dir, idx, time, bounce),
         None => scene.sky_color,
     }
@@ -624,7 +459,6 @@ fn shade_surface(
 ) -> Color {
     let obj = &scene.objects[obj_idx];
     let normal = estimate_normal(scene, hit, obj_idx, time);
-    let budget = RayBudget::for_bounce(bounce);
 
     match &obj.material {
         Material::Solid {
@@ -633,7 +467,7 @@ fn shade_surface(
             specular,
         } => {
             let mut result =
-                phong(scene, hit, normal, ray_dir, *color, *specular, time, &budget);
+                phong(scene, hit, normal, ray_dir, *color, *specular, time);
 
             // Reflections
             if *reflectivity > 0.01 && bounce < scene.max_bounces {
@@ -707,7 +541,6 @@ fn phong(
     base_color: Color,
     spec_power: f32,
     time: f32,
-    budget: &RayBudget,
 ) -> Color {
     let mut r = base_color.r * scene.ambient;
     let mut g = base_color.g * scene.ambient;
@@ -717,20 +550,13 @@ fn phong(
         let to_light = (light.position - hit).normalize();
         let light_dist = (light.position - hit).length();
 
-        // Soft shadow (or skip for deep bounces)
-        let shadow = if budget.do_shadows {
-            let shadow_origin = hit + normal * (SURF_DIST * 4.0);
-            shadow_march(scene, shadow_origin, to_light, light_dist, time, budget.shadow_steps)
-        } else {
-            // Deep bounces: approximate with half-strength diffuse, no shadow test
-            0.5
-        };
-
-        if shadow < 0.001 {
-            continue; // Fully in shadow
+        // Fast shadow check
+        let shadow_origin = hit + normal * (SURF_DIST * 4.0);
+        if shadow_march(scene, shadow_origin, to_light, light_dist, time) {
+            continue; // In shadow
         }
 
-        let intensity = light.intensity * shadow;
+        let intensity = light.intensity;
 
         // Diffuse
         let diff = normal.dot(to_light).max(0.0) * intensity;
@@ -916,22 +742,6 @@ fn shade_ray_profiled(
     bounce: u32,
     prof: &mut RowProfile,
 ) -> Color {
-    let budget = RayBudget::for_bounce(bounce);
-
-    // Sky fast-path for bounce rays (disabled for water scenes)
-    if bounce > 0 && !scene.has_water && scene.scene_radius > 0.0 {
-        let oc = scene.scene_center - origin;
-        let proj = oc.dot(dir);
-        let oc_sq = oc.dot(oc);
-        let perp_sq = oc_sq - proj * proj;
-        let r_sq = scene.scene_radius * scene.scene_radius;
-        if perp_sq > r_sq || (proj < 0.0 && oc_sq > r_sq) {
-            if dir.y > 0.0 {
-                return scene.sky_color;
-            }
-        }
-    }
-
     // Fire volume (primary rays only)
     if bounce == 0 && scene.has_fire {
         for obj in &scene.objects {
@@ -942,7 +752,7 @@ fn shade_ray_profiled(
 
                 if fire_color.a > 0.01 {
                     let t1 = std::time::Instant::now();
-                    let hit = ray_march(scene, origin, dir, time, budget.march_steps, bounce);
+                    let hit = ray_march(scene, origin, dir, time);
                     prof.record(SdfStage::March, t1);
 
                     let bg = if let Some((hit_pt, idx, _)) = hit {
@@ -957,7 +767,7 @@ fn shade_ray_profiled(
     }
 
     let t0 = std::time::Instant::now();
-    let hit = ray_march(scene, origin, dir, time, budget.march_steps, bounce);
+    let hit = ray_march(scene, origin, dir, time);
     prof.record(SdfStage::March, t0);
 
     match hit {
@@ -980,7 +790,6 @@ fn shade_surface_profiled(
     prof: &mut RowProfile,
 ) -> Color {
     let obj = &scene.objects[obj_idx];
-    let budget = RayBudget::for_bounce(bounce);
 
     let t0 = std::time::Instant::now();
     let normal = estimate_normal(scene, hit, obj_idx, time);
@@ -993,7 +802,7 @@ fn shade_surface_profiled(
             specular,
         } => {
             let result = phong_profiled(
-                scene, hit, normal, ray_dir, *color, *specular, time, &budget, prof,
+                scene, hit, normal, ray_dir, *color, *specular, time, prof,
             );
 
             if *reflectivity > 0.01 && bounce < scene.max_bounces {
@@ -1079,7 +888,6 @@ fn phong_profiled(
     base_color: Color,
     spec_power: f32,
     time: f32,
-    budget: &RayBudget,
     prof: &mut RowProfile,
 ) -> Color {
     let t_shade = std::time::Instant::now();
@@ -1092,29 +900,17 @@ fn phong_profiled(
         let to_light = (light.position - hit).normalize();
         let light_dist = (light.position - hit).length();
 
-        let shadow = if budget.do_shadows {
-            let shadow_origin = hit + normal * (SURF_DIST * 4.0);
-            let t_shadow = std::time::Instant::now();
-            let s = shadow_march(
-                scene,
-                shadow_origin,
-                to_light,
-                light_dist,
-                time,
-                budget.shadow_steps,
-            );
-            prof.record(SdfStage::Shadow, t_shadow);
-            s
-        } else {
-            0.5
-        };
+        let shadow_origin = hit + normal * (SURF_DIST * 4.0);
+        let t_shadow = std::time::Instant::now();
+        let in_shadow = shadow_march(scene, shadow_origin, to_light, light_dist, time);
+        prof.record(SdfStage::Shadow, t_shadow);
 
-        if shadow < 0.001 {
+        if in_shadow {
             continue;
         }
 
         let t_shade2 = std::time::Instant::now();
-        let intensity = light.intensity * shadow;
+        let intensity = light.intensity;
         let diff = normal.dot(to_light).max(0.0) * intensity;
         r += base_color.r * light.color.r * diff;
         g += base_color.g * light.color.g * diff;
@@ -1197,7 +993,7 @@ mod tests {
         let scene = simple_sphere_scene();
         let origin = Vec3::new(0.0, 1.0, 6.0);
         let dir = Vec3::new(0.0, 0.0, -1.0);
-        let hit = ray_march(&scene, origin, dir, 0.0, 48, 0);
+        let hit = ray_march(&scene, origin, dir, 0.0);
         assert!(hit.is_some(), "ray should hit sphere");
         let (p, _, _) = hit.unwrap();
         // Hit point Z should be near the sphere surface at z ≈ 1.0

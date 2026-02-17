@@ -120,6 +120,6 @@ Safe zones (no concurrent work):
 
 ## Known Issues
 
-- DenseMatrix migration done (Sprint 12B) — needs scaling benchmark validation (Sprint 12C, Agent 11).
-- CART builder optimized (Sprint 12.5) — needs scaling benchmark validation.
-- linfa-elasticnet Lasso/ElasticNet shows R²=0.249 vs scry's 0.999 — likely parameter interpretation mismatch, needs investigation.
+- DenseMatrix migration done (Sprint 12B) — scaling benchmarks written (Sprint 12C), validated at 100K/1M/10K×10K tiers.
+- CART builder optimized (Sprint 12.5) — scaling benchmarks validate scry parity with smartcore (R²=0.593 vs 0.578 on linear data, fit time comparable). Depth-8 tree R² on purely linear data is inherently limited by axis-aligned splits.
+- linfa-elasticnet Lasso/ElasticNet R² mismatch — **resolved**. Root cause: linfa uses per-sample penalty scaling (like R's glmnet) and requires standardized features. Test now standardizes features and converts penalty (`linfa_penalty = scry_alpha / n_train`). Both libraries achieve R²≥0.999.
