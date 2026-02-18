@@ -115,8 +115,8 @@ pub(super) struct GradientUniforms {
 /// // reuse `ctx` across frames...
 /// ```
 pub struct WgpuContext2D {
-    pub(crate) device: wgpu::Device,
-    pub(crate) queue: wgpu::Queue,
+    pub(crate) device: std::sync::Arc<wgpu::Device>,
+    pub(crate) queue: std::sync::Arc<wgpu::Queue>,
     pub(crate) shape_pipeline: wgpu::RenderPipeline,
     pub(crate) line_pipeline: wgpu::RenderPipeline,
     pub(crate) gradient_pipeline: wgpu::RenderPipeline,
@@ -160,7 +160,28 @@ impl WgpuContext2D {
         ))
         .map_err(|e| format!("wgpu: device creation failed: {e}"))?;
 
-        // --- Bind group layouts ---
+        Self::build_pipelines(std::sync::Arc::new(device), std::sync::Arc::new(queue))
+    }
+
+    /// Create a context sharing an existing [`GpuDevice`](crate::gpu::GpuDevice).
+    ///
+    /// This skips the ~100ms adapter/device initialization. Only the
+    /// shader compilation and pipeline creation are performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if pipeline creation fails.
+    pub fn with_device(gpu: &crate::gpu::GpuDevice) -> Result<Self, String> {
+        let device = gpu.device_arc();
+        let queue = gpu.queue_arc();
+        Self::build_pipelines(device, queue)
+    }
+
+    /// Internal: compile shaders and build pipelines for a given device+queue.
+    fn build_pipelines(
+        device: std::sync::Arc<wgpu::Device>,
+        queue: std::sync::Arc<wgpu::Queue>,
+    ) -> Result<Self, String> {
         let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("uniform_bgl_2d"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -189,7 +210,6 @@ impl WgpuContext2D {
             }],
         });
 
-        // --- Pipeline layouts ---
         let shape_line_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shape_line_layout"),
             bind_group_layouts: &[&uniform_bgl],
@@ -209,12 +229,10 @@ impl WgpuContext2D {
             write_mask: wgpu::ColorWrites::ALL,
         };
 
-        // --- Shape pipeline ---
         let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shape_shader_2d"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shape.wgsl").into()),
         });
-
         let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shape_pipeline_2d"),
             layout: Some(&shape_line_layout),
@@ -226,36 +244,11 @@ impl WgpuContext2D {
                     array_stride: std::mem::size_of::<ShapeInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &[
-                        // pos: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        // size: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // fill_color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 24,
-                            shader_location: 2,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // stroke_color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 40,
-                            shader_location: 3,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // stroke_width_type: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 56,
-                            shader_location: 4,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
+                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute { offset: 24, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute { offset: 40, shader_location: 3, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute { offset: 56, shader_location: 4, format: wgpu::VertexFormat::Float32x2 },
                     ],
                 }],
             },
@@ -265,22 +258,17 @@ impl WgpuContext2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target.clone())],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
 
-        // --- Line pipeline ---
         let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("line_shader_2d"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/line.wgsl").into()),
         });
-
         let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("line_pipeline_2d"),
             layout: Some(&shape_line_layout),
@@ -292,36 +280,11 @@ impl WgpuContext2D {
                     array_stride: std::mem::size_of::<LineVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
-                        // position: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        // normal: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        // color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 16,
-                            shader_location: 2,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // line_width: f32
-                        wgpu::VertexAttribute {
-                            offset: 32,
-                            shader_location: 3,
-                            format: wgpu::VertexFormat::Float32,
-                        },
-                        // edge_dist: f32
-                        wgpu::VertexAttribute {
-                            offset: 36,
-                            shader_location: 4,
-                            format: wgpu::VertexFormat::Float32,
-                        },
+                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 16, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute { offset: 32, shader_location: 3, format: wgpu::VertexFormat::Float32 },
+                        wgpu::VertexAttribute { offset: 36, shader_location: 4, format: wgpu::VertexFormat::Float32 },
                     ],
                 }],
             },
@@ -331,22 +294,17 @@ impl WgpuContext2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target.clone())],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
 
-        // --- Gradient pipeline ---
         let gradient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gradient_shader_2d"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gradient.wgsl").into()),
         });
-
         let gradient_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("gradient_pipeline_2d"),
             layout: Some(&gradient_layout),
@@ -362,22 +320,17 @@ impl WgpuContext2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target.clone())],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
 
-        // --- Mesh pipeline (tessellated paths/arcs/polygons) ---
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh_shader_2d"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh.wgsl").into()),
         });
-
         let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh_pipeline_2d"),
             layout: Some(&shape_line_layout),
@@ -389,18 +342,8 @@ impl WgpuContext2D {
                     array_stride: std::mem::size_of::<MeshVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
-                        // position: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        // color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
+                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
                     ],
                 }],
             },
@@ -410,10 +353,7 @@ impl WgpuContext2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target)],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,

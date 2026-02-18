@@ -750,6 +750,36 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
             color = min(color + spec, vec3<f32>(1.0));
             accumulated_color += color * attenuation;
             break;
+        } else if obj.material_type == MAT_CHECKER {
+            // Checkerboard material: color_a in material_color, color_b in blend_a_params
+            let reflectivity = obj.material_params.x;
+            let spec_power = obj.material_params.y;
+            let scale = obj.material_params.z;
+            let color_a = obj.material_color.xyz;
+            let color_b = obj.blend_a_params.xyz;
+
+            // Determine checker pattern from world xz position
+            let cx = i32(floor(hit.point.x / scale));
+            let cz = i32(floor(hit.point.z / scale));
+            var base_color: vec3<f32>;
+            if ((cx + cz) & 1) == 0 {
+                base_color = color_a;
+            } else {
+                base_color = color_b;
+            }
+
+            let shaded = phong_full(hit.point, normal, ray_dir, base_color, spec_power, do_shadows);
+
+            if reflectivity > 0.01 && bounce < u.max_bounces {
+                accumulated_color += shaded * (1.0 - reflectivity) * attenuation;
+                attenuation *= reflectivity;
+                ray_dir = reflect_dir(ray_dir, normal);
+                ray_origin = hit.point + normal * (SURF_DIST * 2.0);
+                continue;
+            } else {
+                accumulated_color += shaded * attenuation;
+                break;
+            }
         } else {
             // Fire surface hit — faint glow
             let glow = fire_color_ramp(0.3) * 0.5;

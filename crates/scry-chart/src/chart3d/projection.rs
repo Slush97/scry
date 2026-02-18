@@ -5,7 +5,7 @@
 //! into 2D screen coordinates, and [`depth_sort`] for painter's algorithm
 //! back-to-front ordering.
 
-use super::camera::Vec3;
+pub use scry_engine::math3d::{mat4_identity, mat4_mul, mat4_mul_vec4, Mat4, Vec3};
 
 // ---------------------------------------------------------------------------
 // ProjectedPoint
@@ -25,48 +25,6 @@ pub struct ProjectedPoint {
     pub depth: f32,
     /// Index into the original point array.
     pub original_index: usize,
-}
-
-// ---------------------------------------------------------------------------
-// Matrix helpers
-// ---------------------------------------------------------------------------
-
-/// 4×4 matrix type (row-major).
-pub type Mat4 = [[f32; 4]; 4];
-
-/// Multiply two 4×4 matrices.
-#[must_use]
-pub fn mat4_mul(a: &Mat4, b: &Mat4) -> Mat4 {
-    let mut out = [[0.0_f32; 4]; 4];
-    for i in 0..4 {
-        for j in 0..4 {
-            out[i][j] =
-                a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
-        }
-    }
-    out
-}
-
-/// Multiply a 4×4 matrix by a 4-element vector.
-#[must_use]
-pub fn mat4_mul_vec4(m: &Mat4, v: [f32; 4]) -> [f32; 4] {
-    [
-        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2] + m[0][3] * v[3],
-        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2] + m[1][3] * v[3],
-        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2] + m[2][3] * v[3],
-        m[3][0] * v[0] + m[3][1] * v[1] + m[3][2] * v[2] + m[3][3] * v[3],
-    ]
-}
-
-/// Identity 4×4 matrix.
-#[must_use]
-pub fn mat4_identity() -> Mat4 {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
 }
 
 // ---------------------------------------------------------------------------

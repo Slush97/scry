@@ -7,7 +7,8 @@
 
 mod gradients;
 mod shapes;
-mod text;
+/// Text rendering via fontdue.
+pub mod text;
 
 use std::collections::HashMap;
 
@@ -377,6 +378,49 @@ impl Rasterizer {
                 }
             }
 
+            #[cfg(feature = "sdf")]
+            DrawCommand::Sdf3D {
+                scene,
+                rect,
+                time,
+                render_scale,
+            } => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let w = rect.width.ceil() as u32;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let h = rect.height.ceil() as u32;
+                if w > 0 && h > 0 {
+                    let sdf_result = match render_scale {
+                        Some(scale) => crate::sdf::SdfRenderer::render_to_pixmap_upscaled(
+                            scene.scene(),
+                            w,
+                            h,
+                            *scale,
+                            *time,
+                        ),
+                        None => {
+                            crate::sdf::SdfRenderer::render_to_pixmap(scene.scene(), w, h, *time)
+                        }
+                    };
+                    if let Ok(sdf_pixmap) = sdf_result {
+                        let paint = tiny_skia::PixmapPaint {
+                            opacity: 1.0,
+                            blend_mode: tiny_skia::BlendMode::SourceOver,
+                            quality: tiny_skia::FilterQuality::Bilinear,
+                        };
+                        #[allow(clippy::cast_possible_truncation)]
+                        pixmap.draw_pixmap(
+                            rect.x.floor() as i32,
+                            rect.y.floor() as i32,
+                            sdf_pixmap.as_ref(),
+                            &paint,
+                            parent_transform,
+                            None,
+                        );
+                    }
+                }
+            }
+
             DrawCommand::Image {
                 image,
                 x,
@@ -405,8 +449,13 @@ impl Rasterizer {
                 font_size,
                 color,
                 font_data,
+                align,
+                outline_color,
+                outline_width,
+                fill_style,
+                shadow,
             } => {
-                Self::render_text(
+                Self::render_rich_text(
                     pixmap,
                     text,
                     *x,
@@ -415,6 +464,12 @@ impl Rasterizer {
                     color,
                     font_data,
                     parent_transform,
+                    *align,
+                    outline_color.as_ref(),
+                    *outline_width,
+                    fill_style.as_ref(),
+                    shadow.as_ref(),
+                    grad_cache,
                 );
             }
 

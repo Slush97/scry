@@ -170,6 +170,10 @@ impl Rasterizer {
                 let est_w = text.len() as f32 * font_size * 0.6;
                 (*x, y - font_size, x + est_w, *y + font_size * 0.3)
             }
+            #[cfg(feature = "sdf")]
+            DrawCommand::Sdf3D { rect, .. } => {
+                (rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)
+            }
             DrawCommand::Clear { .. } => (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
             DrawCommand::Group {
                 commands: children,

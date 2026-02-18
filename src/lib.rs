@@ -86,6 +86,10 @@
 #![warn(unreachable_pub)]
 #![deny(unsafe_code)]
 
+pub mod camera3d;
+#[cfg(feature = "gpu")]
+pub mod gpu;
+pub mod math3d;
 pub mod rasterize;
 pub mod render;
 pub mod scene;
@@ -178,6 +182,13 @@ pub mod prelude {
         DrawMode, PenPressure, PenTip, SvgLineDrawing, SvgPathSegment, Trail,
     };
 
+    #[cfg(feature = "text")]
+    pub use crate::rasterize::skia::text::{default_font, measure_text, render_text_to_image};
+    #[cfg(feature = "text")]
+    pub use crate::scene::{FontData, TextAlign, TextMetrics, TextStyle};
+
+    #[cfg(feature = "sdf")]
+    pub use crate::scene::command::SdfSceneRef;
     #[cfg(feature = "sdf")]
     pub use crate::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,

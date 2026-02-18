@@ -200,6 +200,54 @@ impl Hash for ImageData {
 }
 
 // ---------------------------------------------------------------------------
+// Text shadow
+// ---------------------------------------------------------------------------
+
+/// Shadow effect for text rendering.
+#[cfg(feature = "text")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextShadow {
+    /// Horizontal offset in pixels (positive = right).
+    pub offset_x: f32,
+    /// Vertical offset in pixels (positive = down).
+    pub offset_y: f32,
+    /// Shadow color (typically semi-transparent black).
+    pub color: crate::scene::style::Color,
+    /// Blur radius (0.0 = sharp shadow). Approximated via box-downsample.
+    pub blur_radius: f32,
+}
+
+#[cfg(feature = "text")]
+impl Eq for TextShadow {}
+
+#[cfg(feature = "text")]
+impl Hash for TextShadow {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.offset_x.to_bits().hash(state);
+        self.offset_y.to_bits().hash(state);
+        self.color.hash(state);
+        self.blur_radius.to_bits().hash(state);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Text alignment
+// ---------------------------------------------------------------------------
+
+/// Horizontal alignment for text rendering.
+#[cfg(feature = "text")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextAlign {
+    /// Left-aligned (default). The x coordinate is the left edge.
+    #[default]
+    Left,
+    /// Center-aligned. The x coordinate is the center of the text.
+    Center,
+    /// Right-aligned. The x coordinate is the right edge.
+    Right,
+}
+
+// ---------------------------------------------------------------------------
 // Font data (for text rendering)
 // ---------------------------------------------------------------------------
 
@@ -249,6 +297,113 @@ impl Hash for FontData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Hash by pointer identity for performance
         Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Text metrics
+// ---------------------------------------------------------------------------
+
+/// Measurement results from [`measure_text`](crate::rasterize::skia::text::measure_text).
+#[cfg(feature = "text")]
+#[derive(Clone, Copy, Debug)]
+pub struct TextMetrics {
+    /// Total advance width of the text string in pixels.
+    pub width: f32,
+    /// Font height (ascent + descent) in pixels.
+    pub height: f32,
+    /// Distance from the baseline to the top of the tallest glyph.
+    pub ascent: f32,
+    /// Distance from the baseline to the bottom of the lowest glyph (positive downward).
+    pub descent: f32,
+}
+
+// ---------------------------------------------------------------------------
+// Text style (convenience bundle)
+// ---------------------------------------------------------------------------
+
+/// A reusable bundle of text rendering parameters.
+///
+/// Use with [`PixelCanvas::text_styled`] to avoid repeating font/size/color
+/// on every text call.
+#[cfg(feature = "text")]
+#[derive(Clone, Debug)]
+pub struct TextStyle {
+    /// Font data (TTF/OTF bytes). Uses the embedded default if `None`.
+    pub font_data: Option<FontData>,
+    /// Font size in pixels.
+    pub font_size: f32,
+    /// Text color.
+    pub color: Color,
+    /// Horizontal alignment.
+    pub align: TextAlign,
+}
+
+#[cfg(feature = "text")]
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self {
+            font_data: None,
+            font_size: 16.0,
+            color: Color::WHITE,
+            align: TextAlign::Left,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SDF scene reference (for hashing)
+// ---------------------------------------------------------------------------
+
+/// A reference to an [`SdfScene`](crate::sdf::SdfScene) with a generation counter.
+///
+/// Because `SdfScene` doesn't implement `Hash` or `Eq`, we use a caller-provided
+/// generation counter for identity. Two `SdfSceneRef` values are equal if they
+/// point to the same `Arc` allocation OR have the same generation number.
+#[cfg(feature = "sdf")]
+#[derive(Clone, Debug)]
+pub struct SdfSceneRef {
+    /// The shared scene.
+    scene: Arc<crate::sdf::SdfScene>,
+    /// Generation counter — bump when the scene changes.
+    generation: u64,
+}
+
+#[cfg(feature = "sdf")]
+impl SdfSceneRef {
+    /// Create a new scene reference with a generation counter.
+    #[must_use]
+    pub fn new(scene: Arc<crate::sdf::SdfScene>, generation: u64) -> Self {
+        Self { scene, generation }
+    }
+
+    /// Get a reference to the underlying scene.
+    #[must_use]
+    pub fn scene(&self) -> &crate::sdf::SdfScene {
+        &self.scene
+    }
+
+    /// Get the generation counter.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
+#[cfg(feature = "sdf")]
+impl PartialEq for SdfSceneRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.scene, &other.scene) || self.generation == other.generation
+    }
+}
+
+#[cfg(feature = "sdf")]
+impl Eq for SdfSceneRef {}
+
+#[cfg(feature = "sdf")]
+impl Hash for SdfSceneRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.generation.hash(state);
     }
 }
 
@@ -390,10 +545,37 @@ pub enum DrawCommand {
         y: f32,
         /// Font size in pixels.
         font_size: f32,
-        /// Text color.
+        /// Text color (used when `fill_style` is `None`).
         color: Color,
         /// Font data (TTF/OTF bytes).
         font_data: FontData,
+        /// Horizontal text alignment. Default: `Left`.
+        align: TextAlign,
+        /// Optional outline color.
+        outline_color: Option<Color>,
+        /// Outline width in pixels.
+        outline_width: Option<f32>,
+        /// Optional gradient or solid fill style (overrides `color` when set).
+        fill_style: Option<crate::scene::style::FillStyle>,
+        /// Optional drop shadow.
+        shadow: Option<TextShadow>,
+    },
+
+    /// Render an SDF 3D scene into a rectangular region.
+    ///
+    /// The SDF ray marcher renders the scene into a pixmap at the given
+    /// dimensions and composites it at `(rect.x, rect.y)`.
+    #[cfg(feature = "sdf")]
+    Sdf3D {
+        /// The shared SDF scene with generation counter.
+        scene: SdfSceneRef,
+        /// Destination rectangle (position + render dimensions).
+        rect: crate::scene::style::Rect,
+        /// Animation time parameter passed to the renderer.
+        time: f32,
+        /// Render scale factor (0.1–1.0). `None` = full resolution.
+        /// When set, renders at reduced resolution and bicubic-upscales.
+        render_scale: Option<f32>,
     },
 
     /// A group of commands with a shared transform.
@@ -541,6 +723,11 @@ impl Hash for DrawCommand {
                 font_size,
                 color,
                 font_data,
+                align,
+                outline_color,
+                outline_width,
+                fill_style,
+                shadow,
             } => {
                 text.hash(state);
                 x.to_bits().hash(state);
@@ -548,6 +735,23 @@ impl Hash for DrawCommand {
                 font_size.to_bits().hash(state);
                 color.hash(state);
                 font_data.hash(state);
+                align.hash(state);
+                outline_color.hash(state);
+                outline_width.map(f32::to_bits).hash(state);
+                fill_style.hash(state);
+                shadow.hash(state);
+            }
+            #[cfg(feature = "sdf")]
+            Self::Sdf3D {
+                scene,
+                rect,
+                time,
+                render_scale,
+            } => {
+                scene.hash(state);
+                rect.hash(state);
+                time.to_bits().hash(state);
+                render_scale.map(f32::to_bits).hash(state);
             }
         }
     }

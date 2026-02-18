@@ -67,6 +67,7 @@ pub mod svm;
 pub mod text;
 pub mod tree;
 pub(crate) mod version;
+#[cfg(feature = "viz")]
 pub mod viz;
 pub mod weights;
 
@@ -139,7 +140,9 @@ pub mod prelude {
         GradientBoostingRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor,
         RandomForestClassifier, RandomForestRegressor, RegressionLoss, SplitCriterion,
     };
+    #[cfg(feature = "viz")]
     pub use crate::viz::model_viz::Visualize;
+    #[cfg(feature = "viz")]
     pub use crate::viz::{
         calibration_chart, class_report_chart, cluster_scatter, confusion_matrix_chart,
         elbow_chart, feature_importance_chart, learning_curve, metric_comparison_chart, pr_chart,

@@ -17,6 +17,12 @@ pub(crate) struct LbfgsConfig {
     pub tolerance: f64,
     /// Number of correction pairs to store (default 10).
     pub history_size: usize,
+    /// Whether to enforce the strong Wolfe curvature condition in the line
+    /// search. When `false`, the line search accepts a step as soon as the
+    /// Armijo (sufficient decrease) condition is met — cheaper per iteration
+    /// and sufficient for smooth convex objectives like logistic regression.
+    /// Default: `true` (full strong-Wolfe, safe for all smooth problems).
+    pub wolfe: bool,
 }
 
 impl Default for LbfgsConfig {
@@ -25,6 +31,7 @@ impl Default for LbfgsConfig {
             max_iter: 200,
             tolerance: crate::constants::STRICT_TOL,
             history_size: 10,
+            wolfe: true,
         }
     }
 }
@@ -64,6 +71,9 @@ pub(crate) fn minimize(
     let mut best_grad = vec![0.0; n];
     let mut s_k = vec![0.0; n];
     let mut y_k = vec![0.0; n];
+
+    // Stagnation detection: stop if function value barely changes for 2 iters.
+    let mut stagnant_count: u32 = 0;
 
     for _iter in 0..config.max_iter {
         // Check convergence: ||grad||_inf < tolerance.
@@ -134,13 +144,12 @@ pub(crate) fn minimize(
             *d = -*d;
         }
 
-        // ─── Strong Wolfe backtracking line search ─────────────
-        // Accept step α when both conditions hold:
-        //   Armijo:  f(x + α·d) ≤ f(x) + c₁·α·(∇f · d)
-        //   Wolfe:   |∇f(x + α·d) · d| ≤ c₂·|∇f · d|
+        // ─── Backtracking line search ────────────────────────────
+        // Armijo (sufficient decrease):  f(x + α·d) ≤ f(x) + c₁·α·(∇f · d)
+        // Strong Wolfe (curvature):      |∇f(x + α·d) · d| ≤ c₂·|∇f · d|
+        // When config.wolfe == false, only the Armijo condition is checked.
         let c_armijo = crate::constants::ARMIJO_C;
         let c_wolfe = crate::constants::WOLFE_C2;
-        let rho_bt = crate::constants::LINE_SEARCH_BACKTRACK;
         let mut step = 1.0;
 
         let dir_deriv: f64 = grad
@@ -171,13 +180,29 @@ pub(crate) fn minimize(
         let mut has_best = false;
         let mut accepted = false;
 
-        for _ls in 0..crate::constants::LINE_SEARCH_MAX_ITER {
+        // For cubic interpolation: track the previous backtrack's (step, f_trial).
+        let mut prev_step = 0.0_f64;
+        let mut prev_f_trial = 0.0_f64;
+
+        let f_prev = f;
+
+        for ls in 0..crate::constants::LINE_SEARCH_MAX_ITER {
             for j in 0..n {
                 x_trial[j] = x0[j] + step * direction[j];
             }
             let f_trial = eval(&x_trial, &mut grad_trial);
-            if f_trial <= f + c_armijo * step * dir_deriv_ls {
-                // Armijo satisfied — record as fallback if first.
+            let armijo_threshold = f + c_armijo * step * dir_deriv_ls;
+
+            if f_trial <= armijo_threshold {
+                if !config.wolfe {
+                    // Armijo-only mode: accept immediately.
+                    f = f_trial;
+                    x0.copy_from_slice(&x_trial);
+                    grad.copy_from_slice(&grad_trial);
+                    accepted = true;
+                    break;
+                }
+                // Full Wolfe mode: record as fallback if first.
                 if !has_best {
                     best_armijo_f = f_trial;
                     best_grad.copy_from_slice(&grad_trial);
@@ -191,7 +216,6 @@ pub(crate) fn minimize(
                     .map(|(&g, &d)| g * d)
                     .sum();
                 if trial_deriv.abs() <= c_wolfe * abs_dir_deriv {
-                    // Both conditions met — accept this step.
                     f = f_trial;
                     x0.copy_from_slice(&x_trial);
                     grad.copy_from_slice(&grad_trial);
@@ -199,7 +223,38 @@ pub(crate) fn minimize(
                     break;
                 }
             }
-            step *= rho_bt;
+
+            // Cubic interpolation for next step size (Nocedal & Wright §3.5).
+            // Requires two prior function evaluations at different step sizes.
+            if ls > 0 {
+                // We have (prev_step, prev_f_trial) and (step, f_trial).
+                // Fit a cubic to interpolate the minimizer.
+                let d1 = dir_deriv_ls;
+                let fa = prev_f_trial - f - d1 * prev_step;
+                let fb = f_trial - f - d1 * step;
+                let denom = (prev_step * prev_step * step * step) * (step - prev_step);
+                if denom.abs() > 1e-30 {
+                    let a = (step * step * fa - prev_step * prev_step * fb) / denom;
+                    let b =
+                        (-step * step * step * fa + prev_step * prev_step * prev_step * fb) / denom;
+                    let disc = b * b - 3.0 * a * d1;
+                    if a.abs() > 1e-30 && disc >= 0.0 {
+                        let cubic_min = (-b + disc.sqrt()) / (3.0 * a);
+                        // Only use if the cubic minimizer is in a reasonable range.
+                        if cubic_min > 0.1 * step && cubic_min < 0.9 * step {
+                            prev_step = step;
+                            prev_f_trial = f_trial;
+                            step = cubic_min;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Fall back to 0.5× contraction.
+            prev_step = step;
+            prev_f_trial = f_trial;
+            step *= crate::constants::LINE_SEARCH_BACKTRACK;
         }
 
         // Fallback: if Wolfe was never satisfied but Armijo was, accept
@@ -208,6 +263,16 @@ pub(crate) fn minimize(
             f = best_armijo_f;
             x0.copy_from_slice(&best_x);
             grad.copy_from_slice(&best_grad);
+        }
+
+        // Stagnation check: |f_prev - f| < tol * |f_prev|.
+        if f_prev.abs() > 0.0 && (f_prev - f).abs() < config.tolerance * f_prev.abs() {
+            stagnant_count += 1;
+            if stagnant_count >= 1 {
+                break;
+            }
+        } else {
+            stagnant_count = 0;
         }
         let mut sy = 0.0;
         for j in 0..n {
@@ -245,6 +310,7 @@ mod tests {
             max_iter: 500,
             tolerance: 1e-10,
             history_size: 10,
+            ..Default::default()
         };
 
         let f = minimize(

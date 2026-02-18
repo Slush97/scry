@@ -26,7 +26,7 @@ use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
 
 #[cfg(feature = "text")]
-use crate::scene::command::FontData;
+use crate::scene::command::{FontData, TextAlign, TextStyle};
 use crate::scene::command::{DrawCommand, ImageData, PathData};
 use crate::scene::style::{
     BlendMode, ClipRegion, Color, DashPattern, FillRule, FillStyle, GradientDef, GradientKind,
@@ -185,6 +185,9 @@ impl PixelCanvas {
                 }
 
                 DrawCommand::Image { .. } => return false,
+
+                #[cfg(feature = "sdf")]
+                DrawCommand::Sdf3D { .. } => return false,
 
                 #[cfg(feature = "text")]
                 DrawCommand::Text { .. } => return false,
@@ -349,6 +352,43 @@ impl PixelCanvas {
         )
     }
 
+    /// Begin drawing a star (regular star polygon).
+    ///
+    /// Generates alternating outer/inner radius vertices at evenly spaced
+    /// angles, producing a pointed star shape. Uses the existing polygon
+    /// infrastructure.
+    ///
+    /// # Parameters
+    /// - `cx`, `cy`: center coordinates
+    /// - `outer_r`: radius to the star's outer points
+    /// - `inner_r`: radius to the inner notches
+    /// - `num_points`: number of outer points (e.g., 5 for a classic star)
+    #[must_use]
+    pub fn star(
+        self,
+        cx: f32,
+        cy: f32,
+        outer_r: f32,
+        inner_r: f32,
+        num_points: usize,
+    ) -> ShapeBuilder {
+        use std::f32::consts::TAU;
+        let total = num_points * 2;
+        let mut verts = Vec::with_capacity(total);
+        for i in 0..total {
+            let angle = (i as f32 / total as f32) * TAU - std::f32::consts::FRAC_PI_2;
+            let r = if i % 2 == 0 { outer_r } else { inner_r };
+            verts.push((cx + r * angle.cos(), cy + r * angle.sin()));
+        }
+        ShapeBuilder::new(
+            self,
+            ShapeKind::Polyline {
+                points: verts,
+                closed: true,
+            },
+        )
+    }
+
     /// Begin drawing a circular arc (partial circle).
     ///
     /// `start_angle` and `sweep_angle` are in radians. A start angle of 0 is
@@ -400,10 +440,84 @@ impl PixelCanvas {
     /// Begin drawing text at the given baseline position.
     ///
     /// Returns a [`TextBuilder`] for configuring font, size, and color.
+    /// If no font is set on the builder, the embedded default font is used.
     #[cfg(feature = "text")]
     #[must_use]
     pub fn text(self, text: &str, x: f32, y: f32) -> TextBuilder {
         TextBuilder::new(self, text.to_string(), x, y)
+    }
+
+    /// Draw text using a pre-built [`TextStyle`]. Shorthand for
+    /// `canvas.text(text, x, y).style(&style).done()`.
+    #[cfg(feature = "text")]
+    #[must_use]
+    pub fn text_styled(self, text: &str, x: f32, y: f32, style: &TextStyle) -> Self {
+        self.text(text, x, y).style(style).done()
+    }
+
+    /// Add an SDF 3D scene to the canvas at the given position and size.
+    ///
+    /// The SDF ray marcher will render `scene` into a `(w × h)` pixel region
+    /// and composite the result at `(x, y)`. The `generation` counter is used
+    /// for caching — bump it whenever the scene changes.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use scry_engine::sdf::SdfScene;
+    ///
+    /// let scene = Arc::new(SdfScene::default());
+    /// let canvas = PixelCanvas::new(800, 600)
+    ///     .sdf_scene(scene, 0, 100.0, 50.0, 600.0, 400.0, 0.0);
+    /// ```
+    #[cfg(feature = "sdf")]
+    #[must_use]
+    pub fn sdf_scene(
+        self,
+        scene: std::sync::Arc<crate::sdf::SdfScene>,
+        generation: u64,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        time: f32,
+    ) -> Self {
+        self.push(DrawCommand::Sdf3D {
+            scene: crate::scene::command::SdfSceneRef::new(scene, generation),
+            rect: Rect::new(x, y, w, h),
+            time,
+            render_scale: None,
+        })
+    }
+
+    /// Add an SDF 3D scene with a render scale factor.
+    ///
+    /// Same as [`sdf_scene`](Self::sdf_scene) but renders at a reduced internal
+    /// resolution and bicubic-upscales. `render_scale` is clamped to `[0.1, 1.0]`.
+    ///
+    /// - `1.0` — full resolution (same as `sdf_scene`)
+    /// - `0.5` — half resolution (~4× faster)
+    /// - `0.25` — quarter resolution (~16× faster)
+    #[cfg(feature = "sdf")]
+    #[must_use]
+    pub fn sdf_scene_scaled(
+        self,
+        scene: std::sync::Arc<crate::sdf::SdfScene>,
+        generation: u64,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        time: f32,
+        render_scale: f32,
+    ) -> Self {
+        self.push(DrawCommand::Sdf3D {
+            scene: crate::scene::command::SdfSceneRef::new(scene, generation),
+            rect: Rect::new(x, y, w, h),
+            time,
+            render_scale: Some(render_scale),
+        })
     }
 
     /// Compute a content hash of the entire scene (background + commands).
@@ -1071,6 +1185,11 @@ pub struct TextBuilder {
     font_size: f32,
     color: Color,
     font_data: Option<FontData>,
+    align: TextAlign,
+    outline_color: Option<Color>,
+    outline_width: Option<f32>,
+    fill_style: Option<FillStyle>,
+    shadow: Option<crate::scene::command::TextShadow>,
 }
 
 #[cfg(feature = "text")]
@@ -1084,6 +1203,11 @@ impl TextBuilder {
             font_size: 16.0,
             color: Color::WHITE,
             font_data: None,
+            align: TextAlign::Left,
+            outline_color: None,
+            outline_width: None,
+            fill_style: None,
+            shadow: None,
         }
     }
 
@@ -1102,22 +1226,119 @@ impl TextBuilder {
     }
 
     /// Set the font data (TTF/OTF bytes).
+    ///
+    /// If not called, the embedded default font (Inter-Regular) is used.
     #[must_use]
     pub fn font(mut self, font_data: FontData) -> Self {
         self.font_data = Some(font_data);
         self
     }
 
+    /// Set the horizontal text alignment. Default: `Left`.
+    #[must_use]
+    pub const fn align(mut self, align: TextAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Set a text outline (rendered as multi-offset copies behind the fill).
+    #[must_use]
+    pub const fn outline(mut self, color: Color, width: f32) -> Self {
+        self.outline_color = Some(color);
+        self.outline_width = Some(width);
+        self
+    }
+
+    /// Set a drop shadow.
+    #[must_use]
+    pub const fn shadow(mut self, color: Color, offset_x: f32, offset_y: f32) -> Self {
+        self.shadow = Some(crate::scene::command::TextShadow {
+            offset_x,
+            offset_y,
+            color,
+            blur_radius: 0.0,
+        });
+        self
+    }
+
+    /// Set a drop shadow with blur.
+    #[must_use]
+    pub const fn shadow_blurred(
+        mut self,
+        color: Color,
+        offset_x: f32,
+        offset_y: f32,
+        blur_radius: f32,
+    ) -> Self {
+        self.shadow = Some(crate::scene::command::TextShadow {
+            offset_x,
+            offset_y,
+            color,
+            blur_radius,
+        });
+        self
+    }
+
+    /// Set a linear gradient fill for the text (overrides `.color()`).
+    #[must_use]
+    pub fn fill_linear_gradient(
+        mut self,
+        start: Point,
+        end: Point,
+        stops: &[(f32, Color)],
+    ) -> Self {
+        self.fill_style = Some(FillStyle::LinearGradient(GradientDef {
+            kind: GradientKind::Linear { start, end },
+            stops: stops
+                .iter()
+                .map(|(pos, color)| GradientStop {
+                    position: *pos,
+                    color: *color,
+                })
+                .collect(),
+        }));
+        self
+    }
+
+    /// Set a radial gradient fill for the text (overrides `.color()`).
+    #[must_use]
+    pub fn fill_radial_gradient(
+        mut self,
+        center: Point,
+        radius: f32,
+        stops: &[(f32, Color)],
+    ) -> Self {
+        self.fill_style = Some(FillStyle::RadialGradient(GradientDef {
+            kind: GradientKind::Radial { center, radius },
+            stops: stops
+                .iter()
+                .map(|(pos, color)| GradientStop {
+                    position: *pos,
+                    color: *color,
+                })
+                .collect(),
+        }));
+        self
+    }
+
+    /// Apply a pre-built [`TextStyle`] (font, size, color, alignment).
+    #[must_use]
+    pub fn style(mut self, style: &TextStyle) -> Self {
+        self.font_data = style.font_data.clone();
+        self.font_size = style.font_size;
+        self.color = style.color;
+        self.align = style.align;
+        self
+    }
+
     /// Finish building the text command and add it to the canvas.
     ///
-    /// # Panics
-    ///
-    /// Panics if no font data was set via `.font()`.
+    /// Falls back to the embedded default font if no font was set via `.font()`.
     #[must_use]
     pub fn done(self) -> PixelCanvas {
         let font_data = self
             .font_data
-            .expect("TextBuilder requires .font() to be called before .done()");
+            .unwrap_or_else(crate::rasterize::skia::text::default_font);
         self.canvas.push(DrawCommand::Text {
             text: self.text,
             x: self.x,
@@ -1125,6 +1346,11 @@ impl TextBuilder {
             font_size: self.font_size,
             color: self.color,
             font_data,
+            align: self.align,
+            outline_color: self.outline_color,
+            outline_width: self.outline_width,
+            fill_style: self.fill_style,
+            shadow: self.shadow,
         })
     }
 }

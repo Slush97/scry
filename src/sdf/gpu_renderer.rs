@@ -224,15 +224,13 @@ fn flatten_material(mat: &Material) -> (u32, [f32; 4], [f32; 4]) {
         ),
         Material::Checkerboard {
             color_a,
-            color_b,
+            color_b: _,
             scale,
             reflectivity,
             specular,
         } => (
             MAT_CHECKER,
             [*reflectivity, *specular, *scale, 0.0],
-            // Pack both colors: color_a in material_color, color_b in first 3 params... 
-            // For now, send color_a as the main color; the shader uses a simple pattern.
             color_to_arr(*color_a),
         ),
     }
@@ -275,6 +273,15 @@ fn build_objects(scene: &SdfScene) -> Vec<GpuObject> {
             let (shape_type, shape_params, blend_a, blend_b, blend_b_off) =
                 flatten_shape(&obj.shape);
             let (material_type, material_params, material_color) = flatten_material(&obj.material);
+
+            // For checkerboard materials, pack color_b into blend_a_params
+            // (safe because checkerboard is always on Plane, never SmoothBlend).
+            let blend_a = if let Material::Checkerboard { color_b, .. } = &obj.material {
+                color_to_arr(*color_b)
+            } else {
+                blend_a
+            };
+
             GpuObject {
                 position: vec3_to_arr(obj.position),
                 shape_type,
@@ -311,8 +318,8 @@ fn build_lights(scene: &SdfScene) -> Vec<GpuLight> {
 /// Creating a context is expensive (~100ms) because it initializes the GPU
 /// adapter, device, and compiles the compute shader. Create once and reuse.
 pub struct SdfGpuContext {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: std::sync::Arc<wgpu::Device>,
+    queue: std::sync::Arc<wgpu::Queue>,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     /// Cached output storage buffer: `(buffer, byte_size)`.
@@ -325,6 +332,12 @@ pub struct SdfGpuContext {
     cached_objects: Option<(wgpu::Buffer, u64)>,
     /// Cached lights storage buffer: `(buffer, byte_size)`.
     cached_lights: Option<(wgpu::Buffer, u64)>,
+    /// Cached bind group: `(bind_group, output_size, objects_size, lights_size)`.
+    cached_bind_group: Option<(wgpu::BindGroup, u64, u64, u64)>,
+    /// Whether a GPU submission is in-flight and readback is pending.
+    pending_readback: bool,
+    /// Reusable pixmap for readback to avoid per-frame allocation.
+    cached_pixmap: Option<Pixmap>,
 }
 
 impl SdfGpuContext {
@@ -352,6 +365,27 @@ impl SdfGpuContext {
         ))
         .map_err(|e| format!("GPU device creation failed: {e}"))?;
 
+        Self::build_pipelines(std::sync::Arc::new(device), std::sync::Arc::new(queue))
+    }
+
+    /// Create a context sharing an existing [`GpuDevice`](crate::gpu::GpuDevice).
+    ///
+    /// This skips the ~100ms adapter/device initialization. Only the
+    /// shader compilation and pipeline creation are performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if pipeline creation fails.
+    pub fn with_device(gpu: &crate::gpu::GpuDevice) -> Result<Self, String> {
+        let device = std::sync::Arc::clone(&gpu.device);
+        let queue = std::sync::Arc::clone(&gpu.queue);
+        Self::build_pipelines(device, queue)
+    }
+
+    fn build_pipelines(
+        device: std::sync::Arc<wgpu::Device>,
+        queue: std::sync::Arc<wgpu::Queue>,
+    ) -> Result<Self, String> {
         let shader_source = include_str!("shaders/sdf_compute.wgsl");
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sdf-compute-shader"),
@@ -361,7 +395,6 @@ impl SdfGpuContext {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sdf-compute-bgl"),
             entries: &[
-                // binding 0: uniforms
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -372,7 +405,6 @@ impl SdfGpuContext {
                     },
                     count: None,
                 },
-                // binding 1: objects (storage, read)
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -383,7 +415,6 @@ impl SdfGpuContext {
                     },
                     count: None,
                 },
-                // binding 2: lights (storage, read)
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -394,7 +425,6 @@ impl SdfGpuContext {
                     },
                     count: None,
                 },
-                // binding 3: output (storage, read_write)
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -433,6 +463,9 @@ impl SdfGpuContext {
             cached_uniform: None,
             cached_objects: None,
             cached_lights: None,
+            cached_bind_group: None,
+            pending_readback: false,
+            cached_pixmap: None,
         })
     }
 }
@@ -446,7 +479,9 @@ impl SdfGpuContext {
 pub struct SdfGpuRenderer;
 
 impl SdfGpuRenderer {
-    /// Render the scene to a `Pixmap` using the GPU.
+    /// Render the scene to a `Pixmap` using the GPU (blocking).
+    ///
+    /// This is a convenience wrapper around [`submit`] + [`readback`].
     ///
     /// # Errors
     ///
@@ -458,12 +493,27 @@ impl SdfGpuRenderer {
         height: u32,
         time: f32,
     ) -> Result<Pixmap, PixelCanvasError> {
-        use wgpu::util::DeviceExt;
+        Self::submit(ctx, scene, width, height, time)?;
+        Self::readback(ctx, width, height)
+    }
 
-        let mut pixmap = Pixmap::new(width, height).ok_or_else(|| {
-            PixelCanvasError::PixmapCreation(format!("failed to create {width}x{height} pixmap"))
-        })?;
-
+    /// Submit GPU work for the given scene. Returns immediately after
+    /// `queue.submit()` without waiting for GPU completion.
+    ///
+    /// Call [`readback`] later to retrieve the result. Between `submit`
+    /// and `readback` you can do CPU work (terminal draw, event polling)
+    /// to overlap with GPU execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if buffer allocation fails.
+    pub fn submit(
+        ctx: &mut SdfGpuContext,
+        scene: &SdfScene,
+        width: u32,
+        height: u32,
+        time: f32,
+    ) -> Result<(), PixelCanvasError> {
         // Build uniform data
         let uniforms = build_uniforms(scene, width, height, time);
 
@@ -500,6 +550,7 @@ impl SdfGpuRenderer {
         // Reuse or create objects buffer
         let objects_bytes = bytemuck::cast_slice::<GpuObject, u8>(&objects_data);
         let objects_size = objects_bytes.len() as u64;
+        let mut objects_reallocated = false;
         if ctx
             .cached_objects
             .as_ref()
@@ -514,6 +565,7 @@ impl SdfGpuRenderer {
                 }),
                 objects_size,
             ));
+            objects_reallocated = true;
         }
         let objects_buf = &ctx.cached_objects.as_ref().unwrap().0;
         ctx.queue.write_buffer(objects_buf, 0, objects_bytes);
@@ -521,6 +573,7 @@ impl SdfGpuRenderer {
         // Reuse or create lights buffer
         let lights_bytes = bytemuck::cast_slice::<GpuLight, u8>(&lights_data);
         let lights_size = lights_bytes.len() as u64;
+        let mut lights_reallocated = false;
         if ctx
             .cached_lights
             .as_ref()
@@ -535,13 +588,15 @@ impl SdfGpuRenderer {
                 }),
                 lights_size,
             ));
+            lights_reallocated = true;
         }
         let lights_buf = &ctx.cached_lights.as_ref().unwrap().0;
         ctx.queue.write_buffer(lights_buf, 0, lights_bytes);
 
-        let output_size = (width * height * 4) as u64; // u32 per pixel
+        let output_size = (width * height * 4) as u64;
 
         // Reuse cached output buffer if size matches, otherwise allocate
+        let mut output_reallocated = false;
         if ctx
             .cached_output
             .as_ref()
@@ -556,6 +611,7 @@ impl SdfGpuRenderer {
                 }),
                 output_size,
             ));
+            output_reallocated = true;
         }
         if ctx
             .cached_readback
@@ -575,29 +631,36 @@ impl SdfGpuRenderer {
         let output_buf = &ctx.cached_output.as_ref().unwrap().0;
         let readback_buf = &ctx.cached_readback.as_ref().unwrap().0;
 
-        // Create bind group
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sdf-compute-bg"),
-            layout: &ctx.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: (*uniform_buf).as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: (*objects_buf).as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: (*lights_buf).as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: (*output_buf).as_entire_binding(),
-                },
-            ],
-        });
+        // Reuse bind group when buffer sizes haven't changed
+        let need_new_bind_group = output_reallocated
+            || objects_reallocated
+            || lights_reallocated
+            || ctx.cached_bind_group.is_none();
+        if need_new_bind_group {
+            let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("sdf-compute-bg"),
+                layout: &ctx.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ctx.cached_uniform.as_ref().unwrap().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: (*objects_buf).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: (*lights_buf).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: (*output_buf).as_entire_binding(),
+                    },
+                ],
+            });
+            ctx.cached_bind_group = Some((bind_group, output_size, objects_size, lights_size));
+        }
 
         // Dispatch compute shader
         let mut encoder = ctx
@@ -612,16 +675,43 @@ impl SdfGpuRenderer {
                 timestamp_writes: None,
             });
             pass.set_pipeline(&ctx.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            // Dispatch ceil(width/8) x ceil(height/8) workgroups
+            pass.set_bind_group(0, &ctx.cached_bind_group.as_ref().unwrap().0, &[]);
             pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
         }
 
         // Copy output buffer to readback buffer
         encoder.copy_buffer_to_buffer(output_buf, 0, readback_buf, 0, output_size);
         ctx.queue.submit(std::iter::once(encoder.finish()));
+        ctx.pending_readback = true;
 
-        // Map and read back
+        Ok(())
+    }
+
+    /// Wait for a previously submitted GPU frame and return the result as a `Pixmap`.
+    ///
+    /// Must be called after [`submit`]. Blocks until the GPU is done,
+    /// maps the readback buffer, copies into a `Pixmap`, and unmaps.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the readback fails or pixmap creation fails.
+    pub fn readback(
+        ctx: &mut SdfGpuContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Pixmap, PixelCanvasError> {
+        // Reuse cached pixmap if dimensions match, otherwise allocate
+        let mut pixmap = match ctx.cached_pixmap.take() {
+            Some(pm) if pm.width() == width && pm.height() == height => pm,
+            _ => Pixmap::new(width, height).ok_or_else(|| {
+                PixelCanvasError::PixmapCreation(format!(
+                    "failed to create {width}x{height} pixmap"
+                ))
+            })?,
+        };
+
+        let readback_buf = &ctx.cached_readback.as_ref().unwrap().0;
+
         let readback_slice = readback_buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         readback_slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -639,8 +729,49 @@ impl SdfGpuRenderer {
             pixmap.data_mut().copy_from_slice(&data);
         }
         readback_buf.unmap();
+        ctx.pending_readback = false;
 
         Ok(pixmap)
+    }
+
+    /// Wait for a previously submitted GPU frame and copy the raw RGBA
+    /// bytes into the provided buffer, resizing it as needed.
+    ///
+    /// This avoids the `Pixmap` allocation entirely — useful for the
+    /// pipelined path where the caller builds an `ImageData` directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the readback fails.
+    pub fn readback_into(
+        ctx: &mut SdfGpuContext,
+        width: u32,
+        height: u32,
+        buf: &mut Vec<u8>,
+    ) -> Result<(), PixelCanvasError> {
+        let expected = (width as usize) * (height as usize) * 4;
+        buf.resize(expected, 0);
+
+        let readback_buf = &ctx.cached_readback.as_ref().unwrap().0;
+
+        let readback_slice = readback_buf.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        readback_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).ok();
+        });
+        ctx.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .map_err(|e| PixelCanvasError::Rasterization(format!("GPU readback failed: {e}")))?
+            .map_err(|e| PixelCanvasError::Rasterization(format!("GPU buffer map failed: {e}")))?;
+
+        {
+            let data = readback_slice.get_mapped_range();
+            buf.copy_from_slice(&data);
+        }
+        readback_buf.unmap();
+        ctx.pending_readback = false;
+
+        Ok(())
     }
 }
 

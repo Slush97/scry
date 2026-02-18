@@ -16,7 +16,8 @@ readme = "README.md"
 default = ["widget"]
 widget = ["dep:ratatui", "dep:crossterm", "scry-engine/widget"]
 serde = ["dep:serde", "scry-engine/serde"]
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "scry-engine/gpu"]
+sdf = ["scry-engine/sdf"]
 inline = ["dep:base64"]
 
 [dependencies]

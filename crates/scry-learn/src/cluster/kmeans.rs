@@ -19,6 +19,9 @@
 //! assert_eq!(km.labels().len(), 4);
 //! ```
 
+use rayon::prelude::*;
+
+use crate::constants::KMEANS_PAR_THRESHOLD;
 use crate::dataset::Dataset;
 use crate::distance::euclidean_sq;
 use crate::error::{Result, ScryLearnError};
@@ -154,22 +157,47 @@ impl KMeans {
         let mut prev_inertia = f64::INFINITY;
         let mut final_inertia = f64::INFINITY;
         let mut final_n_iter = 0;
+        let use_par = n * self.k >= KMEANS_PAR_THRESHOLD;
 
         for iter in 0..self.max_iter {
             // Assignment step.
-            let mut inertia = 0.0;
-            for (i, row) in rows.iter().enumerate() {
-                let mut best_dist = f64::INFINITY;
-                let mut best_c = 0;
-                for (c, centroid) in centroids.iter().enumerate() {
-                    let d = euclidean_sq(row, centroid);
-                    if d < best_dist {
-                        best_dist = d;
-                        best_c = c;
-                    }
+            let inertia;
+            if use_par {
+                let results: Vec<(usize, f64)> = rows
+                    .par_iter()
+                    .map(|row| {
+                        let mut best_dist = f64::INFINITY;
+                        let mut best_c = 0;
+                        for (c, centroid) in centroids.iter().enumerate() {
+                            let d = euclidean_sq(row, centroid);
+                            if d < best_dist {
+                                best_dist = d;
+                                best_c = c;
+                            }
+                        }
+                        (best_c, best_dist)
+                    })
+                    .collect();
+                inertia = results.iter().map(|(_, d)| d).sum();
+                for (i, (c, _)) in results.into_iter().enumerate() {
+                    labels[i] = c;
                 }
-                labels[i] = best_c;
-                inertia += best_dist;
+            } else {
+                let mut seq_inertia = 0.0;
+                for (i, row) in rows.iter().enumerate() {
+                    let mut best_dist = f64::INFINITY;
+                    let mut best_c = 0;
+                    for (c, centroid) in centroids.iter().enumerate() {
+                        let d = euclidean_sq(row, centroid);
+                        if d < best_dist {
+                            best_dist = d;
+                            best_c = c;
+                        }
+                    }
+                    labels[i] = best_c;
+                    seq_inertia += best_dist;
+                }
+                inertia = seq_inertia;
             }
 
             // Update step.

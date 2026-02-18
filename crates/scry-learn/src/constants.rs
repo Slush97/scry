@@ -102,3 +102,19 @@ pub(crate) const ADAM_EPSILON: f64 = 1e-8;
 
 /// Learning rate decay constant for Pegasos SGD: lr = 1/(C * (1 + DECAY * epoch)).
 pub(crate) const PEGASOS_LR_DECAY: f64 = 0.01;
+
+// ─── Parallelism thresholds ───────────────────────────────────────────────
+
+/// Minimum n×m product to enable rayon parallelism in logistic regression
+/// feature gradient computation. Below this, rayon spawn overhead (~2-5 µs)
+/// exceeds the parallel speedup.
+pub(crate) const LOGREG_PAR_THRESHOLD: usize = 5_000;
+
+/// Minimum query×train×features product to parallelize KNN brute-force predict.
+pub(crate) const KNN_PAR_THRESHOLD: usize = 10_000;
+
+/// Minimum n×k product to parallelize K-Means assignment step.
+pub(crate) const KMEANS_PAR_THRESHOLD: usize = 5_000;
+
+/// Minimum n² to parallelize SVM kernel matrix precomputation.
+pub(crate) const SVM_KERNEL_PAR_THRESHOLD: usize = 2_500;

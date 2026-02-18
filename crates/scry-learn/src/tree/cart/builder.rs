@@ -44,30 +44,35 @@ fn filter_sorted(global_sorted: &[Vec<usize>], membership: &[bool]) -> Vec<Vec<u
 
 /// Partition sorted arrays into left/right based on a split decision.
 /// Preserves sort order within each partition.
+///
+/// Reuses the parent's Vec allocations for the left child (in-place
+/// stable partition), only allocating new Vecs for the right child.
+/// This halves the number of heap allocations during tree building.
 fn partition_sorted(
-    sorted_by_feature: Vec<Vec<usize>>,
+    mut sorted_by_feature: Vec<Vec<usize>>,
     split_col: &[f64],
     threshold: f64,
-    left_count: usize,
+    _left_count: usize,
     right_count: usize,
 ) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
     let n_feat = sorted_by_feature.len();
-    let mut left_sorted = Vec::with_capacity(n_feat);
     let mut right_sorted = Vec::with_capacity(n_feat);
-    for feat_sorted in sorted_by_feature {
-        let mut left = Vec::with_capacity(left_count);
+    for feat_sorted in &mut sorted_by_feature {
         let mut right = Vec::with_capacity(right_count);
-        for idx in feat_sorted {
+        let mut write = 0;
+        for read in 0..feat_sorted.len() {
+            let idx = feat_sorted[read];
             if split_col[idx] <= threshold {
-                left.push(idx);
+                feat_sorted[write] = idx;
+                write += 1;
             } else {
                 right.push(idx);
             }
         }
-        left_sorted.push(left);
+        feat_sorted.truncate(write);
         right_sorted.push(right);
     }
-    (left_sorted, right_sorted)
+    (sorted_by_feature, right_sorted)
 }
 
 /// Populate the feature buffer with indices, optionally shuffled for feature bagging.

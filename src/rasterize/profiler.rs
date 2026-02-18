@@ -58,10 +58,12 @@ pub enum CommandType {
     Text = 10,
     /// `DrawCommand::Group`
     Group = 11,
+    /// `DrawCommand::Sdf3D`
+    Sdf3D = 12,
 }
 
 /// Total number of command types we track.
-pub const NUM_COMMAND_TYPES: usize = 12;
+pub const NUM_COMMAND_TYPES: usize = 13;
 
 /// All command type variants for iteration.
 pub const ALL_COMMAND_TYPES: [CommandType; NUM_COMMAND_TYPES] = [
@@ -77,6 +79,7 @@ pub const ALL_COMMAND_TYPES: [CommandType; NUM_COMMAND_TYPES] = [
     CommandType::Image,
     CommandType::Text,
     CommandType::Group,
+    CommandType::Sdf3D,
 ];
 
 impl CommandType {
@@ -96,6 +99,8 @@ impl CommandType {
             DrawCommand::Image { .. } => Self::Image,
             #[cfg(feature = "text")]
             DrawCommand::Text { .. } => Self::Text,
+            #[cfg(feature = "sdf")]
+            DrawCommand::Sdf3D { .. } => Self::Sdf3D,
             DrawCommand::Group { .. } => Self::Group,
         }
     }
@@ -116,6 +121,7 @@ impl CommandType {
             Self::Image => "img",
             Self::Text => "txt",
             Self::Group => "grp",
+            Self::Sdf3D => "sdf",
         }
     }
 
@@ -135,6 +141,7 @@ impl CommandType {
             Self::Image => "Image",
             Self::Text => "Text",
             Self::Group => "Group",
+            Self::Sdf3D => "SDF 3D",
         }
     }
 }

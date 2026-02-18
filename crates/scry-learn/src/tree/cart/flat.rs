@@ -92,19 +92,21 @@ pub struct FlatTree {
 
 impl FlatTree {
     /// Create a `FlatTree` from raw components.
+    ///
+    /// `node_counts` is left empty — it is only populated by
+    /// [`from_tree_node`](Self::from_tree_node) for TreeSHAP support.
     pub fn new(
         nodes: Vec<FlatNode>,
         predictions: Vec<f64>,
         leaf_probas: Vec<f32>,
         n_classes_stored: u32,
     ) -> Self {
-        let node_counts = vec![0; nodes.len()];
         Self {
             nodes,
             predictions,
             leaf_probas,
             n_classes_stored,
-            node_counts,
+            node_counts: Vec::new(),
         }
     }
 

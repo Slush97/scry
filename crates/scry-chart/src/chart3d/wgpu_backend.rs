@@ -109,9 +109,15 @@ struct FrameResourceCache {
     readback_padded_row: u32,
 }
 
+/// Reusable GPU context holding the wgpu device, queue, and compiled pipelines.
+///
+/// Creating a `WgpuContext` is expensive (~100ms) because it initializes the
+/// GPU adapter, device, and compiles WGSL shaders into render pipelines.
+/// Create one context and reuse it across many frames via
+/// [`WgpuRasterizer3D::with_context()`].
 pub struct WgpuContext {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: std::sync::Arc<wgpu::Device>,
+    queue: std::sync::Arc<wgpu::Queue>,
     point_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -153,6 +159,28 @@ impl WgpuContext {
         ))
         .map_err(|e| format!("wgpu: device creation failed: {e}"))?;
 
+        Self::build_pipelines(std::sync::Arc::new(device), std::sync::Arc::new(queue))
+    }
+
+    /// Create a context sharing an existing [`GpuDevice`](scry_engine::gpu::GpuDevice).
+    ///
+    /// This skips the ~100ms adapter/device initialization. Only the
+    /// shader compilation and pipeline creation are performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if pipeline creation fails.
+    pub fn with_device(gpu: &scry_engine::gpu::GpuDevice) -> Result<Self, String> {
+        let device = gpu.device_arc();
+        let queue = gpu.queue_arc();
+        Self::build_pipelines(device, queue)
+    }
+
+    /// Internal: compile shaders and build pipelines for a given device+queue.
+    fn build_pipelines(
+        device: std::sync::Arc<wgpu::Device>,
+        queue: std::sync::Arc<wgpu::Queue>,
+    ) -> Result<Self, String> {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("uniform_bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -190,18 +218,8 @@ impl WgpuContext {
                     array_stride: std::mem::size_of::<PointInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &[
-                        // pos_size: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 16,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
+                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute { offset: 16, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
                     ],
                 }],
             },
@@ -215,10 +233,7 @@ impl WgpuContext {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -242,36 +257,11 @@ impl WgpuContext {
                     array_stride: std::mem::size_of::<LineVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
-                        // position: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        // normal: vec2<f32>
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        // color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 16,
-                            shader_location: 2,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // line_width: f32
-                        wgpu::VertexAttribute {
-                            offset: 32,
-                            shader_location: 3,
-                            format: wgpu::VertexFormat::Float32,
-                        },
-                        // edge_dist: f32
-                        wgpu::VertexAttribute {
-                            offset: 36,
-                            shader_location: 4,
-                            format: wgpu::VertexFormat::Float32,
-                        },
+                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 16, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute { offset: 32, shader_location: 3, format: wgpu::VertexFormat::Float32 },
+                        wgpu::VertexAttribute { offset: 36, shader_location: 4, format: wgpu::VertexFormat::Float32 },
                     ],
                 }],
             },
@@ -285,10 +275,7 @@ impl WgpuContext {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -354,7 +341,7 @@ pub struct WgpuRasterizer3D<'ctx> {
 
 /// Owned or borrowed reference to a wgpu device.
 enum DeviceRef<'a> {
-    Owned(wgpu::Device),
+    Owned(std::sync::Arc<wgpu::Device>),
     Borrowed(&'a wgpu::Device),
 }
 
@@ -370,7 +357,7 @@ impl std::ops::Deref for DeviceRef<'_> {
 
 /// Owned or borrowed reference to a wgpu queue.
 enum QueueRef<'a> {
-    Owned(wgpu::Queue),
+    Owned(std::sync::Arc<wgpu::Queue>),
     Borrowed(&'a wgpu::Queue),
 }
 

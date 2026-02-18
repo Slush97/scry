@@ -1,0 +1,35 @@
+[package]
+name = "scry-llm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83.0"
+authors = ["esoc"]
+description = "GPT-2 training framework in Rust with CUDA backend"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["cuda"]
+cuda = ["dep:cudarc"]
+safetensors = ["dep:safetensors"]
+
+[dependencies]
+cudarc = { version = "0.19", features = ["cublas", "nvrtc", "cuda-13010"], optional = true }
+safetensors = { version = "0.4", optional = true }
+arrayvec = "0.7"
+thiserror = "2"
+fastrand = "2"
+
+[dev-dependencies]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+needless_range_loop = "allow"
+# f64→f32 casts are intentional: f64 accumulators for numeric precision, f32 storage
+cast_possible_truncation = "allow"
+# usize→f64 casts unavoidable in numeric code (e.g. `dim as f64`)
+cast_precision_loss = "allow"
+# standard linear algebra variable names: m, k, n, d, b, etc.
+many_single_char_names = "allow"
+# tensor library — every op returns a value, #[must_use] on all of them is noise
+must_use_candidate = "allow"

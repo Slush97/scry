@@ -50,7 +50,7 @@ pub use builder::{
     GradientBuilder, GroupBuilder, ImageBuilder, LineBuilder, PixelCanvas, ShapeBuilder,
 };
 #[cfg(feature = "text")]
-pub use command::FontData;
+pub use command::{FontData, TextAlign, TextMetrics, TextStyle};
 pub use command::{DrawCommand, ImageData, PathData};
 pub use style::{
     BlendMode, ClipRegion, Color, DashPattern, FillRule, FillStyle, GradientDef, GradientKind,

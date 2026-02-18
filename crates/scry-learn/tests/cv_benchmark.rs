@@ -356,120 +356,125 @@ fn cv_benchmark_with_charts() {
         "linfa RF CV accuracy {linfa_rf_mean:.2} < 0.90"
     );
 
-    // ── Generate charts ─────────────────────────────────────────────
-    use scry_chart::chart::BarChart;
-    use scry_chart::data::Series;
-    use scry_chart::theme::Theme;
+    // ── Generate charts (only when viz feature is enabled) ──────────
+    #[cfg(feature = "viz")]
+    {
+        use scry_chart::chart::BarChart;
+        use scry_chart::data::Series;
+        use scry_chart::theme::Theme;
 
-    let out_dir = "/tmp/scry_cv_benchmark";
-    std::fs::create_dir_all(out_dir).ok();
+        let out_dir = "/tmp/scry_cv_benchmark";
+        std::fs::create_dir_all(out_dir).ok();
 
-    // --- Chart 1: CV Accuracy Comparison (grouped bar) ---
-    let labels = vec!["DT".into(), "RF (10t)".into()];
-    let scry_acc_series = Series::new(
-        "scry-learn",
-        vec![scry_dt_mean * 100.0, scry_rf_mean * 100.0],
-    );
-    let smart_acc_series = Series::new(
-        "smartcore",
-        vec![smart_dt_mean * 100.0, smart_rf_mean * 100.0],
-    );
-    let linfa_acc_series = Series::new("linfa", vec![linfa_dt_mean * 100.0, linfa_rf_mean * 100.0]);
-    let accuracy_chart = BarChart::new(
-        labels,
-        vec![scry_acc_series, smart_acc_series, linfa_acc_series],
-    )
-    .title("5-Fold Cross-Validation Accuracy (%)")
-    .subtitle("1K samples × 10 features")
-    .y_label("Accuracy (%)")
-    .y_range(80.0, 105.0)
-    .show_values()
-    .theme(Theme::dark())
-    .build();
-
-    let acc_path = format!("{out_dir}/cv_accuracy.png");
-    scry_chart::export::save_png(&accuracy_chart, 900, 500, &acc_path).unwrap();
-    println!("\n✓ Accuracy chart  → {acc_path}");
-
-    // --- Chart 2: CV Time Comparison (grouped bar) ---
-    let labels = vec!["DT".into(), "RF (10t)".into()];
-    let scry_time_series = Series::new("scry-learn", vec![scry_dt_ms, scry_rf_ms]);
-    let smart_time_series = Series::new("smartcore", vec![smart_dt_ms, smart_rf_ms]);
-    let linfa_time_series = Series::new("linfa", vec![linfa_dt_ms, linfa_rf_ms]);
-    let time_chart = BarChart::new(
-        labels,
-        vec![scry_time_series, smart_time_series, linfa_time_series],
-    )
-    .title("5-Fold Cross-Validation Total Time (ms)")
-    .subtitle("Lower is better — 1K×10, train+predict per fold")
-    .y_label("Time (ms)")
-    .show_values()
-    .theme(Theme::dark())
-    .build();
-
-    let time_path = format!("{out_dir}/cv_timing.png");
-    scry_chart::export::save_png(&time_chart, 900, 500, &time_path).unwrap();
-    println!("✓ Timing chart    → {time_path}");
-
-    // --- Chart 3: Per-fold accuracy line chart (scry-learn) ---
-    use scry_chart::chart::LineChart;
-
-    let fold_x: Vec<f64> = (1..=k).map(|i| i as f64).collect();
-    let dt_series = Series::new(
-        "Decision Tree",
-        scry_dt_scores.iter().map(|s| s * 100.0).collect(),
-    );
-    let rf_series = Series::new(
-        "Random Forest",
-        scry_rf_scores.iter().map(|s| s * 100.0).collect(),
-    );
-    let knn_series = Series::new(
-        "KNN (k=5)",
-        scry_knn_scores.iter().map(|s| s * 100.0).collect(),
-    );
-    let fold_chart = LineChart::new(vec![dt_series, rf_series, knn_series])
-        .x_values(fold_x)
-        .title("scry-learn Per-Fold Accuracy")
-        .subtitle("5-Fold CV — each point is one fold's test accuracy")
-        .x_label("Fold")
+        // --- Chart 1: CV Accuracy Comparison (grouped bar) ---
+        let labels = vec!["DT".into(), "RF (10t)".into()];
+        let scry_acc_series = Series::new(
+            "scry-learn",
+            vec![scry_dt_mean * 100.0, scry_rf_mean * 100.0],
+        );
+        let smart_acc_series = Series::new(
+            "smartcore",
+            vec![smart_dt_mean * 100.0, smart_rf_mean * 100.0],
+        );
+        let linfa_acc_series =
+            Series::new("linfa", vec![linfa_dt_mean * 100.0, linfa_rf_mean * 100.0]);
+        let accuracy_chart = BarChart::new(
+            labels,
+            vec![scry_acc_series, smart_acc_series, linfa_acc_series],
+        )
+        .title("5-Fold Cross-Validation Accuracy (%)")
+        .subtitle("1K samples × 10 features")
         .y_label("Accuracy (%)")
         .y_range(80.0, 105.0)
-        .with_points()
+        .show_values()
         .theme(Theme::dark())
         .build();
 
-    let fold_path = format!("{out_dir}/cv_per_fold.png");
-    scry_chart::export::save_png(&fold_chart, 900, 500, &fold_path).unwrap();
-    println!("✓ Per-fold chart  → {fold_path}");
+        let acc_path = format!("{out_dir}/cv_accuracy.png");
+        scry_chart::export::save_png(&accuracy_chart, 900, 500, &acc_path).unwrap();
+        println!("\n✓ Accuracy chart  → {acc_path}");
 
-    // --- Chart 4: Per-fold comparison line chart (DT all 3 libs) ---
-    let dt_scry_series = Series::new(
-        "scry-learn DT",
-        scry_dt_scores.iter().map(|s| s * 100.0).collect(),
-    );
-    let dt_smart_series = Series::new(
-        "smartcore DT",
-        smart_dt_scores.iter().map(|s| s * 100.0).collect(),
-    );
-    let dt_linfa_series = Series::new(
-        "linfa DT",
-        linfa_dt_scores.iter().map(|s| s * 100.0).collect(),
-    );
-    let fold_x2: Vec<f64> = (1..=k).map(|i| i as f64).collect();
-    let dt_compare_chart = LineChart::new(vec![dt_scry_series, dt_smart_series, dt_linfa_series])
-        .x_values(fold_x2)
-        .title("Decision Tree — Per-Fold Accuracy Comparison")
-        .subtitle("Same 5-fold splits, 3 libraries")
-        .x_label("Fold")
-        .y_label("Accuracy (%)")
-        .y_range(80.0, 105.0)
-        .with_points()
+        // --- Chart 2: CV Time Comparison (grouped bar) ---
+        let labels = vec!["DT".into(), "RF (10t)".into()];
+        let scry_time_series = Series::new("scry-learn", vec![scry_dt_ms, scry_rf_ms]);
+        let smart_time_series = Series::new("smartcore", vec![smart_dt_ms, smart_rf_ms]);
+        let linfa_time_series = Series::new("linfa", vec![linfa_dt_ms, linfa_rf_ms]);
+        let time_chart = BarChart::new(
+            labels,
+            vec![scry_time_series, smart_time_series, linfa_time_series],
+        )
+        .title("5-Fold Cross-Validation Total Time (ms)")
+        .subtitle("Lower is better — 1K×10, train+predict per fold")
+        .y_label("Time (ms)")
+        .show_values()
         .theme(Theme::dark())
         .build();
 
-    let dt_compare_path = format!("{out_dir}/cv_dt_comparison.png");
-    scry_chart::export::save_png(&dt_compare_chart, 900, 500, &dt_compare_path).unwrap();
-    println!("✓ DT compare      → {dt_compare_path}");
+        let time_path = format!("{out_dir}/cv_timing.png");
+        scry_chart::export::save_png(&time_chart, 900, 500, &time_path).unwrap();
+        println!("✓ Timing chart    → {time_path}");
 
-    println!("\nAll charts saved to {out_dir}/");
+        // --- Chart 3: Per-fold accuracy line chart (scry-learn) ---
+        use scry_chart::chart::LineChart;
+
+        let fold_x: Vec<f64> = (1..=k).map(|i| i as f64).collect();
+        let dt_series = Series::new(
+            "Decision Tree",
+            scry_dt_scores.iter().map(|s| s * 100.0).collect(),
+        );
+        let rf_series = Series::new(
+            "Random Forest",
+            scry_rf_scores.iter().map(|s| s * 100.0).collect(),
+        );
+        let knn_series = Series::new(
+            "KNN (k=5)",
+            scry_knn_scores.iter().map(|s| s * 100.0).collect(),
+        );
+        let fold_chart = LineChart::new(vec![dt_series, rf_series, knn_series])
+            .x_values(fold_x)
+            .title("scry-learn Per-Fold Accuracy")
+            .subtitle("5-Fold CV — each point is one fold's test accuracy")
+            .x_label("Fold")
+            .y_label("Accuracy (%)")
+            .y_range(80.0, 105.0)
+            .with_points()
+            .theme(Theme::dark())
+            .build();
+
+        let fold_path = format!("{out_dir}/cv_per_fold.png");
+        scry_chart::export::save_png(&fold_chart, 900, 500, &fold_path).unwrap();
+        println!("✓ Per-fold chart  → {fold_path}");
+
+        // --- Chart 4: Per-fold comparison line chart (DT all 3 libs) ---
+        let dt_scry_series = Series::new(
+            "scry-learn DT",
+            scry_dt_scores.iter().map(|s| s * 100.0).collect(),
+        );
+        let dt_smart_series = Series::new(
+            "smartcore DT",
+            smart_dt_scores.iter().map(|s| s * 100.0).collect(),
+        );
+        let dt_linfa_series = Series::new(
+            "linfa DT",
+            linfa_dt_scores.iter().map(|s| s * 100.0).collect(),
+        );
+        let fold_x2: Vec<f64> = (1..=k).map(|i| i as f64).collect();
+        let dt_compare_chart =
+            LineChart::new(vec![dt_scry_series, dt_smart_series, dt_linfa_series])
+                .x_values(fold_x2)
+                .title("Decision Tree — Per-Fold Accuracy Comparison")
+                .subtitle("Same 5-fold splits, 3 libraries")
+                .x_label("Fold")
+                .y_label("Accuracy (%)")
+                .y_range(80.0, 105.0)
+                .with_points()
+                .theme(Theme::dark())
+                .build();
+
+        let dt_compare_path = format!("{out_dir}/cv_dt_comparison.png");
+        scry_chart::export::save_png(&dt_compare_chart, 900, 500, &dt_compare_path).unwrap();
+        println!("✓ DT compare      → {dt_compare_path}");
+
+        println!("\nAll charts saved to {out_dir}/");
+    }
 }

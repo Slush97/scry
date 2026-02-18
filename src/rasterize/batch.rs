@@ -147,6 +147,8 @@ fn batchable_style(cmd: &DrawCommand) -> Option<&ShapeStyle> {
         | DrawCommand::Image { .. } => None,
         #[cfg(feature = "text")]
         DrawCommand::Text { .. } => None,
+        #[cfg(feature = "sdf")]
+        DrawCommand::Sdf3D { .. } => None,
     }
 }
 

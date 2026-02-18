@@ -107,9 +107,13 @@ pub struct KittyBackend<W: Write + std::fmt::Debug = std::io::Stdout> {
     /// Per-tile Kitty image IDs for incremental updates.
     /// Indexed by `tile_row * tiles_per_row + tile_col`.
     tile_ids: Vec<u32>,
-    /// Shared memory buffer for zero-copy transmission.
+    /// Double-buffered shared memory for zero-copy transmission.
+    /// We alternate between two SHM objects so the terminal can read
+    /// from one while we write the next frame to the other.
     #[cfg(feature = "shm")]
-    shm_buf: Option<crate::transport::shm::ShmBuffer>,
+    shm_bufs: [Option<crate::transport::shm::ShmBuffer>; 2],
+    #[cfg(feature = "shm")]
+    shm_idx: usize,
 }
 
 impl KittyBackend<std::io::Stdout> {
@@ -128,7 +132,9 @@ impl KittyBackend<std::io::Stdout> {
             tile_buf: Vec::new(),
             tile_ids: Vec::new(),
             #[cfg(feature = "shm")]
-            shm_buf: None,
+            shm_bufs: [None, None],
+            #[cfg(feature = "shm")]
+            shm_idx: 0,
         }
     }
 }
@@ -152,7 +158,9 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             tile_buf: Vec::new(),
             tile_ids: Vec::new(),
             #[cfg(feature = "shm")]
-            shm_buf: None,
+            shm_bufs: [None, None],
+            #[cfg(feature = "shm")]
+            shm_idx: 0,
         }
     }
 
@@ -431,9 +439,12 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         let data_size = raw_data.len();
         let placement_id = self.placement_id;
 
-        // Ensure shm buffer exists and is large enough
-        let shm_name = format!("scry-{}", std::process::id());
-        let buf = if let Some(ref mut buf) = self.shm_buf {
+        // Double-buffer: alternate SHM objects so the terminal reads from
+        // the previous one while we write to the current one.
+        let idx = self.shm_idx;
+        self.shm_idx ^= 1;
+        let shm_name = format!("scry-{}-{idx}", std::process::id());
+        let buf = if let Some(ref mut buf) = self.shm_bufs[idx] {
             if buf.capacity() < data_size {
                 buf.resize(data_size).map_err(|e| {
                     PixelCanvasError::Rasterization(format!("shm resize failed: {e}"))
@@ -441,13 +452,12 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             }
             buf
         } else {
-            self.shm_buf = Some(
+            self.shm_bufs[idx] = Some(
                 crate::transport::shm::ShmBuffer::new(&shm_name, data_size).map_err(|e| {
                     PixelCanvasError::Rasterization(format!("shm_open failed: {e}"))
                 })?,
             );
-            // SAFETY: assigned in the `else` branch immediately above.
-            self.shm_buf.as_mut().expect("just created")
+            self.shm_bufs[idx].as_mut().expect("just created")
         };
 
         // Write pixels into shared memory

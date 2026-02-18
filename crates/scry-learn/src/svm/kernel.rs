@@ -10,6 +10,9 @@
 //! Enable `.probability(true)` to fit Platt scaling after SMO,
 //! providing calibrated probabilities via [`KernelSVC::predict_proba`].
 
+use rayon::prelude::*;
+
+use crate::constants::SVM_KERNEL_PAR_THRESHOLD;
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 
@@ -280,37 +283,76 @@ impl KernelSVC {
         // Build row-major feature matrix once.
         let rows = data.feature_matrix();
 
-        self.models = Vec::with_capacity(self.n_classes);
-        self.platt_params = Vec::with_capacity(self.n_classes);
+        if self.n_classes > 2 {
+            let results: Vec<(BinarySMO, (f64, f64))> = (0..self.n_classes)
+                .into_par_iter()
+                .map(|cls| {
+                    let binary_y: Vec<f64> = data
+                        .target
+                        .iter()
+                        .map(|&t| if t as usize == cls { 1.0 } else { -1.0 })
+                        .collect();
 
-        for cls in 0..self.n_classes {
-            let binary_y: Vec<f64> = data
-                .target
-                .iter()
-                .map(|&t| if t as usize == cls { 1.0 } else { -1.0 })
+                    let model = smo_train(
+                        &rows,
+                        &binary_y,
+                        &self.kernel,
+                        self.c,
+                        self.tol,
+                        self.max_iter,
+                    );
+
+                    let ab = if self.probability {
+                        let dvals: Vec<f64> = rows
+                            .iter()
+                            .map(|x| smo_decision(&model, x, &self.kernel))
+                            .collect();
+                        platt_fit(&dvals, &binary_y)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    (model, ab)
+                })
                 .collect();
 
-            let model = smo_train(
-                &rows,
-                &binary_y,
-                &self.kernel,
-                self.c,
-                self.tol,
-                self.max_iter,
-            );
+            self.models = Vec::with_capacity(self.n_classes);
+            self.platt_params = Vec::with_capacity(self.n_classes);
+            for (model, ab) in results {
+                self.models.push(model);
+                self.platt_params.push(ab);
+            }
+        } else {
+            self.models = Vec::with_capacity(self.n_classes);
+            self.platt_params = Vec::with_capacity(self.n_classes);
 
-            // Platt scaling: fit sigmoid on decision values.
-            let ab = if self.probability {
-                let dvals: Vec<f64> = rows
+            for cls in 0..self.n_classes {
+                let binary_y: Vec<f64> = data
+                    .target
                     .iter()
-                    .map(|x| smo_decision(&model, x, &self.kernel))
+                    .map(|&t| if t as usize == cls { 1.0 } else { -1.0 })
                     .collect();
-                platt_fit(&dvals, &binary_y)
-            } else {
-                (0.0, 0.0)
-            };
-            self.platt_params.push(ab);
-            self.models.push(model);
+
+                let model = smo_train(
+                    &rows,
+                    &binary_y,
+                    &self.kernel,
+                    self.c,
+                    self.tol,
+                    self.max_iter,
+                );
+
+                let ab = if self.probability {
+                    let dvals: Vec<f64> = rows
+                        .iter()
+                        .map(|x| smo_decision(&model, x, &self.kernel))
+                        .collect();
+                    platt_fit(&dvals, &binary_y)
+                } else {
+                    (0.0, 0.0)
+                };
+                self.platt_params.push(ab);
+                self.models.push(model);
+            }
         }
 
         self.fitted = true;
@@ -449,11 +491,19 @@ pub(crate) fn smo_train(
     // Pre-compute kernel matrix for efficiency (O(n²) memory, fine for
     // typical SVM datasets).
     let mut k_matrix = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        for j in i..n {
-            let val = kernel.eval(&x[i], &x[j]);
-            k_matrix[i][j] = val;
-            k_matrix[j][i] = val;
+    if n * n >= SVM_KERNEL_PAR_THRESHOLD {
+        k_matrix.par_iter_mut().enumerate().for_each(|(i, row)| {
+            for j in 0..n {
+                row[j] = kernel.eval(&x[i], &x[j]);
+            }
+        });
+    } else {
+        for i in 0..n {
+            for j in i..n {
+                let val = kernel.eval(&x[i], &x[j]);
+                k_matrix[i][j] = val;
+                k_matrix[j][i] = val;
+            }
         }
     }
 

@@ -12,3 +12,11 @@ feature_showcase_output/
 
 # Internal tracking (not for publication)
 FORMATTING_PROGRESS.md
+
+# Model weights (too large for git)
+*.safetensors
+
+# Fuzz build artifacts and corpus
+**/fuzz/target/
+**/fuzz/corpus/
+**/fuzz/artifacts/

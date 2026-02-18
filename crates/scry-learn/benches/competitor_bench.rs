@@ -53,14 +53,17 @@ fn bench_dt_training(c: &mut Criterion) {
         let (features, target) = gen_classification(n, 10);
         let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
 
+        let data = scry_learn::prelude::Dataset::new(
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
+        );
+        let x =
+            smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+
         group.bench_with_input(BenchmarkId::new("scry-learn", n), &n, |b, _| {
             b.iter(|| {
-                let data = scry_learn::prelude::Dataset::new(
-                    transpose(&features),
-                    target.clone(),
-                    (0..10).map(|i| format!("f{i}")).collect(),
-                    "target",
-                );
                 let mut dt = scry_learn::prelude::DecisionTreeClassifier::new();
                 dt.fit(black_box(&data)).unwrap();
             });
@@ -68,8 +71,6 @@ fn bench_dt_training(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("smartcore", n), &n, |b, _| {
             b.iter(|| {
-                let x =
-                    smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
                 let _ = smartcore::tree::decision_tree_classifier::DecisionTreeClassifier::fit(
                     black_box(&x),
                     black_box(&target_i32),
@@ -125,17 +126,19 @@ fn bench_rf_training(c: &mut Criterion) {
     let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
 
     for &n_trees in &[10usize, 50, 100] {
+        let data = scry_learn::prelude::Dataset::new(
+            transpose(&features),
+            target.clone(),
+            (0..10).map(|i| format!("f{i}")).collect(),
+            "target",
+        );
+        let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+
         group.bench_with_input(
             BenchmarkId::new("scry-learn", n_trees),
             &n_trees,
             |b, &nt| {
                 b.iter(|| {
-                    let data = scry_learn::prelude::Dataset::new(
-                        transpose(&features),
-                        target.clone(),
-                        (0..10).map(|i| format!("f{i}")).collect(),
-                        "target",
-                    );
                     let mut rf = scry_learn::prelude::RandomForestClassifier::new()
                         .n_estimators(nt)
                         .max_depth(8);
@@ -146,7 +149,6 @@ fn bench_rf_training(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("smartcore", n_trees), &n_trees, |b, &nt| {
             b.iter(|| {
-                let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
                 let params = smartcore::ensemble::random_forest_classifier::RandomForestClassifierParameters::default()
                     .with_n_trees(nt as u16)
                     .with_max_depth(8);
@@ -268,6 +270,8 @@ fn bench_dt_predict_deep(c: &mut Criterion) {
     group.finish();
 }
 
+// Solo baseline measurement — no competitor implements a comparable confusion_matrix
+// function to compare against.
 fn bench_confusion_matrix(c: &mut Criterion) {
     let mut group = c.benchmark_group("vs/metrics/confusion_matrix");
     group.sample_size(50);
@@ -288,6 +292,9 @@ fn bench_confusion_matrix(c: &mut Criterion) {
 }
 
 // ── Logistic Regression: scry vs smartcore vs linfa-logistic ────
+// All three use L-BFGS (quasi-Newton) solvers.
+// scry-learn: max_iter=200, smartcore: default max_iter=1000 (converges early),
+// linfa: max_iterations=200.
 
 fn bench_logreg_training(c: &mut Criterion) {
     let mut group = c.benchmark_group("vs/logistic_regression/train");
@@ -297,24 +304,26 @@ fn bench_logreg_training(c: &mut Criterion) {
     let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
     let target_bool: Vec<bool> = target.iter().map(|&t| t > 0.5).collect();
 
+    let data = scry_learn::prelude::Dataset::new(
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
+    );
+    let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| {
-            let data = scry_learn::prelude::Dataset::new(
-                transpose(&features),
-                target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(),
-                "target",
-            );
             let mut lr = scry_learn::prelude::LogisticRegression::new()
-                .max_iter(200)
-                .learning_rate(0.1);
+                .max_iter(200);
             lr.fit(black_box(&data)).unwrap();
         });
     });
 
+    // smartcore default is L-BFGS with max_iter=1000 (not configurable via public API);
+    // it converges early on this data so the iteration cap doesn't matter.
     group.bench_function("smartcore/1k", |b| {
         b.iter(|| {
-            let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
             let _ = smartcore::linear::logistic_regression::LogisticRegression::fit(
                 black_box(&x),
                 black_box(&target_i32),
@@ -390,14 +399,15 @@ fn bench_kmeans_training(c: &mut Criterion) {
 
     let (features, target) = gen_classification(2000, 10);
 
+    let data = scry_learn::prelude::Dataset::new(
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
+    );
+
     group.bench_function("scry-learn/2k", |b| {
         b.iter(|| {
-            let data = scry_learn::prelude::Dataset::new(
-                transpose(&features),
-                target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(),
-                "target",
-            );
             let mut km = scry_learn::prelude::KMeans::new(3).seed(42).max_iter(100);
             km.fit(black_box(&data)).unwrap();
         });
@@ -405,11 +415,13 @@ fn bench_kmeans_training(c: &mut Criterion) {
 
     group.bench_function("linfa-clustering/2k", |b| {
         use linfa::prelude::Fit;
+        use rand::SeedableRng;
         let flat: Vec<f64> = features.iter().flat_map(|r| r.iter().copied()).collect();
         let x = ndarray::Array2::from_shape_vec((2000, 10), flat).unwrap();
         let ds = linfa::DatasetBase::from(x);
         b.iter(|| {
-            let _ = linfa_clustering::KMeans::params_with_rng(3, rand::thread_rng())
+            let rng = rand::rngs::SmallRng::seed_from_u64(42);
+            let _ = linfa_clustering::KMeans::params_with_rng(3, rng)
                 .max_n_iterations(100)
                 .fit(black_box(&ds))
                 .unwrap();
@@ -420,22 +432,27 @@ fn bench_kmeans_training(c: &mut Criterion) {
 }
 
 // ── SVM: scry LinearSVC vs smartcore SVC ────────────────────────
+// NOT a like-for-like comparison: scry-learn uses LinearSVC (primal, O(n·d))
+// while smartcore uses SVC with a linear kernel (dual SMO, O(n²)).
+// Smartcore does not offer a LinearSVC equivalent.
 
 fn bench_svm_training(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vs/svm/train");
+    let mut group = c.benchmark_group("vs/svm_linear_vs_kernel/train");
     group.sample_size(10);
 
     let (features, target) = gen_classification(1000, 10);
     let target_i32: Vec<i32> = target.iter().map(|&t| t as i32).collect();
 
+    let data = scry_learn::prelude::Dataset::new(
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
+    );
+    let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
+
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| {
-            let data = scry_learn::prelude::Dataset::new(
-                transpose(&features),
-                target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(),
-                "target",
-            );
             let mut svc = scry_learn::prelude::LinearSVC::new();
             svc.fit(black_box(&data)).unwrap();
         });
@@ -443,7 +460,6 @@ fn bench_svm_training(c: &mut Criterion) {
 
     group.bench_function("smartcore/1k", |b| {
         b.iter(|| {
-            let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features).unwrap();
             let knl = smartcore::svm::Kernels::linear();
             let params = smartcore::svm::svc::SVCParameters::default()
                 .with_c(1.0)
@@ -460,8 +476,9 @@ fn bench_svm_training(c: &mut Criterion) {
     group.finish();
 }
 
+// NOT a like-for-like comparison — see bench_svm_training comment above.
 fn bench_svm_predict(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vs/svm/predict");
+    let mut group = c.benchmark_group("vs/svm_linear_vs_kernel/predict");
     group.sample_size(20);
 
     let (features, target) = gen_classification(1000, 10);
@@ -524,15 +541,16 @@ fn bench_lasso_training(c: &mut Criterion) {
 
     let (features, target) = gen_regression(1000, 10);
 
+    let data = scry_learn::prelude::Dataset::new(
+        transpose(&features),
+        target.clone(),
+        (0..10).map(|i| format!("f{i}")).collect(),
+        "target",
+    );
+
     group.bench_function("scry-learn/1k", |b| {
         b.iter(|| {
-            let data = scry_learn::prelude::Dataset::new(
-                transpose(&features),
-                target.clone(),
-                (0..10).map(|i| format!("f{i}")).collect(),
-                "target",
-            );
-            let mut lasso = scry_learn::prelude::LassoRegression::new().alpha(0.1);
+            let mut lasso = scry_learn::prelude::LassoRegression::new().alpha(0.1).max_iter(1000);
             lasso.fit(black_box(&data)).unwrap();
         });
     });
@@ -546,6 +564,7 @@ fn bench_lasso_training(c: &mut Criterion) {
         b.iter(|| {
             let _ = linfa_elasticnet::ElasticNet::<f64>::lasso()
                 .penalty(0.1)
+                .max_iterations(1000)
                 .fit(black_box(&ds))
                 .unwrap();
         });

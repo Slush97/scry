@@ -10,7 +10,10 @@
 //! - Uses `select_nth_unstable` for partial sort (O(n) vs O(n·log n)).
 //! - Fixed-size vote array avoids HashMap overhead.
 
+use rayon::prelude::*;
+
 use crate::accel;
+use crate::constants::KNN_PAR_THRESHOLD;
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::neighbors::kdtree::KdTree;
@@ -363,29 +366,37 @@ impl KnnClassifier {
                 .collect()
         } else {
             // Per-sample path (KD-tree or non-Euclidean metric).
-            features
-                .iter()
-                .map(|query| {
-                    let neighbors: Vec<(f64, usize)> = if let Some(ref tree) = self.kdtree {
-                        let raw = tree.query_k_nearest(query, k, &self.train_features);
-                        if use_actual_dist {
-                            raw.into_iter().map(|(d2, i)| (d2.sqrt(), i)).collect()
-                        } else {
-                            raw
-                        }
-                    } else {
-                        scalar_brute_force(query, &self.train_features, k, metric, use_actual_dist)
-                    };
+            let n_train = self.train_features.len();
+            let n_features = if n_train > 0 { self.train_features[0].len() } else { 0 };
+            let use_par = self.kdtree.is_none()
+                && features.len() * n_train * n_features >= KNN_PAR_THRESHOLD;
 
-                    aggregate_votes(
-                        &neighbors,
-                        &self.train_target,
-                        &self.train_weights,
-                        self.n_classes,
-                        use_actual_dist,
-                    )
-                })
-                .collect()
+            let vote_fn = |query: &Vec<f64>| {
+                let neighbors: Vec<(f64, usize)> = if let Some(ref tree) = self.kdtree {
+                    let raw = tree.query_k_nearest(query, k, &self.train_features);
+                    if use_actual_dist {
+                        raw.into_iter().map(|(d2, i)| (d2.sqrt(), i)).collect()
+                    } else {
+                        raw
+                    }
+                } else {
+                    scalar_brute_force(query, &self.train_features, k, metric, use_actual_dist)
+                };
+
+                aggregate_votes(
+                    &neighbors,
+                    &self.train_target,
+                    &self.train_weights,
+                    self.n_classes,
+                    use_actual_dist,
+                )
+            };
+
+            if use_par {
+                features.par_iter().map(vote_fn).collect()
+            } else {
+                features.iter().map(vote_fn).collect()
+            }
         }
     }
 }
@@ -614,19 +625,32 @@ impl KnnRegressor {
             }
         };
 
-        Ok(features
-            .iter()
-            .enumerate()
-            .map(|(qi, query)| {
-                let neighbors = if let Some(ref all) = batched {
-                    all[qi].clone()
-                } else {
-                    get_neighbors(query)
-                };
+        if let Some(ref all) = batched {
+            // Batched path — already computed.
+            Ok(features
+                .iter()
+                .enumerate()
+                .map(|(qi, _query)| {
+                    aggregate_regression(&all[qi], &self.train_target, use_actual_dist, k)
+                })
+                .collect())
+        } else {
+            let n_train = self.train_features.len();
+            let n_features = if n_train > 0 { self.train_features[0].len() } else { 0 };
+            let use_par = self.kdtree.is_none()
+                && features.len() * n_train * n_features >= KNN_PAR_THRESHOLD;
 
+            let predict_fn = |query: &Vec<f64>| {
+                let neighbors = get_neighbors(query);
                 aggregate_regression(&neighbors, &self.train_target, use_actual_dist, k)
-            })
-            .collect())
+            };
+
+            if use_par {
+                Ok(features.par_iter().map(predict_fn).collect())
+            } else {
+                Ok(features.iter().map(predict_fn).collect())
+            }
+        }
     }
 }
 

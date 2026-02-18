@@ -5,6 +5,8 @@
 //! and `ElasticNet(l1_ratio)`. L1 and ElasticNet use proximal gradient descent
 //! (soft-thresholding); L-BFGS only supports `L2` and `None`.
 
+use rayon::prelude::*;
+
 use crate::dataset::Dataset;
 use crate::error::{Result, ScryLearnError};
 use crate::partial_fit::PartialFit;
@@ -223,8 +225,13 @@ impl LogisticRegression {
 
         let dim = m + 1; // features + bias
 
-        // Compute per-sample weights for class imbalance.
-        let sample_weights = compute_sample_weights(&data.target, &self.class_weight);
+        // Compute per-sample weights for class imbalance (skip for uniform).
+        let uniform = matches!(self.class_weight, ClassWeight::Uniform);
+        let sample_weights = if uniform {
+            Vec::new()
+        } else {
+            compute_sample_weights(&data.target, &self.class_weight)
+        };
 
         // Pre-convert targets to usize.
         let target_class: Vec<usize> = data.target.iter().map(|&t| t as usize).collect();
@@ -240,12 +247,15 @@ impl LogisticRegression {
             max_iter: self.max_iter,
             tolerance: self.tolerance,
             history_size: 10,
+            wolfe: false,
         };
 
         // Pre-allocate batch buffers — reused every closure call.
         let mut logits = vec![0.0; n * k]; // row-major: logits[i * k + c]
         let mut max_logit = vec![0.0; n];
         let mut sum_exp = vec![0.0; n];
+        let use_par = n * m >= crate::constants::LOGREG_PAR_THRESHOLD;
+        let mut feature_grad_buf = if use_par { vec![0.0; m * k] } else { Vec::new() };
 
         lbfgs::minimize(
             &mut params,
@@ -294,7 +304,8 @@ impl LogisticRegression {
                     let tc = target_class[i];
                     let log_sum = max_logit[i] + sum_exp[i].ln();
                     let logit_tc_val = max_logit[i] + logits[i * k + tc].ln();
-                    loss += sample_weights[i] * (log_sum - logit_tc_val);
+                    let sw = if uniform { 1.0 } else { sample_weights[i] };
+                    loss += sw * (log_sum - logit_tc_val);
                 }
 
                 // Normalize to probabilities.
@@ -316,7 +327,7 @@ impl LogisticRegression {
                 // We modify logits in-place to store sw * error.
                 for i in 0..n {
                     let tc = target_class[i];
-                    let sw = sample_weights[i];
+                    let sw = if uniform { 1.0 } else { sample_weights[i] };
                     for c in 0..k {
                         let y_i = if tc == c { 1.0 } else { 0.0 };
                         let error = sw * (logits[i * k + c] - y_i);
@@ -326,15 +337,33 @@ impl LogisticRegression {
                 }
 
                 // Accumulate feature gradients column-by-column (cache-friendly).
-                for j in 0..m {
-                    let feat_col = &data.features[j];
-                    for c in 0..k {
-                        let grad_idx = c * dim + j + 1;
-                        let mut acc = 0.0;
-                        for i in 0..n {
-                            acc += logits[i * k + c] * feat_col[i];
+                if use_par {
+                    let errors: &[f64] = &logits;
+                    feature_grad_buf.par_chunks_mut(k)
+                        .zip(data.features.par_iter())
+                        .for_each(|(chunk, feat_col)| {
+                            for c in 0..k {
+                                let mut acc = 0.0;
+                                for i in 0..n { acc += errors[i * k + c] * feat_col[i]; }
+                                chunk[c] = acc;
+                            }
+                        });
+                    for j in 0..m {
+                        for c in 0..k {
+                            grad[c * dim + j + 1] += feature_grad_buf[j * k + c];
                         }
-                        grad[grad_idx] += acc;
+                    }
+                } else {
+                    for j in 0..m {
+                        let feat_col = &data.features[j];
+                        for c in 0..k {
+                            let grad_idx = c * dim + j + 1;
+                            let mut acc = 0.0;
+                            for i in 0..n {
+                                acc += logits[i * k + c] * feat_col[i];
+                            }
+                            grad[grad_idx] += acc;
+                        }
                     }
                 }
 
@@ -386,7 +415,12 @@ impl LogisticRegression {
         let m = data.n_features();
         let dim = m + 1; // features + bias
 
-        let sample_weights = compute_sample_weights(&data.target, &self.class_weight);
+        let uniform = matches!(self.class_weight, ClassWeight::Uniform);
+        let sample_weights = if uniform {
+            Vec::new()
+        } else {
+            compute_sample_weights(&data.target, &self.class_weight)
+        };
         let target_bin: Vec<f64> = data.target.iter().map(|&t| if t as usize == 1 { 1.0 } else { 0.0 }).collect();
 
         let alpha = self.alpha;
@@ -398,10 +432,12 @@ impl LogisticRegression {
             max_iter: self.max_iter,
             tolerance: self.tolerance,
             history_size: 10,
+            wolfe: false,
         };
 
         // Pre-allocate buffers reused every closure call.
         let mut prob = vec![0.0; n];
+        let use_par = n * m >= crate::constants::LOGREG_PAR_THRESHOLD;
 
         lbfgs::minimize(
             &mut params,
@@ -438,7 +474,8 @@ impl LogisticRegression {
                     } else {
                         -y * z + z.exp().ln_1p()
                     };
-                    loss += sample_weights[i] * log_loss;
+                    let sw = if uniform { 1.0 } else { sample_weights[i] };
+                    loss += sw * log_loss;
                 }
 
                 // ── 2. Gradient: (1/n) * Σ sw_i * (p_i - y_i) * x_i
@@ -449,20 +486,30 @@ impl LogisticRegression {
                 // Bias gradient.
                 let mut bias_grad = 0.0;
                 for i in 0..n {
-                    let err = sample_weights[i] * (prob[i] - target_bin[i]);
+                    let sw = if uniform { 1.0 } else { sample_weights[i] };
+                    let err = sw * (prob[i] - target_bin[i]);
                     prob[i] = err; // reuse buffer for weighted errors
                     bias_grad += err;
                 }
                 grad[0] = bias_grad;
 
                 // Feature gradients column-by-column.
-                for j in 0..m {
-                    let col = &data.features[j];
-                    let mut acc = 0.0;
-                    for i in 0..n {
-                        acc += prob[i] * col[i];
+                let errors: &[f64] = &prob;
+                if use_par {
+                    data.features.par_iter()
+                        .zip(grad[1..m + 1].par_iter_mut())
+                        .for_each(|(col, g)| {
+                            let mut acc = 0.0;
+                            for i in 0..n { acc += errors[i] * col[i]; }
+                            *g = acc;
+                        });
+                } else {
+                    for j in 0..m {
+                        let col = &data.features[j];
+                        let mut acc = 0.0;
+                        for i in 0..n { acc += errors[i] * col[i]; }
+                        grad[j + 1] = acc;
                     }
-                    grad[j + 1] = acc;
                 }
 
                 // ── 3. Average + L2 regularization.

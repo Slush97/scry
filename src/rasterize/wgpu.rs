@@ -423,6 +423,11 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 self.cpu_fallback_command(cmd);
             }
 
+            #[cfg(feature = "sdf")]
+            DrawCommand::Sdf3D { .. } => {
+                self.cpu_fallback_command(cmd);
+            }
+
             DrawCommand::Group {
                 commands,
                 opacity,

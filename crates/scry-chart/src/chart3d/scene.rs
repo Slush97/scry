@@ -305,6 +305,71 @@ impl Scene3D {
 }
 
 // ---------------------------------------------------------------------------
+// Surface3D — height-field grid for lit surface plots
+// ---------------------------------------------------------------------------
+
+/// A height-field surface defined on a regular grid.
+///
+/// The grid has `rows × cols` height samples. In scene space, the surface
+/// occupies the rectangle `[extent_min, extent_max]` on the XZ plane with
+/// Y as the height axis.
+#[derive(Clone, Debug)]
+pub struct Surface3D {
+    /// Height values in row-major order: `heights[row * cols + col]`.
+    pub heights: Vec<f32>,
+    /// Number of rows in the grid (Z direction).
+    pub rows: usize,
+    /// Number of columns in the grid (X direction).
+    pub cols: usize,
+    /// Minimum corner of the XZ extent.
+    pub extent_min: Vec3,
+    /// Maximum corner of the XZ extent.
+    pub extent_max: Vec3,
+    /// Per-vertex colors in row-major order (optional).
+    /// When `None`, a default height-based colormap is applied.
+    pub colors: Option<Vec<Color>>,
+}
+
+impl Surface3D {
+    /// Create a surface from a height-field grid.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `heights.len() != rows * cols`.
+    #[must_use]
+    pub fn new(heights: Vec<f32>, rows: usize, cols: usize) -> Self {
+        assert_eq!(
+            heights.len(),
+            rows * cols,
+            "heights.len() must equal rows * cols"
+        );
+        Self {
+            heights,
+            rows,
+            cols,
+            extent_min: Vec3::ZERO,
+            extent_max: Vec3::new(1.0, 1.0, 1.0),
+            colors: None,
+        }
+    }
+
+    /// Set the XZ extent of the surface.
+    #[must_use]
+    pub fn extent(mut self, min: Vec3, max: Vec3) -> Self {
+        self.extent_min = min;
+        self.extent_max = max;
+        self
+    }
+
+    /// Set per-vertex colors (row-major, same length as `heights`).
+    #[must_use]
+    pub fn with_colors(mut self, colors: Vec<Color>) -> Self {
+        self.colors = Some(colors);
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

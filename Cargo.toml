@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-learn", "crates/scry-pipe"]
+members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-learn", "crates/scry-llm", "crates/scry-pipe"]
 exclude = ["fuzz"]
 resolver = "2"
 
@@ -99,6 +99,14 @@ required-features = ["window"]
 
 [[example]]
 name = "dual_y_demo"
+
+[[example]]
+name = "masonic_mirror"
+required-features = ["sdf", "text", "widget"]
+
+[[example]]
+name = "circus_ball"
+required-features = ["text", "widget"]
 
 [[example]]
 name = "session3_showcase"

@@ -20,10 +20,11 @@ serde = ["dep:serde"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 polars = ["dep:polars"]
 mmap = ["dep:memmap2", "dep:bytemuck"]
-live-plot = ["scry-chart/inline"]
+viz = ["dep:scry-chart"]
+live-plot = ["viz", "scry-chart/inline"]
 
 [dependencies]
-scry-chart = { version = "0.7.0", path = "../scry-chart" }
+scry-chart = { version = "0.7.0", path = "../scry-chart", optional = true }
 rayon = "1"
 csv = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
@@ -82,6 +83,7 @@ harness = false
 
 [[example]]
 name = "bench_dashboard"
+required-features = ["viz"]
 
 [[example]]
 name = "parity_diagnostic"
@@ -94,10 +96,11 @@ name = "benchmark_comparison"
 
 [[example]]
 name = "benchmark_report"
+required-features = ["viz"]
 
 [[example]]
-name = "memory_benchmark"
-required-features = ["serde"]
+name = "ml_viz_showcase"
+required-features = ["viz"]
 
 [[example]]
 name = "live_training"
