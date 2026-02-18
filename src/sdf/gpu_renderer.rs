@@ -75,7 +75,9 @@ struct GpuObject {
     material_params: [f32; 4],
     material_color: [f32; 4],
     bounding_radius: f32,
-    _pad: [f32; 3],
+    rotation_cos_y: f32,
+    rotation_sin_y: f32,
+    _pad2: f32,
 }
 
 /// Must match the WGSL `GpuLight` struct.
@@ -103,6 +105,8 @@ const MAT_SOLID: u32 = 0;
 const MAT_WATER: u32 = 1;
 const MAT_FIRE: u32 = 2;
 const MAT_CHECKER: u32 = 3;
+const MAT_GLASS: u32 = 4;
+const MAT_RAINBOW: u32 = 5;
 
 // ── Scene flattening ───────────────────────────────────────────────
 
@@ -233,6 +237,16 @@ fn flatten_material(mat: &Material) -> (u32, [f32; 4], [f32; 4]) {
             [*reflectivity, *specular, *scale, 0.0],
             color_to_arr(*color_a),
         ),
+        Material::Glass { tint, ior, opacity, dispersion } => (
+            MAT_GLASS,
+            [*ior, *opacity, *dispersion, 0.0],
+            color_to_arr(*tint),
+        ),
+        Material::Rainbow { saturation, lightness, hue_offset, specular } => (
+            MAT_RAINBOW,
+            [*saturation, *lightness, *hue_offset, *specular],
+            [0.5, 0.5, 0.5, 1.0], // base color unused (computed from angle)
+        ),
     }
 }
 
@@ -260,7 +274,7 @@ fn build_uniforms(scene: &SdfScene, width: u32, height: u32, time: f32) -> GpuUn
         max_bounces: scene.max_bounces,
         num_objects: scene.objects.len() as u32,
         num_lights: scene.lights.len() as u32,
-        has_water: u32::from(scene.has_water),
+        has_water: u32::from(scene.has_water || scene.has_glass),
         _pad3: [0; 3],
     }
 }
@@ -282,6 +296,8 @@ fn build_objects(scene: &SdfScene) -> Vec<GpuObject> {
                 blend_a
             };
 
+            let (rot_cos, rot_sin) = obj.rotation_y.unwrap_or((1.0, 0.0));
+
             GpuObject {
                 position: vec3_to_arr(obj.position),
                 shape_type,
@@ -293,7 +309,9 @@ fn build_objects(scene: &SdfScene) -> Vec<GpuObject> {
                 material_params,
                 material_color,
                 bounding_radius: obj.bounding_radius,
-                _pad: [0.0; 3],
+                rotation_cos_y: rot_cos,
+                rotation_sin_y: rot_sin,
+                _pad2: 0.0,
             }
         })
         .collect()

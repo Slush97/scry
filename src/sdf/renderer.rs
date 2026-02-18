@@ -115,6 +115,10 @@ impl SdfRenderer {
 
         pixmap.pixels_mut().copy_from_slice(&pixel_buf);
 
+        // Composite billboard text labels on top of the rendered scene.
+        #[cfg(feature = "text")]
+        Self::composite_text_labels(&mut pixmap, scene, width, height);
+
         Ok(pixmap)
     }
 
@@ -186,6 +190,9 @@ impl SdfRenderer {
         let total_us = frame_start.elapsed().as_micros() as u64;
         let sdf_profile = SdfProfile::from_rows(&row_profiles, total_us, width, height);
 
+        #[cfg(feature = "text")]
+        Self::composite_text_labels(&mut pixmap, scene, width, height);
+
         Ok((pixmap, sdf_profile))
     }
 
@@ -228,6 +235,10 @@ impl SdfRenderer {
             ))
         })?;
         pixmap.data_mut().copy_from_slice(&upscaled);
+
+        #[cfg(feature = "text")]
+        Self::composite_text_labels(&mut pixmap, scene, target_width, target_height);
+
         Ok(pixmap)
     }
 
@@ -268,6 +279,10 @@ impl SdfRenderer {
             ))
         })?;
         pixmap.data_mut().copy_from_slice(&upscaled);
+
+        #[cfg(feature = "text")]
+        Self::composite_text_labels(&mut pixmap, scene, target_width, target_height);
+
         Ok((pixmap, profile))
     }
 
@@ -302,6 +317,95 @@ impl SdfRenderer {
             });
 
         ImageData::new(width, height, data)
+    }
+
+    /// Composite billboard text labels onto a rendered SDF pixmap.
+    ///
+    /// For each label, projects the world-space position through the camera's
+    /// view + perspective matrices to screen space, then renders the text at
+    /// that position using the Phase 1 rich text pipeline.
+    #[cfg(feature = "text")]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    fn composite_text_labels(
+        pixmap: &mut Pixmap,
+        scene: &SdfScene,
+        width: u32,
+        height: u32,
+    ) {
+        if scene.text_labels.is_empty() {
+            return;
+        }
+
+        let (cam_right, cam_up, cam_fwd) =
+            math::look_at(scene.camera.eye, scene.camera.target, Vec3::UP);
+        let fov_scale = (scene.camera.fov.to_radians() * 0.5).tan();
+        let aspect = width as f32 / height as f32;
+
+        // Collect labels with their depth for back-to-front sorting
+        let mut label_depths: Vec<(usize, f32)> = Vec::with_capacity(scene.text_labels.len());
+        for (i, label) in scene.text_labels.iter().enumerate() {
+            let to_label = label.position - scene.camera.eye;
+            let depth = to_label.dot(cam_fwd);
+            if depth > 0.1 {
+                label_depths.push((i, depth));
+            }
+        }
+
+        // Sort back-to-front (furthest first)
+        label_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut gc = std::collections::HashMap::new();
+        for (idx, depth) in label_depths {
+            let label = &scene.text_labels[idx];
+            let to_label = label.position - scene.camera.eye;
+
+            // Project to NDC
+            let ndc_x = to_label.dot(cam_right) / (depth * aspect * fov_scale);
+            let ndc_y = to_label.dot(cam_up) / (depth * fov_scale);
+
+            // NDC → screen
+            let screen_x = (ndc_x + 1.0) * 0.5 * width as f32;
+            let screen_y = (1.0 - ndc_y) * 0.5 * height as f32;
+
+            // Perspective-scaled font size
+            let font_size = if label.perspective_scale {
+                (label.font_size / depth).clamp(4.0, label.font_size * 4.0)
+            } else {
+                label.font_size
+            };
+
+            let fd = label
+                .font_data
+                .clone()
+                .unwrap_or_else(crate::rasterize::skia::text::default_font);
+
+            // Measure to center the label horizontally
+            let metrics =
+                crate::rasterize::skia::text::measure_text(&label.text, Some(&fd), font_size);
+            let draw_x = screen_x - metrics.width * 0.5;
+            let draw_y = screen_y;
+
+            crate::rasterize::skia::Rasterizer::render_rich_text(
+                pixmap,
+                &label.text,
+                draw_x,
+                draw_y,
+                font_size,
+                &label.color,
+                &fd,
+                tiny_skia::Transform::identity(),
+                crate::scene::command::TextAlign::Left,
+                label.outline.as_ref().map(|(c, _)| c),
+                label.outline.map(|(_, w)| w),
+                label.fill_style.as_ref(),
+                None,
+                &mut gc,
+            );
+        }
     }
 }
 
@@ -361,10 +465,18 @@ fn scene_sdf(scene: &SdfScene, point: Vec3, time: f32) -> (f32, usize) {
     (min_dist, closest)
 }
 
-/// Evaluate the SDF for a single object, handling water displacement.
+/// Evaluate the SDF for a single object, handling water displacement and rotation.
 #[inline]
 fn object_sdf(obj: &SdfObject, point: Vec3, time: f32) -> f32 {
-    let local = primitives::translate(point, obj.position);
+    let mut local = primitives::translate(point, obj.position);
+
+    // Apply inverse Y-axis rotation to the evaluation point (domain rotation).
+    if let Some((cos_y, sin_y)) = obj.rotation_y {
+        // Inverse rotation: rotate by -angle (swap sin sign)
+        let rx = local.x * cos_y - local.z * sin_y;
+        let rz = local.x * sin_y + local.z * cos_y;
+        local = Vec3::new(rx, local.y, rz);
+    }
 
     let base_dist = shape_sdf(&obj.shape, local);
 
@@ -888,7 +1000,7 @@ fn shade_ray_traced<T: SdfTracer>(
     // sphere entirely, skip the march and return sky immediately.
     // Disabled for water scenes — upward bounce rays can still graze the
     // displaced water surface just above y=0.
-    if bounce > 0 && !scene.has_water && scene.scene_radius > 0.0 {
+    if bounce > 0 && !scene.has_water && !scene.has_glass && scene.scene_radius > 0.0 {
         let oc = scene.scene_center - origin;
         let proj = oc.dot(dir);
         let oc_sq = oc.dot(oc);
@@ -1081,6 +1193,135 @@ fn shade_surface_traced<T: SdfTracer>(
                 lerp_color(result, refl_color, *reflectivity)
             } else {
                 result
+            }
+        }
+        Material::Glass {
+            tint,
+            ior,
+            opacity,
+            dispersion,
+        } => {
+            tracer.begin(SdfStage::Shading);
+            let cos_theta = (-ray_dir).dot(normal).max(0.0);
+            let f = materials::fresnel(cos_theta, *ior);
+            tracer.end(SdfStage::Shading);
+
+            if bounce < scene.max_bounces {
+                // Reflection
+                let refl_dir = ray_dir.reflect(normal);
+                let refl_origin = hit + normal * (SURF_DIST * 2.0);
+                tracer.begin(SdfStage::Reflection);
+                let refl_color =
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                tracer.end(SdfStage::Reflection);
+
+                // Refraction (with optional chromatic dispersion)
+                tracer.begin(SdfStage::Reflection);
+                let refr_color = if *dispersion > 0.001 {
+                    // Chromatic aberration: different IOR per channel
+                    let ior_r = 1.0 / (*ior - *dispersion);
+                    let ior_g = 1.0 / *ior;
+                    let ior_b = 1.0 / (*ior + *dispersion);
+                    let refr_origin = hit - normal * (SURF_DIST * 2.0);
+
+                    let shade_channel = |eta: f32| -> f32 {
+                        if let Some(refr_dir) = ray_dir.refract(normal, eta) {
+                            let rc = shade_ray(scene, refr_origin, refr_dir, time, bounce + 1);
+                            // Return luminance-ish single channel (we pick per-channel below)
+                            rc.r * 0.33 + rc.g * 0.34 + rc.b * 0.33
+                        } else {
+                            // Total internal reflection fallback
+                            let rc = shade_ray(scene, refl_origin, refl_dir, time, bounce + 1);
+                            rc.r * 0.33 + rc.g * 0.34 + rc.b * 0.33
+                        }
+                    };
+
+                    // Refract each channel separately for prismatic effect
+                    let mut cr = Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                    if let Some(dir_r) = ray_dir.refract(normal, ior_r) {
+                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_r, time, bounce + 1);
+                        cr.r = c.r * tint.r;
+                    } else {
+                        cr.r = shade_channel(ior_r) * tint.r;
+                    }
+                    if let Some(dir_g) = ray_dir.refract(normal, ior_g) {
+                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_g, time, bounce + 1);
+                        cr.g = c.g * tint.g;
+                    } else {
+                        cr.g = shade_channel(ior_g) * tint.g;
+                    }
+                    if let Some(dir_b) = ray_dir.refract(normal, ior_b) {
+                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_b, time, bounce + 1);
+                        cr.b = c.b * tint.b;
+                    } else {
+                        cr.b = shade_channel(ior_b) * tint.b;
+                    }
+                    cr
+                } else {
+                    // Single IOR refraction
+                    let eta = 1.0 / ior;
+                    if let Some(refr_dir) = ray_dir.refract(normal, eta) {
+                        let refr_origin = hit - normal * (SURF_DIST * 2.0);
+                        let mut rc =
+                            shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, tracer);
+                        rc.r *= tint.r;
+                        rc.g *= tint.g;
+                        rc.b *= tint.b;
+                        rc
+                    } else {
+                        refl_color // Total internal reflection
+                    }
+                };
+                tracer.end(SdfStage::Reflection);
+
+                // Blend reflection and refraction via Fresnel
+                let mut color = lerp_color(refr_color, refl_color, f);
+
+                // Opacity: blend in tint color
+                if *opacity > 0.001 {
+                    color = lerp_color(color, *tint, *opacity);
+                }
+
+                // Add specular highlights
+                tracer.begin(SdfStage::Shading);
+                let spec = phong_specular(scene, hit, normal, ray_dir, 128.0);
+                tracer.end(SdfStage::Shading);
+                color.r = (color.r + spec.r).min(1.0);
+                color.g = (color.g + spec.g).min(1.0);
+                color.b = (color.b + spec.b).min(1.0);
+                color
+            } else {
+                // Bounce budget exhausted: return tinted ambient
+                tracer.begin(SdfStage::Shading);
+                let base = Color {
+                    r: tint.r * scene.ambient,
+                    g: tint.g * scene.ambient,
+                    b: tint.b * scene.ambient,
+                    a: 1.0,
+                };
+                tracer.end(SdfStage::Shading);
+                base
+            }
+        }
+        Material::Rainbow {
+            saturation,
+            lightness,
+            hue_offset,
+            specular,
+        } => {
+            // Compute local-space position for angular color mapping
+            let local = hit - obj.position;
+            let angle = local.z.atan2(local.x); // [-π, π]
+            let hue = angle / std::f32::consts::TAU + 0.5 + hue_offset / std::f32::consts::TAU;
+            let base_color = materials::hsl_to_color(hue, *saturation, *lightness);
+
+            if bounce > 0 {
+                tracer.begin(SdfStage::Shading);
+                let r = phong_no_shadows(scene, hit, normal, ray_dir, base_color, *specular);
+                tracer.end(SdfStage::Shading);
+                r
+            } else {
+                phong_traced(scene, hit, normal, ray_dir, base_color, *specular, time, budget, tracer)
             }
         }
     }

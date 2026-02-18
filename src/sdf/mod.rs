@@ -43,6 +43,8 @@ pub use math::Vec3;
 pub use profiler::{SdfProfile, SdfProfileHistory, SdfStage};
 pub use renderer::SdfRenderer;
 pub use scene::{SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape};
+#[cfg(feature = "text")]
+pub use scene::SdfTextLabel;
 pub use upscale::upscale_bicubic;
 
 #[cfg(feature = "sdf-gpu")]

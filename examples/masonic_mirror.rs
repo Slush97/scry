@@ -45,7 +45,7 @@ use scry_engine::scene::style::Color;
 use scry_engine::scene::PixelCanvas;
 use scry_engine::scene::command::ImageData;
 use scry_engine::sdf::{
-    Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
+    Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, SdfTextLabel, Vec3,
 };
 use scry_engine::transport;
 
@@ -107,6 +107,38 @@ impl MasonicState {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Color helpers
+// ═══════════════════════════════════════════════════════════════════
+
+/// HSL → sRGB Color (h in 0–1, s in 0–1, l in 0–1).
+fn hsl_to_srgb(h: f32, s: f32, l: f32) -> Color {
+    let h = h.fract().abs();
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h6 = h * 6.0;
+    let x = c * (1.0 - (h6 % 2.0 - 1.0).abs());
+    let (r1, g1, b1) = if h6 < 1.0 {
+        (c, x, 0.0)
+    } else if h6 < 2.0 {
+        (x, c, 0.0)
+    } else if h6 < 3.0 {
+        (0.0, c, x)
+    } else if h6 < 4.0 {
+        (0.0, x, c)
+    } else if h6 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let m = l - c * 0.5;
+    Color::from_rgba8(
+        ((r1 + m).clamp(0.0, 1.0) * 255.0) as u8,
+        ((g1 + m).clamp(0.0, 1.0) * 255.0) as u8,
+        ((b1 + m).clamp(0.0, 1.0) * 255.0) as u8,
+        230,
+    )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SDF Scene
 // ═══════════════════════════════════════════════════════════════════
 
@@ -115,25 +147,63 @@ fn build_sdf_scene(time: f32) -> SdfScene {
     let cam_radius = 6.0;
     let cam_height = 3.0;
 
+    // Rainbow disc rotation — steady geometric spin
+    let disc_angle = time * 1.2;
+    // Hue offset for the rainbow so colors rotate with time
+    let hue_spin = time * 0.8;
+
     SdfScene::new()
-        // Checkerboard floor
+        // Checkerboard floor — tighter scale for moiré through the glass sphere
         .object(SdfObject::new(
             SdfShape::Plane,
             Material::Checkerboard {
                 color_a: Color::from_rgba8(20, 20, 25, 255),
                 color_b: Color::from_rgba8(180, 180, 190, 255),
-                scale: 1.0,
+                scale: 0.8,
                 reflectivity: 0.3,
                 specular: 32.0,
             },
         ))
-        // Central mirror sphere
+        // Central glass sphere — semi-transparent with chromatic dispersion
         .object(
             SdfObject::new(
                 SdfShape::Sphere { radius: 1.2 },
-                Material::mirror(Color::from_rgba8(200, 200, 220, 255), 0.9),
+                Material::glass_dispersive(
+                    Color::from_rgba8(230, 230, 255, 255), // slight cool tint
+                    1.45,  // glass-like IOR
+                    0.04,  // chromatic dispersion for prismatic edges
+                ),
             )
             .at(Vec3::new(0.0, 1.2, 0.0)),
+        )
+        // Rainbow disc rotating inside the sphere — thin cylinder as disc
+        .object(
+            SdfObject::new(
+                SdfShape::Cylinder {
+                    radius: 0.95,       // fits inside the 1.2-radius sphere
+                    half_height: 0.015,  // razor-thin disc
+                },
+                Material::rainbow_animated(hue_spin),
+            )
+            .at(Vec3::new(0.0, 1.2, 0.0))
+            .rotate_y(disc_angle),
+        )
+        // Second disc — perpendicular, creates cross-pattern illusion
+        .object(
+            SdfObject::new(
+                SdfShape::Cylinder {
+                    radius: 0.85,
+                    half_height: 0.012,
+                },
+                Material::Rainbow {
+                    saturation: 0.85,
+                    lightness: 0.45,
+                    hue_offset: hue_spin + std::f32::consts::FRAC_PI_2,
+                    specular: 48.0,
+                },
+            )
+            .at(Vec3::new(0.0, 1.2, 0.0))
+            .rotate_y(disc_angle + std::f32::consts::FRAC_PI_2),
         )
         // Left pillar (Jachin)
         .object(
@@ -185,7 +255,65 @@ fn build_sdf_scene(time: f32) -> SdfScene {
             Vec3::new(0.0, 1.0, 0.0),
             50.0,
         ))
+        .max_bounces(3)  // extra bounce for glass refraction chains
         .sky_color(Color::from_rgba8(5, 5, 15, 255))
+        // ── Spiraling "esoc" helix ──
+        // Six labels in a DNA-helix pattern around the sphere, each
+        // phase-shifted in position and color to create an optical swirl.
+        .text_label({
+            // Primary crown label — large, centered above sphere
+            let pulse = (time * 1.5).sin() * 0.15 + 0.85; // gentle brightness pulse
+            let c = (pulse * 255.0) as u8;
+            SdfTextLabel::new(Vec3::new(0.0, 3.3, 0.0), "esoc")
+                .font_size(64.0)
+                .color(Color::from_rgba8(c, (c as f32 * 0.85) as u8, 255, 255))
+                .outline(Color::from_rgba8(20, 10, 60, 255), 2.5)
+        })
+        // Helix labels — 4 copies spiraling around the sphere
+        .text_label({
+            let t0 = time * 0.6;
+            let r = 1.8;
+            SdfTextLabel::new(
+                Vec3::new(t0.cos() * r, 2.6 + (t0 * 2.0).sin() * 0.3, t0.sin() * r),
+                "esoc",
+            )
+            .font_size(36.0)
+            .color(Color::from_rgba8(180, 140, 255, 200))
+            .outline(Color::from_rgba8(60, 20, 120, 200), 1.5)
+        })
+        .text_label({
+            let t1 = time * 0.6 + std::f32::consts::FRAC_PI_2;
+            let r = 1.8;
+            SdfTextLabel::new(
+                Vec3::new(t1.cos() * r, 2.0 + (t1 * 2.0).sin() * 0.3, t1.sin() * r),
+                "esoc",
+            )
+            .font_size(30.0)
+            .color(Color::from_rgba8(255, 160, 220, 190))
+            .outline(Color::from_rgba8(100, 20, 80, 190), 1.5)
+        })
+        .text_label({
+            let t2 = time * 0.6 + std::f32::consts::PI;
+            let r = 1.8;
+            SdfTextLabel::new(
+                Vec3::new(t2.cos() * r, 1.4 + (t2 * 2.0).sin() * 0.3, t2.sin() * r),
+                "esoc",
+            )
+            .font_size(26.0)
+            .color(Color::from_rgba8(140, 220, 255, 180))
+            .outline(Color::from_rgba8(20, 60, 120, 180), 1.2)
+        })
+        .text_label({
+            let t3 = time * 0.6 + 3.0 * std::f32::consts::FRAC_PI_2;
+            let r = 1.8;
+            SdfTextLabel::new(
+                Vec3::new(t3.cos() * r, 0.8 + (t3 * 2.0).sin() * 0.3, t3.sin() * r),
+                "esoc",
+            )
+            .font_size(22.0)
+            .color(Color::from_rgba8(255, 200, 140, 170))
+            .outline(Color::from_rgba8(120, 60, 20, 170), 1.0)
+        })
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -238,6 +366,32 @@ fn build_scene(
             );
         }
     }
+
+    // Animated "esoc" title — centered bottom with swirling gradient
+    use scry_engine::scene::command::TextAlign;
+    use scry_engine::scene::style::Point;
+
+    // Swirl effect: rotate gradient angle over time
+    let swirl = time * 0.7;
+    let grad_r = 80.0;
+    let cx = wf * 0.5;
+    let cy = hf - 40.0;
+    let g_start = Point::new(cx + swirl.cos() * grad_r, cy + swirl.sin() * grad_r);
+    let g_end = Point::new(cx - swirl.cos() * grad_r, cy - swirl.sin() * grad_r);
+
+    // Cycle hue stops over time for chromatic swirl
+    let phase = (time * 0.4) % 1.0;
+    let c0 = hsl_to_srgb(phase, 0.9, 0.7);
+    let c1 = hsl_to_srgb((phase + 0.33) % 1.0, 0.85, 0.65);
+    let c2 = hsl_to_srgb((phase + 0.66) % 1.0, 0.9, 0.7);
+
+    canvas = canvas
+        .text("esoc", cx, cy)
+        .size(44.0)
+        .align(TextAlign::Center)
+        .outline(Color::from_rgba8(0, 0, 0, 200), 2.0)
+        .fill_linear_gradient(g_start, g_end, &[(0.0, c0), (0.5, c1), (1.0, c2)])
+        .done();
 
     canvas
 }

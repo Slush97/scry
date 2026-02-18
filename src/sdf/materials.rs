@@ -49,6 +49,36 @@ pub enum Material {
         /// Specular highlight power.
         specular: f32,
     },
+    /// Semi-transparent glass with Fresnel reflections and refraction.
+    ///
+    /// Works on any shape (spheres, boxes, etc.). Uses Schlick Fresnel
+    /// to blend between reflection and refraction, with an optional tint
+    /// applied to refracted light.
+    Glass {
+        /// Tint applied to refracted light (white = clear glass).
+        tint: Color,
+        /// Index of refraction (glass ≈ 1.5, diamond ≈ 2.42).
+        ior: f32,
+        /// Overall opacity: 0 = fully transparent, 1 = opaque tint only.
+        opacity: f32,
+        /// Chromatic dispersion: IOR offset per channel (0 = none).
+        /// Red uses `ior - dispersion`, blue uses `ior + dispersion`.
+        dispersion: f32,
+    },
+    /// Rainbow/spectral color mapped from angular position in local object space.
+    ///
+    /// Maps `atan2(local.z, local.x)` to a full HSL hue rotation.
+    /// Ideal for flat discs or rings to create prismatic color wheels.
+    Rainbow {
+        /// Saturation (0–1, default 0.9).
+        saturation: f32,
+        /// Lightness (0–1, default 0.55).
+        lightness: f32,
+        /// Hue rotation offset in radians (animated by passing `time * speed`).
+        hue_offset: f32,
+        /// Specular highlight power.
+        specular: f32,
+    },
 }
 
 impl Material {
@@ -99,6 +129,46 @@ impl Material {
             specular: 32.0,
         }
     }
+
+    /// Convenience: clear glass with given IOR and optional tint.
+    pub fn glass(tint: Color, ior: f32) -> Self {
+        Self::Glass {
+            tint,
+            ior,
+            opacity: 0.0,
+            dispersion: 0.0,
+        }
+    }
+
+    /// Convenience: glass with chromatic dispersion (prismatic edges).
+    pub fn glass_dispersive(tint: Color, ior: f32, dispersion: f32) -> Self {
+        Self::Glass {
+            tint,
+            ior,
+            opacity: 0.0,
+            dispersion,
+        }
+    }
+
+    /// Convenience: rainbow/spectral material with default settings.
+    pub fn rainbow() -> Self {
+        Self::Rainbow {
+            saturation: 0.9,
+            lightness: 0.55,
+            hue_offset: 0.0,
+            specular: 32.0,
+        }
+    }
+
+    /// Convenience: rainbow with animated hue offset.
+    pub fn rainbow_animated(hue_offset: f32) -> Self {
+        Self::Rainbow {
+            saturation: 0.9,
+            lightness: 0.55,
+            hue_offset,
+            specular: 32.0,
+        }
+    }
 }
 
 /// Map a fire temperature `t` in `[0, 1]` to a color ramp:
@@ -109,6 +179,37 @@ pub fn fire_color_ramp(t: f32) -> Color {
     let g = ((t - 0.33) * 3.0).clamp(0.0, 1.0);
     let b = ((t - 0.66) * 3.0).clamp(0.0, 1.0);
     Color { r, g, b, a: 1.0 }
+}
+
+/// Convert HSL to linear RGB color.
+///
+/// `h` is hue in `[0, 1]` (wraps), `s` is saturation `[0, 1]`, `l` is lightness `[0, 1]`.
+pub fn hsl_to_color(h: f32, s: f32, l: f32) -> Color {
+    let h = h.fract();
+    let h = if h < 0.0 { h + 1.0 } else { h };
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h6 = h * 6.0;
+    let x = c * (1.0 - (h6 % 2.0 - 1.0).abs());
+    let (r1, g1, b1) = if h6 < 1.0 {
+        (c, x, 0.0)
+    } else if h6 < 2.0 {
+        (x, c, 0.0)
+    } else if h6 < 3.0 {
+        (0.0, c, x)
+    } else if h6 < 4.0 {
+        (0.0, x, c)
+    } else if h6 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let m = l - c * 0.5;
+    Color {
+        r: (r1 + m).clamp(0.0, 1.0),
+        g: (g1 + m).clamp(0.0, 1.0),
+        b: (b1 + m).clamp(0.0, 1.0),
+        a: 1.0,
+    }
 }
 
 /// Schlick's approximation for Fresnel reflectance.

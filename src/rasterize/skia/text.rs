@@ -159,7 +159,7 @@ impl Rasterizer {
     /// gradient fill, and plain text in the correct order.
     #[cfg(feature = "text")]
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn render_rich_text(
+    pub(crate) fn render_rich_text(
         pixmap: &mut Pixmap,
         text: &str,
         x: f32,

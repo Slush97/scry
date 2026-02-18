@@ -53,6 +53,8 @@ const MAT_SOLID: u32 = 0u;
 const MAT_WATER: u32 = 1u;
 const MAT_FIRE: u32 = 2u;
 const MAT_CHECKER: u32 = 3u;
+const MAT_GLASS: u32 = 4u;
+const MAT_RAINBOW: u32 = 5u;
 
 struct GpuObject {
     position: vec3<f32>,
@@ -65,8 +67,8 @@ struct GpuObject {
     material_params: vec4<f32>,
     material_color: vec4<f32>,
     bounding_radius: f32,
-    _pad0: f32,
-    _pad1: f32,
+    rotation_cos_y: f32,  // cos of Y-axis rotation (1.0 = no rotation)
+    rotation_sin_y: f32,  // sin of Y-axis rotation (0.0 = no rotation)
     _pad2: f32,
 };
 
@@ -322,7 +324,15 @@ fn shape_sdf(obj: GpuObject, local: vec3<f32>) -> f32 {
 }
 
 fn object_sdf(obj: GpuObject, point: vec3<f32>) -> f32 {
-    let local = point - obj.position;
+    var local = point - obj.position;
+
+    // Apply inverse Y-axis rotation if rotation is set (sin != 0)
+    if abs(obj.rotation_sin_y) > 0.0001 || abs(obj.rotation_cos_y - 1.0) > 0.0001 {
+        let rx = local.x * obj.rotation_cos_y - local.z * obj.rotation_sin_y;
+        let rz = local.x * obj.rotation_sin_y + local.z * obj.rotation_cos_y;
+        local = vec3<f32>(rx, local.y, rz);
+    }
+
     let base_dist = shape_sdf(obj, local);
 
     // Water displacement
@@ -500,6 +510,37 @@ fn fire_color_ramp(t: f32) -> vec3<f32> {
     let g = clamp((tc - 0.33) * 3.0, 0.0, 1.0);
     let b = clamp((tc - 0.66) * 3.0, 0.0, 1.0);
     return vec3<f32>(r, g, b);
+}
+
+// HSL to linear RGB conversion
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> vec3<f32> {
+    var hh = fract(h);
+    if hh < 0.0 { hh += 1.0; }
+    let c = (1.0 - abs(2.0 * l - 1.0)) * s;
+    let h6 = hh * 6.0;
+    let x = c * (1.0 - abs(h6 % 2.0 - 1.0));
+    var r1 = 0.0;
+    var g1 = 0.0;
+    var b1 = 0.0;
+    if h6 < 1.0 {
+        r1 = c; g1 = x;
+    } else if h6 < 2.0 {
+        r1 = x; g1 = c;
+    } else if h6 < 3.0 {
+        g1 = c; b1 = x;
+    } else if h6 < 4.0 {
+        g1 = x; b1 = c;
+    } else if h6 < 5.0 {
+        r1 = x; b1 = c;
+    } else {
+        r1 = c; b1 = x;
+    }
+    let m = l - c * 0.5;
+    return vec3<f32>(
+        clamp(r1 + m, 0.0, 1.0),
+        clamp(g1 + m, 0.0, 1.0),
+        clamp(b1 + m, 0.0, 1.0),
+    );
 }
 
 fn phong_full(hit: vec3<f32>, normal: vec3<f32>, ray_dir: vec3<f32>,
@@ -780,6 +821,158 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
                 accumulated_color += shaded * attenuation;
                 break;
             }
+        } else if obj.material_type == MAT_GLASS {
+            // Glass: Fresnel reflection + refraction with optional chromatic dispersion
+            let ior = obj.material_params.x;
+            let opacity = obj.material_params.y;
+            let dispersion = obj.material_params.z;
+            let tint = obj.material_color.xyz;
+            let cos_theta = max(dot(-ray_dir, normal), 0.0);
+            let f = fresnel(cos_theta, ior);
+
+            // Reflection
+            let refl_dir_g = reflect_dir(ray_dir, normal);
+            let refl_origin_g = hit.point + normal * (SURF_DIST * 2.0);
+            let refl_hit_g = ray_march(refl_origin_g, refl_dir_g, bounce + 1u);
+            var refl_color_g: vec3<f32>;
+            if refl_hit_g.hit {
+                let rn = estimate_normal(refl_hit_g.point, refl_hit_g.obj_idx);
+                let robj = objects[refl_hit_g.obj_idx];
+                // Shade the reflected hit — use its material color
+                var rbase = robj.material_color.xyz;
+                if robj.material_type == MAT_CHECKER {
+                    let sc = robj.material_params.z;
+                    let cx2 = i32(floor(refl_hit_g.point.x / sc));
+                    let cz2 = i32(floor(refl_hit_g.point.z / sc));
+                    if ((cx2 + cz2) & 1) != 0 {
+                        rbase = robj.blend_a_params.xyz;
+                    }
+                } else if robj.material_type == MAT_RAINBOW {
+                    let rlocal = refl_hit_g.point - robj.position;
+                    let rangle = atan2(rlocal.z, rlocal.x);
+                    let rhue = rangle / 6.283185 + 0.5 + robj.material_params.z / 6.283185;
+                    rbase = hsl_to_rgb(rhue, robj.material_params.x, robj.material_params.y);
+                }
+                refl_color_g = phong_full(refl_hit_g.point, rn, refl_dir_g,
+                                          rbase, robj.material_params.y, false);
+            } else {
+                refl_color_g = u.sky_color.xyz;
+            }
+
+            // Refraction (with optional chromatic dispersion)
+            var refr_color_g: vec3<f32>;
+            if dispersion > 0.001 {
+                // Per-channel refraction for prismatic effect
+                let refr_origin_g = hit.point - normal * (SURF_DIST * 2.0);
+                let ior_r = 1.0 / (ior - dispersion);
+                let ior_gg = 1.0 / ior;
+                let ior_b = 1.0 / (ior + dispersion);
+
+                let rd_r = refract_dir(ray_dir, normal, ior_r);
+                let rd_gg = refract_dir(ray_dir, normal, ior_gg);
+                let rd_b = refract_dir(ray_dir, normal, ior_b);
+
+                var cr = 0.0; var cg = 0.0; var cb = 0.0;
+
+                // Red channel
+                if length(rd_r) > 0.001 {
+                    let rh = ray_march(refr_origin_g, rd_r, bounce + 1u);
+                    if rh.hit {
+                        let rn2 = estimate_normal(rh.point, rh.obj_idx);
+                        let ro2 = objects[rh.obj_idx];
+                        var rb = ro2.material_color.xyz;
+                        if ro2.material_type == MAT_RAINBOW {
+                            let rl = rh.point - ro2.position;
+                            let ra = atan2(rl.z, rl.x);
+                            let rhu = ra / 6.283185 + 0.5 + ro2.material_params.z / 6.283185;
+                            rb = hsl_to_rgb(rhu, ro2.material_params.x, ro2.material_params.y);
+                        }
+                        let sc = phong_full(rh.point, rn2, rd_r, rb, ro2.material_params.y, false);
+                        cr = sc.x * tint.x;
+                    } else { cr = u.sky_color.x * tint.x; }
+                } else { cr = refl_color_g.x; }
+
+                // Green channel
+                if length(rd_gg) > 0.001 {
+                    let rh = ray_march(refr_origin_g, rd_gg, bounce + 1u);
+                    if rh.hit {
+                        let rn2 = estimate_normal(rh.point, rh.obj_idx);
+                        let ro2 = objects[rh.obj_idx];
+                        var rb = ro2.material_color.xyz;
+                        if ro2.material_type == MAT_RAINBOW {
+                            let rl = rh.point - ro2.position;
+                            let ra = atan2(rl.z, rl.x);
+                            let rhu = ra / 6.283185 + 0.5 + ro2.material_params.z / 6.283185;
+                            rb = hsl_to_rgb(rhu, ro2.material_params.x, ro2.material_params.y);
+                        }
+                        let sc = phong_full(rh.point, rn2, rd_gg, rb, ro2.material_params.y, false);
+                        cg = sc.y * tint.y;
+                    } else { cg = u.sky_color.y * tint.y; }
+                } else { cg = refl_color_g.y; }
+
+                // Blue channel
+                if length(rd_b) > 0.001 {
+                    let rh = ray_march(refr_origin_g, rd_b, bounce + 1u);
+                    if rh.hit {
+                        let rn2 = estimate_normal(rh.point, rh.obj_idx);
+                        let ro2 = objects[rh.obj_idx];
+                        var rb = ro2.material_color.xyz;
+                        if ro2.material_type == MAT_RAINBOW {
+                            let rl = rh.point - ro2.position;
+                            let ra = atan2(rl.z, rl.x);
+                            let rhu = ra / 6.283185 + 0.5 + ro2.material_params.z / 6.283185;
+                            rb = hsl_to_rgb(rhu, ro2.material_params.x, ro2.material_params.y);
+                        }
+                        let sc = phong_full(rh.point, rn2, rd_b, rb, ro2.material_params.y, false);
+                        cb = sc.z * tint.z;
+                    } else { cb = u.sky_color.z * tint.z; }
+                } else { cb = refl_color_g.z; }
+
+                refr_color_g = vec3<f32>(cr, cg, cb);
+            } else {
+                // Single IOR refraction
+                let eta = 1.0 / ior;
+                let rd = refract_dir(ray_dir, normal, eta);
+                if length(rd) > 0.001 {
+                    let refr_origin_g = hit.point - normal * (SURF_DIST * 2.0);
+                    let refr_hit_g = ray_march(refr_origin_g, rd, bounce + 1u);
+                    if refr_hit_g.hit {
+                        let rrn = estimate_normal(refr_hit_g.point, refr_hit_g.obj_idx);
+                        let rrobj = objects[refr_hit_g.obj_idx];
+                        refr_color_g = phong_full(refr_hit_g.point, rrn, rd,
+                                                  rrobj.material_color.xyz,
+                                                  rrobj.material_params.y, false) * tint;
+                    } else {
+                        refr_color_g = u.sky_color.xyz * tint;
+                    }
+                } else {
+                    refr_color_g = refl_color_g;
+                }
+            }
+
+            // Blend via Fresnel
+            var glass_color = mix(refr_color_g, refl_color_g, f);
+            // Opacity blend
+            if opacity > 0.001 {
+                glass_color = mix(glass_color, tint, opacity);
+            }
+            // Specular highlights
+            let spec_g = phong_specular_only(hit.point, normal, ray_dir, 128.0);
+            glass_color = min(glass_color + spec_g, vec3<f32>(1.0));
+            accumulated_color += glass_color * attenuation;
+            break;
+        } else if obj.material_type == MAT_RAINBOW {
+            // Rainbow: angular HSL mapping from local object space
+            let local_r = hit.point - obj.position;
+            let angle = atan2(local_r.z, local_r.x);
+            let hue_offset = obj.material_params.z;
+            let hue = angle / 6.283185 + 0.5 + hue_offset / 6.283185;
+            let base_color = hsl_to_rgb(hue, obj.material_params.x, obj.material_params.y);
+            let spec_power = obj.material_params.w;
+
+            let shaded = phong_full(hit.point, normal, ray_dir, base_color, spec_power, do_shadows);
+            accumulated_color += shaded * attenuation;
+            break;
         } else {
             // Fire surface hit — faint glow
             let glow = fire_color_ramp(0.3) * 0.5;
