@@ -19,7 +19,7 @@ pub enum DetectionMethod {
     ManualOverride,
     /// Detected via XTVERSION, DA1, DA2, or graphics query escape sequences.
     ActiveProbe,
-    /// Inferred from environment variables (TERM, TERM_PROGRAM, etc.).
+    /// Inferred from environment variables (TERM, `TERM_PROGRAM`, etc.).
     EnvVar,
     /// Default fallback (halfblock).
     Fallback,

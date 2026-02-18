@@ -47,6 +47,16 @@ pub(super) struct LineVertex {
     pub edge_dist: f32,
 }
 
+/// Per-vertex data for tessellated mesh rendering (paths, arcs, polygons).
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub(super) struct MeshVertex {
+    /// Screen-space pixel position.
+    pub position: [f32; 2],
+    /// RGBA color.
+    pub color: [f32; 4],
+}
+
 /// Viewport uniform data for shape and line shaders.
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
@@ -110,6 +120,7 @@ pub struct WgpuContext2D {
     pub(crate) shape_pipeline: wgpu::RenderPipeline,
     pub(crate) line_pipeline: wgpu::RenderPipeline,
     pub(crate) gradient_pipeline: wgpu::RenderPipeline,
+    pub(crate) mesh_pipeline: wgpu::RenderPipeline,
     pub(crate) uniform_bgl: wgpu::BindGroupLayout,
     pub(crate) gradient_bgl: wgpu::BindGroupLayout,
 }
@@ -349,6 +360,54 @@ impl WgpuContext2D {
                 module: &gradient_shader,
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(color_target.clone())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // --- Mesh pipeline (tessellated paths/arcs/polygons) ---
+        let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("mesh_shader_2d"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh.wgsl").into()),
+        });
+
+        let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mesh_pipeline_2d"),
+            layout: Some(&shape_line_layout),
+            vertex: wgpu::VertexState {
+                module: &mesh_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<MeshVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        // position: vec2<f32>
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        // color: vec4<f32>
+                        wgpu::VertexAttribute {
+                            offset: 8,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &mesh_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target)],
             }),
             primitive: wgpu::PrimitiveState {
@@ -367,6 +426,7 @@ impl WgpuContext2D {
             shape_pipeline,
             line_pipeline,
             gradient_pipeline,
+            mesh_pipeline,
             uniform_bgl,
             gradient_bgl,
         })

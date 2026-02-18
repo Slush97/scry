@@ -11,13 +11,13 @@ use crate::sparse::{CscMatrix, CsrMatrix};
 #[non_exhaustive]
 pub enum LinRegSolver {
     /// Normal equation: (X^T X + aI)^-1 X^T y. Fast but numerically fragile.
-    #[default]
     Normal,
     /// QR decomposition. More robust than Normal, faster than SVD.
     Qr,
     /// SVD (pseudoinverse). Most robust, handles rank-deficient and wide matrices.
     Svd,
     /// Auto: use Normal for well-conditioned problems, fall back to SVD otherwise.
+    #[default]
     Auto,
 }
 
@@ -56,7 +56,7 @@ impl LinearRegression {
             coefficients: Vec::new(),
             intercept: 0.0,
             alpha: 0.0,
-            solver: LinRegSolver::Normal,
+            solver: LinRegSolver::Auto,
             fitted: false,
             _schema_version: crate::version::SCHEMA_VERSION,
         }
@@ -362,7 +362,7 @@ fn solve_linear(n: usize, a: &mut [f64], b: &mut [f64]) -> Result<Vec<f64>> {
                 max_row = row;
             }
         }
-        if max_val < 1e-12 {
+        if max_val < crate::constants::SINGULAR_THRESHOLD {
             return Err(ScryLearnError::InvalidParameter(
                 "singular matrix — features may be linearly dependent".into(),
             ));

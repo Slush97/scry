@@ -31,9 +31,10 @@ serde = ["dep:serde"]
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 sdf = ["dep:rayon"]
+sdf-gpu = ["sdf", "gpu"]
 input = []
 window = ["dep:winit", "dep:softbuffer"]
-full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "input", "window"]
+full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "sdf-gpu", "input", "window"]
 
 [dependencies]
 tiny-skia = "0.11"

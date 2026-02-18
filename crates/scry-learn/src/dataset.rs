@@ -4,6 +4,8 @@
 //! [`Dataset`] provides a lightweight, column-major representation of
 //! features + target, with CSV loading and basic column access.
 
+use std::sync::OnceLock;
+
 use crate::error::{Result, ScryLearnError};
 
 use crate::matrix::DenseMatrix;
@@ -37,9 +39,12 @@ pub struct Dataset {
     pub target_name: String,
     /// Class label mapping (index → label string) for classification tasks.
     pub class_labels: Option<Vec<String>>,
-    /// Contiguous column-major feature matrix.
+    /// Lazily-computed contiguous column-major feature matrix.
+    ///
+    /// Built on first access from `features` via [`OnceCell::get_or_init`],
+    /// avoiding the upfront clone in [`Dataset::new`].
     #[cfg_attr(feature = "serde", serde(skip))]
-    matrix: Option<DenseMatrix>,
+    matrix: OnceLock<DenseMatrix>,
     /// Lazily-computed contiguous row-major feature buffer.
     ///
     /// Layout: `[sample_0_feat_0, sample_0_feat_1, ..., sample_n_feat_m]`.
@@ -80,14 +85,13 @@ impl Dataset {
                 );
             }
         }
-        let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Self {
             features,
             target,
             feature_names,
             target_name: target_name.into(),
             class_labels: None,
-            matrix,
+            matrix: OnceLock::new(),
             row_major_cache: None,
             storage: Storage::Dense,
         }
@@ -103,13 +107,15 @@ impl Dataset {
         target_name: impl Into<String>,
     ) -> Self {
         let features = matrix.to_col_vecs();
+        let cell = OnceLock::new();
+        let _ = cell.set(matrix);
         Self {
             features,
             target,
             feature_names,
             target_name: target_name.into(),
             class_labels: None,
-            matrix: Some(matrix),
+            matrix: cell,
             row_major_cache: None,
             storage: Storage::Dense,
         }
@@ -117,11 +123,14 @@ impl Dataset {
 
     /// The contiguous column-major feature matrix.
     ///
-    /// Always available after construction via [`new`](Self::new),
-    /// [`from_matrix`](Self::from_matrix), or [`from_csv`](Self::from_csv).
+    /// Lazily built from `features` on first access. Subsequent calls
+    /// return the cached matrix without recomputation.
     #[inline]
     pub fn matrix(&self) -> &DenseMatrix {
-        self.matrix.as_ref().expect("DenseMatrix not initialized")
+        self.matrix.get_or_init(|| {
+            DenseMatrix::from_col_major_ref(&self.features)
+                .expect("DenseMatrix build from features failed")
+        })
     }
 
     /// Load a dataset from a CSV file.
@@ -195,14 +204,13 @@ impl Dataset {
             }
         }
 
-        let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Ok(Self {
             features,
             target,
             feature_names,
             target_name: headers[target_idx].clone(),
             class_labels,
-            matrix,
+            matrix: OnceLock::new(),
             row_major_cache: None,
             storage: Storage::Dense,
         })
@@ -268,7 +276,7 @@ impl Dataset {
             let n = self.n_samples();
             let m = self.n_features();
             let mut buf = vec![0.0; n * m];
-            if let Some(mat) = &self.matrix {
+            if let Some(mat) = self.matrix.get() {
                 let src = mat.as_slice();
                 for j in 0..m {
                     let col_off = j * n;
@@ -285,6 +293,7 @@ impl Dataset {
             }
             self.row_major_cache = Some(buf);
         }
+        // SAFETY: row_major_cache was unconditionally set to Some above.
         self.row_major_cache.as_ref().unwrap()
     }
 
@@ -309,7 +318,7 @@ impl Dataset {
                 feature_names: self.feature_names.clone(),
                 target_name: self.target_name.clone(),
                 class_labels: self.class_labels.clone(),
-                matrix: None,
+                matrix: OnceLock::new(),
                 row_major_cache: None,
                 storage: Storage::Sparse(new_csc),
             };
@@ -320,26 +329,34 @@ impl Dataset {
             .iter()
             .map(|col| indices.iter().map(|&i| col[i]).collect())
             .collect();
-        let matrix = DenseMatrix::from_col_major(features.clone()).ok();
         Self {
             features,
             target,
             feature_names: self.feature_names.clone(),
             target_name: self.target_name.clone(),
             class_labels: self.class_labels.clone(),
-            matrix,
+            matrix: OnceLock::new(),
             row_major_cache: None,
             storage: Storage::Dense,
         }
     }
 
-    /// Rebuild the internal [`DenseMatrix`] from the current `features`.
+    /// Clear the cached matrix so it will be lazily rebuilt from `features`
+    /// on the next call to [`matrix()`](Self::matrix).
     ///
     /// Call this after mutating `features` in place (e.g. after a
-    /// transformer's `transform()` step) so that [`matrix()`](Self::matrix)
-    /// returns up-to-date data.
+    /// transformer's `transform()` step).
     pub fn sync_matrix(&mut self) {
-        self.matrix = DenseMatrix::from_col_major(self.features.clone()).ok();
+        self.matrix = OnceLock::new();
+        self.row_major_cache = None;
+    }
+
+    /// Mark the matrix cache as stale after in-place feature mutations.
+    ///
+    /// The matrix will be lazily rebuilt from `features` on next access.
+    #[inline]
+    pub fn invalidate_matrix(&mut self) {
+        self.matrix = OnceLock::new();
         self.row_major_cache = None;
     }
 
@@ -353,7 +370,7 @@ impl Dataset {
                         let name = self
                             .feature_names
                             .get(j)
-                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
+                            .map_or_else(|| format!("feature[{j}]"), std::clone::Clone::clone);
                         return Err(ScryLearnError::InvalidData(format!(
                             "non-finite value ({v}) in {name} at sample {i}"
                         )));
@@ -367,7 +384,7 @@ impl Dataset {
                         let name = self
                             .feature_names
                             .get(j)
-                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
+                            .map_or_else(|| format!("feature[{j}]"), std::clone::Clone::clone);
                         return Err(ScryLearnError::InvalidData(format!(
                             "non-finite value ({v}) in {name} at sample {i}"
                         )));
@@ -397,7 +414,7 @@ impl Dataset {
                         let name = self
                             .feature_names
                             .get(j)
-                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
+                            .map_or_else(|| format!("feature[{j}]"), std::clone::Clone::clone);
                         return Err(ScryLearnError::InvalidData(format!(
                             "infinite value ({v}) in {name} at sample {i}"
                         )));
@@ -411,7 +428,7 @@ impl Dataset {
                         let name = self
                             .feature_names
                             .get(j)
-                            .map_or_else(|| format!("feature[{j}]"), |n| n.clone());
+                            .map_or_else(|| format!("feature[{j}]"), std::clone::Clone::clone);
                         return Err(ScryLearnError::InvalidData(format!(
                             "infinite value ({v}) in {name} at sample {i}"
                         )));
@@ -451,7 +468,7 @@ impl Dataset {
             feature_names,
             target_name: target_name.into(),
             class_labels: None,
-            matrix: None,
+            matrix: OnceLock::new(),
             row_major_cache: None,
             storage: Storage::Sparse(csc),
         }
@@ -491,7 +508,7 @@ impl Dataset {
                 }
             }
             self.features = features;
-            self.matrix = DenseMatrix::from_col_major(self.features.clone()).ok();
+            self.matrix = OnceLock::new();
         }
     }
 }
@@ -539,6 +556,7 @@ fn parse_target_column(rows: &[Vec<String>], col_idx: usize) -> (Vec<f64>, Optio
 
     let all_numeric = numeric.iter().all(std::option::Option::is_some);
     if all_numeric {
+        // SAFETY: all_numeric is true, so every element is Some.
         return (numeric.into_iter().map(|v| v.unwrap()).collect(), None);
     }
 
@@ -741,5 +759,34 @@ mod tests {
         assert!(!ds.is_sparse());
         assert!(ds.sparse_csc().is_none());
         assert!(ds.sparse_csr().is_none());
+    }
+
+    #[test]
+    fn test_matrix_lazy_rebuild_after_invalidate() {
+        let features = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+        let mut ds = Dataset::new(features, vec![0.0, 1.0], vec!["a".into(), "b".into()], "t");
+
+        // Matrix is available after construction.
+        assert_eq!(ds.matrix().col(0), &[1.0, 2.0]);
+
+        // Invalidate.
+        ds.invalidate_matrix();
+
+        // matrix() should lazily rebuild — no panic.
+        assert_eq!(ds.matrix().col(0), &[1.0, 2.0]);
+        assert_eq!(ds.matrix().col(1), &[3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_matrix_lazy_rebuild_reflects_feature_mutation() {
+        let features = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+        let mut ds = Dataset::new(features, vec![0.0, 1.0], vec!["a".into(), "b".into()], "t");
+
+        // Mutate features and invalidate.
+        ds.features[0][0] = 99.0;
+        ds.invalidate_matrix();
+
+        // Lazy rebuild should reflect the mutation.
+        assert_eq!(ds.matrix().col(0), &[99.0, 2.0]);
     }
 }

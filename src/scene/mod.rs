@@ -53,6 +53,6 @@ pub use builder::{
 pub use command::FontData;
 pub use command::{DrawCommand, ImageData, PathData};
 pub use style::{
-    BlendMode, ClipRegion, Color, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop,
-    LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
+    BlendMode, ClipRegion, Color, DashPattern, FillRule, FillStyle, GradientDef, GradientKind,
+    GradientStop, LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
 };

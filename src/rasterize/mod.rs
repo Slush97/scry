@@ -30,6 +30,8 @@ pub mod profiler;
 pub mod skia;
 
 #[cfg(feature = "gpu")]
+mod tessellate;
+#[cfg(feature = "gpu")]
 pub mod wgpu;
 #[cfg(feature = "gpu")]
 mod wgpu_context;

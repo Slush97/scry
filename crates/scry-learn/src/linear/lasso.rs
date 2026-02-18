@@ -58,7 +58,7 @@ impl LassoRegression {
         Self {
             alpha: 1.0,
             max_iter: 1000,
-            tol: 1e-4,
+            tol: crate::constants::DEFAULT_TOL,
             coefficients: Vec::new(),
             intercept: 0.0,
             fitted: false,
@@ -101,21 +101,21 @@ impl LassoRegression {
             ));
         }
 
-        // Build row-major feature matrix for efficient access.
-        let rows = data.feature_matrix();
         let y = &data.target;
 
         // Initialize coefficients to zero.
         let mut beta = vec![0.0; m];
         let mut intercept = y.iter().sum::<f64>() / n as f64;
 
-        // Precompute feature norms: ‖X_j‖² / n
+        // Precompute feature norms: ‖X_j‖² / n (using column-major data directly).
         let mut col_norm_sq: Vec<f64> = vec![0.0; m];
         for j in 0..m {
-            for row in &rows {
-                col_norm_sq[j] += row[j] * row[j];
+            let col = &data.features[j];
+            let mut sq = 0.0;
+            for &x in col {
+                sq += x * x;
             }
-            col_norm_sq[j] /= n as f64;
+            col_norm_sq[j] = sq / n as f64;
         }
 
         let n_f64 = n as f64;
@@ -137,23 +137,24 @@ impl LassoRegression {
 
             // Coordinate descent over each feature.
             for j in 0..m {
-                if col_norm_sq[j] < 1e-15 {
+                if col_norm_sq[j] < crate::constants::NEAR_ZERO {
                     continue; // skip constant features
                 }
 
                 let old_beta_j = beta[j];
+                let col = &data.features[j];
 
                 // Add back current j contribution to residuals.
                 if old_beta_j != 0.0 {
-                    for (i, row) in rows.iter().enumerate() {
-                        residuals[i] += row[j] * old_beta_j;
+                    for i in 0..n {
+                        residuals[i] += col[i] * old_beta_j;
                     }
                 }
 
                 // ρ = (1/n) Σ x_ij * r_i
                 let mut rho = 0.0;
-                for (i, row) in rows.iter().enumerate() {
-                    rho += row[j] * residuals[i];
+                for i in 0..n {
+                    rho += col[i] * residuals[i];
                 }
                 rho /= n_f64;
 
@@ -164,8 +165,8 @@ impl LassoRegression {
 
                 // Remove new j contribution from residuals.
                 if new_beta_j != 0.0 {
-                    for (i, row) in rows.iter().enumerate() {
-                        residuals[i] -= row[j] * new_beta_j;
+                    for i in 0..n {
+                        residuals[i] -= col[i] * new_beta_j;
                     }
                 }
             }
@@ -255,7 +256,7 @@ impl LassoRegression {
 
             // Coordinate descent.
             for j in 0..m {
-                if col_norm_sq[j] < 1e-15 {
+                if col_norm_sq[j] < crate::constants::NEAR_ZERO {
                     continue;
                 }
 

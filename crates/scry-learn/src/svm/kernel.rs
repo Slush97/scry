@@ -193,7 +193,7 @@ impl KernelSVC {
         Self {
             kernel: Kernel::default(),
             c: 1.0,
-            tol: 1e-3,
+            tol: crate::constants::SMO_TOL,
             max_iter: 1000,
             gamma_strategy: Some(Gamma::Scale),
             probability: false,
@@ -493,7 +493,7 @@ pub(crate) fn smo_train(
                     )
                 };
 
-                if (l - h).abs() < 1e-12 {
+                if (l - h).abs() < crate::constants::SMO_BOUNDS_EQ {
                     continue;
                 }
 
@@ -507,7 +507,7 @@ pub(crate) fn smo_train(
                 alphas[j] -= y[j] * (e_i - e_j) / eta;
                 alphas[j] = alphas[j].clamp(l, h);
 
-                if (alphas[j] - alpha_j_old).abs() < 1e-8 {
+                if (alphas[j] - alpha_j_old).abs() < crate::constants::SMO_ALPHA_CHANGE_THRESH {
                     continue;
                 }
 
@@ -548,7 +548,7 @@ pub(crate) fn smo_train(
     let mut sv_labels = Vec::new();
     let mut sv_alphas = Vec::new();
     for i in 0..n {
-        if alphas[i] > 1e-10 {
+        if alphas[i] > crate::constants::SV_ALPHA_THRESH {
             sv_alphas.push(alphas[i]);
             sv_labels.push(y[i]);
             sv_list.push(x[i].clone());
@@ -612,8 +612,8 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
     let mut b = ((n_neg + 1.0) / (n_pos + 1.0)).ln();
 
     let max_iter = 100;
-    let min_step = 1e-10;
-    let sigma = 1e-12;
+    let min_step = crate::constants::PLATT_MIN_STEP;
+    let sigma = crate::constants::PLATT_HESSIAN_REG;
 
     for _ in 0..max_iter {
         let mut g1 = 0.0_f64; // dL/dA
@@ -636,7 +636,7 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
         }
 
         let det = h11 * h22 - h21 * h21;
-        if det.abs() < 1e-30 {
+        if det.abs() < crate::constants::PLATT_SINGULAR_DET {
             break;
         }
         let da = -(h22 * g1 - h21 * g2) / det;

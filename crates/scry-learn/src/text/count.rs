@@ -25,6 +25,7 @@ use std::collections::HashMap;
 /// assert_eq!(matrix.n_cols(), cv.vocabulary().len());
 /// ```
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CountVectorizer {
     /// Token → column index mapping.
     vocabulary: HashMap<String, usize>,

@@ -131,7 +131,7 @@ impl<'a, T> Iterator for RingBufferIter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for RingBufferIter<'a, T> {}
+impl<T> ExactSizeIterator for RingBufferIter<'_, T> {}
 
 // ---------------------------------------------------------------------------
 // StreamingChart

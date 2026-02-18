@@ -96,13 +96,9 @@ impl Picker {
                 Box::new(crate::transport::kitty::KittyBackend::new(self.font_size))
             }
             #[cfg(feature = "iterm2")]
-            ProtocolKind::Iterm2 => {
-                Box::new(crate::transport::iterm2::Iterm2Backend::new(self.font_size))
-            }
+            ProtocolKind::Iterm2 => Box::new(crate::transport::iterm2::Iterm2Backend::new()),
             #[cfg(feature = "sixel")]
-            ProtocolKind::Sixel => {
-                Box::new(crate::transport::sixel::SixelBackend::new(self.font_size))
-            }
+            ProtocolKind::Sixel => Box::new(crate::transport::sixel::SixelBackend::new()),
             // Window backend requires caller-managed event loop — cannot be
             // auto-created from Picker. Use `WindowBackend::new()` directly.
             _ => Box::new(crate::transport::halfblock::HalfblockBackend::new()),

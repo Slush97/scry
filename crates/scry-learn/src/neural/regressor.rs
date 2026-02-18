@@ -30,6 +30,7 @@ use crate::partial_fit::PartialFit;
 ///
 /// Defaults match sklearn: `hidden_layers=[100]`, Adam, lr=0.001,
 /// `max_iter=200`, `batch_size=200`, `alpha=0.0001`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct MLPRegressor {
     hidden_layers: Vec<usize>,
@@ -54,7 +55,10 @@ pub struct MLPRegressor {
     /// Structured training history with per-epoch metrics.
     training_history: TrainingHistory,
     /// User-supplied training callbacks (not cloned — session-specific).
+    #[cfg_attr(feature = "serde", serde(skip))]
     callbacks: Vec<Box<dyn TrainingCallback>>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl Clone for MLPRegressor {
@@ -79,6 +83,7 @@ impl Clone for MLPRegressor {
             loss_curve: self.loss_curve.clone(),
             training_history: self.training_history.clone(),
             callbacks: Vec::new(),
+            _schema_version: 0,
         }
     }
 }
@@ -106,6 +111,7 @@ impl MLPRegressor {
             loss_curve: Vec::new(),
             training_history: TrainingHistory::new(),
             callbacks: Vec::new(),
+            _schema_version: 0,
         }
     }
 

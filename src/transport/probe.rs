@@ -217,7 +217,7 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
     // SAFETY: tcsetattr is a well-defined POSIX call.
     #[allow(unsafe_code)]
     if unsafe {
-        tcsetattr(fd, 0 /* TCSANOW */, &raw)
+        tcsetattr(fd, 0 /* TCSANOW */, &raw const raw)
     } != 0
     {
         return Vec::new();
@@ -232,7 +232,7 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
         fn drop(&mut self) {
             #[allow(unsafe_code)]
             unsafe {
-                tcsetattr(self.fd, 0, &self.termios);
+                tcsetattr(self.fd, 0, &raw const self.termios);
             }
         }
     }
@@ -267,7 +267,7 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
 
         // SAFETY: poll is a well-defined POSIX call.
         #[allow(unsafe_code)]
-        let ready = unsafe { poll(&mut pfd, 1, remaining.as_millis() as std::ffi::c_int) };
+        let ready = unsafe { poll(&raw mut pfd, 1, remaining.as_millis() as std::ffi::c_int) };
 
         if ready <= 0 {
             break;
@@ -319,10 +319,10 @@ struct Termios {
     _pad: [u8; 64],
 }
 
-/// VMIN index in c_cc (Linux).
+/// VMIN index in `c_cc` (Linux).
 #[cfg(all(unix, target_os = "linux"))]
 const VMIN_IDX: usize = 6;
-/// VTIME index in c_cc (Linux).
+/// VTIME index in `c_cc` (Linux).
 #[cfg(all(unix, target_os = "linux"))]
 const VTIME_IDX: usize = 5;
 
@@ -367,7 +367,7 @@ fn get_termios(fd: std::ffi::c_int) -> Option<Termios> {
     #[allow(unsafe_code)]
     let mut termios = unsafe { std::mem::zeroed::<Termios>() };
     #[allow(unsafe_code)]
-    if unsafe { tcgetattr(fd, &mut termios) } == 0 {
+    if unsafe { tcgetattr(fd, &raw mut termios) } == 0 {
         Some(termios)
     } else {
         None

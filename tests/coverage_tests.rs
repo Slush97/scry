@@ -13,8 +13,8 @@ use scry_engine::scene::animation::{
 };
 use scry_engine::scene::command::DrawCommand;
 use scry_engine::scene::style::{
-    BlendMode, Color, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop, LineCap,
-    LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
+    BlendMode, Color, DashPattern, FillRule, FillStyle, GradientDef, GradientKind, GradientStop,
+    LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
 };
 use scry_engine::scene::PixelCanvas;
 use std::time::Duration;
@@ -1128,6 +1128,7 @@ fn canvas_command_api() {
             fill: Some(FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
+            ..ShapeStyle::default()
         },
     });
     assert_eq!(canvas.commands().len(), 1);
@@ -1144,6 +1145,7 @@ fn canvas_push_command_api() {
             fill: Some(FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
+            ..ShapeStyle::default()
         },
     });
     assert_eq!(canvas.commands().len(), 1);
@@ -1225,4 +1227,318 @@ fn tuple_lerp() {
 fn f64_lerp() {
     let val = 0.0_f64.lerp(&100.0, 0.25);
     assert!((val - 25.0).abs() < 0.01);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Session 1 verification tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn fill_rule_even_odd_star_has_hole() {
+    // Build a self-intersecting 5-pointed star by connecting every 2nd vertex.
+    let cx = 50.0_f32;
+    let cy = 50.0_f32;
+    let r = 40.0_f32;
+    let mut star_pts = Vec::new();
+    for i in 0..5 {
+        // Skip every other vertex (0, 2, 4, 1, 3) to create self-intersections.
+        let idx = (i * 2) % 5;
+        let angle = (2.0 * std::f32::consts::PI / 5.0) * idx as f32 - std::f32::consts::FRAC_PI_2;
+        star_pts.push((cx + r * angle.cos(), cy + r * angle.sin()));
+    }
+
+    let canvas = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .polygon(star_pts)
+        .fill(Color::RED)
+        .fill_rule(FillRule::EvenOdd)
+        .done();
+
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+    let center = (50 * 100 + 50) * 4;
+    // With EvenOdd, the center of a 5-pointed star should be a hole (background).
+    assert!(
+        pixmap.data()[center] < 50,
+        "center R should be background (black), got {}",
+        pixmap.data()[center]
+    );
+}
+
+#[test]
+fn gradient_many_stops_no_truncation() {
+    // 12-stop rainbow gradient — proves no truncation at 8 stops.
+    let colors = [
+        Color::RED,
+        Color::from_rgb8(255, 127, 0),
+        Color::from_rgb8(255, 255, 0),
+        Color::GREEN,
+        Color::from_rgb8(0, 255, 127),
+        Color::from_rgb8(0, 255, 255),
+        Color::from_rgb8(0, 127, 255),
+        Color::BLUE,
+        Color::from_rgb8(127, 0, 255),
+        Color::from_rgb8(255, 0, 255),
+        Color::from_rgb8(255, 0, 127),
+        Color::from_rgb8(200, 0, 0),
+    ];
+
+    let mut builder = PixelCanvas::new(200, 10).gradient(0.0, 0.0, 200.0, 10.0);
+    for (i, color) in colors.iter().enumerate() {
+        builder = builder.stop(i as f32 / 11.0, *color);
+    }
+    let canvas = builder
+        .linear(Point::new(0.0, 0.0), Point::new(200.0, 0.0))
+        .done();
+
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+    // Pixel near x=180 (stop 11 region) should have color from the last stops,
+    // not be black/transparent (which would indicate truncation).
+    let idx = (5 * 200 + 180) * 4;
+    let a = pixmap.data()[idx + 3];
+    assert!(a > 200, "pixel near end should be opaque, alpha={a}");
+    // Should have some non-zero color channel
+    let max_rgb = pixmap.data()[idx]
+        .max(pixmap.data()[idx + 1])
+        .max(pixmap.data()[idx + 2]);
+    assert!(
+        max_rgb > 50,
+        "pixel near end should have color, max_rgb={max_rgb}"
+    );
+}
+
+#[test]
+fn per_shape_opacity_circle_no_group() {
+    let canvas = PixelCanvas::new(100, 100)
+        .background(Color::WHITE)
+        .circle(50.0, 50.0, 30.0)
+        .fill(Color::RED)
+        .opacity(0.5)
+        .done();
+
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+    let center = (50 * 100 + 50) * 4;
+    let r = pixmap.data()[center];
+    let g = pixmap.data()[center + 1];
+    // Blended: red (255,0,0) at 50% on white (255,255,255)
+    // R should stay high, G should show white bleed-through
+    assert!(r > 200, "R channel should be high, got {r}");
+    assert!(g > 50, "G channel should show white bleed-through, got {g}");
+}
+
+#[test]
+fn per_shape_transform_rotated_rect() {
+    // Render the SAME rect twice: once without rotation, once with.
+    // They should produce different pixel data.
+    let points = vec![(20.0, 40.0), (80.0, 40.0), (80.0, 60.0), (20.0, 60.0)];
+
+    let canvas_normal = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .polygon(points.clone())
+        .fill(Color::RED)
+        .done();
+
+    let canvas_rotated = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .polygon(points)
+        .fill(Color::RED)
+        .transform(Transform::rotate_at(
+            std::f32::consts::FRAC_PI_4,
+            50.0,
+            50.0,
+        ))
+        .done();
+
+    let pix_normal = Rasterizer::rasterize(&canvas_normal).unwrap();
+    let pix_rotated = Rasterizer::rasterize(&canvas_rotated).unwrap();
+
+    assert_ne!(
+        pix_normal.data(),
+        pix_rotated.data(),
+        "rotation should produce different pixels"
+    );
+
+    // Interior point (50,50) should be filled in both
+    let center = (50 * 100 + 50) * 4;
+    assert!(
+        pix_normal.data()[center] > 100,
+        "center should be filled normally, R={}",
+        pix_normal.data()[center]
+    );
+}
+
+#[test]
+fn miter_limit_affects_stroke() {
+    // Sharp angle polyline: two segments meeting at a very acute angle
+    let points = vec![(10.0, 90.0), (50.0, 10.0), (90.0, 90.0)];
+
+    let canvas1 = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .polyline(points.clone())
+        .stroke(Color::WHITE, 4.0)
+        .done();
+
+    let canvas2 = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .polyline(points)
+        .stroke(Color::WHITE, 4.0)
+        .miter_limit(1.0)
+        .done();
+
+    let pixmap1 = Rasterizer::rasterize(&canvas1).unwrap();
+    let pixmap2 = Rasterizer::rasterize(&canvas2).unwrap();
+
+    // The two renders should differ (bevel vs miter join)
+    assert_ne!(
+        pixmap1.data(),
+        pixmap2.data(),
+        "different miter_limit should produce different output"
+    );
+}
+
+#[test]
+fn blend_modes_differ_from_src_over() {
+    let make_canvas = |mode: BlendMode| {
+        PixelCanvas::new(100, 100)
+            .background(Color::WHITE)
+            .group(Transform::identity())
+            .canvas(|c| c.rect(20.0, 20.0, 60.0, 60.0).fill(Color::RED).done())
+            .blend_mode(mode)
+            .done()
+    };
+
+    let p_src_over = Rasterizer::rasterize(&make_canvas(BlendMode::SrcOver)).unwrap();
+    let p_dodge = Rasterizer::rasterize(&make_canvas(BlendMode::ColorDodge)).unwrap();
+    let p_diff = Rasterizer::rasterize(&make_canvas(BlendMode::Difference)).unwrap();
+
+    assert_ne!(
+        p_src_over.data(),
+        p_dodge.data(),
+        "ColorDodge should differ from SrcOver"
+    );
+    assert_ne!(
+        p_src_over.data(),
+        p_diff.data(),
+        "Difference should differ from SrcOver"
+    );
+    assert_ne!(
+        p_dodge.data(),
+        p_diff.data(),
+        "ColorDodge should differ from Difference"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Per-shape blend mode (without Group wrapping)
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn per_shape_blend_mode_without_group() {
+    // Difference(red, white) should produce cyan
+    let canvas = PixelCanvas::new(100, 100)
+        .background(Color::WHITE)
+        .circle(50.0, 50.0, 30.0)
+        .fill(Color::RED)
+        .blend_mode(BlendMode::Difference)
+        .done();
+
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+    let center = (50 * 100 + 50) * 4;
+    let r = pixmap.data()[center];
+    let g = pixmap.data()[center + 1];
+    let b = pixmap.data()[center + 2];
+    // Difference(red=255, white=255) → R=0, G=255, B=255 (cyan)
+    assert!(r < 30, "R should be near 0 for cyan, got {r}");
+    assert!(g > 220, "G should be near 255 for cyan, got {g}");
+    assert!(b > 220, "B should be near 255 for cyan, got {b}");
+}
+
+// ═══════════════════════════════════════════════════════════
+// Gradient strokes
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn gradient_stroke_on_shape() {
+    let grad = GradientDef {
+        kind: GradientKind::Linear {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+        },
+        stops: vec![
+            GradientStop {
+                position: 0.0,
+                color: Color::RED,
+            },
+            GradientStop {
+                position: 1.0,
+                color: Color::BLUE,
+            },
+        ],
+    };
+
+    let canvas = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .circle(50.0, 50.0, 30.0)
+        .stroke(Color::WHITE, 4.0)
+        .stroke_gradient(grad)
+        .done();
+
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+    // Left edge of circle stroke (~x=20) should be reddish
+    let left = (50 * 100 + 20) * 4;
+    assert!(
+        pixmap.data()[left] > 100,
+        "left stroke should have red, R={}",
+        pixmap.data()[left]
+    );
+    // Right edge of circle stroke (~x=80) should be bluish
+    let right = (50 * 100 + 80) * 4;
+    assert!(
+        pixmap.data()[right + 2] > 100,
+        "right stroke should have blue, B={}",
+        pixmap.data()[right + 2]
+    );
+}
+
+#[test]
+fn gradient_stroke_on_line() {
+    let grad = GradientDef {
+        kind: GradientKind::Linear {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+        },
+        stops: vec![
+            GradientStop {
+                position: 0.0,
+                color: Color::RED,
+            },
+            GradientStop {
+                position: 1.0,
+                color: Color::BLUE,
+            },
+        ],
+    };
+
+    let canvas = PixelCanvas::new(100, 100)
+        .background(Color::BLACK)
+        .line(10.0, 50.0, 90.0, 50.0)
+        .color(Color::WHITE)
+        .width(4.0)
+        .stroke_gradient(grad)
+        .done();
+
+    let pixmap = Rasterizer::rasterize(&canvas).unwrap();
+    // Left side should be reddish
+    let left = (50 * 100 + 15) * 4;
+    assert!(
+        pixmap.data()[left] > 100,
+        "left should have red, R={}",
+        pixmap.data()[left]
+    );
+    // Right side should be bluish
+    let right = (50 * 100 + 85) * 4;
+    assert!(
+        pixmap.data()[right + 2] > 100,
+        "right should have blue, B={}",
+        pixmap.data()[right + 2]
+    );
 }

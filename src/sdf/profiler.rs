@@ -28,13 +28,13 @@ pub enum SdfStage {
 
 impl SdfStage {
     /// All stages in display order.
-    pub const ALL: [SdfStage; 6] = [
-        SdfStage::March,
-        SdfStage::Shadow,
-        SdfStage::Normal,
-        SdfStage::Shading,
-        SdfStage::Reflection,
-        SdfStage::Fire,
+    pub const ALL: [Self; 6] = [
+        Self::March,
+        Self::Shadow,
+        Self::Normal,
+        Self::Shading,
+        Self::Reflection,
+        Self::Fire,
     ];
 
     /// Index into the `stage_us` arrays.
@@ -46,24 +46,24 @@ impl SdfStage {
     /// Short display name.
     pub fn label(self) -> &'static str {
         match self {
-            SdfStage::March => "march",
-            SdfStage::Shadow => "shadow",
-            SdfStage::Normal => "normal",
-            SdfStage::Shading => "shade",
-            SdfStage::Reflection => "refl",
-            SdfStage::Fire => "fire",
+            Self::March => "march",
+            Self::Shadow => "shadow",
+            Self::Normal => "normal",
+            Self::Shading => "shade",
+            Self::Reflection => "refl",
+            Self::Fire => "fire",
         }
     }
 
     /// ANSI color code for the bar chart.
     pub fn ansi_color(self) -> &'static str {
         match self {
-            SdfStage::March => "\x1b[34m",      // blue
-            SdfStage::Shadow => "\x1b[37m",     // white/gray
-            SdfStage::Normal => "\x1b[33m",     // orange/yellow
-            SdfStage::Shading => "\x1b[93m",    // bright yellow
-            SdfStage::Reflection => "\x1b[35m", // purple
-            SdfStage::Fire => "\x1b[31m",       // red
+            Self::March => "\x1b[34m",      // blue
+            Self::Shadow => "\x1b[37m",     // white/gray
+            Self::Normal => "\x1b[33m",     // orange/yellow
+            Self::Shading => "\x1b[93m",    // bright yellow
+            Self::Reflection => "\x1b[35m", // purple
+            Self::Fire => "\x1b[31m",       // red
         }
     }
 }
@@ -90,7 +90,7 @@ impl RowProfile {
 
     /// Merge another row's timings into this one.
     #[inline]
-    pub fn merge(&mut self, other: &RowProfile) {
+    pub fn merge(&mut self, other: &Self) {
         for i in 0..6 {
             self.stage_us[i] += other.stage_us[i];
         }
@@ -112,6 +112,18 @@ pub struct SdfProfile {
 }
 
 impl SdfProfile {
+    /// Create a profile with only the total frame time (no per-stage breakdown).
+    ///
+    /// Useful for GPU rendering where stage breakdown isn't available.
+    pub fn total_only(total_us: u64, width: u32, height: u32) -> Self {
+        Self {
+            total_us,
+            stage_us: [0; 6],
+            width,
+            height,
+        }
+    }
+
     /// Aggregate row profiles into a frame profile.
     pub fn from_rows(rows: &[RowProfile], total_us: u64, width: u32, height: u32) -> Self {
         let mut stage_us = [0u64; 6];
@@ -257,7 +269,7 @@ pub fn render_profile_bar(profile: &SmoothedSdfProfile, bar_width: usize) -> Str
         ));
     }
 
-    bar.push_str(&format!(" | {:.1}ms total", total_ms));
+    bar.push_str(&format!(" | {total_ms:.1}ms total"));
 
     bar
 }

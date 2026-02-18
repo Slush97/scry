@@ -13,9 +13,10 @@
 //! This module is only available when the `gpu` feature is enabled (default).
 
 use super::skia::Rasterizer;
+use super::tessellate;
 use super::wgpu_context::{
-    create_frame_resources, GpuGradientStop, GradientUniforms, LineVertex, ShapeInstance,
-    WgpuContext2D,
+    create_frame_resources, GpuGradientStop, GradientUniforms, LineVertex, MeshVertex,
+    ShapeInstance, WgpuContext2D,
 };
 use crate::scene::command::DrawCommand;
 use crate::scene::style::{FillStyle, GradientKind};
@@ -36,6 +37,10 @@ struct LineBatch {
     vertices: Vec<LineVertex>,
 }
 
+struct MeshBatch {
+    vertices: Vec<MeshVertex>,
+}
+
 struct GradientDraw {
     uniforms: GradientUniforms,
 }
@@ -47,74 +52,6 @@ struct ImageOverlay {
     rgba: Vec<u8>,
     width: u32,
     height: u32,
-}
-
-// ---------------------------------------------------------------------------
-// Owned/borrowed reference enums (same pattern as 3D backend)
-// ---------------------------------------------------------------------------
-
-#[allow(dead_code)]
-enum DeviceRef<'a> {
-    Owned(wgpu::Device),
-    Borrowed(&'a wgpu::Device),
-}
-
-impl std::ops::Deref for DeviceRef<'_> {
-    type Target = wgpu::Device;
-    fn deref(&self) -> &wgpu::Device {
-        match self {
-            Self::Owned(d) => d,
-            Self::Borrowed(d) => d,
-        }
-    }
-}
-
-#[allow(dead_code)]
-enum QueueRef<'a> {
-    Owned(wgpu::Queue),
-    Borrowed(&'a wgpu::Queue),
-}
-
-impl std::ops::Deref for QueueRef<'_> {
-    type Target = wgpu::Queue;
-    fn deref(&self) -> &wgpu::Queue {
-        match self {
-            Self::Owned(q) => q,
-            Self::Borrowed(q) => q,
-        }
-    }
-}
-
-#[allow(dead_code)]
-enum PipelineRef<'a> {
-    Owned(wgpu::RenderPipeline),
-    Borrowed(&'a wgpu::RenderPipeline),
-}
-
-impl std::ops::Deref for PipelineRef<'_> {
-    type Target = wgpu::RenderPipeline;
-    fn deref(&self) -> &wgpu::RenderPipeline {
-        match self {
-            Self::Owned(p) => p,
-            Self::Borrowed(p) => p,
-        }
-    }
-}
-
-#[allow(dead_code)]
-enum BglRef<'a> {
-    Owned(wgpu::BindGroupLayout),
-    Borrowed(&'a wgpu::BindGroupLayout),
-}
-
-impl std::ops::Deref for BglRef<'_> {
-    type Target = wgpu::BindGroupLayout;
-    fn deref(&self) -> &wgpu::BindGroupLayout {
-        match self {
-            Self::Owned(b) => b,
-            Self::Borrowed(b) => b,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,19 +80,21 @@ impl std::ops::Deref for BglRef<'_> {
 /// let pixmap = WgpuRasterizer::rasterize(&canvas).unwrap();
 /// ```
 pub struct WgpuRasterizer<'ctx> {
-    device: DeviceRef<'ctx>,
-    queue: QueueRef<'ctx>,
+    device: &'ctx wgpu::Device,
+    queue: &'ctx wgpu::Queue,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     width: u32,
     height: u32,
-    shape_pipeline: PipelineRef<'ctx>,
-    line_pipeline: PipelineRef<'ctx>,
-    gradient_pipeline: PipelineRef<'ctx>,
-    gradient_bgl: BglRef<'ctx>,
+    shape_pipeline: &'ctx wgpu::RenderPipeline,
+    line_pipeline: &'ctx wgpu::RenderPipeline,
+    gradient_pipeline: &'ctx wgpu::RenderPipeline,
+    mesh_pipeline: &'ctx wgpu::RenderPipeline,
+    gradient_bgl: &'ctx wgpu::BindGroupLayout,
     uniform_bind_group: wgpu::BindGroup,
     shape_batches: Vec<ShapeBatch>,
     line_batches: Vec<LineBatch>,
+    mesh_batches: Vec<MeshBatch>,
     gradient_draws: Vec<GradientDraw>,
     image_overlays: Vec<ImageOverlay>,
 }
@@ -212,19 +151,21 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             create_frame_resources(&ctx.device, &ctx.uniform_bgl, width, height);
 
         Self {
-            device: DeviceRef::Borrowed(&ctx.device),
-            queue: QueueRef::Borrowed(&ctx.queue),
+            device: &ctx.device,
+            queue: &ctx.queue,
             texture,
             texture_view,
             width,
             height,
-            shape_pipeline: PipelineRef::Borrowed(&ctx.shape_pipeline),
-            line_pipeline: PipelineRef::Borrowed(&ctx.line_pipeline),
-            gradient_pipeline: PipelineRef::Borrowed(&ctx.gradient_pipeline),
-            gradient_bgl: BglRef::Borrowed(&ctx.gradient_bgl),
+            shape_pipeline: &ctx.shape_pipeline,
+            line_pipeline: &ctx.line_pipeline,
+            gradient_pipeline: &ctx.gradient_pipeline,
+            mesh_pipeline: &ctx.mesh_pipeline,
+            gradient_bgl: &ctx.gradient_bgl,
             uniform_bind_group,
             shape_batches: Vec::new(),
             line_batches: Vec::new(),
+            mesh_batches: Vec::new(),
             gradient_draws: Vec::new(),
             image_overlays: Vec::new(),
         }
@@ -234,9 +175,10 @@ impl<'ctx> WgpuRasterizer<'ctx> {
     fn process_commands(&mut self, canvas: &PixelCanvas) {
         let mut shapes = Vec::new();
         let mut lines = Vec::new();
+        let mut meshes: Vec<Vec<MeshVertex>> = Vec::new();
 
         for cmd in canvas.commands() {
-            self.process_command(cmd, &mut shapes, &mut lines);
+            self.process_command(cmd, &mut shapes, &mut lines, &mut meshes);
         }
 
         if !shapes.is_empty() {
@@ -244,6 +186,10 @@ impl<'ctx> WgpuRasterizer<'ctx> {
         }
         if !lines.is_empty() {
             self.line_batches.push(LineBatch { vertices: lines });
+        }
+        if !meshes.is_empty() {
+            let vertices = meshes.into_iter().flatten().collect();
+            self.mesh_batches.push(MeshBatch { vertices });
         }
     }
 
@@ -255,6 +201,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
         cmd: &DrawCommand,
         shapes: &mut Vec<ShapeInstance>,
         lines: &mut Vec<LineVertex>,
+        meshes: &mut Vec<Vec<MeshVertex>>,
     ) {
         match cmd {
             DrawCommand::Clear { .. } => {
@@ -335,34 +282,42 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 if points.len() < 2 {
                     return;
                 }
-                let Some(stroke) = &style.stroke else { return };
-                let color = [
-                    stroke.color.r,
-                    stroke.color.g,
-                    stroke.color.b,
-                    stroke.color.a,
-                ];
-                let width = stroke.width;
 
-                for window in points.windows(2) {
-                    emit_line_segment(
-                        lines,
-                        window[0].0,
-                        window[0].1,
-                        window[1].0,
-                        window[1].1,
-                        width,
-                        color,
-                    );
-                }
-                if *closed && points.len() > 2 {
-                    let first = points[0];
-                    let last = points[points.len() - 1];
-                    emit_line_segment(lines, last.0, last.1, first.0, first.1, width, color);
+                // Stroke the polyline segments
+                if let Some(stroke) = &style.stroke {
+                    let color = [
+                        stroke.color.r,
+                        stroke.color.g,
+                        stroke.color.b,
+                        stroke.color.a,
+                    ];
+                    let width = stroke.width;
+
+                    for window in points.windows(2) {
+                        emit_line_segment(
+                            lines,
+                            window[0].0,
+                            window[0].1,
+                            window[1].0,
+                            window[1].1,
+                            width,
+                            color,
+                        );
+                    }
+                    if *closed && points.len() > 2 {
+                        let first = points[0];
+                        let last = points[points.len() - 1];
+                        emit_line_segment(lines, last.0, last.1, first.0, first.1, width, color);
+                    }
                 }
 
-                // Also fill the polygon if a fill style is set
-                if style.fill.is_some() {
+                // Fill the polygon via GPU tessellation if solid, else CPU fallback
+                if let Some(color) = solid_fill_color(style) {
+                    let verts = tessellate::tessellate_polygon(points, color);
+                    if !verts.is_empty() {
+                        meshes.push(verts);
+                    }
+                } else if style.fill.is_some() {
                     self.cpu_fallback_command(cmd);
                 }
             }
@@ -424,9 +379,43 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 });
             }
 
-            // CPU fallback commands
-            DrawCommand::Path { .. } | DrawCommand::Arc { .. } => {
-                self.cpu_fallback_command(cmd);
+            DrawCommand::Path { path, style } => {
+                if let Some(color) = solid_fill_color(style) {
+                    let verts = tessellate::tessellate_path(path.path(), color);
+                    if !verts.is_empty() {
+                        meshes.push(verts);
+                    }
+                }
+                // Gradient fills / strokes still fall back to CPU
+                if has_non_solid_fill(style) || style.stroke.is_some() {
+                    self.cpu_fallback_command(cmd);
+                }
+            }
+
+            DrawCommand::Arc {
+                cx,
+                cy,
+                radius,
+                start_angle,
+                sweep_angle,
+                style,
+            } => {
+                if let Some(color) = solid_fill_color(style) {
+                    let verts = tessellate::tessellate_arc(
+                        *cx,
+                        *cy,
+                        *radius,
+                        *start_angle,
+                        *sweep_angle,
+                        color,
+                    );
+                    if !verts.is_empty() {
+                        meshes.push(verts);
+                    }
+                }
+                if has_non_solid_fill(style) || style.stroke.is_some() {
+                    self.cpu_fallback_command(cmd);
+                }
             }
 
             #[cfg(feature = "text")]
@@ -451,7 +440,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 } else {
                     // Simple group: recurse
                     for child in commands {
-                        self.process_command(child, shapes, lines);
+                        self.process_command(child, shapes, lines, meshes);
                     }
                 }
             }
@@ -532,7 +521,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
 
             // 1. Draw gradients first (background layer)
             if !self.gradient_draws.is_empty() {
-                render_pass.set_pipeline(&self.gradient_pipeline);
+                render_pass.set_pipeline(self.gradient_pipeline);
                 for gd in &self.gradient_draws {
                     let buf = self
                         .device
@@ -543,7 +532,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                         });
                     let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("gradient_bg"),
-                        layout: &self.gradient_bgl,
+                        layout: self.gradient_bgl,
                         entries: &[wgpu::BindGroupEntry {
                             binding: 0,
                             resource: buf.as_entire_binding(),
@@ -556,7 +545,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
 
             // 2. Draw shapes (circles, rects, ellipses)
             if !self.shape_batches.is_empty() {
-                render_pass.set_pipeline(&self.shape_pipeline);
+                render_pass.set_pipeline(self.shape_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for batch in &self.shape_batches {
@@ -573,9 +562,28 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 }
             }
 
+            // 2.5. Draw tessellated meshes (paths, arcs, polygons)
+            if !self.mesh_batches.is_empty() {
+                render_pass.set_pipeline(self.mesh_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+                for batch in &self.mesh_batches {
+                    let vbuf = self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("mesh_vertices"),
+                            contents: bytemuck::cast_slice(&batch.vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                    let vert_count = batch.vertices.len() as u32;
+                    render_pass.set_vertex_buffer(0, vbuf.slice(..));
+                    render_pass.draw(0..vert_count, 0..1);
+                }
+            }
+
             // 3. Draw lines
             if !self.line_batches.is_empty() {
-                render_pass.set_pipeline(&self.line_pipeline);
+                render_pass.set_pipeline(self.line_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for batch in &self.line_batches {
@@ -741,6 +749,22 @@ fn extract_style(style: &crate::scene::style::ShapeStyle) -> ([f32; 4], [f32; 4]
     };
 
     (fill_color, stroke_color, stroke_width)
+}
+
+/// Extract the solid fill color from a shape style, applying opacity.
+fn solid_fill_color(style: &crate::scene::style::ShapeStyle) -> Option<[f32; 4]> {
+    match &style.fill {
+        Some(FillStyle::Solid(c)) => Some([c.r, c.g, c.b, c.a * style.opacity]),
+        _ => None,
+    }
+}
+
+/// Returns `true` if the style has a non-solid (gradient) fill.
+fn has_non_solid_fill(style: &crate::scene::style::ShapeStyle) -> bool {
+    matches!(
+        &style.fill,
+        Some(FillStyle::LinearGradient(_) | FillStyle::RadialGradient(_))
+    )
 }
 
 /// Emit 6 vertices (2 triangles) for one line segment.
@@ -966,5 +990,81 @@ mod tests {
         // rasterize_auto should always succeed (GPU or CPU fallback)
         let pixmap = rasterize_auto(&canvas).unwrap();
         assert_eq!(pixmap.width(), 100);
+    }
+
+    #[test]
+    fn gpu_tessellated_path_renders() {
+        let ctx = require_gpu();
+        // Build a triangle path with solid red fill
+        let mut pb = tiny_skia::PathBuilder::new();
+        pb.move_to(50.0, 10.0);
+        pb.line_to(90.0, 90.0);
+        pb.line_to(10.0, 90.0);
+        pb.close();
+        let path = pb.finish().unwrap();
+
+        let canvas = PixelCanvas::new(100, 100)
+            .background(Color::BLACK)
+            .path(path)
+            .fill(Color::RED)
+            .done();
+
+        let pixmap = WgpuRasterizer::rasterize_with_context(&ctx, &canvas).unwrap();
+        // Check center of triangle (roughly 50, 63)
+        let idx = (63 * 100 + 50) * 4;
+        let data = pixmap.data();
+        assert!(
+            data[idx] > 100,
+            "tessellated path center should be red, R={}",
+            data[idx]
+        );
+    }
+
+    #[test]
+    fn gpu_tessellated_arc_renders() {
+        let ctx = require_gpu();
+        let canvas = PixelCanvas::new(100, 100)
+            .background(Color::BLACK)
+            .arc(50.0, 50.0, 30.0, 0.0, std::f32::consts::PI)
+            .fill(Color::BLUE)
+            .done();
+
+        let pixmap = WgpuRasterizer::rasterize_with_context(&ctx, &canvas).unwrap();
+        // Check a point inside the arc pie-slice
+        let idx = (45 * 100 + 60) * 4;
+        let data = pixmap.data();
+        assert!(
+            data[idx + 2] > 100,
+            "tessellated arc interior should be blue, B={}",
+            data[idx + 2]
+        );
+    }
+
+    #[test]
+    fn gpu_tessellated_polygon_fill() {
+        let ctx = require_gpu();
+        // Pentagon
+        let points = vec![
+            (50.0, 10.0),
+            (90.0, 40.0),
+            (75.0, 85.0),
+            (25.0, 85.0),
+            (10.0, 40.0),
+        ];
+        let canvas = PixelCanvas::new(100, 100)
+            .background(Color::BLACK)
+            .polygon(points)
+            .fill(Color::GREEN)
+            .done();
+
+        let pixmap = WgpuRasterizer::rasterize_with_context(&ctx, &canvas).unwrap();
+        // Check center of pentagon
+        let idx = (50 * 100 + 50) * 4;
+        let data = pixmap.data();
+        assert!(
+            data[idx + 1] > 100,
+            "tessellated polygon center should be green, G={}",
+            data[idx + 1]
+        );
     }
 }

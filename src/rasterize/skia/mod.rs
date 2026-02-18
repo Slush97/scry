@@ -207,10 +207,33 @@ impl Rasterizer {
                 pb.move_to(*x1, *y1);
                 pb.line_to(*x2, *y2);
                 if let Some(path) = pb.finish() {
-                    let mut paint = Paint::default();
-                    if let Some(c) = stroke.color.to_tiny_skia() {
-                        paint.set_color(c);
-                    }
+                    let mut paint = if let Some(ref fill_paint) = stroke.paint {
+                        match fill_paint {
+                            FillStyle::Solid(color) => {
+                                let mut p = Paint::default();
+                                if let Some(c) = color.to_tiny_skia() {
+                                    p.set_color(c);
+                                }
+                                p
+                            }
+                            FillStyle::LinearGradient(grad) | FillStyle::RadialGradient(grad) => {
+                                let bounds = path.bounds();
+                                let r = crate::scene::style::Rect::new(
+                                    bounds.left(),
+                                    bounds.top(),
+                                    bounds.width(),
+                                    bounds.height(),
+                                );
+                                Self::gradient_to_paint(grad, &r)
+                            }
+                        }
+                    } else {
+                        let mut p = Paint::default();
+                        if let Some(c) = stroke.color.to_tiny_skia() {
+                            p.set_color(c);
+                        }
+                        p
+                    };
                     paint.anti_alias = *anti_alias;
 
                     let skia_stroke = Self::to_skia_stroke(stroke);
@@ -542,6 +565,66 @@ impl Rasterizer {
         style: &ShapeStyle,
         transform: SkiaTransform,
     ) {
+        // Compose per-shape transform with parent transform.
+        let transform = match &style.transform {
+            Some(t) => transform.post_concat(t.to_tiny_skia()),
+            None => transform,
+        };
+
+        let fill_rule = style.fill_rule.to_tiny_skia();
+
+        // If per-shape opacity < 1.0 or non-default blend mode, render to a
+        // temp pixmap and composite.
+        let needs_compositing =
+            style.opacity < 1.0 || style.blend_mode != crate::scene::style::BlendMode::SrcOver;
+        if needs_compositing {
+            let bounds = path.bounds();
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let tw = (bounds.width().ceil() as u32 + 2).min(pixmap.width());
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let th = (bounds.height().ceil() as u32 + 2).min(pixmap.height());
+            if tw == 0 || th == 0 {
+                return;
+            }
+            if let Some(mut temp) = Pixmap::new(tw, th) {
+                #[allow(clippy::cast_precision_loss)]
+                let offset_x = bounds.left().floor();
+                #[allow(clippy::cast_precision_loss)]
+                let offset_y = bounds.top().floor();
+                let child_transform =
+                    transform.post_concat(SkiaTransform::from_translate(-offset_x, -offset_y));
+
+                Self::render_shape_inner(&mut temp, path, style, child_transform, fill_rule);
+
+                let paint = tiny_skia::PixmapPaint {
+                    opacity: style.opacity,
+                    blend_mode: style.blend_mode.to_tiny_skia(),
+                    quality: tiny_skia::FilterQuality::Nearest,
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                pixmap.draw_pixmap(
+                    offset_x as i32,
+                    offset_y as i32,
+                    temp.as_ref(),
+                    &paint,
+                    SkiaTransform::identity(),
+                    None,
+                );
+            }
+            return;
+        }
+
+        Self::render_shape_inner(pixmap, path, style, transform, fill_rule);
+    }
+
+    /// Inner render without opacity compositing.
+    fn render_shape_inner(
+        pixmap: &mut Pixmap,
+        path: &tiny_skia::Path,
+        style: &ShapeStyle,
+        transform: SkiaTransform,
+        fill_rule: FillRule,
+    ) {
         // Fill first (if specified)
         if let Some(fill) = &style.fill {
             let mut paint = match fill {
@@ -564,15 +647,38 @@ impl Rasterizer {
                 }
             };
             paint.anti_alias = style.anti_alias;
-            pixmap.fill_path(path, &paint, FillRule::Winding, transform, None);
+            pixmap.fill_path(path, &paint, fill_rule, transform, None);
         }
 
         // Then stroke (if specified)
         if let Some(stroke_style) = &style.stroke {
-            let mut paint = Paint::default();
-            if let Some(c) = stroke_style.color.to_tiny_skia() {
-                paint.set_color(c);
-            }
+            let mut paint = if let Some(ref fill_paint) = stroke_style.paint {
+                match fill_paint {
+                    FillStyle::Solid(color) => {
+                        let mut p = Paint::default();
+                        if let Some(c) = color.to_tiny_skia() {
+                            p.set_color(c);
+                        }
+                        p
+                    }
+                    FillStyle::LinearGradient(grad) | FillStyle::RadialGradient(grad) => {
+                        let bounds = path.bounds();
+                        let r = crate::scene::style::Rect::new(
+                            bounds.left(),
+                            bounds.top(),
+                            bounds.width(),
+                            bounds.height(),
+                        );
+                        Self::gradient_to_paint(grad, &r)
+                    }
+                }
+            } else {
+                let mut p = Paint::default();
+                if let Some(c) = stroke_style.color.to_tiny_skia() {
+                    p.set_color(c);
+                }
+                p
+            };
             paint.anti_alias = style.anti_alias;
 
             let skia_stroke = Self::to_skia_stroke(stroke_style);
@@ -600,10 +706,10 @@ impl Rasterizer {
 
         SkiaStroke {
             width: style.width,
+            miter_limit: style.miter_limit,
             line_cap,
             line_join,
             dash,
-            ..SkiaStroke::default()
         }
     }
 }

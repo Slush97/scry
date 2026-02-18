@@ -32,9 +32,10 @@ const PERM: [u8; 512] = {
     out
 };
 
-/// Smoothstep interpolation factor.
+/// Quintic smoothstep (6t^5 - 15t^4 + 10t^3) — eliminates second-derivative
+/// discontinuities that cause visible grid artifacts in value noise.
 fn smooth(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
+    t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 }
 
 /// Hash a 3D integer coordinate into 0..255 via the permutation table.
@@ -45,7 +46,29 @@ fn hash3(x: i32, y: i32, z: i32) -> u8 {
     PERM[(PERM[(PERM[xi] as usize + yi) & 511] as usize + zi) & 511]
 }
 
-/// 3D value noise, output in `[0, 1]`.
+/// 12 gradient vectors for 3D Perlin noise (edges of a cube).
+const GRADIENTS: [[f32; 3]; 12] = [
+    [1.0, 1.0, 0.0],
+    [-1.0, 1.0, 0.0],
+    [1.0, -1.0, 0.0],
+    [-1.0, -1.0, 0.0],
+    [1.0, 0.0, 1.0],
+    [-1.0, 0.0, 1.0],
+    [1.0, 0.0, -1.0],
+    [-1.0, 0.0, -1.0],
+    [0.0, 1.0, 1.0],
+    [0.0, -1.0, 1.0],
+    [0.0, 1.0, -1.0],
+    [0.0, -1.0, -1.0],
+];
+
+/// Dot product of gradient vector (selected by hash) with offset vector.
+fn grad3(hash: u8, x: f32, y: f32, z: f32) -> f32 {
+    let g = &GRADIENTS[(hash % 12) as usize];
+    g[0] * x + g[1] * y + g[2] * z
+}
+
+/// 3D gradient noise (Perlin-style), output in `[0, 1]`.
 pub fn noise3d(x: f32, y: f32, z: f32) -> f32 {
     let xi = x.floor() as i32;
     let yi = y.floor() as i32;
@@ -58,16 +81,16 @@ pub fn noise3d(x: f32, y: f32, z: f32) -> f32 {
     let v = smooth(yf);
     let w = smooth(zf);
 
-    let c000 = f32::from(hash3(xi, yi, zi)) / 255.0;
-    let c100 = f32::from(hash3(xi + 1, yi, zi)) / 255.0;
-    let c010 = f32::from(hash3(xi, yi + 1, zi)) / 255.0;
-    let c110 = f32::from(hash3(xi + 1, yi + 1, zi)) / 255.0;
-    let c001 = f32::from(hash3(xi, yi, zi + 1)) / 255.0;
-    let c101 = f32::from(hash3(xi + 1, yi, zi + 1)) / 255.0;
-    let c011 = f32::from(hash3(xi, yi + 1, zi + 1)) / 255.0;
-    let c111 = f32::from(hash3(xi + 1, yi + 1, zi + 1)) / 255.0;
+    let c000 = grad3(hash3(xi, yi, zi), xf, yf, zf);
+    let c100 = grad3(hash3(xi + 1, yi, zi), xf - 1.0, yf, zf);
+    let c010 = grad3(hash3(xi, yi + 1, zi), xf, yf - 1.0, zf);
+    let c110 = grad3(hash3(xi + 1, yi + 1, zi), xf - 1.0, yf - 1.0, zf);
+    let c001 = grad3(hash3(xi, yi, zi + 1), xf, yf, zf - 1.0);
+    let c101 = grad3(hash3(xi + 1, yi, zi + 1), xf - 1.0, yf, zf - 1.0);
+    let c011 = grad3(hash3(xi, yi + 1, zi + 1), xf, yf - 1.0, zf - 1.0);
+    let c111 = grad3(hash3(xi + 1, yi + 1, zi + 1), xf - 1.0, yf - 1.0, zf - 1.0);
 
-    // Trilinear interpolation
+    // Trilinear interpolation of gradient dot products
     let x00 = c000 + u * (c100 - c000);
     let x10 = c010 + u * (c110 - c010);
     let x01 = c001 + u * (c101 - c001);
@@ -76,7 +99,9 @@ pub fn noise3d(x: f32, y: f32, z: f32) -> f32 {
     let y0 = x00 + v * (x10 - x00);
     let y1 = x01 + v * (x11 - x01);
 
-    y0 + w * (y1 - y0)
+    let result = y0 + w * (y1 - y0);
+    // Remap from approximately [-0.7, 0.7] to [0, 1]
+    result * 0.5 + 0.5
 }
 
 /// 2D value noise, output in `[0, 1]`.

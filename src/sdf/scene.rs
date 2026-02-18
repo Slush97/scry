@@ -62,6 +62,27 @@ pub enum SdfShape {
         /// Blend radius (higher = smoother).
         k: f32,
     },
+    /// Vertical capsule (line segment swept by radius).
+    Capsule {
+        /// Radius of the capsule.
+        radius: f32,
+        /// Half-height of the line segment.
+        half_height: f32,
+    },
+    /// Axis-aligned box with rounded edges.
+    RoundedBox {
+        /// Half-extents along each axis.
+        half_extents: Vec3,
+        /// Corner rounding radius.
+        radius: f32,
+    },
+    /// Cone along the Y axis.
+    Cone {
+        /// Base radius.
+        radius: f32,
+        /// Height (tip at y = height).
+        height: f32,
+    },
 }
 
 // ── Object ──────────────────────────────────────────────────────────
@@ -76,6 +97,11 @@ pub struct SdfObject {
     pub material: Material,
     /// World-space position (the shape is centered here).
     pub position: Vec3,
+    /// Bounding sphere radius for early culling in `scene_sdf`.
+    ///
+    /// Set to `f32::INFINITY` for infinite primitives (planes) so
+    /// they are never skipped.
+    pub bounding_radius: f32,
 }
 
 impl SdfObject {
@@ -85,6 +111,7 @@ impl SdfObject {
             shape,
             material,
             position: Vec3::ZERO,
+            bounding_radius: f32::INFINITY,
         }
     }
 
@@ -180,6 +207,12 @@ pub struct SdfScene {
     pub scene_center: Vec3,
     /// Radius of the bounding sphere around all finite objects.
     pub scene_radius: f32,
+    /// Exponential fog density (0.0 = no fog).
+    pub fog_density: f32,
+    /// Fog color (blends toward this at distance).
+    pub fog_color: Color,
+    /// Enable Reinhard tone mapping before gamma.
+    pub tone_map: bool,
 }
 
 impl SdfScene {
@@ -196,11 +229,14 @@ impl SdfScene {
             has_water: false,
             scene_center: Vec3::ZERO,
             scene_radius: 0.0,
+            fog_density: 0.0,
+            fog_color: Color::from_rgba8(40, 50, 70, 255),
+            tone_map: false,
         }
     }
 
     /// Add an object to the scene.
-    pub fn object(mut self, obj: SdfObject) -> Self {
+    pub fn object(mut self, mut obj: SdfObject) -> Self {
         if matches!(obj.material, Material::Fire { .. }) {
             self.has_fire = true;
         }
@@ -208,7 +244,8 @@ impl SdfScene {
             self.has_water = true;
         }
 
-        // Update bounding sphere for finite (non-Plane) objects
+        // Compute bounding sphere radius for finite (non-Plane) objects.
+        // Planes keep `f32::INFINITY` so they are never culled.
         let obj_radius = match &obj.shape {
             SdfShape::Plane => None,
             SdfShape::Sphere { radius } => Some(*radius),
@@ -219,9 +256,19 @@ impl SdfScene {
                 half_height,
             } => Some(radius.hypot(*half_height)),
             SdfShape::SmoothBlend { .. } => Some(3.0), // conservative estimate
+            SdfShape::Capsule {
+                radius,
+                half_height,
+            } => Some(*radius + *half_height),
+            SdfShape::RoundedBox {
+                half_extents,
+                radius,
+            } => Some(half_extents.length() + *radius),
+            SdfShape::Cone { radius, height } => Some(radius.hypot(*height)),
         };
 
         if let Some(r) = obj_radius {
+            obj.bounding_radius = r;
             self.objects.push(obj);
             self.recompute_bounds(r);
         } else {
@@ -258,6 +305,15 @@ impl SdfScene {
                         half_height,
                     } => radius.hypot(*half_height),
                     SdfShape::SmoothBlend { .. } => 3.0,
+                    SdfShape::Capsule {
+                        radius,
+                        half_height,
+                    } => *radius + *half_height,
+                    SdfShape::RoundedBox {
+                        half_extents,
+                        radius,
+                    } => half_extents.length() + *radius,
+                    SdfShape::Cone { radius, height } => radius.hypot(*height),
                 };
                 let dist = (o.position - self.scene_center).length() + r;
                 max_r = max_r.max(dist);

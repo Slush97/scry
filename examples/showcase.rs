@@ -481,8 +481,10 @@ fn build_showcase(w: u32, h: u32) -> PixelCanvas {
                     line_cap: LineCap::Butt,
                     line_join: LineJoin::Miter,
                     dash: None,
+                    ..scry_engine::scene::style::StrokeStyle::default()
                 }),
                 anti_alias: true,
+                ..ShapeStyle::default()
             },
         });
     }

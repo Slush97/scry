@@ -5,6 +5,7 @@
 
 /// Available optimizer algorithms.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum OptimizerKind {
     /// Stochastic gradient descent with optional Nesterov momentum.
@@ -30,9 +31,9 @@ pub enum OptimizerKind {
 impl Default for OptimizerKind {
     fn default() -> Self {
         Self::Adam {
-            beta1: 0.9,
-            beta2: 0.999,
-            epsilon: 1e-8,
+            beta1: crate::constants::ADAM_BETA1,
+            beta2: crate::constants::ADAM_BETA2,
+            epsilon: crate::constants::ADAM_EPSILON,
         }
     }
 }
@@ -41,7 +42,7 @@ impl OptimizerKind {
     /// SGD with default momentum (0.9, Nesterov).
     pub fn sgd() -> Self {
         Self::Sgd {
-            momentum: 0.9,
+            momentum: crate::constants::SGD_MOMENTUM,
             nesterov: true,
         }
     }

@@ -475,6 +475,7 @@ fn linearsvr_single_sample() {
 // 17. KernelSVC
 // ═════════════════════════════════════════════════════════════════════════
 
+#[cfg(feature = "experimental")]
 #[test]
 fn kernelsvc_empty() {
     let data = empty_dataset();
@@ -483,6 +484,7 @@ fn kernelsvc_empty() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "experimental")]
 #[test]
 fn kernelsvc_single_sample() {
     let data = single_sample_clf();
@@ -823,6 +825,7 @@ fn iforest_extreme_scales() {
 // KernelSVR edge cases
 // ═════════════════════════════════════════════════════════════════════════
 
+#[cfg(feature = "experimental")]
 #[test]
 fn kernel_svr_empty() {
     let data = empty_regression();
@@ -831,6 +834,7 @@ fn kernel_svr_empty() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "experimental")]
 #[test]
 fn kernel_svr_single_sample() {
     let data = Dataset::new(vec![vec![1.0]], vec![5.0], vec!["f".into()], "t");

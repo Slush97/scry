@@ -144,8 +144,8 @@ impl IncrementalRenderer {
     ///
     /// Returns a [`PixelCanvasError`] if rasterization or transmission fails.
     pub fn render_canvas(&mut self, canvas: &PixelCanvas) -> Result<(), PixelCanvasError> {
-        let fw = self.font_size.width.max(1) as u16;
-        let fh = self.font_size.height.max(1) as u16;
+        let fw = self.font_size.width.max(1);
+        let fh = self.font_size.height.max(1);
         let width_cells = (canvas.width() as u16).div_ceil(fw);
         let height_cells = (canvas.height() as u16).div_ceil(fh);
         self.position.width_cells = width_cells;
@@ -184,16 +184,12 @@ impl IncrementalRenderer {
 
         #[cfg(feature = "gpu")]
         {
-            if canvas.gpu_suitable() {
-                if self.gpu_ctx.is_none() {
-                    self.gpu_ctx = Some(WgpuContext2D::new().ok());
-                }
-                if let Some(Some(ref ctx)) = self.gpu_ctx {
-                    if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, canvas) {
-                        pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
-                    } else {
-                        Rasterizer::rasterize_into_cached(canvas, pixmap, gc);
-                    }
+            if self.gpu_ctx.is_none() {
+                self.gpu_ctx = Some(WgpuContext2D::new().ok());
+            }
+            if let Some(Some(ref ctx)) = self.gpu_ctx {
+                if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, canvas) {
+                    pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
                 } else {
                     Rasterizer::rasterize_into_cached(canvas, pixmap, gc);
                 }

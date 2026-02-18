@@ -1153,6 +1153,7 @@ fn draw_glyph(canvas: &mut PixelCanvas, x: f32, y: f32, bits: &[u8], color: C) {
                         fill: Some(scry_engine::scene::style::FillStyle::Solid(color)),
                         stroke: None,
                         anti_alias: false,
+                        ..scry_engine::scene::style::ShapeStyle::default()
                     },
                 });
             }

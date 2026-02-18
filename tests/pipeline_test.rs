@@ -254,6 +254,7 @@ fn push_command_mutable_api() {
             fill: Some(scry_engine::scene::style::FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
+            ..scry_engine::scene::style::ShapeStyle::default()
         },
     });
     assert_eq!(canvas.commands().len(), 1);
@@ -295,6 +296,7 @@ fn dirty_tiles_detected_on_pixel_change() {
             fill: Some(scry_engine::scene::style::FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
+            ..scry_engine::scene::style::ShapeStyle::default()
         },
     });
     let pixmap3 = Rasterizer::rasterize(&canvas3).unwrap();

@@ -771,14 +771,13 @@ pub(crate) fn cull_overlapping_value_labels(
             slice[idx].y_px
         };
         if let Some(prev) = last_kept_pos {
-            if (pos - prev).abs() < min_dist {
-                if !is_protected[idx] {
+            if (pos - prev).abs() < min_dist
+                && !is_protected[idx] {
                     remove[idx] = true;
                     continue;
                 }
                 // Protected overlaps a previous one — keep this, remove the
                 // previous if it isn't also protected (backtrack).
-            }
         }
         last_kept_pos = Some(pos);
     }

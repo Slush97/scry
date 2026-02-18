@@ -91,7 +91,7 @@ impl LogisticRegression {
             learning_rate: 0.01,
             max_iter: 1000,
             alpha: 1.0,
-            tolerance: 1e-6,
+            tolerance: crate::constants::STRICT_TOL,
             class_weight: ClassWeight::Uniform,
             solver: Solver::default(),
             penalty: Penalty::default(),
@@ -215,6 +215,12 @@ impl LogisticRegression {
 
         self.n_classes = data.n_classes();
         let k = self.n_classes;
+
+        // Binary fast path: use sigmoid instead of softmax (halves parameter count).
+        if k == 2 {
+            return self.fit_lbfgs_binary(data);
+        }
+
         let dim = m + 1; // features + bias
 
         // Compute per-sample weights for class imbalance.
@@ -366,6 +372,122 @@ impl LogisticRegression {
             .map(|c| params[c * dim..(c + 1) * dim].to_vec())
             .collect();
 
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// Binary L-BFGS fast path: single weight vector with sigmoid.
+    ///
+    /// For 2-class problems, uses sigmoid(z) instead of softmax over 2 classes,
+    /// halving the parameter count and gradient work.
+    #[allow(clippy::needless_range_loop)]
+    fn fit_lbfgs_binary(&mut self, data: &Dataset) -> Result<()> {
+        let n = data.n_samples();
+        let m = data.n_features();
+        let dim = m + 1; // features + bias
+
+        let sample_weights = compute_sample_weights(&data.target, &self.class_weight);
+        let target_bin: Vec<f64> = data.target.iter().map(|&t| if t as usize == 1 { 1.0 } else { 0.0 }).collect();
+
+        let alpha = self.alpha;
+        let inv_n = 1.0 / n as f64;
+
+        let mut params = vec![0.0; dim];
+
+        let config = lbfgs::LbfgsConfig {
+            max_iter: self.max_iter,
+            tolerance: self.tolerance,
+            history_size: 10,
+        };
+
+        // Pre-allocate buffers reused every closure call.
+        let mut prob = vec![0.0; n];
+
+        lbfgs::minimize(
+            &mut params,
+            |x, grad| {
+                // ── 1. Compute z_i = bias + Σ_j w_j * X_{j,i}, then sigmoid.
+                for i in 0..n {
+                    prob[i] = x[0]; // bias
+                }
+                for j in 0..m {
+                    let w = x[j + 1];
+                    let col = &data.features[j];
+                    for i in 0..n {
+                        prob[i] += w * col[i];
+                    }
+                }
+
+                // Sigmoid + loss.
+                let mut loss = 0.0;
+                for i in 0..n {
+                    let z = prob[i];
+                    // Numerically stable sigmoid and log-loss.
+                    let p = if z >= 0.0 {
+                        1.0 / (1.0 + (-z).exp())
+                    } else {
+                        let ez = z.exp();
+                        ez / (1.0 + ez)
+                    };
+                    prob[i] = p;
+
+                    // Binary cross-entropy: -[y*log(p) + (1-y)*log(1-p)]
+                    let y = target_bin[i];
+                    let log_loss = if z >= 0.0 {
+                        (1.0 - y) * z + (-z).exp().ln_1p()
+                    } else {
+                        -y * z + z.exp().ln_1p()
+                    };
+                    loss += sample_weights[i] * log_loss;
+                }
+
+                // ── 2. Gradient: (1/n) * Σ sw_i * (p_i - y_i) * x_i
+                for g in grad.iter_mut() {
+                    *g = 0.0;
+                }
+
+                // Bias gradient.
+                let mut bias_grad = 0.0;
+                for i in 0..n {
+                    let err = sample_weights[i] * (prob[i] - target_bin[i]);
+                    prob[i] = err; // reuse buffer for weighted errors
+                    bias_grad += err;
+                }
+                grad[0] = bias_grad;
+
+                // Feature gradients column-by-column.
+                for j in 0..m {
+                    let col = &data.features[j];
+                    let mut acc = 0.0;
+                    for i in 0..n {
+                        acc += prob[i] * col[i];
+                    }
+                    grad[j + 1] = acc;
+                }
+
+                // ── 3. Average + L2 regularization.
+                loss *= inv_n;
+                for g in grad.iter_mut() {
+                    *g *= inv_n;
+                }
+
+                if alpha > 0.0 {
+                    let reg_scale = alpha * inv_n;
+                    for j in 1..dim {
+                        let w = x[j];
+                        loss += 0.5 * reg_scale * w * w;
+                        grad[j] += reg_scale * w;
+                    }
+                }
+
+                loss
+            },
+            &config,
+        );
+
+        // Unflatten: class 0 = zero weights (reference), class 1 = learned weights.
+        // softmax([0, z]) produces the same probabilities as sigmoid(z).
+        self.weights = vec![vec![0.0; dim], params];
         self.fitted = true;
         Ok(())
     }
@@ -1241,5 +1363,61 @@ mod tests {
 
         assert!(acc_dense >= 17, "Dense accuracy too low: {acc_dense}/20");
         assert!(acc_sparse >= 17, "Sparse accuracy too low: {acc_sparse}/20");
+    }
+
+    #[test]
+    fn test_binary_sigmoid_matches_predictions() {
+        // Verify binary sigmoid fast path produces correct classifications.
+        let features = vec![(0..40).map(|i| i as f64).collect()];
+        let target: Vec<f64> = (0..40).map(|i| if i < 20 { 0.0 } else { 1.0 }).collect();
+        let data = Dataset::new(features, target.clone(), vec!["x".into()], "class");
+
+        let mut lr = LogisticRegression::new().alpha(0.01).max_iter(200);
+        lr.fit(&data).unwrap();
+
+        // Verify weights structure: class 0 should be all zeros (reference class).
+        assert_eq!(lr.weights().len(), 2, "should have 2 weight vectors");
+        assert!(
+            lr.weights()[0].iter().all(|&w| w == 0.0),
+            "class 0 weights should all be zero (reference class)"
+        );
+        assert!(
+            lr.weights()[1].iter().any(|&w| w != 0.0),
+            "class 1 weights should be non-zero"
+        );
+
+        // Verify predictions are correct.
+        let matrix = data.feature_matrix();
+        let preds = lr.predict(&matrix).unwrap();
+        let acc = preds
+            .iter()
+            .zip(target.iter())
+            .filter(|(p, t)| (*p - *t).abs() < 1e-6)
+            .count() as f64
+            / 40.0;
+        assert!(
+            acc >= 0.90,
+            "binary sigmoid: expected ≥90% accuracy, got {:.1}%",
+            acc * 100.0
+        );
+
+        // Verify probabilities sum to 1.
+        let probas = lr.predict_proba(&[vec![5.0], vec![35.0]]).unwrap();
+        for (idx, probs) in probas.iter().enumerate() {
+            let sum: f64 = probs.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-6,
+                "probabilities for sample {idx} should sum to 1, got {sum}"
+            );
+        }
+        // Low x should predict class 0, high x should predict class 1.
+        assert!(
+            probas[0][0] > probas[0][1],
+            "x=5 should have higher prob for class 0"
+        );
+        assert!(
+            probas[1][1] > probas[1][0],
+            "x=35 should have higher prob for class 1"
+        );
     }
 }

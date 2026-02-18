@@ -1201,7 +1201,7 @@ pub enum Step {
     /// when the longest sub-sequence finishes.
     Parallel {
         /// Sub-sequences to run in parallel.
-        branches: Vec<Vec<Step>>,
+        branches: Vec<Vec<Self>>,
     },
     /// Like Parallel, but each branch starts after a stagger delay.
     /// Branch 0 starts immediately, branch 1 after `delay`, branch 2 after `2*delay`, etc.
@@ -1209,7 +1209,7 @@ pub enum Step {
         /// Delay between each branch start.
         delay: Duration,
         /// Sub-sequences, each started at an offset.
-        branches: Vec<Vec<Step>>,
+        branches: Vec<Vec<Self>>,
     },
 }
 
@@ -1499,11 +1499,9 @@ impl SequencePlayer {
 
         loop {
             // If no active step, try to activate the next one
-            if self.active.is_none() {
-                if !self.activate_current() {
-                    self.complete = true;
-                    return;
-                }
+            if self.active.is_none() && !self.activate_current() {
+                self.complete = true;
+                return;
             }
 
             // Advance the active step
@@ -1591,7 +1589,7 @@ impl SequencePlayer {
             Step::Parallel { branches } => {
                 let players = branches
                     .into_iter()
-                    .map(|steps| SequencePlayer::new(AnimationSequence { steps }))
+                    .map(|steps| Self::new(AnimationSequence { steps }))
                     .collect();
                 self.active = Some(ActiveStep::Parallel { players });
                 true
@@ -1599,9 +1597,9 @@ impl SequencePlayer {
             Step::Stagger { delay, branches } => {
                 let players: Vec<_> = branches
                     .into_iter()
-                    .map(|steps| SequencePlayer::new(AnimationSequence { steps }))
+                    .map(|steps| Self::new(AnimationSequence { steps }))
                     .collect();
-                let initial_started = if players.is_empty() { 0 } else { 1 };
+                let initial_started = usize::from(!players.is_empty());
                 self.active = Some(ActiveStep::Stagger {
                     delay,
                     players,
@@ -1636,7 +1634,7 @@ impl SequencePlayer {
 /// assert!((player.get("opacity").unwrap_or(0.0) - 1.0).abs() < 0.05);
 /// ```
 pub mod preset {
-    use super::*;
+    use super::{AnimationSequence, Duration, Easing, SpringConfig};
 
     /// Fade in: opacity 0 → 1 with ease-out.
     #[must_use]

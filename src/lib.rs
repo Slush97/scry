@@ -182,6 +182,9 @@ pub mod prelude {
     pub use crate::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
     };
+
+    #[cfg(feature = "sdf-gpu")]
+    pub use crate::sdf::{SdfGpuContext, SdfGpuRenderer};
 }
 
 // ---------------------------------------------------------------------------

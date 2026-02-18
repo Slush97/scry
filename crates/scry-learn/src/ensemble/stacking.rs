@@ -118,7 +118,9 @@ impl_ensemble_no_proba!(crate::neighbors::KnnClassifier);
 impl_ensemble_no_proba!(crate::neighbors::KnnRegressor);
 impl_ensemble_no_proba!(crate::svm::LinearSVC);
 impl_ensemble_no_proba!(crate::svm::LinearSVR);
+#[cfg(feature = "experimental")]
 impl_ensemble_no_proba!(crate::svm::KernelSVC);
+#[cfg(feature = "experimental")]
 impl_ensemble_no_proba!(crate::svm::KernelSVR);
 
 // ---------------------------------------------------------------------------

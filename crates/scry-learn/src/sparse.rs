@@ -178,6 +178,8 @@ impl CsrMatrix {
             // Merge duplicates by summing (only within this row).
             let row_start = final_indices.len();
             for &(col, val) in &pairs {
+                // SAFETY: the guard `final_indices.len() > row_start` ensures
+                // final_indices (and parallel final_data) are non-empty.
                 if final_indices.len() > row_start && *final_indices.last().unwrap() == col {
                     *final_data.last_mut().unwrap() += val;
                     continue;

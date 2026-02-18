@@ -214,7 +214,7 @@ const FONT_8X8: [[u8; 8]; 95] = [
 /// Draw a single character onto a pixmap at (px, py) in the given RGBA color.
 fn draw_char(pixmap: &mut Pixmap, px: i32, py: i32, ch: char, r: u8, g: u8, b: u8, a: u8) {
     let idx = ch as u32;
-    if idx < 0x20 || idx > 0x7E {
+    if !(0x20..=0x7E).contains(&idx) {
         return;
     }
     let glyph = &FONT_8X8[(idx - 0x20) as usize];
@@ -499,11 +499,7 @@ impl StatsOverlay {
             } else {
                 (sparkline_w as usize / n).max(1)
             };
-            let skip = if n > sparkline_w as usize {
-                n - sparkline_w as usize
-            } else {
-                0
-            };
+            let skip = n.saturating_sub(sparkline_w as usize);
 
             for (i, &t) in self.frame_times.iter().skip(skip).enumerate() {
                 let frac = ((t - min_t) / range).clamp(0.0, 1.0);

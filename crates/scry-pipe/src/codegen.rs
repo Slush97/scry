@@ -246,7 +246,7 @@ impl RustCodegen {
 /// that could otherwise inject code when feature names are interpolated
 /// into generated source comments.
 fn sanitize_comment_text(s: &str) -> String {
-    s.replace('\n', "_").replace('\r', "_").replace("*/", "_ /")
+    s.replace(['\n', '\r'], "_").replace("*/", "_ /")
 }
 
 /// Emit code for a single pipeline step.

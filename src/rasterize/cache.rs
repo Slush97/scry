@@ -18,13 +18,6 @@ use crate::rasterize::skia::GradientCache;
 /// Size of each tile for dirty tracking, in pixels.
 pub const TILE_SIZE: usize = 64;
 
-/// FNV-1a offset basis for 64-bit hashing.
-/// Used instead of `DefaultHasher` (SipHash-2-4) for faster tile comparison
-/// — ~3–5× faster on sequential byte data with no adversarial-input concern.
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-/// FNV-1a prime for 64-bit hashing.
-const FNV_PRIME: u64 = 0x0100_0000_01b3;
-
 /// A tile region that has changed between frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DirtyTile {
@@ -53,12 +46,13 @@ pub struct RasterCache {
     pixmap: Option<Pixmap>,
     /// Dimensions of the last stored/validated pixmap.
     cached_dims: Option<(u32, u32)>,
-    /// Per-tile hashes of the previous frame for dirty detection.
-    prev_tile_hashes: Vec<u64>,
-    /// Width in tiles of the grid.
-    tiles_x: usize,
-    /// Height in tiles of the grid.
-    tiles_y: usize,
+    /// Raw pixel data of the previous frame for dirty-tile comparison.
+    /// Compared via direct slice equality (`memcmp`) instead of hashing.
+    prev_pixels: Vec<u8>,
+    /// Width (in pixels) of the previous frame.
+    prev_w: usize,
+    /// Height (in pixels) of the previous frame.
+    prev_h: usize,
     /// Persistent gradient cache shared across frames.
     grad_cache: GradientCache,
 }
@@ -71,9 +65,9 @@ impl RasterCache {
             hash: None,
             pixmap: None,
             cached_dims: None,
-            prev_tile_hashes: Vec::new(),
-            tiles_x: 0,
-            tiles_y: 0,
+            prev_pixels: Vec::new(),
+            prev_w: 0,
+            prev_h: 0,
             grad_cache: GradientCache::new(),
         }
     }
@@ -85,9 +79,10 @@ impl RasterCache {
     #[must_use]
     pub fn is_valid(&self, content_hash: u64) -> bool {
         self.hash == Some(content_hash)
-            && self.pixmap.as_ref().map_or(false, |pm| {
-                self.cached_dims == Some((pm.width(), pm.height()))
-            })
+            && self
+                .pixmap
+                .as_ref()
+                .is_some_and(|pm| self.cached_dims == Some((pm.width(), pm.height())))
     }
 
     /// Get the cached pixmap, if the content hash matches.
@@ -155,9 +150,9 @@ impl RasterCache {
         self.hash = None;
         self.pixmap = None;
         self.cached_dims = None;
-        self.prev_tile_hashes.clear();
-        self.tiles_x = 0;
-        self.tiles_y = 0;
+        self.prev_pixels.clear();
+        self.prev_w = 0;
+        self.prev_h = 0;
         self.grad_cache.clear();
     }
 
@@ -227,14 +222,14 @@ impl RasterCache {
         let w = pixmap.width() as usize;
         let h = pixmap.height() as usize;
         // Use free function to avoid self-referential borrow (data borrows
-        // self.pixmap immutably while we need &mut self.prev_tile_hashes).
+        // self.pixmap immutably while we need &mut self.prev_pixels).
         Some(compute_dirty_from_data(
             data,
             w,
             h,
-            &mut self.prev_tile_hashes,
-            &mut self.tiles_x,
-            &mut self.tiles_y,
+            &mut self.prev_pixels,
+            &mut self.prev_w,
+            &mut self.prev_h,
         ))
     }
 
@@ -253,59 +248,38 @@ impl RasterCache {
             data,
             w,
             h,
-            &mut self.prev_tile_hashes,
-            &mut self.tiles_x,
-            &mut self.tiles_y,
+            &mut self.prev_pixels,
+            &mut self.prev_w,
+            &mut self.prev_h,
         )
     }
 }
 
-/// Compute dirty tiles from raw pixel data, comparing per-tile hashes.
+/// Compute dirty tiles by comparing raw pixel data against the previous frame.
 ///
 /// This is a free function (not a method) so that the caller can borrow
-/// pixel data and tile-hash state from different struct fields simultaneously,
-/// avoiding the self-referential borrow problem in `compute_dirty_tiles_cached`.
+/// pixel data and previous-pixel state from different struct fields
+/// simultaneously, avoiding the self-referential borrow problem in
+/// `compute_dirty_tiles_cached`.
+///
+/// Instead of hashing, we compare tile rows directly via slice equality
+/// (`memcmp`). Unchanged tiles short-circuit on the first row; changed
+/// tiles short-circuit on the first differing row.
 fn compute_dirty_from_data(
     data: &[u8],
     w: usize,
     h: usize,
-    prev_tile_hashes: &mut Vec<u64>,
-    tiles_x: &mut usize,
-    tiles_y: &mut usize,
+    prev_pixels: &mut Vec<u8>,
+    prev_w: &mut usize,
+    prev_h: &mut usize,
 ) -> Vec<DirtyTile> {
     let tx = w.div_ceil(TILE_SIZE);
     let ty = h.div_ceil(TILE_SIZE);
-    let total = tx * ty;
+    let stride = w * 4; // bytes per row
 
-    // Take the old hashes out for comparison, then reuse the vec
-    // for computing the current frame's hashes (avoids allocation).
-    let old_hashes = std::mem::take(prev_tile_hashes);
-    let mut current_hashes = Vec::with_capacity(total.max(old_hashes.len()));
-
-    for ty_idx in 0..ty {
-        for tx_idx in 0..tx {
-            let x0 = tx_idx * TILE_SIZE;
-            let y0 = ty_idx * TILE_SIZE;
-            let tw = TILE_SIZE.min(w - x0);
-            let th = TILE_SIZE.min(h - y0);
-
-            let mut hash = FNV_OFFSET;
-            for row in y0..(y0 + th) {
-                let start = (row * w + x0) * 4;
-                let end = start + tw * 4;
-                for &byte in &data[start..end] {
-                    hash ^= u64::from(byte);
-                    hash = hash.wrapping_mul(FNV_PRIME);
-                }
-            }
-            current_hashes.push(hash);
-        }
-    }
-
-    // Compare against previous
     let mut dirty = Vec::new();
 
-    if *tiles_x != tx || *tiles_y != ty || old_hashes.len() != total {
+    if *prev_w != w || *prev_h != h || prev_pixels.len() != w * h * 4 {
         // Dimensions changed — everything is dirty
         for ty_idx in 0..ty {
             for tx_idx in 0..tx {
@@ -318,24 +292,47 @@ fn compute_dirty_from_data(
             }
         }
     } else {
-        for (i, (&prev, &curr)) in old_hashes.iter().zip(current_hashes.iter()).enumerate() {
-            if prev != curr {
-                let col_idx = i % tx;
-                let row_idx = i / tx;
-                dirty.push(DirtyTile {
-                    x: col_idx * TILE_SIZE,
-                    y: row_idx * TILE_SIZE,
-                    width: TILE_SIZE.min(w - col_idx * TILE_SIZE),
-                    height: TILE_SIZE.min(h - row_idx * TILE_SIZE),
-                });
+        // Compare each tile row-by-row, short-circuiting on first difference
+        for ty_idx in 0..ty {
+            for tx_idx in 0..tx {
+                let x0 = tx_idx * TILE_SIZE;
+                let y0 = ty_idx * TILE_SIZE;
+                let tw = TILE_SIZE.min(w - x0);
+                let th = TILE_SIZE.min(h - y0);
+                let row_bytes = tw * 4;
+
+                let mut changed = false;
+                for row in y0..(y0 + th) {
+                    let start = row * stride + x0 * 4;
+                    let end = start + row_bytes;
+                    if data[start..end] != prev_pixels[start..end] {
+                        changed = true;
+                        break;
+                    }
+                }
+
+                if changed {
+                    dirty.push(DirtyTile {
+                        x: x0,
+                        y: y0,
+                        width: tw,
+                        height: th,
+                    });
+                }
             }
         }
     }
 
-    // Store for next frame
-    *prev_tile_hashes = current_hashes;
-    *tiles_x = tx;
-    *tiles_y = ty;
+    // Store current frame for next comparison.
+    // Reuse the allocation when the size matches.
+    if prev_pixels.len() == data.len() {
+        prev_pixels.copy_from_slice(data);
+    } else {
+        prev_pixels.clear();
+        prev_pixels.extend_from_slice(data);
+    }
+    *prev_w = w;
+    *prev_h = h;
 
     dirty
 }

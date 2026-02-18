@@ -400,20 +400,15 @@ impl StatefulWidget for PixelCanvasWidget {
             return;
         };
 
-        // Use GPU when the scene is GPU-friendly, otherwise use CPU directly
         #[cfg(feature = "gpu")]
         {
-            if canvas.gpu_suitable() {
-                // Lazily initialize GPU context on first render; record failure permanently
-                if state.gpu_ctx.is_none() {
-                    state.gpu_ctx = Some(WgpuContext2D::new().ok());
-                }
-                if let Some(Some(ref ctx)) = state.gpu_ctx {
-                    if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, &canvas) {
-                        pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
-                    } else {
-                        Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
-                    }
+            // Lazily initialize GPU context on first render; record failure permanently
+            if state.gpu_ctx.is_none() {
+                state.gpu_ctx = Some(WgpuContext2D::new().ok());
+            }
+            if let Some(Some(ref ctx)) = state.gpu_ctx {
+                if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, &canvas) {
+                    pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
                 } else {
                     Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
                 }

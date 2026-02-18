@@ -39,8 +39,10 @@
 #![allow(clippy::use_self)]
 #![allow(clippy::suspicious_operation_groupings)]
 
-pub mod accel;
+pub(crate) mod accel;
 pub mod anomaly;
+pub mod calibration;
+pub(crate) mod constants;
 pub mod cluster;
 pub mod dataset;
 pub mod distance;
@@ -49,7 +51,7 @@ pub mod error;
 pub mod explain;
 pub mod feature_selection;
 pub mod linear;
-pub mod matrix;
+pub(crate) mod matrix;
 pub mod metrics;
 pub mod naive_bayes;
 pub mod neighbors;
@@ -64,7 +66,7 @@ pub mod split;
 pub mod svm;
 pub mod text;
 pub mod tree;
-pub mod version;
+pub(crate) mod version;
 pub mod viz;
 pub mod weights;
 
@@ -76,8 +78,12 @@ pub mod polars_interop;
 /// Convenience re-exports for common usage.
 pub mod prelude {
     pub use crate::anomaly::IsolationForest;
+    pub use crate::calibration::{
+        CalibratedClassifierCV, CalibrationMethod, IsotonicRegression, PlattScaling,
+    };
     pub use crate::cluster::{
-        silhouette_score, AgglomerativeClustering, Dbscan, KMeans, Linkage, MiniBatchKMeans,
+        silhouette_score, AgglomerativeClustering, Dbscan, Hdbscan, KMeans, Linkage,
+        MiniBatchKMeans,
     };
     pub use crate::dataset::Dataset;
     pub use crate::ensemble::{StackingClassifier, Voting, VotingClassifier};
@@ -124,10 +130,12 @@ pub mod prelude {
         repeated_cross_val_score, stratified_split, time_series_split, train_test_split,
         RepeatedKFold, ScoringFn,
     };
-    pub use crate::svm::{Gamma, Kernel, KernelSVC, KernelSVR, LinearSVC, LinearSVR};
+    #[cfg(feature = "experimental")]
+    pub use crate::svm::{Gamma, Kernel, KernelSVC, KernelSVR};
+    pub use crate::svm::{LinearSVC, LinearSVR};
     pub use crate::text::sparse_to_dataset;
     pub use crate::tree::{
-        DecisionTreeClassifier, DecisionTreeRegressor, FeatureBinner, GradientBoostingClassifier,
+        DecisionTreeClassifier, DecisionTreeRegressor, GradientBoostingClassifier,
         GradientBoostingRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor,
         RandomForestClassifier, RandomForestRegressor, RegressionLoss, SplitCriterion,
     };

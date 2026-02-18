@@ -73,14 +73,18 @@ impl_pipeline_model! {
     crate::linear::ElasticNet,
     crate::svm::LinearSVC,
     crate::svm::LinearSVR,
-    crate::svm::KernelSVC,
-    crate::svm::KernelSVR,
     crate::naive_bayes::BernoulliNB,
     crate::naive_bayes::MultinomialNB,
     crate::tree::HistGradientBoostingClassifier,
     crate::tree::HistGradientBoostingRegressor,
     crate::neural::MLPClassifier,
     crate::neural::MLPRegressor,
+}
+
+#[cfg(feature = "experimental")]
+impl_pipeline_model! {
+    crate::svm::KernelSVC,
+    crate::svm::KernelSVR,
 }
 
 impl Pipeline {
@@ -160,6 +164,32 @@ mod tests {
             .add_transformer(StandardScaler::new())
             .set_model(DecisionTreeClassifier::new());
 
+        pipeline.fit(&data).unwrap();
+        let preds = pipeline.predict(&data).unwrap();
+        assert_eq!(preds.len(), 6);
+    }
+
+    /// Regression test: PCA.transform() invalidates the matrix cache.
+    /// Without lazy rebuild, the next transformer's fit() panics when
+    /// it calls data.matrix().
+    #[test]
+    fn test_pipeline_pca_then_model() {
+        use crate::preprocess::Pca;
+
+        let features = vec![
+            vec![0.0, 0.5, 1.0, 5.0, 5.5, 6.0],
+            vec![0.0, 0.5, 1.0, 5.0, 5.5, 6.0],
+        ];
+        let target = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let data = Dataset::new(features, target, vec!["x".into(), "y".into()], "class");
+
+        let mut pipeline = Pipeline::new()
+            .add_transformer(Pca::with_n_components(2))
+            .add_transformer(StandardScaler::new())
+            .set_model(DecisionTreeClassifier::new());
+
+        // This panics without lazy matrix rebuild:
+        // PCA.transform() invalidates → StandardScaler.fit() calls matrix() → 💥
         pipeline.fit(&data).unwrap();
         let preds = pipeline.predict(&data).unwrap();
         assert_eq!(preds.len(), 6);

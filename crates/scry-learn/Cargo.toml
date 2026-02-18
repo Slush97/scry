@@ -14,6 +14,7 @@ readme = "README.md"
 
 [features]
 default = []
+experimental = []
 csv = ["dep:csv"]
 serde = ["dep:serde"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
@@ -73,6 +74,10 @@ harness = false
 
 [[bench]]
 name = "scaling_benchmark"
+harness = false
+
+[[bench]]
+name = "full_model_benchmark"
 harness = false
 
 [[example]]

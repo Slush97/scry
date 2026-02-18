@@ -104,6 +104,7 @@ fn to_row_major(col_major: &[Vec<f64>]) -> Vec<Vec<f64>> {
 #[test]
 fn test_peak_heap_per_model() {
     let n = 1000;
+    #[cfg(feature = "experimental")]
     let n_ksvc = 200; // KernelSVC is O(n²), use smaller dataset
     let d = 5;
     let (col_cls, target_cls) = gen_classification(n, d);
@@ -373,6 +374,7 @@ fn test_peak_heap_per_model() {
     }
 
     // ── KernelSVC ── (O(n²) — use smaller dataset)
+    #[cfg(feature = "experimental")]
     {
         let cols_small: Vec<Vec<f64>> = col_cls.iter().map(|c| c[..n_ksvc].to_vec()).collect();
         let tgt_small = target_cls[..n_ksvc].to_vec();
@@ -1097,11 +1099,15 @@ fn test_predict_allocations() {
     lsvc.fit(&ds).unwrap();
 
     // KernelSVC is O(n²), use smaller dataset
-    let (col_ksvc, tgt_ksvc) = gen_classification(50, d);
-    let ds_ksvc = make_dataset(col_ksvc, tgt_ksvc, d);
-    let mut ksvc = scry_learn::prelude::KernelSVC::new()
-        .kernel(scry_learn::prelude::Kernel::RBF { gamma: 0.1 });
-    ksvc.fit(&ds_ksvc).unwrap();
+    #[cfg(feature = "experimental")]
+    let ksvc = {
+        let (col_ksvc, tgt_ksvc) = gen_classification(50, d);
+        let ds_ksvc = make_dataset(col_ksvc, tgt_ksvc, d);
+        let mut ksvc = scry_learn::prelude::KernelSVC::new()
+            .kernel(scry_learn::prelude::Kernel::RBF { gamma: 0.1 });
+        ksvc.fit(&ds_ksvc).unwrap();
+        ksvc
+    };
 
     let mut bnb = scry_learn::prelude::BernoulliNB::new();
     bnb.fit(&ds).unwrap();
@@ -1148,6 +1154,7 @@ fn test_predict_allocations() {
             "LinearSVC",
             Box::new(|| lsvc.predict(&single_sample).unwrap()),
         ),
+        #[cfg(feature = "experimental")]
         (
             "KernelSVC",
             Box::new(|| ksvc.predict(&single_sample).unwrap()),
@@ -1621,7 +1628,7 @@ fn test_competitor_memory_comparison() {
 
     // Helper: measure peak heap for a closure
     fn measure<F: FnOnce()>(f: F) -> (usize, f64) {
-        let before = AllocSnapshot::now();
+        let before = AllocSnapshot::reset();
         let t0 = Instant::now();
         f();
         let elapsed = t0.elapsed();

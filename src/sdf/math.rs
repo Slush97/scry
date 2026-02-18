@@ -30,16 +30,19 @@ impl Vec3 {
     };
 
     /// Create a new vector.
+    #[inline]
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 
     /// Dot product.
+    #[inline]
     pub fn dot(self, rhs: Self) -> f32 {
         self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
     }
 
     /// Cross product.
+    #[inline]
     pub fn cross(self, rhs: Self) -> Self {
         Self {
             x: self.y * rhs.z - self.z * rhs.y,
@@ -48,28 +51,38 @@ impl Vec3 {
         }
     }
 
+    /// Squared Euclidean length (avoids sqrt).
+    #[inline]
+    pub fn length_sq(self) -> f32 {
+        self.dot(self)
+    }
+
     /// Euclidean length.
+    #[inline]
     pub fn length(self) -> f32 {
-        self.dot(self).sqrt()
+        self.length_sq().sqrt()
     }
 
     /// Normalize to unit length. Returns zero vector if length is near zero.
+    #[inline]
     pub fn normalize(self) -> Self {
-        let len = self.length();
-        if len < 1e-10 {
+        let len_sq = self.length_sq();
+        if len_sq < 1e-20 {
             Self::ZERO
         } else {
-            self * (1.0 / len)
+            self * (1.0 / len_sq.sqrt())
         }
     }
 
     /// Reflect direction `self` around normal `n`.
+    #[inline]
     pub fn reflect(self, n: Self) -> Self {
         self - n * (2.0 * self.dot(n))
     }
 
     /// Refract direction `self` through surface with normal `n` and IOR ratio `eta`.
     /// Returns `None` for total internal reflection.
+    #[inline]
     pub fn refract(self, n: Self, eta: f32) -> Option<Self> {
         let cos_i = -self.dot(n);
         let sin2_t = eta * eta * (1.0 - cos_i * cos_i);
@@ -81,6 +94,7 @@ impl Vec3 {
     }
 
     /// Component-wise absolute value.
+    #[inline]
     pub fn abs(self) -> Self {
         Self {
             x: self.x.abs(),
@@ -90,6 +104,7 @@ impl Vec3 {
     }
 
     /// Component-wise maximum.
+    #[inline]
     pub fn max_comp(self, rhs: Self) -> Self {
         Self {
             x: self.x.max(rhs.x),
@@ -99,11 +114,13 @@ impl Vec3 {
     }
 
     /// Largest component.
+    #[inline]
     pub fn max_element(self) -> f32 {
         self.x.max(self.y).max(self.z)
     }
 
     /// Component-wise minimum with a scalar.
+    #[inline]
     pub fn min_scalar(self, v: f32) -> Self {
         Self {
             x: self.x.min(v),
@@ -113,9 +130,25 @@ impl Vec3 {
     }
 
     /// Length of the XZ projection.
+    #[inline]
     pub fn length_xz(self) -> f32 {
         self.x.hypot(self.z)
     }
+}
+
+/// Fast reciprocal square root (Quake III style + two Newton–Raphson iterations).
+///
+/// Two iterations give ~46-bit accuracy — effectively full `f32` precision
+/// while still avoiding the division in `1.0 / sqrt(x)`.
+#[inline]
+pub fn fast_inv_sqrt(x: f32) -> f32 {
+    let half = 0.5 * x;
+    let i = f32::to_bits(x);
+    let i = 0x5f37_59df - (i >> 1); // magic constant
+    let mut y = f32::from_bits(i);
+    y = y * (1.5 - half * y * y); // first Newton–Raphson iteration
+    y = y * (1.5 - half * y * y); // second iteration for full f32 precision
+    y
 }
 
 /// Compute a camera basis from eye/target/up.
@@ -132,6 +165,7 @@ pub fn look_at(eye: Vec3, target: Vec3, up: Vec3) -> (Vec3, Vec3, Vec3) {
 
 impl Add for Vec3 {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Self {
             x: self.x + rhs.x,
@@ -143,6 +177,7 @@ impl Add for Vec3 {
 
 impl Sub for Vec3 {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Self {
             x: self.x - rhs.x,
@@ -154,6 +189,7 @@ impl Sub for Vec3 {
 
 impl Mul<f32> for Vec3 {
     type Output = Self;
+    #[inline]
     fn mul(self, s: f32) -> Self {
         Self {
             x: self.x * s,
@@ -165,6 +201,7 @@ impl Mul<f32> for Vec3 {
 
 impl Mul<Vec3> for f32 {
     type Output = Vec3;
+    #[inline]
     fn mul(self, v: Vec3) -> Vec3 {
         v * self
     }
@@ -172,6 +209,7 @@ impl Mul<Vec3> for f32 {
 
 impl Div<f32> for Vec3 {
     type Output = Self;
+    #[inline]
     fn div(self, s: f32) -> Self {
         self * (1.0 / s)
     }
@@ -179,6 +217,7 @@ impl Div<f32> for Vec3 {
 
 impl Neg for Vec3 {
     type Output = Self;
+    #[inline]
     fn neg(self) -> Self {
         Self {
             x: -self.x,

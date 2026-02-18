@@ -35,6 +35,7 @@ use crate::partial_fit::PartialFit;
 ///
 /// Defaults match sklearn: `hidden_layers=[100]`, Adam, lr=0.001,
 /// `max_iter=200`, `batch_size=200`, `alpha=0.0001`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct MLPClassifier {
     hidden_layers: Vec<usize>,
@@ -61,7 +62,10 @@ pub struct MLPClassifier {
     /// Structured training history with per-epoch metrics.
     training_history: TrainingHistory,
     /// User-supplied training callbacks (not cloned — session-specific).
+    #[cfg_attr(feature = "serde", serde(skip))]
     callbacks: Vec<Box<dyn TrainingCallback>>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    _schema_version: u32,
 }
 
 impl Clone for MLPClassifier {
@@ -89,6 +93,7 @@ impl Clone for MLPClassifier {
             training_history: self.training_history.clone(),
             // Callbacks are session-specific and not cloned.
             callbacks: Vec::new(),
+            _schema_version: 0,
         }
     }
 }
@@ -118,6 +123,7 @@ impl MLPClassifier {
             loss_curve: Vec::new(),
             training_history: TrainingHistory::new(),
             callbacks: Vec::new(),
+            _schema_version: 0,
         }
     }
 
@@ -557,28 +563,7 @@ impl PartialFit for MLPClassifier {
         batch_labels.sort_by(|a, b| a.partial_cmp(b).unwrap());
         batch_labels.dedup();
 
-        if !self.is_initialized() {
-            let n_classes = batch_labels.len();
-            if n_classes < 2 {
-                return Err(ScryLearnError::InvalidParameter(
-                    "need at least 2 classes".into(),
-                ));
-            }
-
-            // Build and initialize network.
-            let mut sizes = Vec::with_capacity(self.hidden_layers.len() + 2);
-            sizes.push(n_features);
-            sizes.extend_from_slice(&self.hidden_layers);
-            sizes.push(n_classes);
-
-            let net = Network::new(&sizes, self.activation, self.seed);
-            self.network_weights = net.save_weights();
-            self.network_dims = net.layer_dims();
-            self.n_features = n_features;
-            self.n_classes = n_classes;
-            self.class_labels = batch_labels;
-            self.loss_curve.clear();
-        } else {
+        if self.is_initialized() {
             if n_features != self.n_features {
                 return Err(ScryLearnError::ShapeMismatch {
                     expected: self.n_features,
@@ -601,6 +586,27 @@ impl PartialFit for MLPClassifier {
                     )));
                 }
             }
+        } else {
+            let n_classes = batch_labels.len();
+            if n_classes < 2 {
+                return Err(ScryLearnError::InvalidParameter(
+                    "need at least 2 classes".into(),
+                ));
+            }
+
+            // Build and initialize network.
+            let mut sizes = Vec::with_capacity(self.hidden_layers.len() + 2);
+            sizes.push(n_features);
+            sizes.extend_from_slice(&self.hidden_layers);
+            sizes.push(n_classes);
+
+            let net = Network::new(&sizes, self.activation, self.seed);
+            self.network_weights = net.save_weights();
+            self.network_dims = net.layer_dims();
+            self.n_features = n_features;
+            self.n_classes = n_classes;
+            self.class_labels = batch_labels;
+            self.loss_curve.clear();
         }
 
         // Build row-major data.

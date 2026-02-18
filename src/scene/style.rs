@@ -469,6 +469,10 @@ pub struct StrokeStyle {
     pub line_join: LineJoin,
     /// Optional dash pattern.
     pub dash: Option<DashPattern>,
+    /// Miter limit for `LineJoin::Miter`. Default: 4.0 (SVG/Canvas default).
+    pub miter_limit: f32,
+    /// Optional gradient paint for the stroke. When `Some`, takes priority over `color`.
+    pub paint: Option<FillStyle>,
 }
 
 impl Eq for StrokeStyle {}
@@ -480,6 +484,8 @@ impl Hash for StrokeStyle {
         self.line_cap.hash(state);
         self.line_join.hash(state);
         self.dash.hash(state);
+        self.miter_limit.to_bits().hash(state);
+        self.paint.hash(state);
     }
 }
 
@@ -491,6 +497,8 @@ impl Default for StrokeStyle {
             line_cap: LineCap::default(),
             line_join: LineJoin::default(),
             dash: None,
+            miter_limit: 4.0,
+            paint: None,
         }
     }
 }
@@ -565,6 +573,33 @@ impl Hash for GradientKind {
 }
 
 // ---------------------------------------------------------------------------
+// Fill rule
+// ---------------------------------------------------------------------------
+
+/// Determines how the interior of a path is calculated for filling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum FillRule {
+    /// Non-zero winding rule (SVG/Canvas default).
+    #[default]
+    Winding,
+    /// Even-odd rule — alternating regions are unfilled, creating holes.
+    EvenOdd,
+}
+
+impl FillRule {
+    /// Convert to the corresponding `tiny_skia::FillRule`.
+    #[must_use]
+    pub const fn to_tiny_skia(self) -> tiny_skia::FillRule {
+        match self {
+            Self::Winding => tiny_skia::FillRule::Winding,
+            Self::EvenOdd => tiny_skia::FillRule::EvenOdd,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Fill style
 // ---------------------------------------------------------------------------
 
@@ -591,7 +626,7 @@ impl Default for FillStyle {
 // ---------------------------------------------------------------------------
 
 /// Combined fill and stroke configuration for a shape.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShapeStyle {
     /// How the interior is filled. `None` means no fill.
     pub fill: Option<FillStyle>,
@@ -599,6 +634,47 @@ pub struct ShapeStyle {
     pub stroke: Option<StrokeStyle>,
     /// Whether anti-aliasing is enabled.
     pub anti_alias: bool,
+    /// Fill rule for determining the interior of complex paths.
+    pub fill_rule: FillRule,
+    /// Per-shape opacity (0.0–1.0). Default: 1.0.
+    ///
+    /// When < 1.0, the shape is rendered to a temp pixmap and composited
+    /// with the given opacity — no Group wrapper needed.
+    pub opacity: f32,
+    /// Per-shape transform applied before the parent transform.
+    ///
+    /// `None` means identity (no extra transform).
+    pub transform: Option<Transform>,
+    /// Per-shape blend mode. Default: `SrcOver`.
+    pub blend_mode: BlendMode,
+}
+
+impl Eq for ShapeStyle {}
+
+impl Hash for ShapeStyle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.fill.hash(state);
+        self.stroke.hash(state);
+        self.anti_alias.hash(state);
+        self.fill_rule.hash(state);
+        self.opacity.to_bits().hash(state);
+        self.transform.hash(state);
+        self.blend_mode.hash(state);
+    }
+}
+
+impl Default for ShapeStyle {
+    fn default() -> Self {
+        Self {
+            fill: None,
+            stroke: None,
+            anti_alias: false,
+            fill_rule: FillRule::default(),
+            opacity: 1.0,
+            transform: None,
+            blend_mode: BlendMode::SrcOver,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -769,6 +845,18 @@ pub enum BlendMode {
     Darken,
     /// Keeps the lighter of source and destination.
     Lighten,
+    /// Brightens destination to reflect source.
+    ColorDodge,
+    /// Darkens destination to reflect source.
+    ColorBurn,
+    /// Gentle version of Overlay.
+    SoftLight,
+    /// Combines Multiply and Screen based on source.
+    HardLight,
+    /// Subtracts the darker from the brighter.
+    Difference,
+    /// Lower-contrast version of Difference.
+    Exclusion,
 }
 
 impl BlendMode {
@@ -782,6 +870,12 @@ impl BlendMode {
             Self::Overlay => tiny_skia::BlendMode::Overlay,
             Self::Darken => tiny_skia::BlendMode::Darken,
             Self::Lighten => tiny_skia::BlendMode::Lighten,
+            Self::ColorDodge => tiny_skia::BlendMode::ColorDodge,
+            Self::ColorBurn => tiny_skia::BlendMode::ColorBurn,
+            Self::SoftLight => tiny_skia::BlendMode::SoftLight,
+            Self::HardLight => tiny_skia::BlendMode::HardLight,
+            Self::Difference => tiny_skia::BlendMode::Difference,
+            Self::Exclusion => tiny_skia::BlendMode::Exclusion,
         }
     }
 }

@@ -158,52 +158,50 @@ impl<'a> HitTester<'a> {
             let global_index = base_index + i;
             let has_tag = self.tags.contains_key(&global_index);
 
-            match cmd {
-                DrawCommand::Group {
-                    commands: children,
-                    transform,
-                    clip,
-                    ..
-                } => {
-                    let combined = parent_transform.concat(*transform);
-                    // Apply inverse transform to test point
-                    let Some(inv) = combined.inverse() else {
+            if let DrawCommand::Group {
+                commands: children,
+                transform,
+                clip,
+                ..
+            } = cmd
+            {
+                let combined = parent_transform.concat(*transform);
+                // Apply inverse transform to test point
+                let Some(inv) = combined.inverse() else {
+                    continue;
+                };
+                let local_point = inv.apply_point(point);
+
+                // Check clip region
+                if let Some(clip) = clip {
+                    if !point_in_clip(local_point, clip) {
                         continue;
-                    };
-                    let local_point = inv.apply_point(point);
-
-                    // Check clip region
-                    if let Some(clip) = clip {
-                        if !point_in_clip(local_point, clip) {
-                            continue;
-                        }
                     }
-
-                    self.test_commands(children, point, combined, results, global_index + 1);
                 }
-                _ => {
-                    if !has_tag {
+
+                self.test_commands(children, point, combined, results, global_index + 1);
+            } else {
+                if !has_tag {
+                    continue;
+                }
+
+                // Apply parent inverse transform
+                let test_point = if parent_transform == Transform::IDENTITY {
+                    point
+                } else {
+                    let Some(inv) = parent_transform.inverse() else {
                         continue;
-                    }
-
-                    // Apply parent inverse transform
-                    let test_point = if parent_transform == Transform::IDENTITY {
-                        point
-                    } else {
-                        let Some(inv) = parent_transform.inverse() else {
-                            continue;
-                        };
-                        inv.apply_point(point)
                     };
+                    inv.apply_point(point)
+                };
 
-                    if hit_test_command(cmd, test_point, &self.config) {
-                        let tag = &self.tags[&global_index];
-                        results.push(HitResult {
-                            tag_id: tag.id,
-                            label: tag.label.clone(),
-                            command_index: global_index,
-                        });
-                    }
+                if hit_test_command(cmd, test_point, &self.config) {
+                    let tag = &self.tags[&global_index];
+                    results.push(HitResult {
+                        tag_id: tag.id,
+                        label: tag.label.clone(),
+                        command_index: global_index,
+                    });
                 }
             }
         }
@@ -330,10 +328,12 @@ fn hit_test_command(cmd: &DrawCommand, point: Point, config: &HitTestConfig) -> 
             style,
         } => {
             // Check fill (closed polygon)
-            if *closed && style.fill.is_some() && points.len() >= 3 {
-                if winding_number_test(point, points) {
-                    return true;
-                }
+            if *closed
+                && style.fill.is_some()
+                && points.len() >= 3
+                && winding_number_test(point, points)
+            {
+                return true;
             }
             // Check stroke (edge proximity)
             if let Some(ref stroke) = style.stroke {

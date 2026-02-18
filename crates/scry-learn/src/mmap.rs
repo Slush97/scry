@@ -66,9 +66,15 @@ impl MmapDataset {
     #[allow(unsafe_code)]
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let file = std::fs::File::open(path.as_ref())?;
-        // SAFETY: memmap2::Mmap is safe as long as the file is not modified
-        // externally while mapped. We open read-only and do not expose the
-        // Mmap handle for external mutation.
+        // SAFETY: `Mmap::map` requires that the underlying file is not
+        // concurrently modified (truncated, overwritten) while the mapping
+        // is live — otherwise the OS may deliver SIGBUS or expose
+        // uninitialised pages. We uphold this by:
+        //   1. Opening the file read-only (`File::open`).
+        //   2. Not exposing the `Mmap` handle — it is stored in the
+        //      private `mmap` field and never handed out.
+        //   3. Documenting that callers must not modify the file while
+        //      the `MmapDataset` is alive.
         let mmap = unsafe { Mmap::map(&file) }.map_err(ScryLearnError::Io)?;
         Self::from_mmap(mmap)
     }
@@ -91,6 +97,7 @@ impl MmapDataset {
         let mut pos = 4;
 
         // Version
+        // SAFETY: `buf[pos..pos + 4]` is exactly 4 bytes, matching [u8; 4].
         let version = u32::from_le_bytes(buf[pos..pos + 4].try_into().unwrap());
         pos += 4;
         if version != VERSION {
@@ -100,8 +107,10 @@ impl MmapDataset {
         }
 
         // n_rows, n_cols
+        // SAFETY: `buf[pos..pos + 8]` is exactly 8 bytes, matching [u8; 8].
         let n_rows = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap()) as usize;
         pos += 8;
+        // SAFETY: `buf[pos..pos + 8]` is exactly 8 bytes, matching [u8; 8].
         let n_cols = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap()) as usize;
         pos += 8;
 
@@ -112,6 +121,7 @@ impl MmapDataset {
         }
 
         // n_feature_names
+        // SAFETY: `buf[pos..pos + 8]` is exactly 8 bytes, matching [u8; 8].
         let n_feature_names = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap()) as usize;
         pos += 8;
 
@@ -121,6 +131,7 @@ impl MmapDataset {
                 "file truncated reading target name length".into(),
             ));
         }
+        // SAFETY: `buf[pos..pos + 2]` is exactly 2 bytes, matching [u8; 2].
         let target_name_len = u16::from_le_bytes(buf[pos..pos + 2].try_into().unwrap()) as usize;
         pos += 2;
         if pos + target_name_len > buf.len() {
@@ -144,6 +155,7 @@ impl MmapDataset {
                     "file truncated reading feature name lengths".into(),
                 ));
             }
+            // SAFETY: `buf[pos..pos + 2]` is exactly 2 bytes, matching [u8; 2].
             let len = u16::from_le_bytes(buf[pos..pos + 2].try_into().unwrap()) as usize;
             pos += 2;
             name_lens.push(len);

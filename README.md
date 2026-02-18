@@ -25,10 +25,10 @@ or plug in as a Ratatui widget with caching and dirty-tile diffing.
 | Crate | What it does |
 |-------|--------------|
 | [`scry-engine`](.) | Drawing, rasterization, and terminal transport |
-| [`scry-chart`](crates/scry-chart) | 17 chart types, 6 themes, PNG/SVG export |
+| [`scry-chart`](crates/scry-chart) | 18 chart types, 3D interactive, 6 themes, streaming, PNG/SVG export |
 | [`scry-cli`](crates/scry-cli) | CLI — render charts from JSON/CSV, show images inline |
 | [`scry-learn`](crates/scry-learn) | ML — CART, Random Forest, Gradient Boosting, Linear/Logistic Regression, Lasso, ElasticNet, KNN, Naive Bayes, SVM, K-Means, DBSCAN, preprocessing, cross-validation |
-| [`scry-pipe`](crates/scry-pipe) | Data pipeline DSL (proposal) |
+| [`scry-pipe`](crates/scry-pipe) | Feature pipeline IR + codegen |
 
 ## Quick start
 
@@ -42,7 +42,7 @@ let canvas = PixelCanvas::new(200, 200)
         .stroke(Color::from_rgba8(255, 255, 255, 200), 2.0)
         .done()
     .line(20.0, 180.0, 180.0, 20.0)
-        .stroke_color(Color::from_rgba8(255, 100, 100, 255))
+        .color(Color::from_rgba8(255, 100, 100, 255))
         .width(3.0)
         .done();
 
@@ -76,22 +76,16 @@ Ratatui, or use all three together.
 
 The `scry-chart` crate provides a high-level charting API on top of `scry-engine`:
 
-- **Scatter plots** — with customizable markers and colors
-- **Line charts** — with fills, reference lines, dual Y-axis, and multiple series
-- **Bar charts** — grouped and stacked variants, value labels
-- **Histograms** — frequency and density modes
-- **Box plots** — with whiskers, outliers, and statistical annotations
-- **Heatmaps** — with configurable color scales
-- **Pie charts** — with percentage labels and exploded slices
-- **Radar charts** — spider/web charts with configurable axes
-- **Candlestick charts** — OHLC financial data visualization
+- **16 2D chart types** — scatter, line, bar, histogram, box plot, heatmap, pie, radar, candlestick, bubble, violin, sparkline, waterfall, funnel, gauge, lollipop
+- **3D scatter** — interactive rotation/zoom in the terminal
+- **Streaming charts** — ring-buffer backed, auto-scrolling time axis
 - **Interactive features** — zoom, pan, crosshair cursor, and tooltips
 - **Export** — PNG and SVG output
 - **Themes** — `dark`, `light`, `ocean`, `forest`, `pastel`, and colorblind-safe themes
 
 ## 🎨 Examples
 
-The engine ships with 25 examples. A few highlights:
+The engine ships with 30+ examples. A few highlights:
 
 ```bash
 # Basic shapes and gradients
@@ -121,12 +115,17 @@ See all examples with `ls examples/`.
 | Flag      | Default | Description                                      |
 |-----------|---------|--------------------------------------------------|
 | `kitty`   | ✅      | Kitty graphics protocol backend                  |
+| `widget`  | ✅      | Ratatui `StatefulWidget` integration              |
+| `gpu`     | ✅      | wgpu GPU-accelerated rasterization                |
 | `sixel`   | ❌      | Sixel graphics protocol backend                  |
 | `iterm2`  | ❌      | iTerm2 inline image protocol backend              |
-| `widget`  | ✅      | Ratatui `StatefulWidget` integration              |
 | `text`    | ❌      | Text rendering via `fontdue`                      |
 | `shm`     | ❌      | Zero-copy Kitty transmission via POSIX shared mem |
 | `svg`     | ❌      | SVG rendering via `resvg`                         |
+| `wasm`    | ❌      | WebAssembly canvas bridge                         |
+| `sdf`     | ❌      | SDF shape rendering                               |
+| `window`  | ❌      | Standalone window transport                       |
+| `serde`   | ❌      | Serialize/Deserialize derives                     |
 
 ## 🔧 Minimum Supported Rust Version
 
@@ -140,7 +139,7 @@ See all examples with `ls examples/`.
 | scry-chart | Stable | Semver-protected |
 | scry-learn | Beta | API may evolve |
 | scry-cli | Beta | Commands may change |
-| scry-pipe | Proposal | Not yet implemented |
+| scry-pipe | Beta | Phase 1 shipped, API may evolve |
 
 ## 📄 License
 

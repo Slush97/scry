@@ -13,6 +13,7 @@
 /// - [`Tanh`](Activation::Tanh) — zero-centered alternative to sigmoid
 /// - [`Identity`](Activation::Identity) — output layer for regression
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum Activation {
     /// Rectified Linear Unit: max(0, x).

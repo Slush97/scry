@@ -35,9 +35,15 @@ pub mod renderer;
 pub mod scene;
 pub mod upscale;
 
+#[cfg(feature = "sdf-gpu")]
+pub mod gpu_renderer;
+
 pub use materials::Material;
 pub use math::Vec3;
 pub use profiler::{SdfProfile, SdfProfileHistory, SdfStage};
 pub use renderer::SdfRenderer;
 pub use scene::{SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape};
 pub use upscale::upscale_bicubic;
+
+#[cfg(feature = "sdf-gpu")]
+pub use gpu_renderer::{SdfGpuContext, SdfGpuRenderer};

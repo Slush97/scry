@@ -680,8 +680,10 @@ impl SvgLineDrawing {
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
                     dash,
+                    ..StrokeStyle::default()
                 }),
                 anti_alias: true,
+                ..ShapeStyle::default()
             },
         });
 
@@ -704,8 +706,10 @@ impl SvgLineDrawing {
                             line_cap: LineCap::Round,
                             line_join: LineJoin::Round,
                             dash: Some(trail_dash),
+                            ..StrokeStyle::default()
                         }),
                         anti_alias: true,
+                        ..ShapeStyle::default()
                     },
                 });
             }
@@ -726,6 +730,7 @@ impl SvgLineDrawing {
                         fill: Some(FillStyle::Solid(tip_color)),
                         stroke: None,
                         anti_alias: true,
+                        ..ShapeStyle::default()
                     },
                 });
             }
@@ -761,6 +766,7 @@ impl SvgLineDrawing {
                         fill: Some(FillStyle::Solid(fill_c)),
                         stroke: None,
                         anti_alias: true,
+                        ..ShapeStyle::default()
                     },
                 });
             }

@@ -29,8 +29,8 @@ use std::collections::HashMap;
 use crate::scene::command::FontData;
 use crate::scene::command::{DrawCommand, ImageData, PathData};
 use crate::scene::style::{
-    BlendMode, ClipRegion, Color, DashPattern, FillStyle, GradientDef, GradientKind, GradientStop,
-    LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
+    BlendMode, ClipRegion, Color, DashPattern, FillRule, FillStyle, GradientDef, GradientKind,
+    GradientStop, LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
 };
 
 // ---------------------------------------------------------------------------
@@ -121,41 +121,70 @@ impl PixelCanvas {
         for cmd in cmds {
             match cmd {
                 DrawCommand::Line { stroke, .. } => {
-                    // Dashed lines and non-Butt caps fall back to CPU in the
-                    // GPU rasterizer, so they break z-ordering in the hybrid path.
+                    // Dashed lines, non-Butt caps, and gradient strokes fall back
+                    // to CPU in the GPU rasterizer.
                     if stroke.dash.is_some()
                         || stroke.line_cap != crate::scene::style::LineCap::Butt
+                        || stroke.paint.is_some()
                     {
                         return false;
                     }
                 }
                 DrawCommand::Gradient { .. } | DrawCommand::Clear { .. } => {}
 
-                // Shapes are GPU-native only with solid or no fill.
-                // Gradient fills silently render transparent on GPU.
+                // Shapes are GPU-native only with solid or no fill,
+                // no per-shape opacity/transform, and winding fill rule.
                 DrawCommand::Circle { style, .. }
                 | DrawCommand::Rectangle { style, .. }
                 | DrawCommand::Ellipse { style, .. } => {
+                    if style.opacity < 1.0
+                        || style.transform.is_some()
+                        || style.fill_rule != crate::scene::style::FillRule::Winding
+                        || style.blend_mode != crate::scene::style::BlendMode::SrcOver
+                    {
+                        return false;
+                    }
                     if matches!(
                         &style.fill,
-                        Some(crate::scene::style::FillStyle::LinearGradient(_))
-                            | Some(crate::scene::style::FillStyle::RadialGradient(_))
+                        Some(
+                            crate::scene::style::FillStyle::LinearGradient(_)
+                                | crate::scene::style::FillStyle::RadialGradient(_)
+                        )
                     ) {
                         return false;
                     }
                 }
 
-                // Polylines: stroke-only is GPU-native; fill requires CPU.
+                // Polylines: stroke-only or solid fill is GPU-native.
                 DrawCommand::Polyline { style, .. } => {
-                    if style.fill.is_some() {
+                    if style.opacity < 1.0
+                        || style.transform.is_some()
+                        || style.blend_mode != crate::scene::style::BlendMode::SrcOver
+                    {
+                        return false;
+                    }
+                    // Gradient fills still require CPU
+                    if matches!(
+                        &style.fill,
+                        Some(
+                            crate::scene::style::FillStyle::LinearGradient(_)
+                                | crate::scene::style::FillStyle::RadialGradient(_)
+                        )
+                    ) {
                         return false;
                     }
                 }
 
-                // Always CPU-only
-                DrawCommand::Path { .. } | DrawCommand::Arc { .. } | DrawCommand::Image { .. } => {
-                    return false
+                // Paths and arcs: solid fill with simple compositing is GPU-native
+                // (tessellated to triangles). Gradient fills, strokes, or complex
+                // compositing still fall back to CPU.
+                DrawCommand::Path { style, .. } | DrawCommand::Arc { style, .. } => {
+                    if style.stroke.is_some() || !solid_fill_only(style) {
+                        return false;
+                    }
                 }
+
+                DrawCommand::Image { .. } => return false,
 
                 #[cfg(feature = "text")]
                 DrawCommand::Text { .. } => return false,
@@ -209,7 +238,7 @@ impl PixelCanvas {
     /// if show_border {
     ///     canvas.push_command(DrawCommand::Circle {
     ///         cx: 100.0, cy: 100.0, radius: 50.0,
-    ///         style: ShapeStyle { fill: Some(FillStyle::Solid(Color::RED)), stroke: None, anti_alias: true },
+    ///         style: ShapeStyle { fill: Some(FillStyle::Solid(Color::RED)), stroke: None, anti_alias: true, ..ShapeStyle::default() },
     ///     });
     /// }
     /// ```
@@ -430,6 +459,16 @@ impl PixelCanvas {
     }
 }
 
+/// Returns `true` if the style is compatible with GPU tessellation:
+/// solid or no fill, full opacity, no transform, default blend mode, winding rule.
+fn solid_fill_only(style: &ShapeStyle) -> bool {
+    matches!(&style.fill, Some(FillStyle::Solid(_)) | None)
+        && style.opacity >= 1.0
+        && style.transform.is_none()
+        && style.blend_mode == BlendMode::SrcOver
+        && style.fill_rule == FillRule::Winding
+}
+
 // ---------------------------------------------------------------------------
 // Internal shape kind enum (not public — just for the builder)
 // ---------------------------------------------------------------------------
@@ -482,6 +521,10 @@ pub struct ShapeBuilder {
     anti_alias: bool,
     corner_radius: Option<f32>,
     rotation: Option<f32>,
+    fill_rule: FillRule,
+    opacity: f32,
+    shape_transform: Option<Transform>,
+    blend_mode: BlendMode,
 }
 
 impl ShapeBuilder {
@@ -494,6 +537,10 @@ impl ShapeBuilder {
             anti_alias: true,
             corner_radius: None,
             rotation: None,
+            fill_rule: FillRule::Winding,
+            opacity: 1.0,
+            shape_transform: None,
+            blend_mode: BlendMode::SrcOver,
         }
     }
 
@@ -573,6 +620,59 @@ impl ShapeBuilder {
         self
     }
 
+    /// Set the fill rule for this shape.
+    #[must_use]
+    pub const fn fill_rule(mut self, rule: FillRule) -> Self {
+        self.fill_rule = rule;
+        self
+    }
+
+    /// Set per-shape opacity (0.0–1.0). Default: 1.0.
+    #[must_use]
+    pub const fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
+    /// Set a per-shape transform (applied before the parent/group transform).
+    #[must_use]
+    pub const fn transform(mut self, transform: Transform) -> Self {
+        self.shape_transform = Some(transform);
+        self
+    }
+
+    /// Set the miter limit for the stroke.
+    #[must_use]
+    pub fn miter_limit(mut self, limit: f32) -> Self {
+        self.stroke
+            .get_or_insert_with(StrokeStyle::default)
+            .miter_limit = limit;
+        self
+    }
+
+    /// Set a linear gradient paint for the stroke.
+    #[must_use]
+    pub fn stroke_gradient(mut self, gradient: GradientDef) -> Self {
+        self.stroke.get_or_insert_with(StrokeStyle::default).paint =
+            Some(FillStyle::LinearGradient(gradient));
+        self
+    }
+
+    /// Set a radial gradient paint for the stroke.
+    #[must_use]
+    pub fn stroke_radial_gradient(mut self, gradient: GradientDef) -> Self {
+        self.stroke.get_or_insert_with(StrokeStyle::default).paint =
+            Some(FillStyle::RadialGradient(gradient));
+        self
+    }
+
+    /// Set per-shape blend mode. Default: `SrcOver`.
+    #[must_use]
+    pub const fn blend_mode(mut self, mode: BlendMode) -> Self {
+        self.blend_mode = mode;
+        self
+    }
+
     /// Finish building the shape and add it to the canvas.
     #[must_use]
     pub fn done(self) -> PixelCanvas {
@@ -580,6 +680,10 @@ impl ShapeBuilder {
             fill: self.fill,
             stroke: self.stroke,
             anti_alias: self.anti_alias,
+            fill_rule: self.fill_rule,
+            opacity: self.opacity,
+            transform: self.shape_transform,
+            blend_mode: self.blend_mode,
         };
 
         let cmd = match self.kind {
@@ -709,6 +813,27 @@ impl LineBuilder {
     #[must_use]
     pub fn dash(mut self, pattern: DashPattern) -> Self {
         self.stroke.dash = Some(pattern);
+        self
+    }
+
+    /// Set the miter limit for the stroke.
+    #[must_use]
+    pub const fn miter_limit(mut self, limit: f32) -> Self {
+        self.stroke.miter_limit = limit;
+        self
+    }
+
+    /// Set a linear gradient paint for the stroke.
+    #[must_use]
+    pub fn stroke_gradient(mut self, gradient: GradientDef) -> Self {
+        self.stroke.paint = Some(FillStyle::LinearGradient(gradient));
+        self
+    }
+
+    /// Set a radial gradient paint for the stroke.
+    #[must_use]
+    pub fn stroke_radial_gradient(mut self, gradient: GradientDef) -> Self {
+        self.stroke.paint = Some(FillStyle::RadialGradient(gradient));
         self
     }
 
@@ -1134,18 +1259,38 @@ mod tests {
     }
 
     #[test]
-    fn gpu_suitable_false_with_path() {
-        let mut canvas = PixelCanvas::new(100, 100)
-            .circle(50.0, 50.0, 20.0)
-            .fill(Color::RED)
-            .done();
+    fn gpu_suitable_true_with_solid_fill_path() {
+        let mut canvas = PixelCanvas::new(100, 100);
+        let mut pb = tiny_skia::PathBuilder::new();
+        pb.move_to(10.0, 10.0);
+        pb.line_to(90.0, 10.0);
+        pb.line_to(90.0, 90.0);
+        pb.close();
+        if let Some(path) = pb.finish() {
+            canvas.push_command(crate::scene::command::DrawCommand::Path {
+                path: crate::scene::command::PathData::new(path),
+                style: crate::scene::style::ShapeStyle {
+                    fill: Some(crate::scene::style::FillStyle::Solid(Color::RED)),
+                    ..crate::scene::style::ShapeStyle::default()
+                },
+            });
+        }
+        assert!(canvas.gpu_suitable());
+    }
+
+    #[test]
+    fn gpu_suitable_false_with_stroked_path() {
+        let mut canvas = PixelCanvas::new(100, 100);
         let mut pb = tiny_skia::PathBuilder::new();
         pb.move_to(0.0, 0.0);
         pb.line_to(100.0, 100.0);
         if let Some(path) = pb.finish() {
             canvas.push_command(crate::scene::command::DrawCommand::Path {
                 path: crate::scene::command::PathData::new(path),
-                style: crate::scene::style::ShapeStyle::default(),
+                style: crate::scene::style::ShapeStyle {
+                    stroke: Some(crate::scene::style::StrokeStyle::default()),
+                    ..crate::scene::style::ShapeStyle::default()
+                },
             });
         }
         assert!(!canvas.gpu_suitable());

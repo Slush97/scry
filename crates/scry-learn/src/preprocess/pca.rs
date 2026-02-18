@@ -166,7 +166,7 @@ impl Transformer for Pca {
             .iter()
             .map(|&i| eigenvalues[i].max(0.0))
             .collect();
-        self.explained_variance_ratio = if total > 1e-15 {
+        self.explained_variance_ratio = if total > crate::constants::NEAR_ZERO {
             self.explained_variance.iter().map(|v| v / total).collect()
         } else {
             vec![0.0; k]
@@ -247,7 +247,7 @@ impl Transformer for Pca {
         for c in 0..k {
             let scale = if self.do_whiten {
                 let ev = self.explained_variance[c];
-                if ev > 1e-15 {
+                if ev > crate::constants::NEAR_ZERO {
                     1.0 / ev.sqrt()
                 } else {
                     1.0
@@ -265,7 +265,7 @@ impl Transformer for Pca {
         // Replace dataset features.
         data.features = new_features;
         data.feature_names = (0..k).map(|i| format!("PC{}", i + 1)).collect();
-        data.sync_matrix();
+        data.invalidate_matrix();
         Ok(())
     }
 
@@ -357,7 +357,7 @@ impl Transformer for Pca {
 
         data.features = reconstructed;
         data.feature_names = (0..m).map(|i| format!("x{i}")).collect();
-        data.sync_matrix();
+        data.invalidate_matrix();
         Ok(())
     }
 }
@@ -375,8 +375,8 @@ fn jacobi_eigen(n: usize, a: &mut [f64]) -> (Vec<f64>, Vec<f64>) {
         v[i * n + i] = 1.0;
     }
 
-    let max_sweeps = 100;
-    let tol = 1e-12;
+    let max_sweeps = crate::constants::JACOBI_MAX_SWEEPS;
+    let tol = crate::constants::JACOBI_TOL;
 
     for _sweep in 0..max_sweeps {
         // Off-diagonal Frobenius norm.
@@ -393,12 +393,12 @@ fn jacobi_eigen(n: usize, a: &mut [f64]) -> (Vec<f64>, Vec<f64>) {
         for p in 0..n {
             for q in (p + 1)..n {
                 let apq = a[p * n + q];
-                if apq.abs() < 1e-15 {
+                if apq.abs() < crate::constants::NEAR_ZERO {
                     continue;
                 }
 
                 let diff = a[q * n + q] - a[p * n + p];
-                let t = if diff.abs() < 1e-15 {
+                let t = if diff.abs() < crate::constants::NEAR_ZERO {
                     // θ = π/4 → t = 1
                     1.0
                 } else {

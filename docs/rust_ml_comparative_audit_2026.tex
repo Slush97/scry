@@ -1,0 +1,197 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{pdflscape}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{setspace}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\renewcommand{\arraystretch}{1.17}
+\newcommand{\Y}{\textbf{Y}}
+\newcommand{\Part}{\textbf{P}}
+\newcommand{\N}{\textbf{N}}
+\newcommand{\U}{\textbf{U}}
+
+\title{Professional Comparative Audit of Rust Machine Learning Libraries\\\large Focus Library: \texttt{scry-learn}}
+\author{Prepared in the \texttt{scry} workspace}
+\date{Evidence snapshot: February 18, 2026}
+
+\begin{document}
+\maketitle
+
+\textbf{Abstract.} This audit compares \texttt{scry-learn} against six high-relevance Rust libraries: \texttt{smartcore}, \texttt{linfa}, \texttt{burn}, \texttt{candle}, \texttt{ort}, and \texttt{tract}. The analysis integrates overlap/difference feature coding, maturity indicators, and a pedagogical review grounded in curriculum design and cognitive load principles. Findings: (i) \texttt{scry-learn} is most directly comparable to \texttt{smartcore}/\texttt{linfa} in classical ML; (ii) \texttt{burn}/\texttt{candle} are stronger for deep-learning-centric workflows; (iii) \texttt{ort}/\texttt{tract} dominate ONNX inference deployment; (iv) \texttt{scry-learn} is differentiated by built-in visualization and integrated analysis ergonomics.
+
+\section{Scope and Method}
+\textbf{Goal.} Identify comparable Rust libraries and produce an evidence-backed audit of overlapping and differentiating features, with pedagogical implications.
+
+\textbf{Method.}
+\begin{enumerate}[leftmargin=1.4em]
+\item Primary-source extraction from official docs/repositories and local \texttt{scry-learn} source.
+\item Evidence-coded matrix using:\\
+\Y\ = explicit capability in sampled source; \Part\ = partial/indirect/subcrate/limited; \N\ = not documented in sampled source; \U\ = unclear from sampled source.
+\item Pedagogical interpretation using instructional-scaffolding and cognitive-load framing.
+\end{enumerate}
+
+\textbf{Validity constraints.} This is a documentation-and-source audit, not a fresh runtime benchmark. Where evidence was incomplete, coding is conservative (\U/\Part instead of over-claiming).
+
+\section{Comparability Frame}
+\texttt{scry-learn} provides classical supervised/unsupervised models, preprocessing, search/CV, sparse support, incremental fit patterns, and built-in visualization hooks (workspace source). The most comparable alternatives for core task overlap are \texttt{smartcore} and \texttt{linfa}; \texttt{burn}/\texttt{candle}/\texttt{ort}/\texttt{tract} are adjacent but often solve different layers of the lifecycle (deep training or inference deployment).
+
+\section{Evidence-Coded Overlap Matrix}
+\small
+\begin{landscape}
+\begin{longtable}{p{3.2cm}ccccccc}
+\toprule
+\textbf{Capability} & \textbf{scry-learn} & \textbf{smartcore} & \textbf{linfa} & \textbf{burn} & \textbf{candle} & \textbf{ort} & \textbf{tract} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Capability} & \textbf{scry-learn} & \textbf{smartcore} & \textbf{linfa} & \textbf{burn} & \textbf{candle} & \textbf{ort} & \textbf{tract} \\
+\midrule
+\endhead
+Classical supervised ML & \Y & \Y & \Y & \N & \N & \Part & \Part \\
+Classical unsupervised ML & \Y & \Y & \Y & \N & \N & \Part & \Part \\
+Deep-learning training workflows & \Part & \N & \N & \Y & \Y & \Part & \N \\
+Inference-first deployment focus & \Part & \Part & \Part & \Y & \Y & \Y & \Y \\
+ONNX-native execution path & \N & \N & \N & \U & \Part & \Y & \Y \\
+Pipeline/composition abstractions & \Y & \Part & \Part & \Part & \Part & \N & \N \\
+Hyperparameter search utilities & \Y & \Part & \Part & \N & \N & \N & \N \\
+Preprocessing toolkit & \Y & \Part & \Y & \Part & \Part & \N & \N \\
+Incremental or partial-fit style updates & \Y & \U & \Part & \N & \N & \N & \N \\
+Sparse-data orientation & \Y & \U & \Part & \N & \N & \N & \N \\
+Built-in model diagnostics visualization & \Y & \N & \N & \Part & \N & \N & \N \\
+Multi-backend hardware abstraction & \N & \N & \N & \Y & \Part & \Y & \N \\
+WASM/browser path (documented) & \N & \Y & \U & \Y & \Y & \Part & \U \\
+Remote/distributed execution (documented) & \N & \N & \N & \Y & \Part & \Part & \N \\
+\bottomrule
+\end{longtable}
+\end{landscape}
+\normalsize
+
+\textbf{Interpretive note.} The matrix shows two clusters: classical-ML libraries (\texttt{scry-learn}, \texttt{smartcore}, \texttt{linfa}) and DL/inference-centric systems (\texttt{burn}, \texttt{candle}, \texttt{ort}, \texttt{tract}). Cross-cluster replacement is usually lossy unless your workload is narrow.
+
+\section{Maturity and Documentation Signals}
+\begin{longtable}{p{1.8cm}p{2.25cm}p{1.6cm}p{4.7cm}p{4.1cm}}
+\toprule
+\textbf{Library} & \textbf{Latest observed version} & \textbf{Docs.rs coverage} & \textbf{Primary orientation} & \textbf{Audit interpretation} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Library} & \textbf{Latest observed version} & \textbf{Docs.rs coverage} & \textbf{Primary orientation} & \textbf{Audit interpretation} \\
+\midrule
+\endhead
+\texttt{scry-learn} & 0.7.0 (workspace) & n/a in sampled set & Classical ML + integrated visualization & Feature-rich for applied classical pipelines; maturity labeled beta in workspace docs. \\
+\texttt{smartcore} & 0.4.9 (2026-01-09) & 100\% & Classical supervised/unsupervised ML toolkit & Strong API/documentation signal for production-oriented classical ML. \\
+\texttt{linfa} & 0.8.1 (2025-12-23) & 59.21\% & Scikit-learn-like ecosystem of crates for classical ML & Broad algorithm ecosystem and flexible BLAS options; modularity increases assembly overhead. \\
+\texttt{burn} & 0.20.1 stable; 0.21.0-pre.1 listed & 100\% (meta crate) & Full deep learning framework (training + inference, many backends) & High systems flexibility; faster-moving release stream and backend complexity imply steeper operational curve. \\
+\texttt{candle-core} & 0.9.2 (2026-01-24) & 14.15\% & Minimalist tensor/ML framework with strong model ecosystem & Strong performance/deployment story; lower docs.rs coverage raises onboarding friction for some teams. \\
+\texttt{ort} & 2.0.0-rc.11 (2026-01-07) & 41.98\% & ONNX Runtime wrapper for accelerated inference/training & Excellent deployment fit for ONNX pipelines; release-candidate line indicates evolving API surface. \\
+\texttt{tract-rs} & 0.22.0 (2025-08-26) & 15.38\% & Self-contained ONNX/NNEF/TensorFlow-oriented inference toolkit & High portability and self-contained inference; operator-coverage caveats remain explicit in project docs. \\
+\bottomrule
+\end{longtable}
+
+\section{Differentiation Analysis}
+\textbf{1) \texttt{scry-learn} vs \texttt{smartcore}/\texttt{linfa} (closest competitors).}
+\begin{itemize}[leftmargin=1.4em]
+\item \texttt{scry-learn} differentiates with native model-evaluation visualization in the same library stack.
+\item \texttt{smartcore} emphasizes mature classical coverage, trait-centric API design, and strong docs coverage.
+\item \texttt{linfa} emphasizes ecosystem modularity and algorithm breadth across many subcrates.
+\end{itemize}
+
+\textbf{2) \texttt{scry-learn} vs \texttt{burn}/\texttt{candle}.}
+\begin{itemize}[leftmargin=1.4em]
+\item \texttt{burn}/\texttt{candle} are optimized for tensor/deep workflows with broad hardware backends.
+\item \texttt{scry-learn} is better aligned for classical ML workflows needing integrated diagnostics without external plotting glue.
+\end{itemize}
+
+\textbf{3) \texttt{scry-learn} vs \texttt{ort}/\texttt{tract}.}
+\begin{itemize}[leftmargin=1.4em]
+\item \texttt{ort}/\texttt{tract} are deployment-time inference engines (especially ONNX-centric), not broad classical-ML authoring toolkits.
+\item Practical strategy: treat these as complementary deployment layers rather than direct replacements for model-development ergonomics.
+\end{itemize}
+
+\section{Academic Pedagogical Analysis}
+\textbf{Pedagogical lens.} This section uses three instructional criteria:
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Scaffolding quality:} how easily a learner can move from simple to advanced tasks.
+\item \textbf{Cognitive-load profile:} whether tooling minimizes extraneous complexity while preserving conceptual rigor.
+\item \textbf{Constructive alignment:} how well library affordances align with course/project learning outcomes.
+\end{enumerate}
+
+\begin{longtable}{p{1.8cm}p{2.6cm}p{2.6cm}p{2.6cm}p{5.0cm}}
+\toprule
+\textbf{Library} & \textbf{Novice entry} & \textbf{Intermediate experimentation} & \textbf{Advanced systems learning} & \textbf{Pedagogical interpretation} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Library} & \textbf{Novice entry} & \textbf{Intermediate experimentation} & \textbf{Advanced systems learning} & \textbf{Pedagogical interpretation} \\
+\midrule
+\endhead
+\texttt{scry-learn} & High & High & Medium & Integrated training/evaluation/visual diagnostics can reduce split attention and improve fast feedback loops in applied ML teaching. \\
+\texttt{smartcore} & High & High & Medium & Clear classical APIs and high docs coverage support robust early-stage and mid-stage curricula. \\
+\texttt{linfa} & Medium & High & Medium & Ecosystem modularity is didactically strong for teaching composition, but raises setup complexity for beginners. \\
+\texttt{burn} & Medium & High & High & Excellent for teaching backend abstraction, systems optimization, and deployment transitions in advanced courses. \\
+\texttt{candle} & Medium & Medium/High & High & Strong for model- and performance-centric labs; weaker documentation signal may require instructor scaffolding. \\
+\texttt{ort} & Low (for model-building) & Medium & High & Best used in deployment/serving modules; less suitable as a first library for algorithmic ML understanding. \\
+\texttt{tract} & Low/Medium & Medium & High & Good for portability and edge-inference curricula; requires prior understanding of model-export pipelines. \\
+\bottomrule
+\end{longtable}
+
+\textbf{Pedagogical conclusion.} For an educational sequence, a high-coherence pathway is:
+\begin{enumerate}[leftmargin=1.4em]
+\item classical concepts with \texttt{scry-learn} or \texttt{smartcore};
+\item algorithm/ecosystem composition with \texttt{linfa};
+\item deep tensor systems with \texttt{burn}/\texttt{candle};
+\item deployment and portability with \texttt{ort}/\texttt{tract}.
+\end{enumerate}
+
+\section{Risk Audit}
+\textbf{Key risks and controls.}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Interoperability risk:} \texttt{scry-learn} lacks documented ONNX-native path in sampled material.\\
+\textit{Control:} prioritize export/import bridges to deployment engines.
+\item \textbf{Volatility risk:} \texttt{ort} is on an RC line; \texttt{burn} shows active pre-release cadence.\\
+\textit{Control:} pin versions, maintain compatibility tests, and use feature-gated adapters.
+\item \textbf{Documentation asymmetry:} docs coverage differs materially across libraries.\\
+\textit{Control:} maintain internal examples/playbooks for low-coverage dependencies.
+\end{enumerate}
+
+\section{Actionable Recommendations for \texttt{scry-learn}}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Build interoperability first:} add ONNX export/import or direct adapters to \texttt{ort}/\texttt{tract} handoff.
+\item \textbf{Formalize pedagogical examples:} provide tiered notebooks/examples (intro, intermediate, deployment).
+\item \textbf{Strengthen capability signaling:} publish a maintained compatibility matrix (algorithms, sparse, partial-fit, serialization, deployment paths).
+\item \textbf{Preserve differentiation:} keep integrated diagnostics/visualization as the flagship advantage versus classical peers.
+\end{enumerate}
+
+\section{Final Assessment}
+\texttt{scry-learn} is a credible classical-ML Rust stack with a distinctive visualization-centered workflow. For teams needing deep-learning framework breadth or ONNX-first production inference, \texttt{burn}/\texttt{candle}/\texttt{ort}/\texttt{tract} are stronger in their respective niches. The highest-value strategic move is interoperability: keep \texttt{scry-learn}'s integrated modeling and diagnostics experience, while enabling seamless deployment bridges into inference-specialized runtimes.
+
+\section*{Sources}
+\small
+\begin{enumerate}[leftmargin=1.3em]
+\item Workspace source: \texttt{crates/scry-learn/README.md}
+\item Workspace source: \texttt{crates/scry-learn/src/lib.rs}
+\item smartcore docs.rs: \url{https://docs.rs/crate/smartcore/latest}
+\item linfa docs.rs: \url{https://docs.rs/crate/linfa/latest}
+\item linfa repository README: \url{https://github.com/rust-ml/linfa}
+\item burn docs.rs: \url{https://docs.rs/crate/burn/latest}
+\item candle repository README: \url{https://github.com/huggingface/candle}
+\item candle-core docs.rs: \url{https://docs.rs/crate/candle-core/latest}
+\item ort docs.rs: \url{https://docs.rs/crate/ort/latest}
+\item ort repository README: \url{https://github.com/pykeio/ort}
+\item tract repository README: \url{https://github.com/sonos/tract}
+\item tract-rs docs.rs: \url{https://docs.rs/crate/tract-rs/latest}
+\end{enumerate}
+
+\end{document}

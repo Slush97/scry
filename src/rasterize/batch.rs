@@ -125,14 +125,20 @@ fn append_round_rect(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, cr: f
 ///
 /// Lines are excluded because they use a different render path (stroke-only,
 /// no fill, separate anti-alias flag).
-const fn batchable_style(cmd: &DrawCommand) -> Option<&ShapeStyle> {
+fn batchable_style(cmd: &DrawCommand) -> Option<&ShapeStyle> {
     match cmd {
         DrawCommand::Circle { style, .. }
         | DrawCommand::Rectangle { style, .. }
         | DrawCommand::Ellipse { style, .. }
         | DrawCommand::Arc { style, .. }
         | DrawCommand::Polyline { style, .. }
-        | DrawCommand::Path { style, .. } => Some(style),
+        | DrawCommand::Path { style, .. } => {
+            // Per-shape transforms can't be merged into a compound path.
+            if style.transform.is_some() {
+                return None;
+            }
+            Some(style)
+        }
         // Not batchable: different render paths
         DrawCommand::Gradient { .. }
         | DrawCommand::Group { .. }
@@ -335,6 +341,7 @@ mod tests {
             fill: Some(FillStyle::Solid(Color::RED)),
             stroke: None,
             anti_alias: true,
+            ..ShapeStyle::default()
         }
     }
 
@@ -343,6 +350,7 @@ mod tests {
             fill: Some(FillStyle::Solid(Color::BLUE)),
             stroke: None,
             anti_alias: true,
+            ..ShapeStyle::default()
         }
     }
 

@@ -280,6 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mode_str = match mode {
             DrawMode::Sequential => "seq",
             DrawMode::Simultaneous => "sim",
+            _ => "?",
         };
         let easing_str = match easing_idx {
             0 => "none",
@@ -339,7 +340,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Char('m') => {
                             mode = match mode {
                                 DrawMode::Sequential => DrawMode::Simultaneous,
-                                DrawMode::Simultaneous => DrawMode::Sequential,
+                                _ => DrawMode::Sequential,
                             };
                             anim_start = Instant::now();
                         }

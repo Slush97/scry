@@ -7,11 +7,11 @@ Vector graphics engine for the terminal + charting library + ML toolkit.
 | Crate | Path | Purpose |
 |-------|------|---------|
 | `scry-engine` | `src/` | Core engine: scene builder, rasterizer (tiny-skia), transport (Kitty/Sixel/iTerm2/halfblock) |
-| `scry-chart` | `crates/scry-chart/` | 19 chart types, 6 themes, PNG/SVG export, 3D interactive viz |
+| `scry-chart` | `crates/scry-chart/` | 18 chart types, 6 themes, PNG/SVG export, 3D interactive viz |
 | `scry-learn` | `crates/scry-learn/` | 23+ ML models, preprocessing, metrics, GridSearchCV, GPU accel |
 | `scry-cli` | `crates/scry-cli/` | CLI tool (`scry` binary) |
 | `scry-pipe` | `crates/scry-pipe/` | Feature pipeline IR + codegen |
-| `examples/` | `examples/` | 25+ demo programs for the core engine |
+| `examples/` | `examples/` | 30+ demo programs for the core engine |
 | `fuzz/` | `fuzz/` | libfuzzer targets (cart, scaler, neural, chart) |
 
 ## Commands
@@ -49,21 +49,23 @@ cargo doc -p scry-engine --all-features --open
 
 - **Rust** (MSRV 1.83.0)
 - **tiny-skia** — 2D rasterization
-- **fontdue** — text rendering (feature `text`)
+- **fontdue** — text rendering (engine feature `text`, always-on in scry-chart)
 - **ratatui** — widget integration (feature `widget`)
-- **rayon** — parallel training (RF, GBT)
-- **wgpu** — GPU compute shaders (feature `gpu`)
-- **serde/clap** — CLI parsing
+- **rayon** — parallel computation (scry-learn, scry-pipe, scry-engine)
+- **wgpu** — GPU rasterization + ML compute (feature `gpu`)
+- **clap** — CLI parsing (scry-cli only)
+- **serde** — serialization (optional in scry-engine/scry-learn)
 
 ## Architecture Rules
 
 ### Code Conventions
-- `#[non_exhaustive]` on all public types
+- `#[non_exhaustive]` on public enums and error types
 - Builder pattern: `model.n_estimators(100).max_depth(8)`
 - `unsafe_code = "deny"` in scry-learn — no unsafe allowed
 - Column-major data: `Dataset.features[feature_idx][sample_idx]`
 - Deterministic RNG: `fastrand::Rng::with_seed(42)` for all data generation in tests/benchmarks
-- Feature flags: `kitty` (default), `sixel`, `iterm2`, `widget` (default), `text`, `shm`, `svg`, `gpu`, `csv`, `serde`
+- Feature flags (scry-engine): `kitty` (default), `widget` (default), `gpu` (default), `sixel`, `iterm2`, `text`, `shm`, `svg`, `wasm`, `sdf`, `window`, `serde`
+- Feature flags (scry-learn): `gpu`, `csv`, `serde`, `polars`, `mmap`
 
 ### Test & Benchmark Integrity
 - **No marketing language in test/benchmark files.** Output only measured numbers. No feature comparison tables with checkmarks.
@@ -96,30 +98,8 @@ Before any commit touching benchmarks:
 - Verify all accuracy numbers use train/test split or are labeled as train=test
 - Verify checksums are printed for cross-machine verification
 
-## Concurrent Agent Safety
-
-Multiple agents may work on this repo simultaneously. Conflict zones:
-
-| Zone | Owner | Do NOT touch |
-|------|-------|-------------|
-| `src/sparse.rs` | Agent 13 (sparse polish) | Fixing from_triplets dedup bug |
-| `src/linear/*.rs` | Agent 13 (sparse polish) | Adding auto-dispatch in fit() |
-| `src/naive_bayes/gaussian.rs` | Agent 13 (sparse polish) | Adding auto-dispatch in fit() |
-| `src/preprocess/scaler.rs` | Agent 13 (sparse polish) | Adding auto-dispatch in fit() |
-| `src/neighbors/knn.rs` | Agent 13 (sparse polish) | True sparse distance + auto-dispatch |
-| `benches/predict_latency.rs` | Agent 14 (predict bench) | New benchmark file |
-| `crates/*/Cargo.toml`, `CHANGELOG.md` | Agent 15 (pre-publish) | Metadata + headers |
-| `crates/scry-chart/src/streaming.rs` | Agent 16 (streaming charts) | New module |
-
-Safe zones (no concurrent work):
-- `crates/scry-learn/tests/` — test files
-- `crates/scry-learn/src/tree/` — no current agents
-- `crates/scry-learn/src/accel/` — no current agents
-- `crates/scry-learn/src/neural/` — no current agents
-- `crates/scry-pipe/src/` — no current agents
-
 ## Known Issues
 
-- DenseMatrix migration done (Sprint 12B) — scaling benchmarks written (Sprint 12C), validated at 100K/1M/10K×10K tiers.
-- CART builder optimized (Sprint 12.5) — scaling benchmarks validate scry parity with smartcore (R²=0.593 vs 0.578 on linear data, fit time comparable). Depth-8 tree R² on purely linear data is inherently limited by axis-aligned splits.
-- linfa-elasticnet Lasso/ElasticNet R² mismatch — **resolved**. Root cause: linfa uses per-sample penalty scaling (like R's glmnet) and requires standardized features. Test now standardizes features and converts penalty (`linfa_penalty = scry_alpha / n_train`). Both libraries achieve R²≥0.999.
+- Gaussian NB digits accuracy −2.2% vs sklearn — var_smoothing differences
+- KNN iris accuracy −2.7% vs sklearn — inherent to 150-sample dataset
+- `scry-chart/src/formatter/mod.rs` still 915 lines — needs locale extraction

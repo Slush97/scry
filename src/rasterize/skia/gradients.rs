@@ -24,20 +24,14 @@ impl Rasterizer {
         hasher.finish()
     }
 
-    /// Build a gradient `Paint`, using stack-allocated stops to avoid
-    /// heap allocation in the hot rasterization loop.
+    /// Build a gradient `Paint` from a gradient definition.
     pub(super) fn gradient_to_paint(
         gradient: &GradientDef,
         _bounds: &crate::scene::style::Rect,
     ) -> Paint<'static> {
-        // Stack-allocated array: 8 stops covers virtually all real-world
-        // gradients without a heap allocation.
-        let mut stops = arrayvec::ArrayVec::<tiny_skia::GradientStop, 8>::new();
+        let mut stops = Vec::with_capacity(gradient.stops.len());
         for s in &gradient.stops {
             if let Some(c) = s.color.to_tiny_skia() {
-                if stops.is_full() {
-                    break;
-                }
                 stops.push(tiny_skia::GradientStop::new(s.position, c));
             }
         }
@@ -54,9 +48,7 @@ impl Rasterizer {
             return paint;
         }
 
-        // tiny-skia gradient constructors take Vec<GradientStop>;
-        // we convert from our stack array only here.
-        let stops_vec: Vec<_> = stops.into_iter().collect();
+        let stops_vec = stops;
 
         match &gradient.kind {
             GradientKind::Linear { start, end } => {

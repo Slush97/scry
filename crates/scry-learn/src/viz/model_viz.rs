@@ -829,7 +829,7 @@ fn weight_heatmap_impl(
         .row_labels(row_labels)
         .col_labels(col_labels)
         .range(-abs_max, abs_max)
-        .title(&format!(
+        .title(format!(
             "Layer {} Weights ({in_size} -> {out_size})",
             idx + 1
         ))

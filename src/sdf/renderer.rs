@@ -22,11 +22,47 @@ use super::scene::{SdfObject, SdfScene, SdfShape};
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const MAX_STEPS: u32 = 48;
-const SHADOW_MAX_STEPS: u32 = 24;
 const MAX_DIST: f32 = 50.0;
 const SURF_DIST: f32 = 0.002;
 const NORMAL_EPS: f32 = 0.002;
+
+/// Over-relaxation factor for enhanced sphere tracing (Keinert et al. 2014).
+const OMEGA: f32 = 1.6;
+
+/// Distance threshold: below this, fall back to conservative stepping.
+const RELAX_DIST: f32 = 0.1;
+
+/// Soft shadow penumbra sharpness.
+const SHADOW_K: f32 = 16.0;
+
+/// Per-bounce quality budget that degrades gracefully for deeper bounces.
+struct RayBudget {
+    march_steps: u32,
+    shadow_steps: u32,
+    do_shadows: bool,
+}
+
+impl RayBudget {
+    fn for_bounce(bounce: u32) -> Self {
+        match bounce {
+            0 => Self {
+                march_steps: 128,
+                shadow_steps: 32,
+                do_shadows: true,
+            },
+            1 => Self {
+                march_steps: 64,
+                shadow_steps: 16,
+                do_shadows: true,
+            },
+            _ => Self {
+                march_steps: 48,
+                shadow_steps: 0,
+                do_shadows: false,
+            },
+        }
+    }
+}
 
 // ── Public API ──────────────────────────────────────────────────────
 
@@ -50,35 +86,34 @@ impl SdfRenderer {
         let fov_scale = (scene.camera.fov.to_radians() * 0.5).tan();
         let aspect = width as f32 / height as f32;
 
-        let pixels = pixmap.pixels_mut();
+        let black = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
+        let mut pixel_buf = vec![black; (width * height) as usize];
 
-        // Parallel: each row is traced independently
-        let row_pixels: Vec<Vec<tiny_skia::PremultipliedColorU8>> = (0..height)
-            .into_par_iter()
-            .map(|y| {
+        pixel_buf
+            .par_chunks_mut(width as usize)
+            .enumerate()
+            .for_each(|(y, row)| {
                 let ndc_y = (1.0 - 2.0 * (y as f32 + 0.5) / height as f32) * fov_scale;
-                (0..width)
-                    .map(|x| {
-                        let ndc_x =
-                            (2.0 * (x as f32 + 0.5) / width as f32 - 1.0) * aspect * fov_scale;
-                        let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
-                        let color = shade_ray(scene, scene.camera.eye, dir, time, 0);
-                        tiny_skia::PremultipliedColorU8::from_rgba(
-                            (color.r.clamp(0.0, 1.0) * 255.0) as u8,
-                            (color.g.clamp(0.0, 1.0) * 255.0) as u8,
-                            (color.b.clamp(0.0, 1.0) * 255.0) as u8,
-                            255,
-                        )
-                        .unwrap()
-                    })
-                    .collect()
-            })
-            .collect();
+                for (x, pixel) in row.iter_mut().enumerate() {
+                    let ndc_x = (2.0 * (x as f32 + 0.5) / width as f32 - 1.0) * aspect * fov_scale;
+                    let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
+                    let color = shade_ray(scene, scene.camera.eye, dir, time, 0);
+                    let (r, g, b) = if scene.tone_map {
+                        (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
+                    } else {
+                        (color.r, color.g, color.b)
+                    };
+                    *pixel = tiny_skia::PremultipliedColorU8::from_rgba(
+                        gamma_encode(r),
+                        gamma_encode(g),
+                        gamma_encode(b),
+                        255,
+                    )
+                    .unwrap();
+                }
+            });
 
-        for (y, row) in row_pixels.into_iter().enumerate() {
-            let offset = y * width as usize;
-            pixels[offset..offset + width as usize].copy_from_slice(&row);
-        }
+        pixmap.pixels_mut().copy_from_slice(&pixel_buf);
 
         Ok(pixmap)
     }
@@ -104,8 +139,6 @@ impl SdfRenderer {
         let fov_scale = (scene.camera.fov.to_radians() * 0.5).tan();
         let aspect = width as f32 / height as f32;
 
-        let pixels = pixmap.pixels_mut();
-
         let row_results: Vec<(Vec<tiny_skia::PremultipliedColorU8>, RowProfile)> = (0..height)
             .into_par_iter()
             .map(|y| {
@@ -124,10 +157,15 @@ impl SdfRenderer {
                             0,
                             &mut row_profile,
                         );
+                        let (r, g, b) = if scene.tone_map {
+                            (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
+                        } else {
+                            (color.r, color.g, color.b)
+                        };
                         tiny_skia::PremultipliedColorU8::from_rgba(
-                            (color.r.clamp(0.0, 1.0) * 255.0) as u8,
-                            (color.g.clamp(0.0, 1.0) * 255.0) as u8,
-                            (color.b.clamp(0.0, 1.0) * 255.0) as u8,
+                            gamma_encode(r),
+                            gamma_encode(g),
+                            gamma_encode(b),
                             255,
                         )
                         .unwrap()
@@ -137,6 +175,7 @@ impl SdfRenderer {
             })
             .collect();
 
+        let pixels = pixmap.pixels_mut();
         let mut row_profiles = Vec::with_capacity(height as usize);
         for (y, (row, profile)) in row_results.into_iter().enumerate() {
             let offset = y * width as usize;
@@ -239,37 +278,79 @@ impl SdfRenderer {
         let fov_scale = (scene.camera.fov.to_radians() * 0.5).tan();
         let aspect = width as f32 / height as f32;
 
-        // Parallel: each row traced independently, then flattened
-        let data: Vec<u8> = (0..height)
-            .into_par_iter()
-            .flat_map(|y| {
+        let mut data = vec![0u8; (width * height * 4) as usize];
+
+        data.par_chunks_mut(width as usize * 4)
+            .enumerate()
+            .for_each(|(y, row)| {
                 let ndc_y = (1.0 - 2.0 * (y as f32 + 0.5) / height as f32) * fov_scale;
-                let mut row = Vec::with_capacity(width as usize * 4);
-                for x in 0..width {
+                for x in 0..width as usize {
                     let ndc_x = (2.0 * (x as f32 + 0.5) / width as f32 - 1.0) * aspect * fov_scale;
                     let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
                     let color = shade_ray(scene, scene.camera.eye, dir, time, 0);
-                    row.push((color.r.clamp(0.0, 1.0) * 255.0) as u8);
-                    row.push((color.g.clamp(0.0, 1.0) * 255.0) as u8);
-                    row.push((color.b.clamp(0.0, 1.0) * 255.0) as u8);
-                    row.push(255);
+                    let (r, g, b) = if scene.tone_map {
+                        (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
+                    } else {
+                        (color.r, color.g, color.b)
+                    };
+                    let off = x * 4;
+                    row[off] = gamma_encode(r);
+                    row[off + 1] = gamma_encode(g);
+                    row[off + 2] = gamma_encode(b);
+                    row[off + 3] = 255;
                 }
-                row
-            })
-            .collect();
+            });
 
         ImageData::new(width, height, data)
     }
 }
 
+// ── Gamma correction ────────────────────────────────────────────────
+
+/// Encode a linear-space color channel to sRGB (gamma 1/2.2), returning a u8.
+#[inline]
+fn gamma_encode(linear: f32) -> u8 {
+    (linear.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8
+}
+
+/// Reinhard tone mapping: maps HDR [0, ∞) to LDR [0, 1).
+#[inline]
+fn tone_map_reinhard(c: f32) -> f32 {
+    c / (1.0 + c)
+}
+
+/// Apply distance fog: blends `color` toward `fog_color` based on distance.
+#[inline]
+fn apply_fog(color: Color, fog_color: Color, fog_density: f32, distance: f32) -> Color {
+    let fog_factor = (-fog_density * distance).exp();
+    lerp_color(fog_color, color, fog_factor)
+}
+
 // ── Internal ray marching ───────────────────────────────────────────
 
 /// Evaluate the entire scene SDF at `point`, returning `(distance, object_index)`.
+///
+/// Uses per-object bounding spheres for early culling: if the distance from
+/// `point` to the object's center minus the bounding radius already exceeds
+/// `min_dist`, the full SDF evaluation is skipped. Planes have
+/// `bounding_radius = INFINITY` so they are never culled.
+#[inline]
 fn scene_sdf(scene: &SdfScene, point: Vec3, time: f32) -> (f32, usize) {
     let mut min_dist = MAX_DIST;
     let mut closest = 0;
 
     for (i, obj) in scene.objects.iter().enumerate() {
+        // Bounding-sphere cull (squared-distance version — avoids sqrt).
+        // The SDF of a shape can never be less than
+        // (center_distance - bounding_radius). If that already exceeds
+        // `min_dist`, this object can't be the closest — skip it.
+        let delta = point - obj.position;
+        let dist_sq = delta.length_sq();
+        let threshold = min_dist + obj.bounding_radius;
+        if dist_sq > threshold * threshold {
+            continue;
+        }
+
         let d = object_sdf(obj, point, time);
         if d < min_dist {
             min_dist = d;
@@ -281,6 +362,7 @@ fn scene_sdf(scene: &SdfScene, point: Vec3, time: f32) -> (f32, usize) {
 }
 
 /// Evaluate the SDF for a single object, handling water displacement.
+#[inline]
 fn object_sdf(obj: &SdfObject, point: Vec3, time: f32) -> f32 {
     let local = primitives::translate(point, obj.position);
 
@@ -310,6 +392,7 @@ fn object_sdf(obj: &SdfObject, point: Vec3, time: f32) -> f32 {
 }
 
 /// Evaluate the raw SDF for a shape.
+#[inline]
 fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
     match shape {
         SdfShape::Sphere { radius } => primitives::sd_sphere(p, *radius),
@@ -325,6 +408,15 @@ fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
             let db = shape_sdf(b, p - *b_offset);
             primitives::smooth_min(da, db, *k)
         }
+        SdfShape::Capsule {
+            radius,
+            half_height,
+        } => primitives::sd_capsule(p, *radius, *half_height),
+        SdfShape::RoundedBox {
+            half_extents,
+            radius,
+        } => primitives::sd_rounded_box(p, *half_extents, *radius),
+        SdfShape::Cone { radius, height } => primitives::sd_cone(p, *radius, *height),
     }
 }
 
@@ -355,6 +447,7 @@ fn estimate_normal(scene: &SdfScene, point: Vec3, obj_idx: usize, time: f32) -> 
 }
 
 /// Tetrahedron technique fallback for normals (4 SDF evals).
+#[inline]
 fn estimate_normal_numerical(scene: &SdfScene, point: Vec3, time: f32) -> Vec3 {
     let e = NORMAL_EPS;
     let k0 = Vec3::new(1.0, -1.0, -1.0);
@@ -383,15 +476,54 @@ fn water_normal(x: f32, z: f32, time: f32, amplitude: f32, frequency: f32) -> Ve
 }
 
 /// Sphere-trace from `origin` along `dir`. Returns `Some((hit_point, obj_index, total_dist))`.
-fn ray_march(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32) -> Option<(Vec3, usize, f32)> {
-    let mut t = 0.0_f32;
-    for _ in 0..MAX_STEPS {
+///
+/// Uses enhanced sphere tracing (over-relaxation ω=1.6) for ~30-40% fewer
+/// steps on average. Step budget comes from `RayBudget` based on bounce depth.
+/// Distance-adaptive relaxation: uses ω=1.6 far from surfaces, ω=1.0 near
+/// them. Includes rewind-on-overshoot fallback for correctness.
+#[inline]
+fn ray_march(
+    scene: &SdfScene,
+    origin: Vec3,
+    dir: Vec3,
+    time: f32,
+    budget: &RayBudget,
+) -> Option<(Vec3, usize, f32)> {
+    let mut t = SURF_DIST;
+    let mut prev_d = 0.0_f32;
+    let mut prev_step = 0.0_f32;
+    // Primary rays on non-water scenes: always use full relaxation.
+    let always_relax = !scene.has_water;
+    let mut omega = if always_relax { OMEGA } else { 1.0_f32 };
+
+    for _ in 0..budget.march_steps {
         let p = origin + dir * t;
         let (d, idx) = scene_sdf(scene, p, time);
         if d < SURF_DIST {
             return Some((p, idx, t));
         }
-        t += d;
+
+        if !always_relax {
+            // Distance-adaptive: relax when far from surfaces, conservative when close.
+            omega = if d > RELAX_DIST { OMEGA } else { 1.0 };
+        }
+
+        // Over-relaxation with automatic fallback: if the two successive SDF
+        // balls don't cover the step we took, we may have overshot a surface.
+        // Rewind to the safe conservative position and go conservative (ω=1)
+        // for the rest of the march.
+        if omega > 1.0 && prev_step > 0.0 && d + prev_d < prev_step {
+            t -= prev_step - prev_d; // rewind to prev_pos + prev_d (safe)
+            omega = 1.0;
+            prev_d = 0.0;
+            prev_step = 0.0;
+            continue; // re-evaluate SDF at the safe position
+        }
+
+        let step = d * omega;
+        prev_d = d;
+        prev_step = step;
+        t += step;
         if t > MAX_DIST {
             break;
         }
@@ -399,159 +531,96 @@ fn ray_march(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32) -> Option<(Ve
     None
 }
 
-/// Fast shadow test — only needs to know if *anything* is hit before `max_t`.
-fn shadow_march(scene: &SdfScene, origin: Vec3, dir: Vec3, max_t: f32, time: f32) -> bool {
-    let mut t = SURF_DIST * 4.0; // start past the surface
-    for _ in 0..SHADOW_MAX_STEPS {
+/// Soft shadow factor using IQ's penumbra technique.
+/// Returns 1.0 (fully lit) to 0.0 (fully shadowed).
+/// Step count comes from the `RayBudget`.
+#[inline]
+fn soft_shadow(
+    scene: &SdfScene,
+    origin: Vec3,
+    dir: Vec3,
+    max_t: f32,
+    time: f32,
+    shadow_steps: u32,
+) -> f32 {
+    // Fast-path: if the shadow ray misses the scene bounding sphere entirely,
+    // no finite object can cast a shadow — return fully lit immediately.
+    // (Planes don't cast shadows on themselves in typical scenes.)
+    if scene.scene_radius > 0.0 {
+        let oc = origin - scene.scene_center;
+        let b = oc.dot(dir);
+        let c = oc.dot(oc) - scene.scene_radius * scene.scene_radius;
+        let disc = b * b - c;
+        if disc < 0.0 {
+            return 1.0; // ray misses all finite objects
+        }
+        let sqrt_disc = disc.sqrt();
+        let t_enter = (-b - sqrt_disc).max(0.0);
+        if t_enter > max_t {
+            return 1.0; // intersection is beyond the light
+        }
+    }
+
+    let mut t = SURF_DIST * 4.0;
+    let mut res = 1.0_f32;
+    for _ in 0..shadow_steps {
         let p = origin + dir * t;
         let (d, _) = scene_sdf(scene, p, time);
-        if d < SURF_DIST {
-            return true; // in shadow
+        if d < SURF_DIST * 0.5 {
+            return 0.0;
         }
-        t += d;
+        res = res.min(SHADOW_K * d / t);
+        t += d.clamp(0.01, 1.0);
         if t > max_t {
             break;
         }
     }
-    false
+    res.clamp(0.0, 1.0)
 }
 
-/// Top-level per-ray shading: march, hit → shade surface, miss → sky.
-fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) -> Color {
-    // Only check fire on primary rays and only if fire objects exist
-    if bounce == 0 && scene.has_fire {
-        for obj in &scene.objects {
-            if let Material::Fire { .. } = &obj.material {
-                let fire_color = march_fire_volume(origin, dir, obj, time);
-                if fire_color.a > 0.01 {
-                    let bg = if let Some((hit, idx, _)) = ray_march(scene, origin, dir, time) {
-                        shade_surface(scene, hit, dir, idx, time, bounce)
-                    } else {
-                        scene.sky_color
-                    };
-                    return blend_over(fire_color, bg);
-                }
-            }
-        }
+/// SDF-based ambient occlusion (5 samples along normal).
+#[inline]
+fn ambient_occlusion(scene: &SdfScene, hit: Vec3, normal: Vec3, time: f32) -> f32 {
+    let mut occ = 0.0_f32;
+    let mut scale = 1.0_f32;
+    for i in 1..=5 {
+        let dist = 0.02 * i as f32;
+        let (d, _) = scene_sdf(scene, hit + normal * dist, time);
+        occ += (dist - d) * scale;
+        scale *= 0.75;
     }
-
-    match ray_march(scene, origin, dir, time) {
-        Some((hit, idx, _)) => shade_surface(scene, hit, dir, idx, time, bounce),
-        None => scene.sky_color,
-    }
+    (1.0 - occ.clamp(0.0, 1.0)).max(0.0)
 }
 
-/// Shade a surface hit point with Phong lighting, reflections, and water effects.
-fn shade_surface(
-    scene: &SdfScene,
-    hit: Vec3,
-    ray_dir: Vec3,
-    obj_idx: usize,
-    time: f32,
-    bounce: u32,
-) -> Color {
-    let obj = &scene.objects[obj_idx];
-    let normal = estimate_normal(scene, hit, obj_idx, time);
-
-    match &obj.material {
-        Material::Solid {
-            color,
-            reflectivity,
-            specular,
-        } => {
-            let mut result = phong(scene, hit, normal, ray_dir, *color, *specular, time);
-
-            // Reflections
-            if *reflectivity > 0.01 && bounce < scene.max_bounces {
-                let refl_dir = ray_dir.reflect(normal);
-                let refl_origin = hit + normal * (SURF_DIST * 2.0);
-                let refl_color = shade_ray(scene, refl_origin, refl_dir, time, bounce + 1);
-                result = lerp_color(result, refl_color, *reflectivity);
-            }
-
-            result
-        }
-        Material::Water { tint, ior, .. } => {
-            let cos_theta = (-ray_dir).dot(normal).max(0.0);
-            let f = materials::fresnel(cos_theta, *ior);
-
-            let mut color = *tint;
-            color.a = 1.0;
-
-            // Reflection
-            if bounce < scene.max_bounces {
-                let refl_dir = ray_dir.reflect(normal);
-                let refl_origin = hit + normal * (SURF_DIST * 2.0);
-                let refl_color = shade_ray(scene, refl_origin, refl_dir, time, bounce + 1);
-
-                // Refraction
-                let eta = 1.0 / ior;
-                let refr_color = if let Some(refr_dir) = ray_dir.refract(normal, eta) {
-                    let refr_origin = hit - normal * (SURF_DIST * 2.0);
-                    let mut rc = shade_ray(scene, refr_origin, refr_dir, time, bounce + 1);
-                    // Tint the refracted color
-                    rc.r *= tint.r;
-                    rc.g *= tint.g;
-                    rc.b *= tint.b;
-                    rc
-                } else {
-                    refl_color // Total internal reflection
-                };
-
-                color = lerp_color(refr_color, refl_color, f);
-            }
-
-            // Add specular highlights from lights
-            let spec = phong_specular(scene, hit, normal, ray_dir, 128.0);
-            color.r = (color.r + spec.r).min(1.0);
-            color.g = (color.g + spec.g).min(1.0);
-            color.b = (color.b + spec.b).min(1.0);
-
-            color
-        }
-        Material::Fire { .. } => {
-            // Fire objects are rendered volumetrically, but if we hit the surface
-            // directly, show a faint glow
-            let glow = materials::fire_color_ramp(0.3);
-            Color {
-                r: glow.r * 0.5,
-                g: glow.g * 0.5,
-                b: glow.b * 0.5,
-                a: 1.0,
-            }
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-/// Phong lighting: ambient + diffuse + specular from all lights.
-fn phong(
+/// Phong lighting without shadow marches (used for reflection bounces).
+#[inline]
+fn phong_no_shadows(
     scene: &SdfScene,
     hit: Vec3,
     normal: Vec3,
     ray_dir: Vec3,
     base_color: Color,
     spec_power: f32,
-    time: f32,
 ) -> Color {
     let mut r = base_color.r * scene.ambient;
     let mut g = base_color.g * scene.ambient;
     let mut b = base_color.b * scene.ambient;
 
     for light in &scene.lights {
-        let to_light = (light.position - hit).normalize();
-        let light_dist = (light.position - hit).length();
+        let delta = light.position - hit;
+        let light_dist = delta.length();
+        let to_light = delta * (1.0 / light_dist);
 
-        // Fast shadow check
-        let shadow_origin = hit + normal * (SURF_DIST * 4.0);
-        if shadow_march(scene, shadow_origin, to_light, light_dist, time) {
-            continue; // In shadow
+        // Backface cull
+        let n_dot_l = normal.dot(to_light);
+        if n_dot_l <= 0.0 {
+            continue;
         }
 
         let intensity = light.intensity;
 
         // Diffuse
-        let diff = normal.dot(to_light).max(0.0) * intensity;
+        let diff = n_dot_l * intensity;
         r += base_color.r * light.color.r * diff;
         g += base_color.g * light.color.g * diff;
         b += base_color.b * light.color.b * diff;
@@ -573,6 +642,7 @@ fn phong(
 }
 
 /// Just the specular component of Phong (for adding highlights to water).
+#[inline]
 fn phong_specular(
     scene: &SdfScene,
     hit: Vec3,
@@ -702,6 +772,7 @@ fn water_displacement(x: f32, z: f32, time: f32, amplitude: f32, frequency: f32)
 }
 
 /// Linearly interpolate between two colors.
+#[inline]
 fn lerp_color(a: Color, b: Color, t: f32) -> Color {
     Color {
         r: a.r + (b.r - a.r) * t,
@@ -712,6 +783,7 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 }
 
 /// Composite `foreground` over `background` (premultiplied-style).
+#[inline]
 fn blend_over(fg: Color, bg: Color) -> Color {
     let inv_a = 1.0 - fg.a;
     Color {
@@ -722,10 +794,67 @@ fn blend_over(fg: Color, bg: Color) -> Color {
     }
 }
 
-// ── Profiled variants ───────────────────────────────────────────
+// ── Tracing infrastructure ──────────────────────────────────────────
+//
+// Instead of duplicating every shading function with a `_profiled`
+// variant, we parameterise by a zero-cost `SdfTracer` trait. The
+// `NoOpTracer` implementation compiles to nothing; `ProfilingTracer`
+// records per-stage timings into a `RowProfile`.
 
-/// Profiled variant of [`shade_ray`]. Times march, fire, and delegates to
-/// profiled surface shading.
+/// Compile-time hooks for optional per-stage timing.
+trait SdfTracer {
+    /// Called before a rendering stage begins.
+    fn begin(&mut self, stage: SdfStage);
+    /// Called after a rendering stage ends (records elapsed time since `begin`).
+    fn end(&mut self, stage: SdfStage);
+}
+
+/// Zero-cost tracer — all calls are eliminated by the compiler.
+struct NoOpTracer;
+
+impl SdfTracer for NoOpTracer {
+    #[inline(always)]
+    fn begin(&mut self, _stage: SdfStage) {}
+    #[inline(always)]
+    fn end(&mut self, _stage: SdfStage) {}
+}
+
+/// Profiling tracer that records per-stage wall-clock time.
+struct ProfilingTracer<'a> {
+    prof: &'a mut RowProfile,
+    starts: [Option<std::time::Instant>; 6],
+}
+
+impl<'a> ProfilingTracer<'a> {
+    fn new(prof: &'a mut RowProfile) -> Self {
+        Self {
+            prof,
+            starts: [None; 6],
+        }
+    }
+}
+
+impl SdfTracer for ProfilingTracer<'_> {
+    #[inline]
+    fn begin(&mut self, stage: SdfStage) {
+        self.starts[stage.index()] = Some(std::time::Instant::now());
+    }
+    #[inline]
+    fn end(&mut self, stage: SdfStage) {
+        if let Some(start) = self.starts[stage.index()].take() {
+            self.prof.record(stage, start);
+        }
+    }
+}
+
+// ── Unified shading functions ───────────────────────────────────────
+
+/// Top-level per-ray shading: march, hit → shade surface, miss → sky.
+fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) -> Color {
+    shade_ray_traced(scene, origin, dir, time, bounce, &mut NoOpTracer)
+}
+
+/// Profiled variant of [`shade_ray`].
 fn shade_ray_profiled(
     scene: &SdfScene,
     origin: Vec3,
@@ -734,21 +863,63 @@ fn shade_ray_profiled(
     bounce: u32,
     prof: &mut RowProfile,
 ) -> Color {
+    shade_ray_traced(
+        scene,
+        origin,
+        dir,
+        time,
+        bounce,
+        &mut ProfilingTracer::new(prof),
+    )
+}
+
+/// Generic shade_ray parameterised by tracer.
+fn shade_ray_traced<T: SdfTracer>(
+    scene: &SdfScene,
+    origin: Vec3,
+    dir: Vec3,
+    time: f32,
+    bounce: u32,
+    tracer: &mut T,
+) -> Color {
+    let budget = RayBudget::for_bounce(bounce);
+
+    // Sky fast-path for bounce rays: if the ray misses the scene bounding
+    // sphere entirely, skip the march and return sky immediately.
+    // Disabled for water scenes — upward bounce rays can still graze the
+    // displaced water surface just above y=0.
+    if bounce > 0 && !scene.has_water && scene.scene_radius > 0.0 {
+        let oc = scene.scene_center - origin;
+        let proj = oc.dot(dir);
+        let oc_sq = oc.dot(oc);
+        let perp_sq = oc_sq - proj * proj;
+        let r_sq = scene.scene_radius * scene.scene_radius;
+        if perp_sq > r_sq || (proj < 0.0 && oc_sq > r_sq) {
+            // Ray misses the bounding sphere entirely, or sphere is behind us
+            // and we're outside it — only sky (or ground plane) ahead.
+            if dir.y > 0.0 {
+                return scene.sky_color;
+            }
+            // Downward ray: will hit the ground plane. Let the march handle it
+            // but it will converge quickly since plane SDF is cheap.
+        }
+    }
+
     // Fire volume (primary rays only)
     if bounce == 0 && scene.has_fire {
         for obj in &scene.objects {
             if let Material::Fire { .. } = &obj.material {
-                let t0 = std::time::Instant::now();
+                tracer.begin(SdfStage::Fire);
                 let fire_color = march_fire_volume(origin, dir, obj, time);
-                prof.record(SdfStage::Fire, t0);
+                tracer.end(SdfStage::Fire);
 
                 if fire_color.a > 0.01 {
-                    let t1 = std::time::Instant::now();
-                    let hit = ray_march(scene, origin, dir, time);
-                    prof.record(SdfStage::March, t1);
+                    tracer.begin(SdfStage::March);
+                    let hit = ray_march(scene, origin, dir, time, &budget);
+                    tracer.end(SdfStage::March);
 
                     let bg = if let Some((hit_pt, idx, _)) = hit {
-                        shade_surface_profiled(scene, hit_pt, dir, idx, time, bounce, prof)
+                        shade_surface_traced(scene, hit_pt, dir, idx, time, bounce, &budget, tracer)
                     } else {
                         scene.sky_color
                     };
@@ -758,34 +929,40 @@ fn shade_ray_profiled(
         }
     }
 
-    let t0 = std::time::Instant::now();
-    let hit = ray_march(scene, origin, dir, time);
-    prof.record(SdfStage::March, t0);
+    tracer.begin(SdfStage::March);
+    let hit = ray_march(scene, origin, dir, time, &budget);
+    tracer.end(SdfStage::March);
 
     match hit {
-        Some((hit_pt, idx, _)) => {
-            shade_surface_profiled(scene, hit_pt, dir, idx, time, bounce, prof)
+        Some((hit_pt, idx, dist)) => {
+            let mut color =
+                shade_surface_traced(scene, hit_pt, dir, idx, time, bounce, &budget, tracer);
+            // Apply distance fog (only on primary rays)
+            if bounce == 0 && scene.fog_density > 0.0 {
+                color = apply_fog(color, scene.fog_color, scene.fog_density, dist);
+            }
+            color
         }
         None => scene.sky_color,
     }
 }
 
-/// Profiled variant of [`shade_surface`]. Times normal estimation,
-/// shading, and reflections.
-fn shade_surface_profiled(
+/// Shade a surface hit point with Phong lighting, reflections, and water effects.
+fn shade_surface_traced<T: SdfTracer>(
     scene: &SdfScene,
     hit: Vec3,
     ray_dir: Vec3,
     obj_idx: usize,
     time: f32,
     bounce: u32,
-    prof: &mut RowProfile,
+    budget: &RayBudget,
+    tracer: &mut T,
 ) -> Color {
     let obj = &scene.objects[obj_idx];
 
-    let t0 = std::time::Instant::now();
+    tracer.begin(SdfStage::Normal);
     let normal = estimate_normal(scene, hit, obj_idx, time);
-    prof.record(SdfStage::Normal, t0);
+    tracer.end(SdfStage::Normal);
 
     match &obj.material {
         Material::Solid {
@@ -793,22 +970,31 @@ fn shade_surface_profiled(
             reflectivity,
             specular,
         } => {
-            let result = phong_profiled(scene, hit, normal, ray_dir, *color, *specular, time, prof);
+            // Skip expensive shadow marches on reflection bounces
+            let result = if bounce > 0 {
+                tracer.begin(SdfStage::Shading);
+                let r = phong_no_shadows(scene, hit, normal, ray_dir, *color, *specular);
+                tracer.end(SdfStage::Shading);
+                r
+            } else {
+                phong_traced(scene, hit, normal, ray_dir, *color, *specular, time, budget, tracer)
+            };
 
+            // Reflections
             if *reflectivity > 0.01 && bounce < scene.max_bounces {
-                let t1 = std::time::Instant::now();
+                tracer.begin(SdfStage::Reflection);
                 let refl_dir = ray_dir.reflect(normal);
                 let refl_origin = hit + normal * (SURF_DIST * 2.0);
                 let refl_color =
-                    shade_ray_profiled(scene, refl_origin, refl_dir, time, bounce + 1, prof);
-                prof.record(SdfStage::Reflection, t1);
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                tracer.end(SdfStage::Reflection);
                 lerp_color(result, refl_color, *reflectivity)
             } else {
                 result
             }
         }
         Material::Water { tint, ior, .. } => {
-            let t_shade = std::time::Instant::now();
+            tracer.begin(SdfStage::Shading);
             let cos_theta = (-ray_dir).dot(normal).max(0.0);
             let f = materials::fresnel(cos_theta, *ior);
             let mut color = *tint;
@@ -817,36 +1003,37 @@ fn shade_surface_profiled(
             if bounce < scene.max_bounces {
                 let refl_dir = ray_dir.reflect(normal);
                 let refl_origin = hit + normal * (SURF_DIST * 2.0);
-                prof.record(SdfStage::Shading, t_shade);
+                tracer.end(SdfStage::Shading);
 
-                let t_refl = std::time::Instant::now();
+                tracer.begin(SdfStage::Reflection);
                 let refl_color =
-                    shade_ray_profiled(scene, refl_origin, refl_dir, time, bounce + 1, prof);
-                prof.record(SdfStage::Reflection, t_refl);
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                tracer.end(SdfStage::Reflection);
 
                 let eta = 1.0 / ior;
-                let t_refr = std::time::Instant::now();
+                tracer.begin(SdfStage::Reflection);
                 let refr_color = if let Some(refr_dir) = ray_dir.refract(normal, eta) {
                     let refr_origin = hit - normal * (SURF_DIST * 2.0);
                     let mut rc =
-                        shade_ray_profiled(scene, refr_origin, refr_dir, time, bounce + 1, prof);
+                        shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, tracer);
                     rc.r *= tint.r;
                     rc.g *= tint.g;
                     rc.b *= tint.b;
                     rc
                 } else {
-                    refl_color
+                    refl_color // Total internal reflection
                 };
-                prof.record(SdfStage::Reflection, t_refr);
+                tracer.end(SdfStage::Reflection);
 
                 color = lerp_color(refr_color, refl_color, f);
             } else {
-                prof.record(SdfStage::Shading, t_shade);
+                tracer.end(SdfStage::Shading);
             }
 
-            let t_spec = std::time::Instant::now();
+            // Add specular highlights from lights
+            tracer.begin(SdfStage::Shading);
             let spec = phong_specular(scene, hit, normal, ray_dir, 128.0);
-            prof.record(SdfStage::Shading, t_spec);
+            tracer.end(SdfStage::Shading);
 
             color.r = (color.r + spec.r).min(1.0);
             color.g = (color.g + spec.g).min(1.0);
@@ -854,9 +1041,9 @@ fn shade_surface_profiled(
             color
         }
         Material::Fire { .. } => {
-            let t_shade = std::time::Instant::now();
+            tracer.begin(SdfStage::Shading);
             let glow = materials::fire_color_ramp(0.3);
-            prof.record(SdfStage::Shading, t_shade);
+            tracer.end(SdfStage::Shading);
             Color {
                 r: glow.r * 0.5,
                 g: glow.g * 0.5,
@@ -864,13 +1051,44 @@ fn shade_surface_profiled(
                 a: 1.0,
             }
         }
+        Material::Checkerboard {
+            color_a,
+            color_b,
+            scale,
+            reflectivity,
+            specular,
+        } => {
+            // Determine which square we're in
+            let checker = ((hit.x / scale).floor() as i32 + (hit.z / scale).floor() as i32) & 1;
+            let base_color = if checker == 0 { *color_a } else { *color_b };
+
+            let result = if bounce > 0 {
+                tracer.begin(SdfStage::Shading);
+                let r = phong_no_shadows(scene, hit, normal, ray_dir, base_color, *specular);
+                tracer.end(SdfStage::Shading);
+                r
+            } else {
+                phong_traced(scene, hit, normal, ray_dir, base_color, *specular, time, budget, tracer)
+            };
+
+            if *reflectivity > 0.01 && bounce < scene.max_bounces {
+                tracer.begin(SdfStage::Reflection);
+                let refl_dir = ray_dir.reflect(normal);
+                let refl_origin = hit + normal * (SURF_DIST * 2.0);
+                let refl_color =
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                tracer.end(SdfStage::Reflection);
+                lerp_color(result, refl_color, *reflectivity)
+            } else {
+                result
+            }
+        }
     }
 }
 
+/// Phong lighting: ambient + diffuse + specular from all lights.
 #[allow(clippy::too_many_arguments)]
-/// Profiled variant of [`phong`]. Times shadow marches separately from
-/// the diffuse/specular computation.
-fn phong_profiled(
+fn phong_traced<T: SdfTracer>(
     scene: &SdfScene,
     hit: Vec3,
     normal: Vec3,
@@ -878,40 +1096,57 @@ fn phong_profiled(
     base_color: Color,
     spec_power: f32,
     time: f32,
-    prof: &mut RowProfile,
+    budget: &RayBudget,
+    tracer: &mut T,
 ) -> Color {
-    let t_shade = std::time::Instant::now();
-    let mut r = base_color.r * scene.ambient;
-    let mut g = base_color.g * scene.ambient;
-    let mut b = base_color.b * scene.ambient;
-    prof.record(SdfStage::Shading, t_shade);
+    tracer.begin(SdfStage::Shading);
+    let ao = ambient_occlusion(scene, hit, normal, time);
+    let mut r = base_color.r * scene.ambient * ao;
+    let mut g = base_color.g * scene.ambient * ao;
+    let mut b = base_color.b * scene.ambient * ao;
+    tracer.end(SdfStage::Shading);
 
     for light in &scene.lights {
-        let to_light = (light.position - hit).normalize();
-        let light_dist = (light.position - hit).length();
+        let delta = light.position - hit;
+        let light_dist = delta.length();
+        let to_light = delta * (1.0 / light_dist);
 
-        let shadow_origin = hit + normal * (SURF_DIST * 4.0);
-        let t_shadow = std::time::Instant::now();
-        let in_shadow = shadow_march(scene, shadow_origin, to_light, light_dist, time);
-        prof.record(SdfStage::Shadow, t_shadow);
-
-        if in_shadow {
+        // Backface cull: surface faces away from light → no contribution
+        let n_dot_l = normal.dot(to_light);
+        if n_dot_l <= 0.0 {
             continue;
         }
 
-        let t_shade2 = std::time::Instant::now();
+        // Soft shadow (skipped for deep bounces where budget says no shadows)
+        let shadow = if budget.do_shadows {
+            let shadow_origin = hit + normal * (SURF_DIST * 4.0);
+            tracer.begin(SdfStage::Shadow);
+            let s = soft_shadow(scene, shadow_origin, to_light, light_dist, time, budget.shadow_steps);
+            tracer.end(SdfStage::Shadow);
+            if s < 0.001 {
+                continue;
+            }
+            s
+        } else {
+            1.0
+        };
+
+        tracer.begin(SdfStage::Shading);
         let intensity = light.intensity;
-        let diff = normal.dot(to_light).max(0.0) * intensity;
+
+        // Diffuse (modulated by shadow factor)
+        let diff = n_dot_l * intensity * shadow;
         r += base_color.r * light.color.r * diff;
         g += base_color.g * light.color.g * diff;
         b += base_color.b * light.color.b * diff;
 
+        // Specular (Blinn-Phong, modulated by shadow factor)
         let half = (to_light - ray_dir).normalize();
-        let spec = normal.dot(half).max(0.0).powf(spec_power) * intensity;
+        let spec = normal.dot(half).max(0.0).powf(spec_power) * intensity * shadow;
         r += light.color.r * spec * 0.5;
         g += light.color.g * spec * 0.5;
         b += light.color.b * spec * 0.5;
-        prof.record(SdfStage::Shading, t_shade2);
+        tracer.end(SdfStage::Shading);
     }
 
     Color {
@@ -983,7 +1218,8 @@ mod tests {
         let scene = simple_sphere_scene();
         let origin = Vec3::new(0.0, 1.0, 6.0);
         let dir = Vec3::new(0.0, 0.0, -1.0);
-        let hit = ray_march(&scene, origin, dir, 0.0);
+        let budget = RayBudget::for_bounce(0);
+        let hit = ray_march(&scene, origin, dir, 0.0, &budget);
         assert!(hit.is_some(), "ray should hit sphere");
         let (p, _, _) = hit.unwrap();
         // Hit point Z should be near the sphere surface at z ≈ 1.0

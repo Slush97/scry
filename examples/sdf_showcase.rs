@@ -16,6 +16,7 @@
 //! Run with:
 //!   Terminal: `cargo run --example sdf_showcase --features sdf --release`
 //!   Window:   `cargo run --example sdf_showcase --features "sdf,window" --release -- --window`
+//!   GPU:      `cargo run --example sdf_showcase --features "sdf-gpu,window" --release -- --window`
 
 #![allow(
     clippy::cast_precision_loss,
@@ -99,7 +100,10 @@ fn build_scenes() -> [SdfScene; 4] {
         )
         .object(SdfObject::new(
             SdfShape::Plane,
-            Material::matte(C::from_rgba8(160, 160, 170, 255)),
+            Material::checkerboard(
+                C::from_rgba8(200, 200, 210, 255),
+                C::from_rgba8(100, 100, 110, 255),
+            ),
         ))
         .light(SdfLight::new(Vec3::new(5.0, 8.0, 5.0), C::WHITE, 0.8))
         .light(SdfLight::new(
@@ -223,6 +227,19 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
     use scry_engine::transport::window::{run_loop_continuous, LoopAction};
     use winit::keyboard::KeyCode as WKey;
 
+    // Auto-detect GPU when sdf-gpu feature is enabled
+    #[cfg(feature = "sdf-gpu")]
+    let mut gpu_ctx = match scry_engine::sdf::SdfGpuContext::new() {
+        Ok(ctx) => {
+            eprintln!("GPU SDF renderer initialized — using GPU acceleration");
+            Some(ctx)
+        }
+        Err(e) => {
+            eprintln!("GPU not available ({e}), using CPU renderer");
+            None
+        }
+    };
+
     let mut scenes = build_scenes();
     let mut preset_idx: usize = 0;
     let mut paused = false;
@@ -281,6 +298,42 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
             let render_scale = SCALE_STEPS[scale_idx];
             set_camera(&mut scenes[preset_idx], preset_idx, elapsed);
 
+            // GPU path: render at full resolution directly
+            #[cfg(feature = "sdf-gpu")]
+            if let Some(ref mut ctx) = gpu_ctx {
+                let gpu_start = Instant::now();
+                let mut pixmap = match scry_engine::sdf::SdfGpuRenderer::render_to_pixmap(
+                    ctx,
+                    &scenes[preset_idx],
+                    w,
+                    h,
+                    elapsed,
+                ) {
+                    Ok(p) => p,
+                    Err(_) => return LoopAction::Continue,
+                };
+                let gpu_ms = gpu_start.elapsed().as_secs_f64() * 1000.0;
+
+                if show_overlay {
+                    stats_overlay.tick();
+                    let pct = (render_scale * 100.0) as u32;
+                    let gpu_profile =
+                        scry_engine::sdf::SdfProfile::total_only((gpu_ms * 1000.0) as u64, w, h);
+                    profile_history.push(gpu_profile);
+                    let summary = profile_history.summary();
+                    stats_overlay.render_overlay(
+                        &mut pixmap,
+                        &summary,
+                        pct,
+                        &format!("{}  [GPU]", PRESET_NAMES[preset_idx]),
+                    );
+                }
+
+                let _ = backend.blit(&pixmap);
+                return LoopAction::Continue;
+            }
+
+            // CPU path (fallback)
             let (mut pixmap, profile) = match SdfRenderer::render_to_pixmap_upscaled_profiled(
                 &scenes[preset_idx],
                 w,
@@ -333,11 +386,21 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_fps = 0.0_f32;
     let mut handle: Option<transport::backend::ImageHandle> = None;
 
+    // Auto-detect GPU
+    #[cfg(feature = "sdf-gpu")]
+    let mut gpu_ctx = match scry_engine::sdf::SdfGpuContext::new() {
+        Ok(ctx) => {
+            eprintln!("GPU SDF renderer initialized \u{2014} using GPU acceleration");
+            Some(ctx)
+        }
+        Err(_) => None,
+    };
+
     // Profiler state
     let mut profiling = false;
     let mut profile_history = SdfProfileHistory::new(32);
 
-    let mut scale_idx: usize = 3; // default 1.0 (full resolution)
+    let mut scale_idx: usize = 1; // default 0.5 (bicubic upscale)
 
     loop {
         let frame_start = Instant::now();
@@ -365,24 +428,49 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
             // Update only the camera on the pre-built scene
             set_camera(&mut scenes[preset_idx], preset_idx, elapsed);
 
-            let pixmap = if profiling {
-                let (pm, profile) = SdfRenderer::render_to_pixmap_upscaled_profiled(
-                    &scenes[preset_idx],
-                    cap_w,
-                    cap_h,
-                    render_scale,
-                    elapsed,
-                )?;
-                profile_history.push(profile);
-                pm
-            } else {
-                SdfRenderer::render_to_pixmap_upscaled(
-                    &scenes[preset_idx],
-                    cap_w,
-                    cap_h,
-                    render_scale,
-                    elapsed,
-                )?
+            let pixmap = 'render: {
+                // GPU path: render at full resolution
+                #[cfg(feature = "sdf-gpu")]
+                if let Some(ref mut ctx) = gpu_ctx {
+                    let gpu_start = Instant::now();
+                    if let Ok(pm) = scry_engine::sdf::SdfGpuRenderer::render_to_pixmap(
+                        ctx,
+                        &scenes[preset_idx],
+                        cap_w,
+                        cap_h,
+                        elapsed,
+                    ) {
+                        if profiling {
+                            let gpu_us = gpu_start.elapsed().as_micros() as u64;
+                            profile_history.push(scry_engine::sdf::SdfProfile::total_only(
+                                gpu_us, cap_w, cap_h,
+                            ));
+                        }
+                        break 'render pm;
+                    }
+                    // GPU render failed, fall through to CPU
+                }
+
+                // CPU path
+                if profiling {
+                    let (pm, profile) = SdfRenderer::render_to_pixmap_upscaled_profiled(
+                        &scenes[preset_idx],
+                        cap_w,
+                        cap_h,
+                        render_scale,
+                        elapsed,
+                    )?;
+                    profile_history.push(profile);
+                    pm
+                } else {
+                    SdfRenderer::render_to_pixmap_upscaled(
+                        &scenes[preset_idx],
+                        cap_w,
+                        cap_h,
+                        render_scale,
+                        elapsed,
+                    )?
+                }
             };
 
             // Transmit directly to terminal — no widget/rasterizer overhead
@@ -409,10 +497,15 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
 
             // Line 1: scene info + resolution + total time
             let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
+            #[cfg(feature = "sdf-gpu")]
+            let gpu_tag = if gpu_ctx.is_some() { "  [GPU]" } else { "" };
+            #[cfg(not(feature = "sdf-gpu"))]
+            let gpu_tag = "";
             out.queue(cursor::MoveTo(0, rows.saturating_sub(3)))?;
             out.queue(style::Print(format!(
-                "\x1b[K SDF: {} | {:.0} fps | {}x{} @{}% | {:.1}ms total",
+                "\x1b[K SDF: {}{} | {:.0} fps | {}x{} @{}% | {:.1}ms total",
                 PRESET_NAMES[preset_idx],
+                gpu_tag,
                 last_fps,
                 MAX_RENDER_W.min(full_w),
                 MAX_RENDER_H.min(full_h),
@@ -433,10 +526,14 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
             )))?;
         } else {
             let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
+            #[cfg(feature = "sdf-gpu")]
+            let gpu_tag = if gpu_ctx.is_some() { "  [GPU]" } else { "" };
+            #[cfg(not(feature = "sdf-gpu"))]
+            let gpu_tag = "";
             out.queue(cursor::MoveTo(0, rows - 1))?;
             out.queue(style::Print(format!(
-                "\x1b[K SDF: {} | {:.0} fps | {}% upscale | [1-4] scene [+/-] scale [space] pause [p] profile [q] quit",
-                PRESET_NAMES[preset_idx], last_fps, pct,
+                "\x1b[K SDF: {}{} | {:.0} fps | {}% upscale | [1-4] scene [+/-] scale [space] pause [p] profile [q] quit",
+                PRESET_NAMES[preset_idx], gpu_tag, last_fps, pct,
             )))?;
         }
         out.flush()?;

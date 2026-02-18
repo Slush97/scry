@@ -920,6 +920,7 @@ fn prove_linear_svc_xor_fail() {
 /// The RBF kernel maps XOR into a higher-dimensional space where
 /// the classes become linearly separable. This is the complement to
 /// the negative proof above.
+#[cfg(feature = "experimental")]
 #[test]
 fn prove_kernel_svc_xor() {
     use scry_learn::svm::{Kernel, KernelSVC};

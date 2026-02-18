@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --all-features
+      - run: cargo check --workspace --all-features
 
   fmt:
     name: Format
@@ -37,7 +37,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features --all-targets
+      - run: cargo clippy --workspace --all-features --all-targets
 
   test:
     name: Test (${{ matrix.features }})
@@ -63,6 +63,8 @@ jobs:
             cmd: "cargo test -p scry-learn --features serde"
           - name: "scry-chart"
             cmd: "cargo test -p scry-chart"
+          - name: "scry-pipe"
+            cmd: "cargo test -p scry-pipe"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -77,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo doc --all-features --no-deps
+      - run: cargo doc --workspace --all-features --no-deps
 
   msrv:
     name: MSRV
@@ -100,6 +102,7 @@ jobs:
           - "iterm2"
           - "kitty,widget"
           - "kitty,sixel,widget"
+          - "sixel"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

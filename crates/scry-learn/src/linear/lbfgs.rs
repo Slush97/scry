@@ -23,7 +23,7 @@ impl Default for LbfgsConfig {
     fn default() -> Self {
         Self {
             max_iter: 200,
-            tolerance: 1e-6,
+            tolerance: crate::constants::STRICT_TOL,
             history_size: 10,
         }
     }
@@ -58,6 +58,12 @@ pub(crate) fn minimize(
     let mut x_prev = vec![0.0; n];
     let mut grad_prev = vec![0.0; n];
     let mut direction = vec![0.0; n];
+    let mut x_trial = vec![0.0; n];
+    let mut grad_trial = vec![0.0; n];
+    let mut best_x = vec![0.0; n];
+    let mut best_grad = vec![0.0; n];
+    let mut s_k = vec![0.0; n];
+    let mut y_k = vec![0.0; n];
 
     for _iter in 0..config.max_iter {
         // Check convergence: ||grad||_inf < tolerance.
@@ -132,9 +138,9 @@ pub(crate) fn minimize(
         // Accept step α when both conditions hold:
         //   Armijo:  f(x + α·d) ≤ f(x) + c₁·α·(∇f · d)
         //   Wolfe:   |∇f(x + α·d) · d| ≤ c₂·|∇f · d|
-        let c_armijo = 1e-4;
-        let c_wolfe = 0.9;
-        let rho_bt = 0.5;
+        let c_armijo = crate::constants::ARMIJO_C;
+        let c_wolfe = crate::constants::WOLFE_C2;
+        let rho_bt = crate::constants::LINE_SEARCH_BACKTRACK;
         let mut step = 1.0;
 
         let dir_deriv: f64 = grad
@@ -149,7 +155,7 @@ pub(crate) fn minimize(
                 *d = -*g;
             }
             // No line search needed for steepest descent; use a small step.
-            step = 0.01 / grad_norm.max(1.0);
+            step = crate::constants::STEEPEST_DESCENT_SCALE / grad_norm.max(1.0);
         }
 
         let dir_deriv_ls: f64 = grad
@@ -159,29 +165,24 @@ pub(crate) fn minimize(
             .sum();
         let abs_dir_deriv = dir_deriv_ls.abs();
 
-        // Use a separate gradient buffer for trial evaluations so we never
-        // corrupt `grad` with a rejected step's gradient.
-        let mut grad_trial = vec![0.0; n];
-        let mut x_trial: Vec<f64> = x0.to_vec();
-
         // Track the first (largest) Armijo-satisfying step as fallback
         // in case the Wolfe curvature condition is never met.
-        let mut best_armijo: Option<(f64, f64)> = None; // (f_trial, step)
-        let mut best_grad: Option<Vec<f64>> = None;
-        let mut best_x: Option<Vec<f64>> = None;
+        let mut best_armijo_f: f64 = 0.0;
+        let mut has_best = false;
         let mut accepted = false;
 
-        for _ls in 0..20 {
+        for _ls in 0..crate::constants::LINE_SEARCH_MAX_ITER {
             for j in 0..n {
                 x_trial[j] = x0[j] + step * direction[j];
             }
             let f_trial = eval(&x_trial, &mut grad_trial);
             if f_trial <= f + c_armijo * step * dir_deriv_ls {
                 // Armijo satisfied — record as fallback if first.
-                if best_armijo.is_none() {
-                    best_armijo = Some((f_trial, step));
-                    best_grad = Some(grad_trial.clone());
-                    best_x = Some(x_trial.clone());
+                if !has_best {
+                    best_armijo_f = f_trial;
+                    best_grad.copy_from_slice(&grad_trial);
+                    best_x.copy_from_slice(&x_trial);
+                    has_best = true;
                 }
                 // Check strong Wolfe curvature condition.
                 let trial_deriv: f64 = grad_trial
@@ -203,17 +204,11 @@ pub(crate) fn minimize(
 
         // Fallback: if Wolfe was never satisfied but Armijo was, accept
         // the first (largest) Armijo step to guarantee progress.
-        if !accepted {
-            if let (Some((f_a, _)), Some(g_a), Some(x_a)) = (best_armijo, best_grad, best_x) {
-                f = f_a;
-                x0.copy_from_slice(&x_a);
-                grad.copy_from_slice(&g_a);
-            }
+        if !accepted && has_best {
+            f = best_armijo_f;
+            x0.copy_from_slice(&best_x);
+            grad.copy_from_slice(&best_grad);
         }
-
-        // ─── Update history ──────────────────────────────────────
-        let mut s_k = vec![0.0; n];
-        let mut y_k = vec![0.0; n];
         let mut sy = 0.0;
         for j in 0..n {
             s_k[j] = x0[j] - x_prev[j];
@@ -222,15 +217,15 @@ pub(crate) fn minimize(
         }
 
         // Only add to history if curvature condition holds.
-        if sy > 1e-16 {
+        if sy > crate::constants::LBFGS_CURVATURE_THRESH {
             if s_hist.len() == config.history_size {
                 s_hist.pop_front();
                 y_hist.pop_front();
                 rho_hist.pop_front();
             }
             rho_hist.push_back(1.0 / sy);
-            s_hist.push_back(s_k);
-            y_hist.push_back(y_k);
+            s_hist.push_back(s_k.clone());
+            y_hist.push_back(y_k.clone());
         }
     }
 

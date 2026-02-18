@@ -916,8 +916,10 @@ fn panel_orchestrated_scene(
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
                     dash: None,
+                    ..StrokeStyle::default()
                 }),
                 anti_alias: true,
+                ..ShapeStyle::default()
             },
         });
     }
@@ -996,6 +998,7 @@ fn draw_label(canvas: &mut PixelCanvas, x: f32, y: f32, text: &str) {
                 fill: Some(FillStyle::Solid(C::from_rgba8(160, 170, 200, 180))),
                 stroke: None,
                 anti_alias: false,
+                ..ShapeStyle::default()
             },
         });
     }

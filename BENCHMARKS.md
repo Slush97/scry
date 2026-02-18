@@ -309,9 +309,7 @@ both libraries, with scry within 0.2% of sklearn.
 
 | Area | Gap | Notes |
 |------|-----|-------|
-| Gaussian NB digits | −2.2% vs sklearn | Improved by var_smoothing fix (was −3.3%); remaining gap likely var_smoothing differences in weighted variance |
+| Gaussian NB digits | −2.2% vs sklearn | var_smoothing differences in weighted variance |
 | KNN iris | −2.7% | Inherent to 150-sample dataset (1 misclass per fold = 2.7%) |
-| LinearRegression R² | −1.7% vs sklearn | Solver differences (normal eq vs. LAPACK); functionally equivalent |
-| No MLP/neural networks | Feature gap | Planned for Sprint 11 |
-| No GPU acceleration | Performance ceiling | Planned for Sprint 9 |
+| LinearRegression R² | −1.7% vs sklearn | Solver differences (normal eq vs. LAPACK); SVD/QR solvers available via `.solver()` |
 

@@ -2,16 +2,15 @@
 //! Tree-based models: Decision Tree, Random Forest, Gradient Boosting, and
 //! Histogram-based Gradient Boosting.
 
-pub mod binning;
+pub(crate) mod binning;
 mod cart;
 mod gradient_boosting;
 mod histogram_gbt;
 mod random_forest;
 
 pub use binning::FeatureBinner;
-pub use cart::{
-    DecisionTreeClassifier, DecisionTreeRegressor, FlatNode, FlatTree, SplitCriterion, TreeNode,
-};
+pub(crate) use cart::{FlatNode, FlatTree};
+pub use cart::{DecisionTreeClassifier, DecisionTreeRegressor, SplitCriterion, TreeNode};
 pub use gradient_boosting::{
     GradientBoostingClassifier, GradientBoostingRegressor, RegressionLoss,
 };

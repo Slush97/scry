@@ -550,6 +550,7 @@ impl Tunable for crate::svm::LinearSVR {
     }
 }
 
+#[cfg(feature = "experimental")]
 impl Tunable for crate::svm::KernelSVC {
     fn set_param(&mut self, name: &str, value: ParamValue) -> Result<()> {
         match name {
@@ -599,6 +600,7 @@ impl Tunable for crate::svm::KernelSVC {
     }
 }
 
+#[cfg(feature = "experimental")]
 impl Tunable for crate::svm::KernelSVR {
     fn set_param(&mut self, name: &str, value: ParamValue) -> Result<()> {
         match name {

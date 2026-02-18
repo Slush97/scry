@@ -155,6 +155,39 @@ impl DenseMatrix {
         self.row_iter(i).collect()
     }
 
+    /// Build from a reference to column-major `&[Vec<f64>]` (no ownership transfer).
+    ///
+    /// Same as [`from_col_major`](Self::from_col_major) but borrows the columns
+    /// instead of consuming them, avoiding a clone of the outer `Vec`.
+    pub fn from_col_major_ref(cols: &[Vec<f64>]) -> Result<Self> {
+        if cols.is_empty() {
+            return Ok(Self {
+                data: Vec::new(),
+                n_rows: 0,
+                n_cols: 0,
+            });
+        }
+        let n_rows = cols[0].len();
+        let n_cols = cols.len();
+        for (i, col) in cols.iter().enumerate() {
+            if col.len() != n_rows {
+                return Err(ScryLearnError::InvalidParameter(format!(
+                    "DenseMatrix::from_col_major_ref: column {i} has {} rows, expected {n_rows}",
+                    col.len(),
+                )));
+            }
+        }
+        let mut data = Vec::with_capacity(n_rows * n_cols);
+        for col in cols {
+            data.extend_from_slice(col);
+        }
+        Ok(Self {
+            data,
+            n_rows,
+            n_cols,
+        })
+    }
+
     /// Convert back to `Vec<Vec<f64>>` column-major (backward compat).
     pub fn to_col_vecs(&self) -> Vec<Vec<f64>> {
         (0..self.n_cols).map(|j| self.col(j).to_vec()).collect()

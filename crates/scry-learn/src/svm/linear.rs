@@ -69,7 +69,7 @@ impl LinearSVC {
         Self {
             c: 1.0,
             max_iter: 1000,
-            tol: 1e-4,
+            tol: crate::constants::DEFAULT_TOL,
             class_weight: ClassWeight::Uniform,
             probability: false,
             weights: Vec::new(),
@@ -434,7 +434,7 @@ impl LinearSVR {
             c: 1.0,
             epsilon: 0.1,
             max_iter: 1000,
-            tol: 1e-4,
+            tol: crate::constants::DEFAULT_TOL,
             weights: Vec::new(),
             fitted: false,
             _schema_version: crate::version::SCHEMA_VERSION,
@@ -678,7 +678,7 @@ fn pegasos_train(
 
     for epoch in 0..max_iter {
         // Decaying learning rate with a floor to avoid stalling.
-        let eta = 1.0 / (1.0 + 0.01 * epoch as f64);
+        let eta = 1.0 / (1.0 + crate::constants::PEGASOS_LR_DECAY * epoch as f64);
 
         // Batch sub-gradient.
         let mut grad = vec![0.0; m + 1];
@@ -764,7 +764,7 @@ fn pegasos_train_sparse(
     let mut prev_w = w.clone();
 
     for epoch in 0..max_iter {
-        let eta = 1.0 / (1.0 + 0.01 * epoch as f64);
+        let eta = 1.0 / (1.0 + crate::constants::PEGASOS_LR_DECAY * epoch as f64);
 
         let mut grad = vec![0.0; m + 1];
         let mut hinge_loss = 0.0_f64;
@@ -843,7 +843,7 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
 
     let mut a = 0.0_f64;
     let mut b = ((n_neg + 1.0) / (n_pos + 1.0)).ln();
-    let sigma = 1e-12;
+    let sigma = crate::constants::PLATT_HESSIAN_REG;
 
     for _ in 0..100 {
         let mut g1 = 0.0_f64;
@@ -866,13 +866,13 @@ fn platt_fit(decision_values: &[f64], labels: &[f64]) -> (f64, f64) {
         }
 
         let det = h11 * h22 - h21 * h21;
-        if det.abs() < 1e-30 {
+        if det.abs() < crate::constants::PLATT_SINGULAR_DET {
             break;
         }
         let da = -(h22 * g1 - h21 * g2) / det;
         let db = -(h11 * g2 - h21 * g1) / det;
 
-        if da.abs() < 1e-10 && db.abs() < 1e-10 {
+        if da.abs() < crate::constants::PLATT_CONVERGENCE && db.abs() < crate::constants::PLATT_CONVERGENCE {
             break;
         }
 

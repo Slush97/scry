@@ -15,7 +15,9 @@ use scry_learn::neural::{MLPClassifier, MLPRegressor};
 use scry_learn::pipeline::Pipeline;
 use scry_learn::preprocess::{MinMaxScaler, Pca, StandardScaler, Transformer};
 use scry_learn::split::train_test_split;
-use scry_learn::svm::{Kernel, KernelSVC, KernelSVR, LinearSVC, LinearSVR};
+use scry_learn::svm::{LinearSVC, LinearSVR};
+#[cfg(feature = "experimental")]
+use scry_learn::svm::{Kernel, KernelSVC, KernelSVR};
 use scry_learn::tree::{
     DecisionTreeClassifier, DecisionTreeRegressor, GradientBoostingClassifier,
     GradientBoostingRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor,
@@ -222,6 +224,7 @@ fn classifier_linear_svc() {
     assert!(acc > 0.8, "accuracy {acc} <= 0.8");
 }
 
+#[cfg(feature = "experimental")]
 #[test]
 #[ignore] // Kernel SVM is O(n²); too slow in debug mode — run with --release --ignored
 fn classifier_kernel_svc() {
@@ -399,6 +402,7 @@ fn regressor_linear_svr() {
     assert!(r2 > 0.8, "R² {r2} <= 0.8");
 }
 
+#[cfg(feature = "experimental")]
 #[test]
 #[ignore] // Kernel SVM is O(n²); too slow in debug mode — run with --release --ignored
 fn regressor_kernel_svr() {

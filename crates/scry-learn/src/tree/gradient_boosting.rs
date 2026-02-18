@@ -288,7 +288,7 @@ impl GradientBoostingRegressor {
             loss: RegressionLoss::SquaredError,
             validation_fraction: 0.1,
             n_iter_no_change: None,
-            tol: 1e-4,
+            tol: crate::constants::DEFAULT_TOL,
             trees: Vec::new(),
             init_prediction: 0.0,
             n_features: 0,
@@ -937,7 +937,7 @@ impl GradientBoostingClassifier {
         // Class prior: p = count(y=1) / n
         let pos_count = data.target.iter().filter(|&&y| y > 0.5).count();
         let p = (pos_count as f64) / (n as f64);
-        let p_clamped = p.clamp(1e-7, 1.0 - 1e-7);
+        let p_clamped = p.clamp(crate::constants::GBT_PROB_CLAMP, 1.0 - crate::constants::GBT_PROB_CLAMP);
         let f0 = (p_clamped / (1.0 - p_clamped)).ln(); // log-odds
         self.init_predictions = vec![f0];
 
@@ -1004,7 +1004,7 @@ impl GradientBoostingClassifier {
                 .iter()
                 .zip(probs_after.iter())
                 .map(|(&y, &p)| {
-                    let p_c = p.clamp(1e-15, 1.0 - 1e-15);
+                    let p_c = p.clamp(crate::constants::NEAR_ZERO, 1.0 - crate::constants::NEAR_ZERO);
                     -(y * p_c.ln() + (1.0 - y) * (1.0 - p_c).ln())
                 })
                 .sum::<f64>()
@@ -1085,7 +1085,7 @@ impl GradientBoostingClassifier {
         let init_preds: Vec<f64> = class_counts
             .iter()
             .map(|&c| {
-                let p = (c as f64 / n as f64).clamp(1e-7, 1.0 - 1e-7);
+                let p = (c as f64 / n as f64).clamp(crate::constants::GBT_PROB_CLAMP, 1.0 - crate::constants::GBT_PROB_CLAMP);
                 p.ln()
             })
             .collect();
@@ -1133,13 +1133,14 @@ impl GradientBoostingClassifier {
 
                 // ── Newton-Raphson leaf correction for multiclass ──
                 // For each leaf:
-                //   leaf_value = (K-1)/K × Σ(residual_i) / Σ(|residual_i| × (1 - |residual_i|))
+                //   leaf_value = (K-1)/K × Σ(residual_i) / Σ(p_i × (1 - p_i))
                 if let Some(ref mut flat) = tree.flat_tree {
                     let leaf_indices = flat.apply(row_major);
                     newton_correct_multiclass_leaves(
                         flat,
                         &leaf_indices,
                         &temp_data.target, // residuals
+                        &probs[cls],       // softmax probabilities for this class
                         k,
                     );
                 }
@@ -1157,7 +1158,7 @@ impl GradientBoostingClassifier {
             let train_loss: f64 = (0..n)
                 .map(|i| {
                     let cls_i = data.target[i] as usize;
-                    let p = probs_after[cls_i][i].clamp(1e-15, 1.0 - 1e-15);
+                    let p = probs_after[cls_i][i].clamp(crate::constants::NEAR_ZERO, 1.0 - crate::constants::NEAR_ZERO);
                     -p.ln()
                 })
                 .sum::<f64>()
@@ -1390,7 +1391,7 @@ fn newton_correct_binary_leaves(
     for (&leaf_idx, &num) in &leaf_num {
         let den = leaf_den[&leaf_idx];
         // Avoid division by zero; fall back to gradient mean.
-        if den.abs() > 1e-12 {
+        if den.abs() > crate::constants::SINGULAR_THRESHOLD {
             flat.set_leaf_prediction(leaf_idx, num / den);
         }
     }
@@ -1399,13 +1400,16 @@ fn newton_correct_binary_leaves(
 /// Newton-Raphson correction for multiclass softmax.
 ///
 /// For each leaf, replace the mean residual with:
-///   leaf_value = (K-1)/K × Σ(residual_i) / Σ(|residual_i| × (1 - |residual_i|))
+///   leaf_value = (K-1)/K × Σ(residual_i) / Σ(p_i × (1 - p_i))
 ///
-/// This is the Friedman (2001) multiclass correction.
+/// where p_i is the softmax probability for the current class.
+/// Uses the exact diagonal Hessian p(1-p), matching sklearn, XGBoost,
+/// and LightGBM (not the Friedman 2001 |r|(1-|r|) approximation).
 fn newton_correct_multiclass_leaves(
     flat: &mut crate::tree::cart::FlatTree,
     leaf_indices: &[usize],
     residuals: &[f64],
+    probs: &[f64],
     k: usize,
 ) {
     use std::collections::HashMap;
@@ -1417,15 +1421,15 @@ fn newton_correct_multiclass_leaves(
 
     for (i, &leaf_idx) in leaf_indices.iter().enumerate() {
         let r = residuals[i];
-        let abs_r = r.abs().min(1.0 - 1e-12); // clamp for numerical stability
-        let hessian = abs_r * (1.0 - abs_r);
+        let p = probs[i];
+        let hessian = (p * (1.0 - p)).max(crate::constants::SINGULAR_THRESHOLD);
         *leaf_num.entry(leaf_idx).or_insert(0.0) += r;
         *leaf_den.entry(leaf_idx).or_insert(0.0) += hessian;
     }
 
     for (&leaf_idx, &num) in &leaf_num {
         let den = leaf_den[&leaf_idx];
-        if den.abs() > 1e-12 {
+        if den.abs() > crate::constants::SINGULAR_THRESHOLD {
             flat.set_leaf_prediction(leaf_idx, factor * num / den);
         }
     }

@@ -36,6 +36,19 @@ pub enum Material {
         /// Animation speed multiplier.
         speed: f32,
     },
+    /// Checkerboard pattern (two alternating colors on an infinite plane).
+    Checkerboard {
+        /// First color (e.g. white squares).
+        color_a: Color,
+        /// Second color (e.g. black squares).
+        color_b: Color,
+        /// World-space scale of each square (default 1.0).
+        scale: f32,
+        /// Mirror reflectivity (0 = matte, 1 = perfect mirror).
+        reflectivity: f32,
+        /// Specular highlight power.
+        specular: f32,
+    },
 }
 
 impl Material {
@@ -73,6 +86,17 @@ impl Material {
             intensity: 1.5,
             noise_scale: 2.5,
             speed: 1.0,
+        }
+    }
+
+    /// Convenience: checkerboard pattern with two alternating colors.
+    pub fn checkerboard(color_a: Color, color_b: Color) -> Self {
+        Self::Checkerboard {
+            color_a,
+            color_b,
+            scale: 1.0,
+            reflectivity: 0.0,
+            specular: 32.0,
         }
     }
 }
