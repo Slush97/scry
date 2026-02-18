@@ -236,6 +236,8 @@ pub fn attention<B: MathBackend>(
     n_heads: usize,
     d_model: usize,
     d_head: usize,
+    dropout_rate: f32,
+    mut rng: Option<&mut fastrand::Rng>,
     tape: Option<&mut GradTape<B>>,
 ) -> Tensor<B> {
     let seq_len = input.shape.dims()[0];
@@ -261,11 +263,14 @@ pub fn attention<B: MathBackend>(
     );
     let qkv_vec = B::to_vec(&qkv);
 
+    let is_training = tape.is_some();
+
     // Split into heads and compute attention
-    let mut all_attn_weights: Vec<Vec<f32>> = Vec::with_capacity(n_heads);
-    let mut all_q: Vec<Vec<f32>> = Vec::with_capacity(n_heads);
-    let mut all_k: Vec<Vec<f32>> = Vec::with_capacity(n_heads);
-    let mut all_v: Vec<Vec<f32>> = Vec::with_capacity(n_heads);
+    let mut all_attn_weights: Vec<B::Storage> = Vec::with_capacity(n_heads);
+    let mut all_q: Vec<B::Storage> = Vec::with_capacity(n_heads);
+    let mut all_k: Vec<B::Storage> = Vec::with_capacity(n_heads);
+    let mut all_v: Vec<B::Storage> = Vec::with_capacity(n_heads);
+    let mut all_attn_dropout_masks: Vec<B::Storage> = Vec::with_capacity(n_heads);
     let mut head_concat = vec![0.0f32; seq_len * d_model];
 
     let scale = 1.0 / (d_head as f64).sqrt();
@@ -317,9 +322,36 @@ pub fn attention<B: MathBackend>(
         let attn = B::softmax(&scores_storage, &Shape::new(&[seq_len, seq_len]));
         let attn_vec = B::to_vec(&attn);
 
+        // Apply dropout to attention weights (inverted dropout)
+        let (attn_for_v, dropout_mask_vec) =
+            if is_training && dropout_rate > 0.0 && dropout_rate < 1.0 {
+                let rng = rng
+                    .as_deref_mut()
+                    .expect("rng required for attention dropout during training");
+                let n = attn_vec.len();
+                let scale_inv = 1.0 / (1.0 - dropout_rate);
+                let mut mask = vec![0.0f32; n];
+                let mut dropped = attn_vec.clone();
+                for i in 0..n {
+                    if rng.f32() >= dropout_rate {
+                        mask[i] = scale_inv;
+                        dropped[i] *= scale_inv;
+                    } else {
+                        mask[i] = 0.0;
+                        dropped[i] = 0.0;
+                    }
+                }
+                (dropped, mask)
+            } else {
+                let n = attn_vec.len();
+                (attn_vec.clone(), vec![1.0f32; n])
+            };
+        let attn_shape = Shape::new(&[seq_len, seq_len]);
+        let attn_dropped = B::from_vec(attn_for_v, &attn_shape);
+
         // out_h = attn @ V => [seq, d_head]
         let out_h = B::matmul(
-            &attn,
+            &attn_dropped,
             &B::from_vec(v_h.clone(), &Shape::new(&[seq_len, d_head])),
             seq_len,
             seq_len,
@@ -336,10 +368,12 @@ pub fn attention<B: MathBackend>(
             }
         }
 
-        all_attn_weights.push(attn_vec);
-        all_q.push(q_h);
-        all_k.push(k_h);
-        all_v.push(v_h);
+        let head_shape = Shape::new(&[seq_len, d_head]);
+        all_attn_weights.push(B::from_vec(attn_vec, &attn_shape));
+        all_q.push(B::from_vec(q_h, &head_shape));
+        all_k.push(B::from_vec(k_h, &head_shape));
+        all_v.push(B::from_vec(v_h, &head_shape));
+        all_attn_dropout_masks.push(B::from_vec(dropout_mask_vec, &attn_shape));
     }
 
     // Output projection: head_concat @ W_proj + b_proj => [seq, d_model]
@@ -378,6 +412,7 @@ pub fn attention<B: MathBackend>(
                 q_per_head: all_q,
                 k_per_head: all_k,
                 v_per_head: all_v,
+                attn_dropout_masks: all_attn_dropout_masks,
                 head_concat: B::from_vec(head_concat, &Shape::new(&[seq_len, d_model])),
                 n_heads,
                 d_model,
@@ -388,6 +423,90 @@ pub fn attention<B: MathBackend>(
                 proj_weight_id: proj_weight.id,
                 proj_bias_id: proj_bias.id,
             },
+        });
+    }
+
+    out
+}
+
+/// Inverted dropout: during training, randomly zeros elements with probability `p`
+/// and scales remaining by `1/(1-p)`. During inference (`tape=None`), acts as identity.
+///
+/// # Panics
+///
+/// Panics if `p` is not in `[0, 1]`.
+pub fn dropout<B: MathBackend>(
+    input: &Tensor<B>,
+    p: f32,
+    rng: &mut fastrand::Rng,
+    tape: Option<&mut GradTape<B>>,
+) -> Tensor<B> {
+    assert!(
+        (0.0..=1.0).contains(&p),
+        "dropout rate must be in [0, 1], got {p}"
+    );
+
+    // Inference: identity (no tape)
+    if tape.is_none() {
+        return Tensor::new(B::clone_storage(&input.data), input.shape.clone());
+    }
+
+    // p=0: record identity on tape for gradient flow
+    if p == 0.0 {
+        let out = Tensor::new(B::clone_storage(&input.data), input.shape.clone());
+        if let Some(tape) = tape {
+            tape.record(TapeNode {
+                output_id: out.id,
+                input_ids: vec![input.id],
+                op: Operation::Dropout,
+                saved: SavedData::Dropout {
+                    mask: B::ones(&input.shape),
+                },
+            });
+        }
+        return out;
+    }
+
+    // p=1: all zeros
+    #[allow(clippy::float_cmp)]
+    if p == 1.0 {
+        let zeros = B::zeros(&input.shape);
+        let out = Tensor::new(zeros, input.shape.clone());
+        if let Some(tape) = tape {
+            tape.record(TapeNode {
+                output_id: out.id,
+                input_ids: vec![input.id],
+                op: Operation::Dropout,
+                saved: SavedData::Dropout {
+                    mask: B::zeros(&input.shape),
+                },
+            });
+        }
+        return out;
+    }
+
+    let data = B::to_vec(&input.data);
+    let n = data.len();
+    let scale = 1.0 / (1.0 - p);
+    let mut mask = vec![0.0f32; n];
+    let mut output = vec![0.0f32; n];
+
+    for i in 0..n {
+        if rng.f32() >= p {
+            mask[i] = scale;
+            output[i] = data[i] * scale;
+        }
+    }
+
+    let mask_storage = B::from_vec(mask, &input.shape);
+    let out = Tensor::new(B::from_vec(output, &input.shape), input.shape.clone());
+
+    if let Some(tape) = tape {
+        tape.record(TapeNode {
+            output_id: out.id,
+            input_ids: vec![input.id],
+            op: Operation::Dropout,
+            saved: SavedData::Dropout { mask: mask_storage },
         });
     }
 

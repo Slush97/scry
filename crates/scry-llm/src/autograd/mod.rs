@@ -56,10 +56,11 @@ pub enum SavedData<B: DeviceBackend> {
         input: B::Storage,
         qkv_weight: B::Storage,
         proj_weight: B::Storage,
-        attn_weights: Vec<Vec<f32>>,
-        q_per_head: Vec<Vec<f32>>,
-        k_per_head: Vec<Vec<f32>>,
-        v_per_head: Vec<Vec<f32>>,
+        attn_weights: Vec<B::Storage>,
+        q_per_head: Vec<B::Storage>,
+        k_per_head: Vec<B::Storage>,
+        v_per_head: Vec<B::Storage>,
+        attn_dropout_masks: Vec<B::Storage>,
         head_concat: B::Storage,
         n_heads: usize,
         d_model: usize,
@@ -69,6 +70,20 @@ pub enum SavedData<B: DeviceBackend> {
         qkv_bias_id: TensorId,
         proj_weight_id: TensorId,
         proj_bias_id: TensorId,
+    },
+    Dropout {
+        mask: B::Storage,
+    },
+    /// Placeholder for a checkpointed segment of transformer blocks.
+    /// Stores the input data/shape needed to recompute the segment's forward pass.
+    Checkpoint {
+        input_data: B::Storage,
+        input_shape: Shape,
+        /// Indices of the transformer blocks in this segment (start..end).
+        block_start: usize,
+        block_end: usize,
+        dropout_rate: f32,
+        rng_seed: u64,
     },
 }
 
@@ -83,6 +98,8 @@ pub enum Operation {
     Embedding,
     Sum,
     Attention,
+    Dropout,
+    Checkpoint,
 }
 
 /// A node on the autograd tape.

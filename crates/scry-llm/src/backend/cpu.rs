@@ -391,6 +391,30 @@ impl MathBackend for CpuBackend {
         a.iter().map(|&x| x * scalar).collect()
     }
 
+    fn norm(storage: &Vec<f32>) -> f32 {
+        let sum_sq: f64 = storage.iter().map(|&x| f64::from(x) * f64::from(x)).sum();
+        sum_sq.sqrt() as f32
+    }
+
+    fn scale_inplace(a: &mut Vec<f32>, scalar: f32) {
+        for x in a.iter_mut() {
+            *x *= scalar;
+        }
+    }
+
+    fn concat_rows(
+        a: &Vec<f32>,
+        b: &Vec<f32>,
+        _a_rows: usize,
+        _b_rows: usize,
+        _cols: usize,
+    ) -> Vec<f32> {
+        let mut out = Vec::with_capacity(a.len() + b.len());
+        out.extend_from_slice(a);
+        out.extend_from_slice(b);
+        out
+    }
+
     fn add_inplace(a: &mut Vec<f32>, b: &Vec<f32>) {
         for (x, y) in a.iter_mut().zip(b.iter()) {
             *x += *y;

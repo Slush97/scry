@@ -139,6 +139,22 @@ pub trait MathBackend: DeviceBackend {
     /// Elementwise add in place: `a += b`. Shapes must match.
     fn add_inplace(a: &mut Self::Storage, b: &Self::Storage);
 
+    /// L2 norm of all elements: `sqrt(sum(x^2))`.
+    fn norm(storage: &Self::Storage) -> f32;
+
+    /// In-place scalar multiply: `a[i] *= scalar` for all i.
+    fn scale_inplace(a: &mut Self::Storage, scalar: f32);
+
+    /// Concatenate two row-major matrices along rows (axis 0).
+    /// `a`: `[a_rows, cols]`, `b`: `[b_rows, cols]` → `[a_rows + b_rows, cols]`.
+    fn concat_rows(
+        a: &Self::Storage,
+        b: &Self::Storage,
+        a_rows: usize,
+        b_rows: usize,
+        cols: usize,
+    ) -> Self::Storage;
+
     /// `AdamW` optimizer step (fused). Updates `param` in place.
     #[allow(clippy::too_many_arguments)]
     fn adamw_step(

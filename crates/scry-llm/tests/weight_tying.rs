@@ -20,6 +20,7 @@ fn weight_tying_gradient_receives_both_contributions() {
         n_heads: 2,
         n_layers: 1,
         d_ff: 8,
+        dropout_rate: 0.0,
     };
     let mut rng = fastrand::Rng::with_seed(42);
     let model = Gpt2Model::<Cpu>::new(config, &mut rng);
@@ -29,7 +30,7 @@ fn weight_tying_gradient_receives_both_contributions() {
 
     // Full forward + backward (both embedding and LM head use token_embedding)
     let mut tape = GradTape::<Cpu>::new();
-    let logits = model.forward(token_ids, &mut tape);
+    let logits = model.forward(token_ids, &mut fastrand::Rng::with_seed(99), &mut tape);
     let loss = ops::cross_entropy(&logits, &targets, 3, 5, Some(&mut tape));
     let grads = backward(&tape, loss.id);
 
@@ -82,6 +83,7 @@ fn weight_tying_parameter_count_no_duplicate() {
         n_heads: 2,
         n_layers: 1,
         d_ff: 8,
+        dropout_rate: 0.0,
     };
     let mut rng = fastrand::Rng::with_seed(42);
     let model = Gpt2Model::<Cpu>::new(config, &mut rng);

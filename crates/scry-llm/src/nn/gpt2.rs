@@ -2,12 +2,12 @@ use crate::autograd::ops;
 use crate::autograd::GradTape;
 use crate::backend::MathBackend;
 use crate::nn::embedding::EmbeddingLayer;
+use crate::nn::kv_cache::KvCache;
 use crate::nn::layernorm::LayerNormModule;
 use crate::nn::transformer::TransformerBlock;
 use crate::nn::Module;
-use crate::tensor::Tensor;
-#[cfg(feature = "safetensors")]
 use crate::tensor::shape::Shape;
+use crate::tensor::{Tensor, TensorId};
 
 /// GPT-2 configuration.
 #[derive(Clone, Debug)]
@@ -18,6 +18,7 @@ pub struct Gpt2Config {
     pub n_heads: usize,
     pub n_layers: usize,
     pub d_ff: usize,
+    pub dropout_rate: f32,
 }
 
 impl Gpt2Config {
@@ -30,6 +31,7 @@ impl Gpt2Config {
             n_heads: 12,
             n_layers: 12,
             d_ff: 3072,
+            dropout_rate: 0.1,
         }
     }
 }
@@ -76,11 +78,16 @@ impl<B: MathBackend> Gpt2Model<B> {
     }
 
     /// Forward pass: `token_ids` → logits `[seq, vocab]`.
-    pub fn forward(&self, token_ids: &[usize], tape: &mut GradTape<B>) -> Tensor<B> {
+    pub fn forward(
+        &self,
+        token_ids: &[usize],
+        rng: &mut fastrand::Rng,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
         let mut x = self.embedding.forward(token_ids, tape);
 
         for block in &self.blocks {
-            x = block.forward(&x, tape);
+            x = block.forward(&x, self.config.dropout_rate, rng, tape);
         }
 
         x = self.ln_f.forward(&x, tape);
@@ -120,6 +127,225 @@ impl<B: MathBackend> Gpt2Model<B> {
             true,
             None,
         )
+    }
+
+    /// Create a new [`KvCache`] sized for this model.
+    pub fn new_kv_cache(&self) -> KvCache<B> {
+        let d_head = self.config.d_model / self.config.n_heads;
+        KvCache::new(self.config.n_layers, self.config.n_heads, d_head)
+    }
+
+    /// Single-token forward with KV cache for autoregressive inference.
+    ///
+    /// `token_id`: the token to process. `position`: its absolute position in the
+    /// sequence (for position embedding lookup). Returns logits `[1, vocab]`.
+    pub fn forward_with_cache(
+        &self,
+        token_id: usize,
+        position: usize,
+        cache: &mut KvCache<B>,
+    ) -> Tensor<B> {
+        // Embed single token + position
+        let tok_emb = ops::embedding(
+            &self.embedding.token_embedding,
+            &[token_id],
+            self.embedding.vocab_size,
+            self.embedding.d_model,
+            None,
+        );
+        let pos_emb = ops::embedding(
+            &self.embedding.position_embedding,
+            &[position],
+            self.embedding.max_seq_len,
+            self.embedding.d_model,
+            None,
+        );
+        let mut x = ops::add(&tok_emb, &pos_emb, None);
+
+        for (i, block) in self.blocks.iter().enumerate() {
+            x = block.forward_with_cache(&x, &mut cache.layers[i]);
+        }
+
+        x = self.ln_f.forward_inference(&x);
+
+        ops::matmul(
+            &x,
+            &self.embedding.token_embedding,
+            1,
+            self.config.d_model,
+            self.config.vocab_size,
+            false,
+            true,
+            None,
+        )
+    }
+
+    /// Forward pass with gradient checkpointing.
+    ///
+    /// Runs transformer blocks in segments of `checkpoint_every` blocks. For each
+    /// segment, the forward is run without recording on the tape — only a
+    /// [`SavedData::Checkpoint`] placeholder is recorded. During
+    /// [`backward_checkpointed`](Self::backward_checkpointed), each segment is
+    /// recomputed to produce the real tape nodes.
+    ///
+    /// This trades compute for memory: O(n_layers / checkpoint_every) boundary
+    /// tensors stored instead of the full tape.
+    pub fn forward_checkpointed(
+        &self,
+        token_ids: &[usize],
+        checkpoint_every: usize,
+        rng: &mut fastrand::Rng,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
+        use crate::autograd::{Operation, SavedData, TapeNode};
+
+        let mut x = self.embedding.forward(token_ids, tape);
+
+        let n = self.blocks.len();
+        let mut i = 0;
+        while i < n {
+            let end = (i + checkpoint_every).min(n);
+
+            // Save RNG state for deterministic recomputation
+            let rng_seed = rng.u64(..);
+
+            // Save segment input (data + shape + id) before running without tape
+            let seg_input_id = x.id;
+            let seg_input_data = B::clone_storage(&x.data);
+            let seg_input_shape = x.shape.clone();
+            for block in &self.blocks[i..end] {
+                x = block.forward_inference(&x);
+            }
+
+            // Also advance the main RNG to match what would have happened
+            // (dropout samples) — we use seg_rng for actual computation but
+            // the main rng was already advanced by the u64 call above.
+
+            // Record a checkpoint placeholder on the tape
+            tape.record(TapeNode {
+                output_id: x.id,
+                input_ids: vec![seg_input_id],
+                op: Operation::Checkpoint,
+                saved: SavedData::Checkpoint {
+                    input_data: seg_input_data,
+                    input_shape: seg_input_shape,
+                    block_start: i,
+                    block_end: end,
+                    dropout_rate: self.config.dropout_rate,
+                    rng_seed,
+                },
+            });
+
+            i = end;
+        }
+
+        x = self.ln_f.forward(&x, tape);
+
+        let seq = token_ids.len();
+        ops::matmul(
+            &x,
+            &self.embedding.token_embedding,
+            seq,
+            self.config.d_model,
+            self.config.vocab_size,
+            false,
+            true,
+            Some(tape),
+        )
+    }
+
+    /// Backward pass with gradient checkpointing.
+    ///
+    /// For each `Checkpoint` node encountered during backward traversal,
+    /// recomputes the segment's forward pass with a local tape, runs backward
+    /// on that local tape, and propagates gradients.
+    pub fn backward_checkpointed(
+        &self,
+        tape: &GradTape<B>,
+        loss_id: TensorId,
+    ) -> crate::autograd::backward::Gradients<B> {
+        use crate::autograd::backward::Gradients;
+        use crate::autograd::{Operation, SavedData};
+        use std::collections::HashMap;
+
+        let mut grads: Gradients<B> = HashMap::new();
+
+        // Seed
+        let ones = B::from_vec(vec![1.0], &Shape::new(&[1]));
+        grads.insert(loss_id, ones);
+
+        for node in tape.nodes.iter().rev() {
+            let d_out = match grads.get(&node.output_id) {
+                Some(g) => B::clone_storage(g),
+                None => continue,
+            };
+
+            match (&node.op, &node.saved) {
+                (
+                    Operation::Checkpoint,
+                    SavedData::Checkpoint {
+                        input_data,
+                        input_shape,
+                        block_start,
+                        block_end,
+                        dropout_rate,
+                        rng_seed,
+                    },
+                ) => {
+                    // Recompute the segment forward with a local tape
+                    let mut local_tape = GradTape::<B>::new();
+                    let mut seg_rng = fastrand::Rng::with_seed(*rng_seed);
+
+                    // Create tensor with the SAME ID as the original input
+                    // so gradients flow correctly to the segment input
+                    let seg_input = Tensor {
+                        id: node.input_ids[0],
+                        data: B::clone_storage(input_data),
+                        shape: input_shape.clone(),
+                    };
+
+                    let mut y = seg_input;
+                    for block in &self.blocks[*block_start..*block_end] {
+                        y = block.forward(&y, *dropout_rate, &mut seg_rng, &mut local_tape);
+                    }
+
+                    // The local tape's last output should correspond to the
+                    // checkpoint output. We need to seed the local backward
+                    // with d_out for that output.
+                    let local_loss_id = y.id;
+                    let mut local_grads: Gradients<B> = HashMap::new();
+                    local_grads.insert(local_loss_id, d_out);
+
+                    // Run backward on local tape
+                    for local_node in local_tape.nodes.iter().rev() {
+                        let local_d_out = match local_grads.get(&local_node.output_id) {
+                            Some(g) => B::clone_storage(g),
+                            None => continue,
+                        };
+                        crate::autograd::backward::backward_node::<B>(
+                            local_node,
+                            &local_d_out,
+                            &mut local_grads,
+                        );
+                    }
+
+                    // Merge local gradients into main gradients
+                    for (id, grad) in local_grads {
+                        if let Some(existing) = grads.get_mut(&id) {
+                            B::add_inplace(existing, &grad);
+                        } else {
+                            grads.insert(id, grad);
+                        }
+                    }
+                }
+                _ => {
+                    // Normal backward — delegate to the standard per-node backward
+                    crate::autograd::backward::backward_node::<B>(node, &d_out, &mut grads);
+                }
+            }
+        }
+
+        grads
     }
 
     /// Load weights from a `HuggingFace` GPT-2 safetensors file.

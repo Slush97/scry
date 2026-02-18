@@ -2,6 +2,7 @@ use crate::autograd::ops;
 use crate::autograd::GradTape;
 use crate::backend::MathBackend;
 use crate::nn::attention::CausalSelfAttention;
+use crate::nn::kv_cache::LayerKvCache;
 use crate::nn::layernorm::LayerNormModule;
 use crate::nn::mlp::Mlp;
 use crate::nn::Module;
@@ -25,16 +26,35 @@ impl<B: MathBackend> TransformerBlock<B> {
         }
     }
 
-    pub fn forward(&self, input: &Tensor<B>, tape: &mut GradTape<B>) -> Tensor<B> {
-        // x = input + attn(ln1(input))
+    pub fn forward(
+        &self,
+        input: &Tensor<B>,
+        dropout_rate: f32,
+        rng: &mut fastrand::Rng,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
+        // x = input + dropout(attn(ln1(input)))
         let ln1_out = self.ln1.forward(input, tape);
-        let attn_out = self.attn.forward(&ln1_out, tape);
+        let attn_out = self.attn.forward(&ln1_out, dropout_rate, Some(rng), tape);
+        let attn_out = ops::dropout(&attn_out, dropout_rate, rng, Some(tape));
         let x = ops::add(input, &attn_out, Some(tape));
 
-        // x = x + mlp(ln2(x))
+        // x = x + dropout(mlp(ln2(x)))
         let ln2_out = self.ln2.forward(&x, tape);
         let mlp_out = self.mlp.forward(&ln2_out, tape);
+        let mlp_out = ops::dropout(&mlp_out, dropout_rate, rng, Some(tape));
         ops::add(&x, &mlp_out, Some(tape))
+    }
+
+    /// Single-token forward with KV cache (inference only).
+    pub fn forward_with_cache(&self, input: &Tensor<B>, cache: &mut LayerKvCache<B>) -> Tensor<B> {
+        let ln1_out = self.ln1.forward_inference(input);
+        let attn_out = self.attn.forward_with_cache(&ln1_out, cache);
+        let x = ops::add(input, &attn_out, None);
+
+        let ln2_out = self.ln2.forward_inference(&x);
+        let mlp_out = self.mlp.forward_inference(&ln2_out);
+        ops::add(&x, &mlp_out, None)
     }
 
     pub fn forward_inference(&self, input: &Tensor<B>) -> Tensor<B> {

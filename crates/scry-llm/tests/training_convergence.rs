@@ -19,6 +19,7 @@ fn tiny_gpt2_training_converges() {
         n_heads: 2,
         n_layers: 2,
         d_ff: 64,
+        dropout_rate: 0.0,
     };
 
     let mut rng = fastrand::Rng::with_seed(42);
@@ -56,7 +57,7 @@ fn tiny_gpt2_training_converges() {
         let mut tape = GradTape::<Cpu>::new();
 
         // Forward
-        let logits = model.forward(input_ids, &mut tape);
+        let logits = model.forward(input_ids, &mut rng, &mut tape);
 
         // Loss
         let batch = input_ids.len();

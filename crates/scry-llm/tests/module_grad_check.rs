@@ -114,7 +114,9 @@ fn grad_check_attention_d_input() {
             let qb = Tensor::<Cpu>::from_vec(qkv_b.clone(), Shape::new(&[3 * d_model]));
             let pw = Tensor::<Cpu>::from_vec(proj_w.clone(), Shape::new(&[d_model, d_model]));
             let pb = Tensor::<Cpu>::from_vec(proj_b.clone(), Shape::new(&[d_model]));
-            let out = ops::attention(&inp, &qw, &qb, &pw, &pb, n_heads, d_model, d_head, None);
+            let out = ops::attention(
+                &inp, &qw, &qb, &pw, &pb, n_heads, d_model, d_head, 0.0, None, None,
+            );
             out.to_vec()
         },
         |input| {
@@ -133,6 +135,8 @@ fn grad_check_attention_d_input() {
                 n_heads,
                 d_model,
                 d_head,
+                0.0,
+                None,
                 Some(&mut tape),
             );
             let loss = ops::sum(&out, Some(&mut tape));
@@ -167,7 +171,9 @@ fn grad_check_attention_d_qkv_weight() {
             let qb = Tensor::<Cpu>::from_vec(qkv_b.clone(), Shape::new(&[3 * d_model]));
             let pw = Tensor::<Cpu>::from_vec(proj_w.clone(), Shape::new(&[d_model, d_model]));
             let pb = Tensor::<Cpu>::from_vec(proj_b.clone(), Shape::new(&[d_model]));
-            let out = ops::attention(&inp, &qw, &qb, &pw, &pb, n_heads, d_model, d_head, None);
+            let out = ops::attention(
+                &inp, &qw, &qb, &pw, &pb, n_heads, d_model, d_head, 0.0, None, None,
+            );
             out.to_vec()
         },
         |w| {
@@ -186,6 +192,8 @@ fn grad_check_attention_d_qkv_weight() {
                 n_heads,
                 d_model,
                 d_head,
+                0.0,
+                None,
                 Some(&mut tape),
             );
             let loss = ops::sum(&out, Some(&mut tape));
@@ -220,7 +228,9 @@ fn grad_check_attention_d_proj_weight() {
             let qb = Tensor::<Cpu>::from_vec(qkv_b.clone(), Shape::new(&[3 * d_model]));
             let pw = Tensor::<Cpu>::from_vec(w.to_vec(), Shape::new(&[d_model, d_model]));
             let pb = Tensor::<Cpu>::from_vec(proj_b.clone(), Shape::new(&[d_model]));
-            let out = ops::attention(&inp, &qw, &qb, &pw, &pb, n_heads, d_model, d_head, None);
+            let out = ops::attention(
+                &inp, &qw, &qb, &pw, &pb, n_heads, d_model, d_head, 0.0, None, None,
+            );
             out.to_vec()
         },
         |w| {
@@ -239,6 +249,8 @@ fn grad_check_attention_d_proj_weight() {
                 n_heads,
                 d_model,
                 d_head,
+                0.0,
+                None,
                 Some(&mut tape),
             );
             let loss = ops::sum(&out, Some(&mut tape));
@@ -402,7 +414,7 @@ fn grad_check_transformer_block() {
             let mut tape = GradTape::<Cpu>::new();
             let inp = Tensor::<Cpu>::from_vec(input.to_vec(), Shape::new(&[seq, d_model]));
             let b = make_block();
-            let out = b.forward(&inp, &mut tape);
+            let out = b.forward(&inp, 0.0, &mut fastrand::Rng::with_seed(99), &mut tape);
             let loss = ops::sum(&out, Some(&mut tape));
             let grads = backward(&tape, loss.id);
             Cpu::to_vec(grads.get(&inp.id).unwrap())

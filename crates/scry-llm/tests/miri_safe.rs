@@ -317,6 +317,8 @@ fn miri_attention_forward_backward() {
         n_heads,
         d_model,
         d_head,
+        0.0,
+        None,
         Some(&mut tape),
     );
     assert_eq!(out.shape.dims(), &[seq, d_model]);
@@ -386,7 +388,7 @@ fn miri_transformer_block_forward() {
     let block = TransformerBlock::<Cpu>::new(4, 2, 8, &mut rng);
     let mut tape = GradTape::<Cpu>::new();
     let input = Tensor::<Cpu>::from_vec(vec![0.1; 3 * 4], Shape::new(&[3, 4]));
-    let out = block.forward(&input, &mut tape);
+    let out = block.forward(&input, 0.0, &mut fastrand::Rng::with_seed(99), &mut tape);
     assert_eq!(out.shape.dims(), &[3, 4]);
 
     let loss = ops::sum(&out, Some(&mut tape));
@@ -440,13 +442,14 @@ fn miri_gpt2_tiny_forward_backward() {
         n_heads: 2,
         n_layers: 1,
         d_ff: 8,
+        dropout_rate: 0.0,
     };
     let mut rng = fastrand::Rng::with_seed(42);
     let model = Gpt2Model::<Cpu>::new(config, &mut rng);
 
     let token_ids = &[0, 2, 4];
     let mut tape = GradTape::<Cpu>::new();
-    let logits = model.forward(token_ids, &mut tape);
+    let logits = model.forward(token_ids, &mut rng, &mut tape);
     assert_eq!(logits.shape.dims(), &[3, 5]);
     assert!(logits.to_vec().iter().all(|v| v.is_finite()));
 

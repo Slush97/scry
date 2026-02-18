@@ -13,7 +13,6 @@ pub type Gradients<B> = HashMap<TensorId, <B as DeviceBackend>::Storage>;
 /// Run backward pass from a scalar loss.
 /// `loss_id` must be the output of the last recorded op.
 /// Returns gradients for all tensors that require them.
-#[allow(clippy::too_many_lines)]
 pub fn backward<B: MathBackend>(tape: &GradTape<B>, loss_id: TensorId) -> Gradients<B> {
     let mut grads: Gradients<B> = HashMap::new();
 
@@ -27,148 +26,169 @@ pub fn backward<B: MathBackend>(tape: &GradTape<B>, loss_id: TensorId) -> Gradie
             Some(g) => B::clone_storage(g),
             None => continue, // no gradient flows to this node
         };
-
-        match (&node.op, &node.saved) {
-            (
-                Operation::Matmul,
-                SavedData::Matmul {
-                    a,
-                    b,
-                    m,
-                    k,
-                    n,
-                    trans_a,
-                    trans_b,
-                },
-            ) => {
-                let (d_a, d_b) = B::matmul_backward(&d_out, a, b, *m, *k, *n, *trans_a, *trans_b);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_a);
-                accumulate_grad::<B>(&mut grads, node.input_ids[1], d_b);
-            }
-            (
-                Operation::Add,
-                SavedData::Add {
-                    a_shape,
-                    b_shape,
-                    out_shape,
-                },
-            ) => {
-                let (d_a, d_b) = B::add_backward(&d_out, a_shape, b_shape, out_shape);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_a);
-                accumulate_grad::<B>(&mut grads, node.input_ids[1], d_b);
-            }
-            (Operation::Softmax, SavedData::Softmax { output, shape }) => {
-                let d_input = B::softmax_backward(&d_out, output, shape);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_input);
-            }
-            (
-                Operation::LayerNorm,
-                SavedData::LayerNorm {
-                    input,
-                    gamma,
-                    mean,
-                    rstd,
-                    shape,
-                    gamma_id,
-                    beta_id,
-                },
-            ) => {
-                let (d_input, d_gamma, d_beta) =
-                    B::layernorm_backward(&d_out, input, gamma, mean, rstd, shape);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_input);
-                accumulate_grad::<B>(&mut grads, *gamma_id, d_gamma);
-                accumulate_grad::<B>(&mut grads, *beta_id, d_beta);
-            }
-            (Operation::Gelu, SavedData::Gelu { input }) => {
-                let d_input = B::gelu_backward(&d_out, input);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_input);
-            }
-            (
-                Operation::CrossEntropy,
-                SavedData::CrossEntropy {
-                    logits,
-                    targets,
-                    batch,
-                    vocab,
-                },
-            ) => {
-                let d_logits = B::cross_entropy_backward(logits, targets, *batch, *vocab);
-                // Scale by upstream gradient (chain rule)
-                let d_out_scalar = B::to_vec(&d_out)[0];
-                let d_logits_scaled = B::scale(&d_logits, d_out_scalar);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_logits_scaled);
-            }
-            (
-                Operation::Embedding,
-                SavedData::Embedding {
-                    indices,
-                    vocab,
-                    dim,
-                    weight_id,
-                },
-            ) => {
-                let d_weight = B::embedding_backward(&d_out, indices, *vocab, *dim);
-                accumulate_grad::<B>(&mut grads, *weight_id, d_weight);
-            }
-            (Operation::Sum, SavedData::Sum { input_shape }) => {
-                // Gradient of sum is broadcast 1s scaled by upstream
-                let d_out_scalar = B::to_vec(&d_out)[0];
-                let d_input = B::from_vec(vec![d_out_scalar; input_shape.numel()], input_shape);
-                accumulate_grad::<B>(&mut grads, node.input_ids[0], d_input);
-            }
-            (
-                Operation::Attention,
-                SavedData::Attention {
-                    input,
-                    qkv_weight,
-                    proj_weight,
-                    attn_weights,
-                    q_per_head,
-                    k_per_head,
-                    v_per_head,
-                    head_concat,
-                    n_heads,
-                    d_model,
-                    d_head,
-                    seq_len,
-                    qkv_weight_id,
-                    qkv_bias_id,
-                    proj_weight_id,
-                    proj_bias_id,
-                },
-            ) => {
-                let n_heads = *n_heads;
-                let d_model = *d_model;
-                let d_head = *d_head;
-                let seq_len = *seq_len;
-
-                attention_backward::<B>(
-                    &d_out,
-                    input,
-                    qkv_weight,
-                    proj_weight,
-                    head_concat,
-                    attn_weights,
-                    q_per_head,
-                    k_per_head,
-                    v_per_head,
-                    n_heads,
-                    d_model,
-                    d_head,
-                    seq_len,
-                    &mut grads,
-                    node.input_ids[0],
-                    *qkv_weight_id,
-                    *qkv_bias_id,
-                    *proj_weight_id,
-                    *proj_bias_id,
-                );
-            }
-            _ => unreachable!("mismatched Operation/SavedData variants: backward dispatch bug"),
-        }
+        backward_node(node, &d_out, &mut grads);
     }
 
     grads
+}
+
+/// Process a single tape node's backward pass, accumulating gradients.
+///
+/// This is the per-node dispatch used by both the standard [`backward`] and
+/// the checkpointed backward in [`Gpt2Model::backward_checkpointed`].
+#[allow(clippy::too_many_lines)]
+pub fn backward_node<B: MathBackend>(
+    node: &super::TapeNode<B>,
+    d_out: &B::Storage,
+    grads: &mut Gradients<B>,
+) {
+    match (&node.op, &node.saved) {
+        (
+            Operation::Matmul,
+            SavedData::Matmul {
+                a,
+                b,
+                m,
+                k,
+                n,
+                trans_a,
+                trans_b,
+            },
+        ) => {
+            let (d_a, d_b) = B::matmul_backward(d_out, a, b, *m, *k, *n, *trans_a, *trans_b);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_a);
+            accumulate_grad::<B>(grads, node.input_ids[1], d_b);
+        }
+        (
+            Operation::Add,
+            SavedData::Add {
+                a_shape,
+                b_shape,
+                out_shape,
+            },
+        ) => {
+            let (d_a, d_b) = B::add_backward(d_out, a_shape, b_shape, out_shape);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_a);
+            accumulate_grad::<B>(grads, node.input_ids[1], d_b);
+        }
+        (Operation::Softmax, SavedData::Softmax { output, shape }) => {
+            let d_input = B::softmax_backward(d_out, output, shape);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
+        }
+        (
+            Operation::LayerNorm,
+            SavedData::LayerNorm {
+                input,
+                gamma,
+                mean,
+                rstd,
+                shape,
+                gamma_id,
+                beta_id,
+            },
+        ) => {
+            let (d_input, d_gamma, d_beta) =
+                B::layernorm_backward(d_out, input, gamma, mean, rstd, shape);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
+            accumulate_grad::<B>(grads, *gamma_id, d_gamma);
+            accumulate_grad::<B>(grads, *beta_id, d_beta);
+        }
+        (Operation::Gelu, SavedData::Gelu { input }) => {
+            let d_input = B::gelu_backward(d_out, input);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
+        }
+        (
+            Operation::CrossEntropy,
+            SavedData::CrossEntropy {
+                logits,
+                targets,
+                batch,
+                vocab,
+            },
+        ) => {
+            let d_logits = B::cross_entropy_backward(logits, targets, *batch, *vocab);
+            let d_out_scalar = B::to_vec(d_out)[0];
+            let d_logits_scaled = B::scale(&d_logits, d_out_scalar);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_logits_scaled);
+        }
+        (
+            Operation::Embedding,
+            SavedData::Embedding {
+                indices,
+                vocab,
+                dim,
+                weight_id,
+            },
+        ) => {
+            let d_weight = B::embedding_backward(d_out, indices, *vocab, *dim);
+            accumulate_grad::<B>(grads, *weight_id, d_weight);
+        }
+        (Operation::Sum, SavedData::Sum { input_shape }) => {
+            let d_out_scalar = B::to_vec(d_out)[0];
+            let d_input = B::from_vec(vec![d_out_scalar; input_shape.numel()], input_shape);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
+        }
+        (
+            Operation::Attention,
+            SavedData::Attention {
+                input,
+                qkv_weight,
+                proj_weight,
+                attn_weights,
+                q_per_head,
+                k_per_head,
+                v_per_head,
+                attn_dropout_masks,
+                head_concat,
+                n_heads,
+                d_model,
+                d_head,
+                seq_len,
+                qkv_weight_id,
+                qkv_bias_id,
+                proj_weight_id,
+                proj_bias_id,
+            },
+        ) => {
+            let n_heads = *n_heads;
+            let d_model = *d_model;
+            let d_head = *d_head;
+            let seq_len = *seq_len;
+
+            attention_backward::<B>(
+                d_out,
+                input,
+                qkv_weight,
+                proj_weight,
+                head_concat,
+                attn_weights,
+                q_per_head,
+                k_per_head,
+                v_per_head,
+                attn_dropout_masks,
+                n_heads,
+                d_model,
+                d_head,
+                seq_len,
+                grads,
+                node.input_ids[0],
+                *qkv_weight_id,
+                *qkv_bias_id,
+                *proj_weight_id,
+                *proj_bias_id,
+            );
+        }
+        (Operation::Dropout, SavedData::Dropout { mask }) => {
+            let d_input = B::mul_elementwise(d_out, mask);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
+        }
+        (Operation::Checkpoint, _) => {
+            // Checkpoint nodes are handled by backward_checkpointed in Gpt2Model.
+            // If encountered in standard backward, treat as a pass-through.
+            accumulate_grad::<B>(grads, node.input_ids[0], B::clone_storage(d_out));
+        }
+        _ => unreachable!("mismatched Operation/SavedData variants: backward dispatch bug"),
+    }
 }
 
 fn accumulate_grad<B: MathBackend>(grads: &mut Gradients<B>, id: TensorId, grad: B::Storage) {
@@ -191,10 +211,11 @@ fn attention_backward<B: MathBackend>(
     qkv_weight: &B::Storage,
     proj_weight: &B::Storage,
     head_concat: &B::Storage,
-    attn_weights: &[Vec<f32>],
-    q_per_head: &[Vec<f32>],
-    k_per_head: &[Vec<f32>],
-    v_per_head: &[Vec<f32>],
+    attn_weights: &[B::Storage],
+    q_per_head: &[B::Storage],
+    k_per_head: &[B::Storage],
+    v_per_head: &[B::Storage],
+    attn_dropout_masks: &[B::Storage],
     n_heads: usize,
     d_model: usize,
     d_head: usize,
@@ -246,26 +267,25 @@ fn attention_backward<B: MathBackend>(
             }
         }
 
-        let attn = &attn_weights[h]; // [seq, seq]
+        let attn = &attn_weights[h]; // [seq, seq] (pre-dropout softmax output)
+        let dropout_mask = &attn_dropout_masks[h]; // [seq, seq]
         let q_h = &q_per_head[h]; // [seq, d_head]
         let k_h = &k_per_head[h];
         let v_h = &v_per_head[h];
 
-        // d_attn = d_out_h @ V_h^T => [seq, seq]
-        let d_attn = B::matmul(
-            &B::from_vec(d_out_h.clone(), &Shape::new(&[seq_len, d_head])),
-            &B::from_vec(v_h.clone(), &Shape::new(&[seq_len, d_head])),
-            seq_len,
-            d_head,
-            seq_len,
-            false,
-            true,
-        );
+        // attn_dropped = attn * dropout_mask (reconstruct dropped attention)
+        let attn_dropped = B::mul_elementwise(attn, dropout_mask);
 
-        // d_V_h = attn^T @ d_out_h => [seq, d_head]
+        let d_out_h_storage = B::from_vec(d_out_h.clone(), &Shape::new(&[seq_len, d_head]));
+
+        // d_attn_dropped = d_out_h @ V_h^T => [seq, seq]
+        let d_attn_dropped =
+            B::matmul(&d_out_h_storage, v_h, seq_len, d_head, seq_len, false, true);
+
+        // d_V_h = attn_dropped^T @ d_out_h => [seq, d_head]
         let d_v_h = B::matmul(
-            &B::from_vec(attn.clone(), &Shape::new(&[seq_len, seq_len])),
-            &B::from_vec(d_out_h, &Shape::new(&[seq_len, d_head])),
+            &attn_dropped,
+            &d_out_h_storage,
             seq_len,
             seq_len,
             d_head,
@@ -274,12 +294,11 @@ fn attention_backward<B: MathBackend>(
         );
         let d_v_h_vec = B::to_vec(&d_v_h);
 
+        // Dropout backward: d_attn = d_attn_dropped * dropout_mask
+        let d_attn = B::mul_elementwise(&d_attn_dropped, dropout_mask);
+
         // d_scores = softmax_backward(d_attn, attn) => [seq, seq]
-        let d_scores = B::softmax_backward(
-            &d_attn,
-            &B::from_vec(attn.clone(), &Shape::new(&[seq_len, seq_len])),
-            &Shape::new(&[seq_len, seq_len]),
-        );
+        let d_scores = B::softmax_backward(&d_attn, attn, &Shape::new(&[seq_len, seq_len]));
         let mut d_scores_vec = B::to_vec(&d_scores);
 
         // Apply scale and causal mask to d_scores
@@ -294,10 +313,12 @@ fn attention_backward<B: MathBackend>(
             }
         }
 
+        let d_scores_storage = B::from_vec(d_scores_vec.clone(), &Shape::new(&[seq_len, seq_len]));
+
         // d_Q_h = d_scores @ K_h => [seq, d_head]
         let d_q_h = B::matmul(
-            &B::from_vec(d_scores_vec.clone(), &Shape::new(&[seq_len, seq_len])),
-            &B::from_vec(k_h.clone(), &Shape::new(&[seq_len, d_head])),
+            &d_scores_storage,
+            k_h,
             seq_len,
             seq_len,
             d_head,
@@ -308,8 +329,8 @@ fn attention_backward<B: MathBackend>(
 
         // d_K_h = d_scores^T @ Q_h => [seq, d_head]
         let d_k_h = B::matmul(
-            &B::from_vec(d_scores_vec, &Shape::new(&[seq_len, seq_len])),
-            &B::from_vec(q_h.clone(), &Shape::new(&[seq_len, d_head])),
+            &d_scores_storage,
+            q_h,
             seq_len,
             seq_len,
             d_head,
