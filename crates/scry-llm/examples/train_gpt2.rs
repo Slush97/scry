@@ -489,7 +489,7 @@ fn main() {
         "cpu" => run_training::<scry_llm::backend::cpu::CpuBackend>(&cfg),
         #[cfg(feature = "cuda")]
         "cuda" => {
-            scry_llm::backend::cuda::init_gpu();
+            scry_llm::backend::cuda::init_gpu(0);
             run_training::<scry_llm::backend::cuda::CudaBackend>(&cfg);
         }
         #[cfg(not(feature = "cuda"))]

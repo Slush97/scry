@@ -347,6 +347,256 @@ fn adamw_step() {
     assert_close(&v_cpu, &gpu_v, 1e-4, "adamw_v");
 }
 
+// ---- Missing op tests ----
+
+#[test]
+fn layernorm_backward() {
+    init();
+    let rows = 16;
+    let d = 64;
+    let input = rand_vec(rows * d, 23);
+    let gamma = rand_vec(d, 24);
+    let beta = rand_vec(d, 25);
+    let d_out = rand_vec(rows * d, 26);
+    let shape = Shape::new(&[rows, d]);
+
+    // Compute forward first (need mean, rstd)
+    let (_, cpu_mean, cpu_rstd) = CpuBackend::layernorm(&input, &gamma, &beta, &shape, 1e-5);
+    let (cpu_di, cpu_dg, cpu_db) =
+        CpuBackend::layernorm_backward(&d_out, &input, &gamma, &cpu_mean, &cpu_rstd, &shape);
+
+    let gi = CudaBackend::from_vec(input.clone(), &shape);
+    let gg = CudaBackend::from_vec(gamma.clone(), &Shape::new(&[d]));
+    let gb = CudaBackend::from_vec(beta, &Shape::new(&[d]));
+    let (_, gm, gr) = CudaBackend::layernorm(&gi, &gg, &gb, &shape, 1e-5);
+    let gd = CudaBackend::from_vec(d_out, &shape);
+    let gi2 = CudaBackend::from_vec(input, &shape);
+    let gg2 = CudaBackend::from_vec(gamma, &Shape::new(&[d]));
+    let (gpu_di, gpu_dg, gpu_db) =
+        CudaBackend::layernorm_backward(&gd, &gi2, &gg2, &gm, &gr, &shape);
+
+    assert_close(
+        &cpu_di,
+        &CudaBackend::to_vec(&gpu_di),
+        1e-2,
+        "layernorm_bwd_dinput",
+    );
+    assert_close(
+        &cpu_dg,
+        &CudaBackend::to_vec(&gpu_dg),
+        1e-2,
+        "layernorm_bwd_dgamma",
+    );
+    assert_close(
+        &cpu_db,
+        &CudaBackend::to_vec(&gpu_db),
+        1e-3,
+        "layernorm_bwd_dbeta",
+    );
+}
+
+#[test]
+fn matmul_backward_nn() {
+    init();
+    let m = 16;
+    let k = 32;
+    let n = 24;
+    let a = rand_vec(m * k, 80);
+    let b = rand_vec(k * n, 81);
+    let d_out = rand_vec(m * n, 82);
+
+    let (cpu_da, cpu_db) = CpuBackend::matmul_backward(&d_out, &a, &b, m, k, n, false, false);
+    let ga = CudaBackend::from_vec(a, &Shape::new(&[m, k]));
+    let gb = CudaBackend::from_vec(b, &Shape::new(&[k, n]));
+    let gd = CudaBackend::from_vec(d_out, &Shape::new(&[m, n]));
+    let (gpu_da, gpu_db) = CudaBackend::matmul_backward(&gd, &ga, &gb, m, k, n, false, false);
+
+    assert_close(&cpu_da, &CudaBackend::to_vec(&gpu_da), 1e-3, "matmul_bwd_da");
+    assert_close(&cpu_db, &CudaBackend::to_vec(&gpu_db), 1e-3, "matmul_bwd_db");
+}
+
+#[test]
+fn add_broadcast_2d() {
+    init();
+    let rows = 16;
+    let cols = 32;
+    let a = rand_vec(rows * cols, 90);
+    let b = rand_vec(cols, 91); // [1, cols] broadcast
+    let a_shape = Shape::new(&[rows, cols]);
+    let b_shape = Shape::new(&[1, cols]);
+    let out_shape = Shape::new(&[rows, cols]);
+
+    let cpu = CpuBackend::add(&a, &b, &a_shape, &b_shape, &out_shape);
+    let ga = CudaBackend::from_vec(a, &a_shape);
+    let gb = CudaBackend::from_vec(b, &b_shape);
+    let gpu = CudaBackend::to_vec(&CudaBackend::add(&ga, &gb, &a_shape, &b_shape, &out_shape));
+
+    assert_close(&cpu, &gpu, 1e-6, "add_broadcast_2d");
+}
+
+#[test]
+fn add_same_shape() {
+    init();
+    let n = 128;
+    let a = rand_vec(n, 92);
+    let b = rand_vec(n, 93);
+    let shape = Shape::new(&[n]);
+
+    let cpu = CpuBackend::add(&a, &b, &shape, &shape, &shape);
+    let ga = CudaBackend::from_vec(a, &shape);
+    let gb = CudaBackend::from_vec(b, &shape);
+    let gpu = CudaBackend::to_vec(&CudaBackend::add(&ga, &gb, &shape, &shape, &shape));
+
+    assert_close(&cpu, &gpu, 1e-6, "add_same_shape");
+}
+
+#[test]
+fn concat_rows_op() {
+    init();
+    let a_rows = 4;
+    let b_rows = 6;
+    let cols = 16;
+    let a = rand_vec(a_rows * cols, 100);
+    let b = rand_vec(b_rows * cols, 101);
+
+    let cpu = CpuBackend::concat_rows(&a, &b, a_rows, b_rows, cols);
+    let ga = CudaBackend::from_vec(a, &Shape::new(&[a_rows, cols]));
+    let gb = CudaBackend::from_vec(b, &Shape::new(&[b_rows, cols]));
+    let gpu =
+        CudaBackend::to_vec(&CudaBackend::concat_rows(&ga, &gb, a_rows, b_rows, cols));
+
+    assert_close(&cpu, &gpu, 1e-6, "concat_rows");
+}
+
+#[test]
+fn gather_columns_op() {
+    init();
+    let rows = 8;
+    let total_cols = 48;
+    let col_start = 16;
+    let col_count = 16;
+    let data = rand_vec(rows * total_cols, 110);
+
+    let cpu = CpuBackend::gather_columns(&data, rows, total_cols, col_start, col_count);
+    let gd = CudaBackend::from_vec(data, &Shape::new(&[rows, total_cols]));
+    let gpu = CudaBackend::to_vec(&CudaBackend::gather_columns(
+        &gd,
+        rows,
+        total_cols,
+        col_start,
+        col_count,
+    ));
+
+    assert_close(&cpu, &gpu, 1e-6, "gather_columns");
+}
+
+#[test]
+fn scatter_columns_op() {
+    init();
+    let rows = 8;
+    let total_cols = 48;
+    let col_start = 16;
+    let col_count = 16;
+    let dst_data = rand_vec(rows * total_cols, 120);
+    let src_data = rand_vec(rows * col_count, 121);
+
+    let mut cpu_dst = dst_data.clone();
+    CpuBackend::scatter_columns(&mut cpu_dst, &src_data, rows, total_cols, col_start, col_count);
+
+    let mut gpu_dst = CudaBackend::from_vec(dst_data, &Shape::new(&[rows, total_cols]));
+    let gpu_src = CudaBackend::from_vec(src_data, &Shape::new(&[rows, col_count]));
+    CudaBackend::scatter_columns(&mut gpu_dst, &gpu_src, rows, total_cols, col_start, col_count);
+
+    assert_close(
+        &cpu_dst,
+        &CudaBackend::to_vec(&gpu_dst),
+        1e-6,
+        "scatter_columns",
+    );
+}
+
+#[test]
+fn causal_mask_and_scale_op() {
+    init();
+    let seq_len = 8;
+    let mut cpu_scores = rand_vec(seq_len * seq_len, 130);
+    let scale = 0.125f32;
+
+    let mut gpu_scores =
+        CudaBackend::from_vec(cpu_scores.clone(), &Shape::new(&[seq_len, seq_len]));
+
+    CpuBackend::apply_causal_mask_and_scale(&mut cpu_scores, seq_len, scale, f32::NEG_INFINITY);
+    CudaBackend::apply_causal_mask_and_scale(&mut gpu_scores, seq_len, scale, f32::NEG_INFINITY);
+
+    let gpu_vec = CudaBackend::to_vec(&gpu_scores);
+
+    // Check lower triangle (scaled values)
+    for s in 0..seq_len {
+        for t in 0..=s {
+            let idx = s * seq_len + t;
+            let diff = (cpu_scores[idx] - gpu_vec[idx]).abs();
+            assert!(
+                diff < 1e-6,
+                "causal_mask[{s},{t}]: cpu={}, gpu={}, diff={diff}",
+                cpu_scores[idx],
+                gpu_vec[idx]
+            );
+        }
+        // Upper triangle should be -inf
+        for t in (s + 1)..seq_len {
+            let idx = s * seq_len + t;
+            assert!(
+                gpu_vec[idx].is_infinite() && gpu_vec[idx].is_sign_negative(),
+                "causal_mask[{s},{t}] should be -inf, got {}",
+                gpu_vec[idx]
+            );
+        }
+    }
+}
+
+#[test]
+fn scale_inplace_op() {
+    init();
+    let n = 128;
+    let mut cpu_data = rand_vec(n, 140);
+    let scalar = 0.5f32;
+
+    let mut gpu_data = CudaBackend::from_vec(cpu_data.clone(), &Shape::new(&[n]));
+
+    CpuBackend::scale_inplace(&mut cpu_data, scalar);
+    CudaBackend::scale_inplace(&mut gpu_data, scalar);
+
+    assert_close(&cpu_data, &CudaBackend::to_vec(&gpu_data), 1e-6, "scale_inplace");
+}
+
+#[test]
+fn norm_op() {
+    init();
+    let n = 256;
+    let data = rand_vec(n, 150);
+
+    let cpu_norm = CpuBackend::norm(&data);
+    let gd = CudaBackend::from_vec(data, &Shape::new(&[n]));
+    let gpu_norm = CudaBackend::norm(&gd);
+
+    let diff = (cpu_norm - gpu_norm).abs();
+    assert!(diff < 1e-3, "norm: cpu={cpu_norm}, gpu={gpu_norm}, diff={diff}");
+}
+
+#[test]
+fn sum_op() {
+    init();
+    let n = 256;
+    let data = rand_vec(n, 160);
+
+    let cpu_sum = CpuBackend::sum(&data);
+    let gd = CudaBackend::from_vec(data, &Shape::new(&[n]));
+    let gpu_sum = CudaBackend::sum(&gd);
+
+    let diff = (cpu_sum - gpu_sum).abs();
+    assert!(diff < 1e-3, "sum: cpu={cpu_sum}, gpu={gpu_sum}, diff={diff}");
+}
+
 // ---- Full forward pass comparison ----
 
 #[test]
@@ -386,4 +636,108 @@ fn full_forward_pass() {
     let gpu_vec = CudaBackend::to_vec(&gpu_logits.data);
 
     assert_close(&cpu_vec, &gpu_vec, 1e-2, "full_forward");
+}
+
+#[test]
+fn full_training_step() {
+    init();
+    use scry_llm::data::Batch;
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+    use scry_llm::training::{Trainer, TrainingConfig};
+
+    let model_config = Gpt2Config {
+        vocab_size: 32,
+        max_seq_len: 16,
+        d_model: 32,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 64,
+        dropout_rate: 0.0,
+    };
+
+    let training_config = |_model_config: &Gpt2Config| TrainingConfig {
+        batch_size: 2,
+        seq_len: 4,
+        total_steps: 1,
+        warmup_steps: 0,
+        peak_lr: 1e-3,
+        min_lr: 1e-3,
+        grad_accum_steps: 1,
+        max_grad_norm: 1.0,
+        log_interval: 1,
+        eval_interval: 0,
+        checkpoint_interval: 0,
+        checkpoint_dir: std::path::PathBuf::from("/tmp"),
+        seed: 42,
+        use_checkpointing: false,
+        checkpoint_every: 4,
+    };
+
+    // Pattern: [0, 1, 2, 3]
+    let batch_size = 2;
+    let seq_len = 4;
+    let pattern = [0usize, 1, 2, 3, 4, 5, 6, 7];
+    let mut input_ids = Vec::with_capacity(batch_size * seq_len);
+    let mut targets = Vec::with_capacity(batch_size * seq_len);
+    for _ in 0..batch_size {
+        for i in 0..seq_len {
+            input_ids.push(pattern[i % pattern.len()]);
+            targets.push(pattern[(i + 1) % pattern.len()]);
+        }
+    }
+
+    // CPU training step
+    let mut rng_cpu = fastrand::Rng::with_seed(42);
+    let cpu_model = Gpt2Model::<CpuBackend>::new(model_config.clone(), &mut rng_cpu);
+    let mut cpu_trainer =
+        Trainer::<CpuBackend>::new(cpu_model, model_config.clone(), training_config(&model_config));
+    let cpu_batch = Batch {
+        input_ids: input_ids.clone(),
+        targets: targets.clone(),
+        batch_size,
+        seq_len,
+    };
+    let cpu_metrics = cpu_trainer.train_step(&[cpu_batch]);
+
+    // GPU training step
+    let mut rng_gpu = fastrand::Rng::with_seed(42);
+    let gpu_model = Gpt2Model::<CudaBackend>::new(model_config.clone(), &mut rng_gpu);
+    let mut gpu_trainer =
+        Trainer::<CudaBackend>::new(gpu_model, model_config.clone(), training_config(&model_config));
+    let gpu_batch = Batch {
+        input_ids,
+        targets,
+        batch_size,
+        seq_len,
+    };
+    let gpu_metrics = gpu_trainer.train_step(&[gpu_batch]);
+
+    // Compare losses
+    let loss_diff = (cpu_metrics.loss - gpu_metrics.loss).abs();
+    assert!(
+        loss_diff < 0.1,
+        "training step loss: cpu={:.4}, gpu={:.4}, diff={loss_diff:.4}",
+        cpu_metrics.loss,
+        gpu_metrics.loss,
+    );
+
+    // Compare parameters after one step
+    use scry_llm::nn::Module;
+    let cpu_params: Vec<Vec<f32>> = cpu_trainer
+        .model
+        .parameters()
+        .iter()
+        .map(|p| CpuBackend::to_vec(&p.data))
+        .collect();
+    let gpu_params: Vec<Vec<f32>> = gpu_trainer
+        .model
+        .parameters()
+        .iter()
+        .map(|p| CudaBackend::to_vec(&p.data))
+        .collect();
+
+    assert_eq!(cpu_params.len(), gpu_params.len(), "param count mismatch");
+    for (i, (cp, gp)) in cpu_params.iter().zip(gpu_params.iter()).enumerate() {
+        assert_close(cp, gp, 5e-2, &format!("param_{i}_after_step"));
+    }
 }
