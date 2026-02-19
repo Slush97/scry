@@ -45,7 +45,7 @@ fn matmul_nn() {
     let gb = CudaBackend::from_vec(b, &Shape::new(&[k, n]));
     let gpu = CudaBackend::to_vec(&CudaBackend::matmul(&ga, &gb, m, k, n, false, false));
 
-    assert_close(&cpu, &gpu, 1e-4, "matmul_nn");
+    assert_close(&cpu, &gpu, 5e-3, "matmul_nn"); // TF32 tensor cores: 10-bit mantissa
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn matmul_tn() {
     let gb = CudaBackend::from_vec(b, &Shape::new(&[k, n]));
     let gpu = CudaBackend::to_vec(&CudaBackend::matmul(&ga, &gb, m, k, n, true, false));
 
-    assert_close(&cpu, &gpu, 1e-4, "matmul_tn");
+    assert_close(&cpu, &gpu, 5e-3, "matmul_tn"); // TF32 tensor cores: 10-bit mantissa
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn matmul_nt() {
     let gb = CudaBackend::from_vec(b, &Shape::new(&[n, k]));
     let gpu = CudaBackend::to_vec(&CudaBackend::matmul(&ga, &gb, m, k, n, false, true));
 
-    assert_close(&cpu, &gpu, 1e-4, "matmul_nt");
+    assert_close(&cpu, &gpu, 5e-3, "matmul_nt"); // TF32 tensor cores: 10-bit mantissa
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn matmul_tt() {
     let gb = CudaBackend::from_vec(b, &Shape::new(&[n, k]));
     let gpu = CudaBackend::to_vec(&CudaBackend::matmul(&ga, &gb, m, k, n, true, true));
 
-    assert_close(&cpu, &gpu, 1e-4, "matmul_tt");
+    assert_close(&cpu, &gpu, 5e-3, "matmul_tt"); // TF32 tensor cores: 10-bit mantissa
 }
 
 #[test]
@@ -411,8 +411,8 @@ fn matmul_backward_nn() {
     let gd = CudaBackend::from_vec(d_out, &Shape::new(&[m, n]));
     let (gpu_da, gpu_db) = CudaBackend::matmul_backward(&gd, &ga, &gb, m, k, n, false, false);
 
-    assert_close(&cpu_da, &CudaBackend::to_vec(&gpu_da), 1e-3, "matmul_bwd_da");
-    assert_close(&cpu_db, &CudaBackend::to_vec(&gpu_db), 1e-3, "matmul_bwd_db");
+    assert_close(&cpu_da, &CudaBackend::to_vec(&gpu_da), 5e-3, "matmul_bwd_da"); // TF32
+    assert_close(&cpu_db, &CudaBackend::to_vec(&gpu_db), 5e-3, "matmul_bwd_db"); // TF32
 }
 
 #[test]

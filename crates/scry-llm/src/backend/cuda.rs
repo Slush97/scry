@@ -47,6 +47,17 @@ pub fn init_gpu(device_id: usize) {
         let ctx = CudaContext::new(device_id).expect("failed to create CUDA context");
         let stream = ctx.default_stream();
         let blas = CudaBlas::new(stream.clone()).expect("failed to create cuBLAS handle");
+
+        // Enable TF32 tensor cores for fp32 sgemm. ~2-3x faster with 10-bit
+        // mantissa precision (vs 23-bit). PyTorch enables this by default.
+        unsafe {
+            use cudarc::cublas::sys::{cublasSetMathMode, cublasMath_t};
+            cublasSetMathMode(
+                *blas.handle(),
+                cublasMath_t::CUBLAS_TF32_TENSOR_OP_MATH,
+            );
+        }
+
         let kernels = KernelCache::compile(&ctx);
         *cell.borrow_mut() = Some(GpuCtx {
             ctx,
