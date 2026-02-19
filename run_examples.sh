@@ -55,7 +55,7 @@ CAT3_EXAMPLES=(
 CAT4_NAME="SDF Scenes"
 CAT4_EXAMPLES=(
     "sdf_showcase|sdf|"
-    "masonic_mirror|sdf,widget|"
+    "masonic_mirror|sdf-gpu,widget|"
     "obsidian_mirror|sdf|"
     "text3d_showcase|sdf-text|"
 )

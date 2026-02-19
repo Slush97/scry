@@ -8,9 +8,9 @@
 //!   `q`     — quit
 //!
 //! Run with:
-//!   CPU:  `cargo run --example masonic_mirror --features "sdf,widget" --release`
-//!   GPU:  `cargo run --example masonic_mirror --features "sdf-gpu,widget" --release`
-//!   SHM:  `cargo run --example masonic_mirror --features "sdf,widget,shm" --release -- --shm`
+//!   `cargo run --example masonic_mirror --features "sdf-gpu,widget" --release`
+//!   CPU-only: `cargo run --example masonic_mirror --features "sdf,widget" --release`
+//!   SHM:  `cargo run --example masonic_mirror --features "sdf-gpu,widget,shm" --release -- --shm`
 
 #![allow(
     clippy::cast_precision_loss,

@@ -20,3 +20,19 @@ FORMATTING_PROGRESS.md
 **/fuzz/target/
 **/fuzz/corpus/
 **/fuzz/artifacts/
+
+# Python virtual environments
+.venv/
+**/venv/
+**/.venv/
+
+# Build tools / binaries
+tectonic
+
+# Debug logs
+debug*.log
+
+# Generated artifacts
+*.pdf
+masonic_mirror_bench_*.txt
+text3d_debug.log

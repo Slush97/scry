@@ -105,7 +105,7 @@ name = "dual_y_demo"
 
 [[example]]
 name = "masonic_mirror"
-required-features = ["sdf", "widget"]
+required-features = ["sdf-gpu", "widget"]
 
 [[example]]
 name = "circus_ball"
