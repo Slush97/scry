@@ -798,7 +798,8 @@ fn bar_chart_has_stroke() {
         .filter(|cmd| matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some()))
         .count();
 
-    // Bar stroke rects
+    // Bar stroke rects — should be 0 by default (bar_stroke_width: 0.0)
+    // Tufte: bar outlines are chartjunk when fill already encodes the value.
     let stroke_rects = rendered
         .canvas
         .commands()
@@ -813,9 +814,9 @@ fn bar_chart_has_stroke() {
         fill_rects >= 3,
         "Should have at least 3 bar fill rectangles, got {fill_rects}"
     );
-    assert!(
-        stroke_rects >= 3,
-        "Should have at least 3 bar stroke rectangles (one per bar), got {stroke_rects}"
+    assert_eq!(
+        stroke_rects, 0,
+        "Bars should have no stroke by default (bar_stroke_width: 0.0), got {stroke_rects}"
     );
 }
 

@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! Golden reference tests: scry-learn vs sklearn on real UCI datasets.
 //!
 //! These tests load the canonical Iris, Wine, Breast Cancer, Digits, and

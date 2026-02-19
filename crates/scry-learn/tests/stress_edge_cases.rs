@@ -4,7 +4,7 @@
 //! (returning errors, not panicking or hanging).
 //!
 //! Run:
-//!   cargo test --test stress_edge_cases -p scry-learn --release -- --nocapture
+//!   cargo test --test `stress_edge_cases` -p scry-learn --release -- --nocapture
 
 use scry_learn::dataset::Dataset;
 
@@ -28,7 +28,7 @@ fn kmeans_identical_points() {
     // Should complete without panic (may produce degenerate clusters)
     let result = km.fit(&data);
     // Either succeeds or returns an error — both are acceptable
-    if let Ok(()) = result {
+    if matches!(result, Ok(())) {
         assert_eq!(km.labels().len(), n);
     }
 }
@@ -101,8 +101,8 @@ fn iforest_identical_points() {
     let scores = ifo.predict(&rows);
     assert_eq!(scores.len(), 50);
     // All scores should be very similar
-    let min = scores.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min = scores.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let range = max - min;
     assert!(
         range < 0.1,
@@ -151,7 +151,7 @@ fn linear_svr_max_iter_1() {
         .max_iter(1);
     // Should complete without panic
     let result = model.fit(&data);
-    if let Ok(()) = result {
+    if matches!(result, Ok(())) {
         let preds = model.predict(&[vec![2.5]]).unwrap();
         assert_eq!(preds.len(), 1);
     }

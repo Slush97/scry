@@ -1,16 +1,17 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 565
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 23 commands
+canvas: 400x300, 19 commands
 overlays: 10
-  [0] (44, 278) Center "0"
-  [1] (130, 278) Center "5"
-  [2] (216, 278) Center "10"
-  [3] (302, 278) Center "15"
-  [4] (388, 278) Center "20"
-  [5] (39, 91) Right "Q1"
-  [6] (39, 212) Right "Q2"
+  [0] (44, 280) Center "0"
+  [1] (130, 280) Center "5"
+  [2] (216, 280) Center "10"
+  [3] (302, 280) Center "15"
+  [4] (388, 280) Center "20"
+  [5] (37, 91) Right "Q1"
+  [6] (37, 212) Right "Q2"
   [7] (309, 46) Left "Series 1"
   [8] (309, 60) Left "Product B"
   [9] (216, 16) Center "Horizontal Grouped"

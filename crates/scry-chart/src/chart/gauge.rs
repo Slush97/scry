@@ -105,4 +105,18 @@ impl GaugeChart {
     pub fn build(self) -> Chart {
         Chart::Gauge(self)
     }
+
+    /// Build with validation.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if !self.value.is_finite() {
+            return Err(crate::error::ChartError::AllNonFinite);
+        }
+        if self.min >= self.max || !self.min.is_finite() || !self.max.is_finite() {
+            return Err(crate::error::ChartError::InvalidRange {
+                min: self.min,
+                max: self.max,
+            });
+        }
+        Ok(Chart::Gauge(self))
+    }
 }

@@ -32,9 +32,10 @@ wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:js-sys"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 sdf = ["dep:rayon"]
 sdf-gpu = ["sdf", "gpu"]
+sdf-text = ["sdf", "text", "dep:ttf-parser"]
 input = []
 window = ["dep:winit", "dep:softbuffer"]
-full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "sdf-gpu", "input", "window"]
+full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "sdf-gpu", "sdf-text", "input", "window"]
 
 [dependencies]
 tiny-skia = "0.11"
@@ -54,6 +55,8 @@ libc = { version = "0.2", optional = true }
 resvg = { version = "0.44", optional = true, default-features = false }
 # Optional: parallel ray marching for SDF renderer
 rayon = { version = "1", optional = true }
+# Optional: SDF 3D text from TTF font outlines
+ttf-parser = { version = "0.21", optional = true }
 # Optional: GPU-accelerated rasterization via wgpu
 wgpu = { version = "24", optional = true }
 pollster = { version = "0.4", optional = true }
@@ -102,14 +105,58 @@ name = "dual_y_demo"
 
 [[example]]
 name = "masonic_mirror"
-required-features = ["sdf", "text", "widget"]
+required-features = ["sdf", "widget"]
 
 [[example]]
 name = "circus_ball"
 required-features = ["text", "widget"]
 
 [[example]]
-name = "session3_showcase"
+name = "text3d_showcase"
+required-features = ["sdf-text"]
+
+# ── Gallery (AI art demos) ──
+
+[[example]]
+name = "aurora_borealis"
+path = "examples/gallery/aurora_borealis.rs"
+
+[[example]]
+name = "fractal_dreams"
+path = "examples/gallery/fractal_dreams.rs"
+
+[[example]]
+name = "fluid_symphony"
+path = "examples/gallery/fluid_symphony.rs"
+
+[[example]]
+name = "hypnotic_tunnels"
+path = "examples/gallery/hypnotic_tunnels.rs"
+
+[[example]]
+name = "illusions"
+path = "examples/gallery/illusions.rs"
+
+[[example]]
+name = "mind_benders"
+path = "examples/gallery/mind_benders.rs"
+
+[[example]]
+name = "obsidian_mirror"
+path = "examples/gallery/obsidian_mirror.rs"
+required-features = ["sdf"]
+
+[[example]]
+name = "postmodern_manifesto"
+path = "examples/gallery/postmodern_manifesto.rs"
+
+[[example]]
+name = "sacred_geometry"
+path = "examples/gallery/sacred_geometry.rs"
+
+[[example]]
+name = "wave_interference"
+path = "examples/gallery/wave_interference.rs"
 
 [[bench]]
 name = "rasterize"

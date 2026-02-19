@@ -1,7 +1,7 @@
 //! Industry benchmark suite: scry-learn on real UCI datasets + scaling.
 //!
 //! **Unlike `ml_algorithms.rs`** (synthetic data, train=test), this suite:
-//! - Uses **real UCI CSV fixtures** (iris, wine, breast_cancer, digits)
+//! - Uses **real UCI CSV fixtures** (iris, wine, `breast_cancer`, digits)
 //! - Runs **5-fold stratified cross-validation** for accuracy measurement
 //! - Benchmarks training at **1K / 10K / 100K** row scales
 //! - Measures **single-row prediction latency** separately

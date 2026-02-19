@@ -674,6 +674,8 @@ fn miri_training_step() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -726,6 +728,8 @@ fn miri_gradient_accumulation() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -783,6 +787,8 @@ fn miri_evaluate() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let trainer = Trainer::<Cpu>::new(model, model_config, config);

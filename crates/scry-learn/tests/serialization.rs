@@ -1,5 +1,5 @@
 //! Serialization roundtrip tests: verify all models can be serialized and
-//! deserialized via serde_json, and that the deserialized model produces
+//! deserialized via `serde_json`, and that the deserialized model produces
 //! identical predictions.
 //!
 //! These tests require the `serde` feature flag:

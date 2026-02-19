@@ -22,14 +22,14 @@
 //! use scry_learn::dataset::Dataset;
 //!
 //! let data = Dataset::new(
-//!     vec![vec![0.0, 0.1, 0.2, 10.0, 10.1, 10.2],
-//!          vec![0.0, 0.1, 0.2, 10.0, 10.1, 10.2]],
-//!     vec![0.0; 6],
+//!     vec![vec![0.0, 0.1, 0.2, 0.3, 0.4, 10.0, 10.1, 10.2, 10.3, 10.4],
+//!          vec![0.0, 0.1, 0.2, 0.3, 0.4, 10.0, 10.1, 10.2, 10.3, 10.4]],
+//!     vec![0.0; 10],
 //!     vec!["x".into(), "y".into()],
 //!     "label",
 //! );
 //!
-//! let mut hdb = Hdbscan::new();
+//! let mut hdb = Hdbscan::new().min_cluster_size(3);
 //! hdb.fit(&data).unwrap();
 //! assert_eq!(hdb.n_clusters(), 2);
 //! ```

@@ -110,6 +110,8 @@ fn training_step(c: &mut Criterion) {
             seed: 42,
             use_checkpointing: false,
             checkpoint_every: 4,
+            peak_tflops: None,
+            n_params: None,
         };
         let mut trainer = Trainer::<Cpu>::new(model, config.clone(), training_config);
 
@@ -147,6 +149,8 @@ fn training_step(c: &mut Criterion) {
             seed: 42,
             use_checkpointing: false,
             checkpoint_every: 4,
+            peak_tflops: None,
+            n_params: None,
         };
         let mut trainer = Trainer::<Cpu>::new(model, config.clone(), training_config);
 
@@ -447,6 +451,8 @@ fn gpu_ops(c: &mut Criterion) {
             seed: 42,
             use_checkpointing: false,
             checkpoint_every: 4,
+            peak_tflops: None,
+            n_params: None,
         };
         let mut trainer = Trainer::<Gpu>::new(model, config.clone(), training_config);
 

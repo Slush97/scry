@@ -1,4 +1,4 @@
-//! Integration test: streaming simulation with partial_fit.
+//! Integration test: streaming simulation with `partial_fit`.
 //!
 //! Generates 10K samples, splits into 10 batches of 1K, trains
 //! incrementally, and verifies final model accuracy.

@@ -430,9 +430,9 @@ impl<'a> Chart3DWidget<'a> {
 pub struct Chart3DState {
     /// Underlying pixel canvas state.
     pub(crate) pixel_state: PixelCanvasState,
-    /// Cached GPU context for accelerated 3D rendering (lazily initialized).
+    /// Cached GPU device for accelerated 3D rendering (lazily initialized).
     #[cfg(feature = "gpu")]
-    pub(crate) gpu_ctx: Option<crate::chart3d::wgpu_backend::WgpuContext>,
+    pub(crate) gpu: Option<&'static scry_engine::gpu::GpuDevice>,
 }
 
 impl Chart3DState {
@@ -442,7 +442,7 @@ impl Chart3DState {
         Self {
             pixel_state,
             #[cfg(feature = "gpu")]
-            gpu_ctx: None,
+            gpu: None,
         }
     }
 
@@ -508,14 +508,14 @@ impl StatefulWidget for Chart3DWidget<'_> {
         let canvas = {
             #[cfg(feature = "gpu")]
             {
-                // Lazily initialize GPU context on first frame
-                if state.gpu_ctx.is_none() {
-                    state.gpu_ctx = crate::chart3d::wgpu_backend::WgpuContext::new().ok();
+                // Lazily initialize GPU device on first frame
+                if state.gpu.is_none() {
+                    state.gpu = scry_engine::gpu::GpuDevice::global();
                 }
                 // Try GPU path, fall back to CPU on failure
-                if let Some(ref ctx) = state.gpu_ctx {
+                if let Some(gpu) = state.gpu {
                     self.chart
-                        .render_gpu_to_canvas_with_context(ctx, pixel_w, pixel_h)
+                        .render_gpu_to_canvas_with_device(gpu, pixel_w, pixel_h)
                         .or_else(|_| self.chart.render_to_canvas(pixel_w, pixel_h))
                 } else {
                     self.chart.render_to_canvas(pixel_w, pixel_h)

@@ -1,3 +1,7 @@
+#![allow(
+    clippy::float_cmp,
+    clippy::needless_range_loop
+)]
 //! Correctness verification tests: scry-learn vs sklearn reference results.
 //!
 //! The Iris dataset is embedded directly (150 samples × 4 features × 3 classes)
@@ -93,7 +97,7 @@ fn iris_dataset() -> Dataset {
     )
 }
 
-/// sklearn reference: 100% accuracy on Iris 80/20 split (random_state=42).
+/// sklearn reference: 100% accuracy on Iris 80/20 split (`random_state=42`).
 #[test]
 fn prove_decision_tree_iris() {
     let data = iris_dataset();
@@ -135,7 +139,7 @@ fn prove_random_forest_iris() {
     );
 }
 
-/// sklearn reference: 100% accuracy on Iris with max_iter=1000.
+/// sklearn reference: 100% accuracy on Iris with `max_iter=1000`.
 #[test]
 fn prove_logistic_regression_iris() {
     let data = iris_dataset();
@@ -359,8 +363,8 @@ fn prove_metrics_exact() {
 // PCA correctness vs sklearn 1.8.0
 // ─────────────────────────────────────────────────────────────────
 
-/// sklearn reference: PCA(n_components=4).fit(iris_features)
-/// explained_variance_ratio_ = [0.9246, 0.0531, 0.0172, 0.0052]
+/// sklearn reference: `PCA(n_components=4).fit(iris_features)`
+/// `explained_variance_ratio`_ = [0.9246, 0.0531, 0.0172, 0.0052]
 #[test]
 fn prove_pca_explained_variance_ratio() {
     let data = iris_dataset();
@@ -390,7 +394,7 @@ fn prove_pca_explained_variance_ratio() {
     eprintln!("PCA explained variance ratios: {ratios:?}");
 }
 
-/// Verify PCA(n_components=2) produces correct 2D projection on Iris.
+/// Verify `PCA(n_components=2)` produces correct 2D projection on Iris.
 /// sklearn: first PC captures ~92.5% variance, second ~5.3%.
 #[test]
 fn prove_pca_iris_dimension_reduction() {
@@ -430,8 +434,8 @@ fn prove_pca_iris_dimension_reduction() {
 // GBT correctness vs sklearn 1.8.0
 // ─────────────────────────────────────────────────────────────────
 
-/// sklearn reference: GradientBoostingClassifier(n_estimators=100, learning_rate=0.1,
-///                    max_depth=3, random_state=42).fit(X_train, y_train)
+/// sklearn reference: `GradientBoostingClassifier(n_estimators=100`, `learning_rate=0.1`,
+///                    `max_depth=3`, `random_state=42).fit(X_train`, `y_train`)
 ///                    → accuracy ≥ 93% on Iris 80/20 split.
 #[test]
 fn prove_gbt_classifier_iris() {
@@ -581,7 +585,7 @@ fn prove_lasso_sparsity_on_known_system() {
     assert!(r2 > 0.90, "Lasso R² should be > 0.90, got {r2:.4}");
 }
 
-/// Prove ElasticNet with l1_ratio=0 behaves like Ridge (no sparsity, good fit).
+/// Prove `ElasticNet` with `l1_ratio=0` behaves like Ridge (no sparsity, good fit).
 #[test]
 fn prove_elastic_net_ridge_mode() {
     use scry_learn::linear::ElasticNet;
@@ -628,7 +632,7 @@ fn prove_elastic_net_ridge_mode() {
     );
 }
 
-/// Prove ElasticNet with l1_ratio=1 behaves like Lasso (drives irrelevant to zero).
+/// Prove `ElasticNet` with `l1_ratio=1` behaves like Lasso (drives irrelevant to zero).
 #[test]
 fn prove_elastic_net_lasso_mode() {
     use scry_learn::linear::ElasticNet;
@@ -663,7 +667,7 @@ fn prove_elastic_net_lasso_mode() {
 // class_weight correctness: improved minority recall on imbalanced data
 // ─────────────────────────────────────────────────────────────────
 
-/// Prove that DecisionTreeClassifier with class_weight=Balanced improves
+/// Prove that `DecisionTreeClassifier` with `class_weight=Balanced` improves
 /// minority class recall on a 90/10 imbalanced binary dataset.
 ///
 /// Without weights, the tree may achieve high overall accuracy by predicting
@@ -802,7 +806,7 @@ fn prove_knn_regressor_linear() {
     );
 }
 
-/// Prove predict_proba returns valid probability distributions on Iris.
+/// Prove `predict_proba` returns valid probability distributions on Iris.
 /// All per-sample probability vectors must sum to 1.0.
 #[test]
 fn prove_knn_predict_proba_iris() {
@@ -838,7 +842,7 @@ fn prove_knn_predict_proba_iris() {
 // SVM correctness: LinearSVC, XOR negative proof, KernelSVC
 // ─────────────────────────────────────────────────────────────────
 
-/// Prove LinearSVC achieves ≥85% accuracy on Iris.
+/// Prove `LinearSVC` achieves ≥85% accuracy on Iris.
 ///
 /// Iris has three linearly-separable-ish classes; a linear SVM
 /// should handle it comfortably with feature scaling.
@@ -850,7 +854,7 @@ fn prove_linear_svc_iris() {
 
     // Scale features for stable SGD convergence.
     let mut scaler = StandardScaler::new();
-    let mut scaled = data.clone();
+    let mut scaled = data;
     scaler.fit(&scaled).unwrap();
     scaler.transform(&mut scaled).unwrap();
 
@@ -871,7 +875,7 @@ fn prove_linear_svc_iris() {
     );
 }
 
-/// Prove LinearSVC fails on XOR — a negative proof.
+/// Prove `LinearSVC` fails on XOR — a negative proof.
 ///
 /// XOR is the classic non-linearly-separable problem:
 /// `[0,0]→0, [1,1]→0, [0,1]→1, [1,0]→1`.
@@ -896,7 +900,7 @@ fn prove_linear_svc_xor_fail() {
         vec![1.0, 1.0],
     ];
     let preds = svc.predict(&test_points).unwrap();
-    let expected = vec![0.0, 1.0, 1.0, 0.0];
+    let expected = [0.0, 1.0, 1.0, 0.0];
     let correct = preds
         .iter()
         .zip(expected.iter())
@@ -969,7 +973,7 @@ fn prove_kernel_svc_xor() {
 // Preprocessing: SimpleImputer, RobustScaler, ColumnTransformer
 // ─────────────────────────────────────────────────────────────────
 
-/// Prove SimpleImputer fills NaN correctly with Mean strategy.
+/// Prove `SimpleImputer` fills NaN correctly with Mean strategy.
 /// A dataset with known NaN positions should have those filled with
 /// the per-feature mean of the non-NaN entries.
 #[test]
@@ -1045,11 +1049,11 @@ fn prove_imputer_fills_nan_correctly() {
     eprintln!("SimpleImputer correctness: all NaN values filled correctly");
 }
 
-/// Prove RobustScaler handles outliers better than StandardScaler.
+/// Prove `RobustScaler` handles outliers better than `StandardScaler`.
 ///
 /// On a dataset where most values are in [1, 10] but one outlier is 1000,
-/// RobustScaler should produce non-outlier values with wider spread than
-/// StandardScaler (because StandardScaler's std is inflated by the outlier).
+/// `RobustScaler` should produce non-outlier values with wider spread than
+/// `StandardScaler` (because `StandardScaler`'s std is inflated by the outlier).
 #[test]
 fn prove_robust_scaler_outlier_tolerance() {
     use scry_learn::preprocess::{RobustScaler, StandardScaler, Transformer};
@@ -1092,10 +1096,10 @@ fn prove_robust_scaler_outlier_tolerance() {
     );
 }
 
-/// Prove ColumnTransformer correctly composes different transformers
+/// Prove `ColumnTransformer` correctly composes different transformers
 /// on different column subsets.
 ///
-/// Apply StandardScaler to columns 0–1 and MinMaxScaler to columns 2–3.
+/// Apply `StandardScaler` to columns 0–1 and `MinMaxScaler` to columns 2–3.
 /// After transformation, columns 0–1 should be zero-mean and columns
 /// 2–3 should be in [0, 1].
 #[test]
@@ -1135,10 +1139,10 @@ fn prove_column_transformer_composition() {
     );
 
     // Columns 2, 3: MinMaxScaler → [0, 1]
-    let min_2 = ds.features[2].iter().cloned().fold(f64::INFINITY, f64::min);
+    let min_2 = ds.features[2].iter().copied().fold(f64::INFINITY, f64::min);
     let max_2 = ds.features[2]
         .iter()
-        .cloned()
+        .copied()
         .fold(f64::NEG_INFINITY, f64::max);
     assert!(min_2.abs() < 1e-10, "col 2 min should be ~0, got {min_2}");
     assert!(
@@ -1146,10 +1150,10 @@ fn prove_column_transformer_composition() {
         "col 2 max should be ~1, got {max_2}"
     );
 
-    let min_3 = ds.features[3].iter().cloned().fold(f64::INFINITY, f64::min);
+    let min_3 = ds.features[3].iter().copied().fold(f64::INFINITY, f64::min);
     let max_3 = ds.features[3]
         .iter()
-        .cloned()
+        .copied()
         .fold(f64::NEG_INFINITY, f64::max);
     assert!(min_3.abs() < 1e-10, "col 3 min should be ~0, got {min_3}");
     assert!(
@@ -1164,9 +1168,9 @@ fn prove_column_transformer_composition() {
 // Cost-complexity pruning correctness
 // ─────────────────────────────────────────────────────────────────
 
-/// Prove that ccp_alpha produces a tree with fewer leaves on Iris.
+/// Prove that `ccp_alpha` produces a tree with fewer leaves on Iris.
 ///
-/// An unpruned tree overfits, yielding many leaves. Setting ccp_alpha to a
+/// An unpruned tree overfits, yielding many leaves. Setting `ccp_alpha` to a
 /// moderate value should collapse low-value subtrees without ruining accuracy.
 #[test]
 fn prove_pruning_reduces_tree_size() {
@@ -1294,7 +1298,7 @@ fn prove_gbt_huber_outlier_robustness() {
 // Session 8: Clustering improvements + NB variants
 // ─────────────────────────────────────────────────────────────────
 
-/// Prove K-Means n_init=10 produces lower or equal inertia compared to n_init=1
+/// Prove K-Means `n_init=10` produces lower or equal inertia compared to `n_init=1`
 /// on the Iris dataset (k=3).
 #[test]
 fn prove_kmeans_n_init_best_of_10() {
@@ -1316,7 +1320,7 @@ fn prove_kmeans_n_init_best_of_10() {
 }
 
 /// Prove silhouette score on Iris (k=3) exceeds 0.4.
-/// sklearn reference: KMeans(3) on Iris → silhouette_score ≈ 0.55.
+/// sklearn reference: KMeans(3) on Iris → `silhouette_score` ≈ 0.55.
 #[test]
 fn prove_silhouette_score_iris() {
     use scry_learn::cluster::silhouette_score;
@@ -1336,7 +1340,7 @@ fn prove_silhouette_score_iris() {
     );
 }
 
-/// Prove BernoulliNB achieves ≥75% accuracy on a binary feature dataset.
+/// Prove `BernoulliNB` achieves ≥75% accuracy on a binary feature dataset.
 #[test]
 fn prove_bernoulli_nb_binary_features() {
     use scry_learn::naive_bayes::BernoulliNB;
@@ -1386,7 +1390,7 @@ fn prove_bernoulli_nb_binary_features() {
     );
 }
 
-/// Prove MultinomialNB achieves ≥75% accuracy on a count feature dataset.
+/// Prove `MultinomialNB` achieves ≥75% accuracy on a count feature dataset.
 #[test]
 fn prove_multinomial_nb_count_features() {
     use scry_learn::naive_bayes::MultinomialNB;
@@ -1443,7 +1447,7 @@ fn prove_multinomial_nb_count_features() {
 /// Prove DBSCAN correctly identifies two well-separated clusters.
 ///
 /// Two blobs of 50 points each, centered at (0,0) and (50,50),
-/// with eps=5.0 and min_samples=3. Should find exactly 2 clusters
+/// with eps=5.0 and `min_samples=3`. Should find exactly 2 clusters
 /// with 0 noise points.
 #[test]
 fn prove_dbscan_finds_clusters() {
@@ -1545,7 +1549,7 @@ fn prove_lasso_sparsity_zero_coefficients() {
     lasso.fit(&data).unwrap();
 
     let coefs = lasso.coefficients();
-    eprintln!("Lasso coefficients (8 features): {:?}", coefs);
+    eprintln!("Lasso coefficients (8 features): {coefs:?}");
 
     // Relevant features should have significant coefficients.
     assert!(
@@ -1570,7 +1574,7 @@ fn prove_lasso_sparsity_zero_coefficients() {
     }
 }
 
-/// Prove LinearSVC margin separation via decision_function.
+/// Prove `LinearSVC` margin separation via `decision_function`.
 ///
 /// On linearly separable data, the decision function should produce
 /// positive scores for one class and negative scores for the other.
@@ -1659,7 +1663,7 @@ fn prove_svm_margin_separation() {
 // SESSION 10: Histogram-Based Gradient Boosting
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// HistGBT classifier on Iris: ≥95% accuracy.
+/// `HistGBT` classifier on Iris: ≥95% accuracy.
 #[test]
 fn prove_hist_gbt_classifier_iris() {
     use scry_learn::prelude::*;
@@ -1693,7 +1697,7 @@ fn prove_hist_gbt_classifier_iris() {
     );
 }
 
-/// HistGBT regressor on y=2x+1: R² > 0.95.
+/// `HistGBT` regressor on y=2x+1: R² > 0.95.
 #[test]
 fn prove_hist_gbt_regressor_linear() {
     use scry_learn::prelude::*;
@@ -1716,7 +1720,7 @@ fn prove_hist_gbt_regressor_linear() {
     assert!(r2 > 0.95, "expected R² > 0.95, got {r2:.4}");
 }
 
-/// HistGBT handles missing values without panicking, reasonable predictions.
+/// `HistGBT` handles missing values without panicking, reasonable predictions.
 #[test]
 fn prove_hist_gbt_missing_values() {
     use scry_learn::prelude::*;
@@ -1776,9 +1780,9 @@ fn prove_hist_gbt_missing_values() {
 // SESSION 11: Neural Networks (MLP)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Prove MLPClassifier solves XOR — the classic nonlinear benchmark.
+/// Prove `MLPClassifier` solves XOR — the classic nonlinear benchmark.
 ///
-/// XOR requires at least one hidden layer to solve. With hidden_layers(&[4])
+/// XOR requires at least one hidden layer to solve. With `hidden_layers`(&[4])
 /// and enough iterations, the MLP should achieve 100% accuracy.
 #[test]
 fn prove_mlp_classifier_xor() {
@@ -1822,9 +1826,9 @@ fn prove_mlp_classifier_xor() {
     );
 }
 
-/// Prove MLPClassifier achieves ≥80% accuracy on Iris (3-class).
+/// Prove `MLPClassifier` achieves ≥80% accuracy on Iris (3-class).
 ///
-/// sklearn reference: MLPClassifier(hidden_layer_sizes=(100,), max_iter=200)
+/// sklearn reference: `MLPClassifier(hidden_layer_sizes=(100`,), `max_iter=200`)
 /// achieves ~97% on Iris with scaling.
 #[test]
 fn prove_mlp_classifier_iris() {
@@ -1861,7 +1865,7 @@ fn prove_mlp_classifier_iris() {
     );
 }
 
-/// Prove MLPRegressor learns y = sin(x) with reasonable MSE.
+/// Prove `MLPRegressor` learns y = sin(x) with reasonable MSE.
 #[test]
 fn prove_mlp_regressor_sine() {
     use scry_learn::neural::MLPRegressor;
@@ -1891,7 +1895,7 @@ fn prove_mlp_regressor_sine() {
     );
 }
 
-/// Prove MLPClassifier predict_proba returns valid probability distributions.
+/// Prove `MLPClassifier` `predict_proba` returns valid probability distributions.
 #[test]
 fn prove_mlp_predict_proba_valid() {
     use scry_learn::neural::MLPClassifier;

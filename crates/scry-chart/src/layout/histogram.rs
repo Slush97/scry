@@ -92,12 +92,14 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
         baseline_y,
         theme.resolve_series_color(0, hc.data.series_style()),
         primary_opacity,
+        hc.bar_gap,
+        theme.series.bar_stroke_width,
     );
 
     // Draw extra series with translucent overlay
     for (si, bins) in extra_bins.iter().enumerate() {
         let color = theme.resolve_series_color(si + 1, hc.extra[si].series_style());
-        draw_bins_on_ctx(&mut ctx, bins, &x_scale, &y_scale, baseline_y, color, 0.5);
+        draw_bins_on_ctx(&mut ctx, bins, &x_scale, &y_scale, baseline_y, color, 0.5, hc.bar_gap, theme.series.bar_stroke_width);
     }
 
     // Auto value labels above bins when not too dense (≤ 20 bins).
@@ -183,14 +185,21 @@ fn draw_bins_on_ctx(
     baseline_y: f32,
     color: scry_engine::style::Color,
     opacity: f32,
+    bar_gap: f32,
+    bar_stroke_width: f32,
 ) {
     let fill_color = color.with_alpha(opacity);
 
     for bin in bins {
-        let x1 = x_scale.to_pixel(bin.lo) as f32;
-        let x2 = x_scale.to_pixel(bin.hi) as f32;
+        let x1_raw = x_scale.to_pixel(bin.lo) as f32;
+        let x2_raw = x_scale.to_pixel(bin.hi) as f32;
+        let raw_w = (x2_raw - x1_raw).max(1.0);
+        // Apply fractional gap: half the gap on each side of the bin
+        let inset = raw_w * bar_gap * 0.5;
+        let x1 = x1_raw + inset;
+        // Add 0.5px overlap to eliminate sub-pixel seams between adjacent bins
+        let bw = (raw_w - 2.0 * inset + 0.5).max(1.0);
         let top = y_scale.to_pixel(bin.count) as f32;
-        let bw = (x2 - x1).max(1.0);
         let bh = baseline_y - top;
 
         if bh > 0.0 {
@@ -200,12 +209,14 @@ fn draw_bins_on_ctx(
                     .corner_radius(0.0)
                     .done()
             });
-            ctx.draw(|c| {
-                c.rect(x1, top, bw, bh)
-                    .stroke(color, 1.0)
-                    .corner_radius(0.0)
-                    .done()
-            });
+            if bar_stroke_width > 0.0 {
+                ctx.draw(|c| {
+                    c.rect(x1, top, bw, bh)
+                        .stroke(color, bar_stroke_width)
+                        .corner_radius(0.0)
+                        .done()
+                });
+            }
         }
     }
 }

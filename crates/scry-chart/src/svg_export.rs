@@ -42,13 +42,34 @@ pub fn render_to_svg(chart: &Chart, width: u32, height: u32) -> String {
     let mut defs = String::new();
     let mut grad_id = 0_u32;
 
-    // SVG header
+    // SVG header with ARIA accessibility role.
     let _ = write!(
         svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}" width="{}" height="{}">"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}" width="{}" height="{}" role="img">"#,
         width, height, width, height
     );
     svg.push('\n');
+
+    // Accessibility: inject <title> and <desc> from chart metadata.
+    let title_text = rendered
+        .text_overlays
+        .iter()
+        .find(|o| o.bold && o.rotation_deg.abs() < 0.01)
+        .map(|o| o.text.as_str());
+    if let Some(t) = title_text {
+        let _ = write!(svg, "<title>{}</title>\n", xml_escape(t));
+    }
+    // Use subtitle or axis labels as description.
+    let desc_parts: Vec<&str> = rendered
+        .text_overlays
+        .iter()
+        .filter(|o| !o.bold && o.rotation_deg.abs() < 0.01 && !o.text.is_empty())
+        .take(2)
+        .map(|o| o.text.as_str())
+        .collect();
+    if !desc_parts.is_empty() {
+        let _ = write!(svg, "<desc>{}</desc>\n", xml_escape(&desc_parts.join(" — ")));
+    }
 
     // Render all drawing commands
     let mut body = String::with_capacity(4096);

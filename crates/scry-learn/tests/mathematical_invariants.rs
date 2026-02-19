@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! Mathematical invariant verification tests.
 //!
 //! These tests verify properties that **must hold** regardless of data,
@@ -54,7 +55,7 @@ fn make_iris_subset() -> Dataset {
 // 1. PCA INVARIANTS
 // ═══════════════════════════════════════════════════════════════════
 
-/// PCA components must be orthonormal: WᵀW = I.
+/// PCA components must be orthonormal: `WᵀW` = I.
 #[test]
 fn invariant_pca_components_orthonormal() {
     let data = make_iris_subset();
@@ -169,12 +170,11 @@ fn invariant_pca_analytical_2x2() {
     let abs_sum = (pc1[0].abs() - pc1[1].abs()).abs();
     assert!(
         abs_sum < 0.1,
-        "PC1 components should have similar magnitude: {:?}",
-        pc1
+        "PC1 components should have similar magnitude: {pc1:?}"
     );
 }
 
-/// PCA roundtrip (transform then inverse_transform) must approximately
+/// PCA roundtrip (transform then `inverse_transform`) must approximately
 /// reconstruct the original data when all components are retained.
 #[test]
 fn invariant_pca_roundtrip_all_components() {
@@ -364,7 +364,7 @@ fn invariant_gaussian_nb_priors_sum_to_one() {
     }
 }
 
-/// Gaussian NB predict_proba must produce valid probability distributions.
+/// Gaussian NB `predict_proba` must produce valid probability distributions.
 #[test]
 fn invariant_gaussian_nb_probabilities_valid() {
     let data = make_iris_subset();
@@ -377,7 +377,7 @@ fn invariant_gaussian_nb_probabilities_valid() {
     for (i, p) in probas.iter().enumerate() {
         for (c, &pc) in p.iter().enumerate() {
             assert!(
-                pc >= 0.0 && pc <= 1.0,
+                (0.0..=1.0).contains(&pc),
                 "Sample {i}, class {c}: prob {pc} not in [0,1]"
             );
         }
@@ -389,7 +389,7 @@ fn invariant_gaussian_nb_probabilities_valid() {
     }
 }
 
-/// Bernoulli NB: smoothed probability must match formula (N_c1 + α) / (N_c + 2α).
+/// Bernoulli NB: smoothed probability must match formula (`N_c1` + α) / (`N_c` + 2α).
 #[test]
 fn invariant_bernoulli_nb_smoothing_formula() {
     // 4 samples: class 0 has features [1,0], [1,0]; class 1 has [0,1], [0,1]
@@ -466,7 +466,7 @@ fn invariant_multinomial_nb_posterior_valid() {
         );
         for &pc in p {
             assert!(
-                pc >= 0.0 && pc <= 1.0,
+                (0.0..=1.0).contains(&pc),
                 "MultinomialNB prob {pc} not in [0,1]"
             );
         }
@@ -498,7 +498,7 @@ fn invariant_logistic_regression_separable_data() {
     );
 }
 
-/// Logistic regression predict_proba must produce valid distributions.
+/// Logistic regression `predict_proba` must produce valid distributions.
 #[test]
 fn invariant_logistic_regression_proba_valid() {
     let data = make_iris_subset();
@@ -516,7 +516,7 @@ fn invariant_logistic_regression_proba_valid() {
             "LogReg sample {i}: prob sum = {sum}"
         );
         for &pc in p {
-            assert!(pc >= 0.0 && pc <= 1.0, "Prob {pc} not in [0,1]");
+            assert!((0.0..=1.0).contains(&pc), "Prob {pc} not in [0,1]");
         }
     }
 }
@@ -611,7 +611,7 @@ fn invariant_knn_exact_match() {
     }
 }
 
-/// KNN predict_proba must produce valid distributions.
+/// KNN `predict_proba` must produce valid distributions.
 #[test]
 fn invariant_knn_proba_valid() {
     let data = make_iris_subset();
@@ -629,7 +629,7 @@ fn invariant_knn_proba_valid() {
             "KNN sample {i}: prob sum = {sum}"
         );
         for &pc in p {
-            assert!(pc >= 0.0 && pc <= 1.0, "KNN prob {pc} not in [0,1]");
+            assert!((0.0..=1.0).contains(&pc), "KNN prob {pc} not in [0,1]");
         }
     }
 }

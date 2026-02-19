@@ -1,11 +1,18 @@
-#![allow(unsafe_code)]
+#![allow(
+    unsafe_code,
+    clippy::items_after_statements,
+    clippy::needless_range_loop,
+    clippy::type_complexity,
+    clippy::default_trait_access,
+    clippy::redundant_locals
+)]
 
 //! Production readiness benchmarks — heap memory, allocation counts, scaling,
 //! dimensionality, per-predict costs, and stress/edge-case tests.
 //!
 //! Uses a `GlobalAlloc` wrapper to measure real heap usage (not serialization proxies).
 //!
-//! Run:  cargo test --test production_bench -p scry-learn --release -- --nocapture
+//! Run:  cargo test --test `production_bench` -p scry-learn --release -- --nocapture
 
 #[path = "tracking_alloc.rs"]
 mod tracking_alloc;
@@ -518,7 +525,7 @@ fn test_peak_heap_per_model() {
 
     // ── MiniBatchKMeans ──
     {
-        let ds = make_dataset(col_cls.clone(), target_cls.clone(), d);
+        let ds = make_dataset(col_cls, target_cls, d);
         let before = AllocSnapshot::now();
         let t0 = Instant::now();
         let mut m = scry_learn::prelude::MiniBatchKMeans::new(3).seed(42);
@@ -688,8 +695,8 @@ fn test_alloc_count_per_model() {
         (
             "GaussianNB",
             Box::new({
-                let col = col.clone();
-                let target = target.clone();
+                let col = col;
+                let target = target;
                 move || {
                     let ds = make_dataset(col, target, d);
                     let mut m = scry_learn::prelude::GaussianNb::new();
@@ -887,7 +894,7 @@ fn test_memory_scaling_by_n() {
     for r in &all_results {
         print!("  {:<20}", format!("  {} time", r.model));
         for (_, _, ms) in &r.points {
-            print!(" {:>12.1}ms", ms);
+            print!(" {ms:>12.1}ms");
         }
         println!();
     }
@@ -1063,7 +1070,7 @@ fn test_predict_allocations() {
     println!("  {}", "─".repeat(72));
 
     // Fit all models first
-    let ds = make_dataset(col.clone(), target.clone(), d);
+    let ds = make_dataset(col, target, d);
 
     let mut dt = scry_learn::prelude::DecisionTreeClassifier::new();
     dt.fit(&ds).unwrap();
@@ -1551,7 +1558,7 @@ fn test_throughput_scaling() {
         } else if sps >= 1_000.0 {
             format!("{:.1}K", sps / 1_000.0)
         } else {
-            format!("{:.0}", sps)
+            format!("{sps:.0}")
         }
     }
 
@@ -1646,14 +1653,14 @@ fn test_competitor_memory_comparison() {
             } else {
                 f64::INFINITY
             };
-            format!("scry {:.1}×", ratio)
+            format!("scry {ratio:.1}×")
         } else {
             let ratio = if other > 0 {
                 scry as f64 / other as f64
             } else {
                 f64::INFINITY
             };
-            format!("comp {:.1}×", ratio)
+            format!("comp {ratio:.1}×")
         }
     }
 
@@ -1906,7 +1913,7 @@ fn test_competitor_memory_comparison() {
 
     // ── Lasso: scry vs linfa-elasticnet ──
     {
-        let ds = make_dataset(col_reg.clone(), target_reg.clone(), d);
+        let ds = make_dataset(col_reg, target_reg.clone(), d);
         let (scry_peak, _) = measure(|| {
             let mut m = scry_learn::prelude::LassoRegression::new().alpha(0.1);
             m.fit(&ds).unwrap();
@@ -1915,7 +1922,7 @@ fn test_competitor_memory_comparison() {
 
         let flat: Vec<f64> = rows_reg.iter().flat_map(|r| r.iter().copied()).collect();
         let linfa_x = ndarray::Array2::from_shape_vec((n, d), flat).unwrap();
-        let linfa_y = ndarray::Array1::from_vec(target_reg.clone());
+        let linfa_y = ndarray::Array1::from_vec(target_reg);
         let linfa_ds = linfa::Dataset::new(linfa_x, linfa_y);
         let (linfa_peak, _) = measure(|| {
             use linfa::prelude::Fit;
@@ -1938,7 +1945,7 @@ fn test_competitor_memory_comparison() {
 
     // ── GaussianNB: scry only (no direct competitor equivalent) ──
     {
-        let ds = make_dataset(col.clone(), target.clone(), d);
+        let ds = make_dataset(col, target, d);
         let (scry_peak, _) = measure(|| {
             let mut m = scry_learn::prelude::GaussianNb::new();
             m.fit(&ds).unwrap();

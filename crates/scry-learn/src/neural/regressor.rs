@@ -628,7 +628,7 @@ mod tests {
         let preds = reg.predict(&test_x).unwrap();
 
         // Check R²
-        let actual = vec![1.0, 2.0, 3.0];
+        let actual = [1.0, 2.0, 3.0];
         let mean_y: f64 = actual.iter().sum::<f64>() / actual.len() as f64;
         let ss_res: f64 = preds
             .iter()

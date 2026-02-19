@@ -9,7 +9,7 @@ mod histogram_gbt;
 mod random_forest;
 
 pub use binning::FeatureBinner;
-pub(crate) use cart::{FlatNode, FlatTree};
+pub(crate) use cart::FlatTree;
 pub use cart::{DecisionTreeClassifier, DecisionTreeRegressor, SplitCriterion, TreeNode};
 pub use gradient_boosting::{
     GradientBoostingClassifier, GradientBoostingRegressor, RegressionLoss,

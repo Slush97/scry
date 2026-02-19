@@ -13,7 +13,7 @@ mod node;
 
 pub(crate) use builder::presort_indices;
 pub use builder::{DecisionTreeClassifier, DecisionTreeRegressor};
-pub use flat::{FlatNode, FlatTree};
+pub use flat::FlatTree;
 pub use node::TreeNode;
 
 // ---------------------------------------------------------------------------

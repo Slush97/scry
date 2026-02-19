@@ -1,9 +1,10 @@
+#![allow(clippy::needless_range_loop)]
 //! Numerical stability tests — deterministic coverage of degenerate-but-valid inputs.
 //!
 //! These complement fuzz testing (which hits edge cases randomly) with reproducible,
 //! documented assertions on soundness: finite output, no panics, correct error returns.
 //!
-//! Run: cargo test --test numerical_stability -p scry-learn --release -- --nocapture
+//! Run: cargo test --test `numerical_stability` -p scry-learn --release -- --nocapture
 
 use scry_learn::dataset::Dataset;
 use scry_learn::linear::{LassoRegression, LinearRegression, LogisticRegression};
@@ -35,7 +36,7 @@ fn near_singular_linear_regression() {
     let result = model.fit(&ds);
 
     // Must not panic. May produce large coefficients but they must be finite.
-    if let Ok(()) = result {
+    if matches!(result, Ok(())) {
         let coeffs = model.coefficients();
         for (i, &c) in coeffs.iter().enumerate() {
             assert!(c.is_finite(), "coefficient {i} is not finite: {c}");
@@ -74,7 +75,7 @@ fn extreme_scale_disparity() {
 
     // LinearRegression
     let mut lr = LinearRegression::new();
-    if let Ok(()) = lr.fit(&ds) {
+    if matches!(lr.fit(&ds), Ok(())) {
         let preds = lr.predict(&[vec![5e-11, 5e9]]).unwrap();
         assert!(
             preds[0].is_finite(),
@@ -149,7 +150,7 @@ fn severe_class_imbalance() {
 
     // Report F1-macro, not accuracy (accuracy is meaningless at 99:1)
     let f1 = f1_score(&target, &preds, Average::Macro);
-    println!("severe_class_imbalance DT F1-macro: {:.4}", f1);
+    println!("severe_class_imbalance DT F1-macro: {f1:.4}");
     // DT should be able to find the cluster — F1 > 0 at minimum
     assert!(
         f1 > 0.0,
@@ -161,7 +162,7 @@ fn severe_class_imbalance() {
     rf.fit(&ds).unwrap();
     let preds_rf = rf.predict(&rows).unwrap();
     let f1_rf = f1_score(&target, &preds_rf, Average::Macro);
-    println!("severe_class_imbalance RF F1-macro: {:.4}", f1_rf);
+    println!("severe_class_imbalance RF F1-macro: {f1_rf:.4}");
     assert!(f1_rf > 0.0);
 }
 
@@ -214,7 +215,7 @@ fn zero_variance_columns() {
         .collect();
     let target: Vec<f64> = (0..n).map(|i| if i < half { 0.0 } else { 1.0 }).collect();
 
-    let ds = make_dataset(vec![constant_col.clone(), normal_col], target);
+    let ds = make_dataset(vec![constant_col, normal_col], target);
 
     // StandardScaler must not divide by zero
     let mut scaler = StandardScaler::new();
@@ -302,8 +303,7 @@ fn high_dimensional_p_gt_n() {
         let coeffs = lasso.coefficients();
         let zero_count = coeffs.iter().filter(|&&c| c.abs() < 1e-10).count();
         println!(
-            "  Lasso sparsity: {}/{} coefficients are zero",
-            zero_count, p
+            "  Lasso sparsity: {zero_count}/{p} coefficients are zero"
         );
         for &c in coeffs {
             assert!(c.is_finite(), "Lasso coefficient not finite: {c}");

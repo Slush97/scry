@@ -90,7 +90,7 @@ fn gen_multiclass(n: usize, n_features: usize, n_classes: usize, seed: u64) -> D
     Dataset::new(features, target, names, "class")
 }
 
-/// Generate a regression dataset: y = sum(x_i * (i+1)) + noise.
+/// Generate a regression dataset: y = `sum(x_i` * (i+1)) + noise.
 fn gen_regression(n: usize, n_features: usize, seed: u64) -> Dataset {
     let mut rng = fastrand::Rng::with_seed(seed);
     let mut features: Vec<Vec<f64>> = (0..n_features).map(|_| Vec::with_capacity(n)).collect();
@@ -732,7 +732,7 @@ fn bench_hist_gbt(c: &mut Criterion) {
         let names: Vec<String> = (0..n_features).map(|i| format!("f{i}")).collect();
         let data = Dataset::new(features, target, names, "y");
 
-        group.bench_function(&format!("standard_gbt_{n_rows}"), |b| {
+        group.bench_function(format!("standard_gbt_{n_rows}"), |b| {
             b.iter(|| {
                 let mut m = GradientBoostingRegressor::new()
                     .n_estimators(20)
@@ -742,7 +742,7 @@ fn bench_hist_gbt(c: &mut Criterion) {
             });
         });
 
-        group.bench_function(&format!("hist_gbt_{n_rows}"), |b| {
+        group.bench_function(format!("hist_gbt_{n_rows}"), |b| {
             b.iter(|| {
                 let mut m = HistGradientBoostingRegressor::new()
                     .n_estimators(20)

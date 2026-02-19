@@ -1,3 +1,4 @@
+#![allow(clippy::significant_drop_tightening)]
 //! Full model coverage benchmark — trains and predicts with EVERY model family.
 //!
 //! This benchmark fills the gap where 18 of 31+ models had zero Criterion
@@ -13,7 +14,7 @@
 #[path = "benchmark_config.rs"]
 mod benchmark_config;
 
-use benchmark_config::*;
+use benchmark_config::{gen_classification, SEED, to_row_major, configs, gen_regression, gen_multiclass, gen_anomaly};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 // ═══════════════════════════════════════════════════════════════════

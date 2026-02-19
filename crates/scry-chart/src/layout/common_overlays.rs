@@ -249,14 +249,9 @@ impl RenderContext {
                 continue;
             }
 
-            // Truncate if needed.
-            let display_label =
-                if label.chars().count() > max_visible_chars && max_visible_chars > 4 {
-                    let truncated: String = label.chars().take(max_visible_chars - 1).collect();
-                    format!("{truncated}…")
-                } else {
-                    label.clone()
-                };
+            // Truncate if needed using text_utils::ellipsize.
+            let max_label_px = max_visible_chars as f32 * char_w;
+            let display_label = crate::text_utils::ellipsize(label, max_label_px, char_w);
 
             // Stagger: odd-indexed labels get an extra vertical offset.
             let stagger_offset = if stagger && ci % 2 == 1 {

@@ -32,6 +32,11 @@ pub struct TrainingConfig {
     pub use_checkpointing: bool,
     /// How many transformer blocks per checkpoint segment.
     pub checkpoint_every: usize,
+    /// Peak GPU TFLOPS for MFU reporting (e.g. 23.1 for FP32, 88 for BF16 tensor cores).
+    /// If `None`, MFU is omitted from log output.
+    pub peak_tflops: Option<f64>,
+    /// Total trainable parameters (set by caller for MFU computation).
+    pub n_params: Option<usize>,
 }
 
 /// Metrics from a single training step.
@@ -39,6 +44,8 @@ pub struct StepMetrics {
     pub loss: f32,
     pub grad_norm: f32,
     pub lr: f32,
+    pub tokens_per_sec: f64,
+    pub mfu: f64,
 }
 
 /// Training loop orchestrator.
@@ -158,6 +165,23 @@ impl<B: MathBackend> Trainer<B> {
             merge_grads::<B>(&mut accumulated_grads, grads);
         }
 
+        // NaN/Inf safety net: skip optimizer step if loss is bad
+        let avg_loss = total_loss / n_accum as f32;
+        if avg_loss.is_nan() || avg_loss.is_infinite() {
+            eprintln!(
+                "step {:>6} | WARNING: loss is {avg_loss}, skipping optimizer step",
+                self.step + 1
+            );
+            self.step += 1;
+            return StepMetrics {
+                loss: avg_loss,
+                grad_norm: 0.0,
+                lr,
+                tokens_per_sec: 0.0,
+                mfu: 0.0,
+            };
+        }
+
         // Scale by 1/n_accum
         if n_accum > 1 {
             let scale = 1.0 / n_accum as f32;
@@ -192,6 +216,8 @@ impl<B: MathBackend> Trainer<B> {
             loss: total_loss / n_accum as f32,
             grad_norm,
             lr,
+            tokens_per_sec: 0.0,
+            mfu: 0.0,
         }
     }
 
@@ -255,15 +281,40 @@ impl<B: MathBackend> Trainer<B> {
                     * self.config.seq_len
                     * self.config.grad_accum_steps;
                 let tokens_per_sec = (self.step * tokens_per_step) as f64 / elapsed;
-                eprintln!(
-                    "step {:>6} | loss {:.4} | ppl {:>8.2} | grad_norm {:.4} | lr {:.2e} | tok/s {:.0}",
-                    self.step,
-                    metrics.loss,
-                    metrics.loss.exp(),
-                    metrics.grad_norm,
-                    metrics.lr,
-                    tokens_per_sec,
-                );
+
+                // Compute MFU if peak_tflops and n_params are provided
+                let mfu = match (self.config.peak_tflops, self.config.n_params) {
+                    (Some(peak), Some(n_params)) => {
+                        let flops_per_token = 6.0 * n_params as f64;
+                        let achieved_flops = tokens_per_sec * flops_per_token;
+                        let peak_flops = peak * 1e12;
+                        achieved_flops / peak_flops
+                    }
+                    _ => 0.0,
+                };
+
+                if mfu > 0.0 {
+                    eprintln!(
+                        "step {:>6} | loss {:.4} | ppl {:>8.2} | grad_norm {:.4} | lr {:.2e} | tok/s {:.0} | MFU {:.1}%",
+                        self.step,
+                        metrics.loss,
+                        metrics.loss.exp(),
+                        metrics.grad_norm,
+                        metrics.lr,
+                        tokens_per_sec,
+                        mfu * 100.0,
+                    );
+                } else {
+                    eprintln!(
+                        "step {:>6} | loss {:.4} | ppl {:>8.2} | grad_norm {:.4} | lr {:.2e} | tok/s {:.0}",
+                        self.step,
+                        metrics.loss,
+                        metrics.loss.exp(),
+                        metrics.grad_norm,
+                        metrics.lr,
+                        tokens_per_sec,
+                    );
+                }
             }
 
             // Evaluation

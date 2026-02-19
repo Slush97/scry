@@ -1,3 +1,12 @@
+#![allow(
+    missing_docs,
+    clippy::redundant_clone,
+    clippy::default_trait_access,
+    clippy::needless_range_loop,
+    clippy::doc_markdown,
+    clippy::redundant_closure_for_method_calls,
+    clippy::map_unwrap_or
+)]
 //! Head-to-head benchmark: scry-learn vs. Rust ML ecosystem competitors.
 //!
 //! Compares training throughput and prediction latency for algorithms

@@ -104,7 +104,7 @@ mod tests {
     fn test_ridge_alias() {
         let features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
         let target = vec![2.0, 4.0, 6.0, 8.0, 10.0];
-        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "y");
+        let data = Dataset::new(features, target, vec!["x".into()], "y");
 
         // Ridge(1.0) should produce the same result as LinearRegression::new().alpha(1.0).
         let mut ridge = Ridge::new(1.0);

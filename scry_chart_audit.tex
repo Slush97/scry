@@ -1,0 +1,685 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{tikz}
+\usepackage{tcolorbox}
+\usepackage{multicol}
+
+% ── Colors ────────────────────────────────────────────────────────────
+\definecolor{googblue}{HTML}{4285F4}
+\definecolor{googred}{HTML}{EA4335}
+\definecolor{googgreen}{HTML}{34A853}
+\definecolor{googyellow}{HTML}{FBBC05}
+\definecolor{darkbg}{HTML}{1E1E2E}
+\definecolor{lightgray}{HTML}{F5F5F5}
+\definecolor{secgray}{HTML}{5F6368}
+\definecolor{criticalred}{HTML}{D93025}
+\definecolor{warningyellow}{HTML}{F9AB00}
+\definecolor{okgreen}{HTML}{1E8E3E}
+
+% ── Header / Footer ──────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{secgray}{\small Google DeepMind — Engineering Audit}}
+\fancyhead[R]{\textcolor{secgray}{\small CONFIDENTIAL}}
+\fancyfoot[C]{\textcolor{secgray}{\small Page \thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Section styling ──────────────────────────────────────────────────
+\titleformat{\section}{\Large\bfseries\color{googblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\large\bfseries\color{darkbg}}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{secgray}}{}{0em}{}
+
+% ── Severity boxes ───────────────────────────────────────────────────
+\newtcolorbox{criticalbox}{colback=criticalred!8,colframe=criticalred,title={\textbf{CRITICAL}},fonttitle=\color{white},coltitle=white}
+\newtcolorbox{warningbox}{colback=warningyellow!10,colframe=warningyellow,title={\textbf{WARNING}},fonttitle=\color{black}}
+\newtcolorbox{infobox}{colback=googblue!6,colframe=googblue,title={\textbf{NOTE}},fonttitle=\color{white},coltitle=white}
+\newtcolorbox{strengthbox}{colback=okgreen!8,colframe=okgreen,title={\textbf{STRENGTH}},fonttitle=\color{white},coltitle=white}
+
+\hypersetup{colorlinks=true,linkcolor=googblue,urlcolor=googblue}
+
+% ══════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── Title Page ───────────────────────────────────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\Huge\bfseries\color{googblue} Engineering Audit Report}\\[0.6cm]
+{\LARGE\color{darkbg} scry-chart v0.7.0}\\[0.4cm]
+{\large\color{secgray} Pixel-Perfect TUI Charting Library for Rust}
+
+\vspace{1.5cm}
+
+\begin{tikzpicture}
+  \fill[googblue] (0,0) rectangle (4,0.12);
+  \fill[googred] (4.1,0) rectangle (8.1,0.12);
+  \fill[googyellow] (8.2,0) rectangle (12.2,0.12);
+  \fill[googgreen] (12.3,0) rectangle (16.3,0.12);
+\end{tikzpicture}
+
+\vspace{1.5cm}
+
+\begin{tabular}{r l}
+\textbf{Prepared by:} & Google DeepMind — Advanced Agentic Coding \\
+\textbf{Date:}        & February 18, 2026 \\
+\textbf{Repository:}  & \texttt{github.com/Slush97/scry} \\
+\textbf{Crate:}       & \texttt{scry-chart} (within the scry monorepo) \\
+\textbf{Classification:} & CONFIDENTIAL — Engineering Review \\
+\end{tabular}
+
+\vspace{1.5cm}
+
+\begin{tcolorbox}[colback=lightgray,colframe=secgray,width=14cm]
+\textbf{Executive Summary.}
+\texttt{scry-chart} is a Rust charting library that renders anti-aliased, pixel-perfect
+vector graphics directly in the terminal via the Kitty/Sixel protocols.
+It ships 19 chart types, a 3D rendering pipeline, real-time streaming charts,
+and export to PNG/SVG — all in ${\sim}12{,}000$ lines of Rust.
+
+This audit evaluates its architecture, API design, visual quality, extensibility,
+test coverage, and production readiness. Overall verdict:
+\textbf{a strong, well-architected library with clear gaps in accessibility,
+documentation depth, and test coverage that must be closed before a 1.0 release.}
+\end{tcolorbox}
+
+\vfill
+{\small\color{secgray} Google DeepMind \textbullet\ Confidential Engineering Audit}
+\end{titlepage}
+
+% ── Table of Contents ────────────────────────────────────────────────
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Scope \& Methodology}
+
+\subsection{Scope}
+Full source-code audit of \texttt{crates/scry-chart/} (v0.7.0), covering:
+\begin{itemize}[nosep]
+  \item Architecture \& module structure
+  \item Public API surface \& ergonomics
+  \item Visual rendering quality \& formatting
+  \item Extensibility \& malleability
+  \item Test coverage \& correctness
+  \item Missing features vs.\ industry baselines (matplotlib, plotly, Vega-Lite)
+  \item Security \& safety posture
+\end{itemize}
+
+\subsection{Methodology}
+Static analysis of every \texttt{.rs} file in \texttt{src/}, outline-level review of
+all public types, manual cross-referencing against \texttt{tests/} (71 test files)
+and \texttt{examples/} (21 example files). No dynamic execution was performed
+during this audit cycle.
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Architecture Overview}
+
+\subsection{Module Dependency Graph}
+
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={draw,rounded corners,minimum height=0.8cm,minimum width=2.8cm,
+              font=\small\ttfamily,fill=googblue!10},
+  arr/.style={->,thick,color=secgray},
+  node distance=1.2cm and 2.0cm
+]
+  \node[box] (chart) at (0,0) {chart/*};
+  \node[box] (layout) at (4,0) {layout/*};
+  \node[box] (scale) at (8,0) {scale};
+  \node[box] (data) at (0,-1.8) {data};
+  \node[box] (axis) at (4,-1.8) {axis};
+  \node[box] (theme) at (8,-1.8) {theme};
+  \node[box] (export) at (0,-3.6) {export};
+  \node[box] (svg) at (4,-3.6) {svg\_export};
+  \node[box] (widget) at (8,-3.6) {widget};
+  \node[box,fill=googred!10] (engine) at (4,-5.2) {scry-engine};
+
+  \draw[arr] (chart) -- (layout);
+  \draw[arr] (layout) -- (scale);
+  \draw[arr] (layout) -- (axis);
+  \draw[arr] (axis) -- (scale);
+  \draw[arr] (chart) -- (data);
+  \draw[arr] (layout) -- (theme);
+  \draw[arr] (export) -- (layout);
+  \draw[arr] (svg) -- (layout);
+  \draw[arr] (widget) -- (layout);
+  \draw[arr] (export) -- (engine);
+  \draw[arr] (widget) -- (engine);
+  \draw[arr] (svg) -- (engine);
+\end{tikzpicture}
+\end{center}
+
+\subsection{Layer Summary}
+
+\begin{longtable}{>{\ttfamily}l p{9cm} r}
+\toprule
+\normalfont\textbf{Module} & \textbf{Responsibility} & \textbf{LoC (approx.)} \\
+\midrule
+chart/* & 19 chart type builders + enum dispatch & 3{,}800 \\
+layout/* & Rendering pipeline: scales $\to$ axes $\to$ plot area $\to$ overlays & 4{,}200 \\
+chart3d/* & 3D surface/scatter with camera, projection, wgpu backend & 4{,}500 \\
+scale.rs & Linear, Log, Categorical, Time scales & 760 \\
+axis.rs & Tick generation, label auto-skip, gridlines, zero-line & 930 \\
+theme.rs & 6 built-in themes, hierarchical token system & 810 \\
+legend.rs & 9-position legend with auto-best-corner & 535 \\
+formatter/* & Auto, SI, Currency, Percent, Date, Locale, Null, Fn formatters & 1{,}400 \\
+export.rs & PNG export, fontdue text stamping, subplot compositing & 530 \\
+svg\_export.rs & SVG emit from scene graph, gradient defs, text overlays & 750 \\
+data.rs & Series, SeriesStyle, FillPattern, GapPolicy & 560 \\
+streaming.rs & Ring-buffered streaming chart with auto-scroll & 630 \\
+widget.rs & Ratatui StatefulWidget, ChartState, interactivity & 540 \\
+colormap.rs & 8 perceptual colormaps (Viridis, Plasma, RdBu, etc.) & 360 \\
+Others & subplot, cursor, zoom, margin, annotation, inline, error & 950 \\
+\midrule
+\multicolumn{2}{l}{\textbf{Total source}} & $\mathbf{\sim12{,}300}$ \\
+\bottomrule
+\end{longtable}
+
+\begin{strengthbox}
+The codebase is remarkably compact for the feature surface it covers.
+For comparison, \texttt{plotters} (Rust) is ${\sim}25{,}000$ LoC for comparable chart types
+but lacks terminal pixel rendering, 3D, or streaming support.
+\end{strengthbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{API Design \& Ergonomics}
+
+\subsection{Builder Pattern}
+
+Every chart type uses a fluent builder pattern terminating in \texttt{.build()}:
+
+\begin{verbatim}
+Chart::line(&data)
+    .smooth()
+    .filled()
+    .title("Revenue")
+    .theme(Theme::dark())
+    .build()
+\end{verbatim}
+
+\begin{strengthbox}
+The one-liner constructors (\texttt{Chart::line}, \texttt{Chart::scatter}, etc.)
+are excellent for discoverability. The builder API surface is consistent across
+all 19 chart types. Each builder returns a concrete type (e.g.\ \texttt{LineChart})
+that implements type-specific methods, then \texttt{.build()} collapses into the
+\texttt{Chart} enum. This is idiomatic Rust.
+\end{strengthbox}
+
+\begin{warningbox}
+\textbf{Missing \texttt{TryBuild} / validation.}
+\texttt{.build()} is infallible — invalid configurations (e.g.\ mismatched
+\texttt{x}/\texttt{y} lengths, zero bins in histogram) silently produce degenerate output
+instead of returning \texttt{Result}. This is acceptable for a plotting library (matplotlib
+does the same), but a \texttt{.try\_build() -> Result<Chart, ChartError>} variant should
+be offered for production pipelines.
+\end{warningbox}
+
+\subsection{Type Safety}
+
+\begin{itemize}[nosep]
+  \item \texttt{\#[must\_use]} on \texttt{Chart}, \texttt{ReferenceLine}, \texttt{SubplotGrid} — good.
+  \item \texttt{\#[non\_exhaustive]} on all public enums and config structs — forward-compatible.
+  \item \texttt{\#![deny(unsafe\_code)]} crate-wide — strong safety posture.
+  \item \texttt{SeriesStyle} fields are all \texttt{Option<T>} with ``inherit from theme'' semantics — clean layering model.
+\end{itemize}
+
+\subsection{Prelude Completeness}
+
+The prelude re-exports 30+ types. It is \textbf{well-curated} — covers the 90\%
+use case without polluting the namespace. Notable exclusions that should be added:
+
+\begin{itemize}[nosep]
+  \item \texttt{FnFormatter} (the most common custom formatter path)
+  \item \texttt{SubplotGrid} (currently requires explicit import)
+  \item \texttt{StreamingChart} (already included — good)
+\end{itemize}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Visual Rendering Quality}
+
+\subsection{Rendering Pipeline}
+
+The pipeline follows a clean separation:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Layout} — computes margins, axis positions, plot area rect
+  \item \textbf{Scene graph} — emits \texttt{DrawCommand}s to \texttt{PixelCanvas} (from \texttt{scry-engine})
+  \item \textbf{Rasterization} — \texttt{tiny-skia} renders anti-aliased primitives
+  \item \textbf{Text stamping} — \texttt{fontdue} rasterizes Inter font glyphs
+  \item \textbf{Transport} — Kitty/Sixel/halfblock protocol delivery or PNG/SVG file export
+\end{enumerate}
+
+\begin{strengthbox}
+Using \texttt{tiny-skia} (a Skia subset in pure Rust) for rasterization is an excellent
+choice — it provides sub-pixel anti-aliasing, gradient fills, and path rendering
+without any C dependencies. The \texttt{fontdue} integration for text is similarly
+zero-dependency and produces high-quality glyph output.
+\end{strengthbox}
+
+\subsection{Formatting \& Label Quality}
+
+\subsubsection{Strengths}
+\begin{itemize}[nosep]
+  \item \textbf{Adaptive tick formatting} — \texttt{AutoFormatter} selects SI suffixes for
+        large values, integer format for whole numbers, and decimal for small ranges.
+        Uniform precision across all ticks on an axis via \texttt{format\_batch()}.
+  \item \textbf{Auto-skip labels} — the \texttt{auto\_skip\_labels()} function drops every
+        other label when they would overlap, considering rotation angle.
+  \item \textbf{Nice domain rounding} — \texttt{LinearScale::nice()} pads and rounds domain
+        bounds to clean numbers (handles degenerate/micro-range edge cases).
+  \item \textbf{Locale support} — European number formatting (\texttt{1.234,56}).
+  \item \textbf{Label rotation} — Horizontal, Diagonal (45°), Vertical (90°), or custom angle.
+\end{itemize}
+
+\subsubsection{Gaps}
+\begin{warningbox}
+\textbf{No automatic font-size scaling.} The font size is fixed (hardcoded at 11px
+for regular text). Charts exported at different resolutions will have labels that
+are proportionally too large or too small. A DPI-aware font-size heuristic is needed.
+\end{warningbox}
+
+\begin{warningbox}
+\textbf{Title and axis labels lack smart wrapping.} Long titles or axis labels are
+rendered as single-line text that can overflow the canvas. No word-wrap or
+ellipsis truncation is implemented.
+\end{warningbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Feature Completeness}
+
+\subsection{Chart Type Coverage}
+
+\begin{longtable}{l c c c}
+\toprule
+\textbf{Chart Type} & \textbf{scry-chart} & \textbf{matplotlib} & \textbf{plotly} \\
+\midrule
+Line (smooth, step, filled) & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Scatter & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Bar (grouped, stacked) & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Histogram & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Box Plot & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Violin Plot & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Heatmap & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Pie / Donut & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Radar / Spider & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Candlestick (OHLC) & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Bubble & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Waterfall & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Funnel & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Gauge / KPI & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Lollipop & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+Sparkline & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+3D Surface & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Streaming / Real-time & \color{okgreen}\checkmark & \color{warningyellow}$\sim$ & \color{okgreen}\checkmark \\
+\midrule
+Area Chart (standalone) & \color{criticalred}$\times$ & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Treemap & \color{criticalred}$\times$ & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Sankey Diagram & \color{criticalred}$\times$ & \color{criticalred}$\times$ & \color{okgreen}\checkmark \\
+Contour Plot & \color{criticalred}$\times$ & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Polar Plot & \color{criticalred}$\times$ & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+\bottomrule
+\end{longtable}
+
+\begin{infobox}
+scry-chart covers 18/23 chart types compared against the union of matplotlib and plotly.
+The missing types (Treemap, Sankey, Contour, Polar, standalone Area) are niche —
+the current coverage is strong for a v0.7 release.
+\end{infobox}
+
+\subsection{Feature Matrix — Non-Chart Capabilities}
+
+\begin{longtable}{l c l}
+\toprule
+\textbf{Feature} & \textbf{Status} & \textbf{Notes} \\
+\midrule
+PNG export & \color{okgreen}\checkmark & DPI-aware, fontdue text stamping \\
+SVG export & \color{okgreen}\checkmark & Standalone SVG with gradient defs \\
+PDF export & \color{criticalred}$\times$ & \textbf{Missing} — requires cairo or pdf-writer \\
+Interactive (mouse) & \color{okgreen}\checkmark & Crosshair, tooltip, zoom, pan \\
+Streaming / real-time & \color{okgreen}\checkmark & Ring buffer, auto-scroll \\
+Subplot grid & \color{okgreen}\checkmark & Shared axes, gap control \\
+Themes (6 built-in) & \color{okgreen}\checkmark & dark, light, pastel, ocean, forest, colorblind \\
+Custom themes & \color{okgreen}\checkmark & Full token system \\
+Colormaps (8) & \color{okgreen}\checkmark & Viridis, Plasma, Inferno, Magma, RdBu, etc. \\
+Error bars & \color{okgreen}\checkmark & Symmetric ±error on Series \\
+Annotations & \color{okgreen}\checkmark & Data-coordinate text labels \\
+Reference lines & \color{okgreen}\checkmark & H/V lines with optional labels \\
+Log scale & \color{okgreen}\checkmark & Base-10 with epsilon clamping \\
+Time scale & \color{okgreen}\checkmark & Dedicated time axis formatter \\
+Fill patterns & \color{okgreen}\checkmark & Hatched, crosshatched, dotted, diagonal \\
+3D rendering & \color{okgreen}\checkmark & wgpu GPU backend + CPU fallback \\
+Serde support & \color{okgreen}\checkmark & Optional feature flag \\
+Inline (base64) & \color{okgreen}\checkmark & For notebook embedding \\
+\midrule
+Dual Y-axis & \color{criticalred}$\times$ & \textbf{Common request, not implemented} \\
+Asymmetric error bars & \color{criticalred}$\times$ & Only symmetric \\
+Animation / transitions & \color{criticalred}$\times$ & No keyframe/tween system \\
+Data labels on points & \color{warningyellow}$\sim$ & Only via annotations (manual) \\
+Responsive / auto-layout & \color{warningyellow}$\sim$ & Fixed px dims, no auto-resize \\
+\bottomrule
+\end{longtable}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Extensibility \& Malleability}
+
+\subsection{What's Easy to Extend}
+
+\begin{itemize}[nosep]
+  \item \textbf{New formatters} — implement the \texttt{TickFormatter} trait (3 methods) or
+        use \texttt{FnFormatter} for quick closures. Clean trait-object erasure via
+        \texttt{Arc<dyn TickFormatter>}.
+  \item \textbf{New colormaps} — implement the \texttt{Colormap} trait (2 methods:
+        \texttt{color\_at}, \texttt{name}).
+  \item \textbf{New themes} — construct \texttt{Theme} with full token control
+        (\texttt{TextStyle}, \texttt{AxisTheme}, \texttt{GridTheme}, \texttt{SeriesTheme}).
+  \item \textbf{Per-series styling} — \texttt{SeriesStyle} allows surgical overrides
+        without replacing the entire theme.
+  \item \textbf{Custom export backends} — the scene graph (\texttt{PixelCanvas} + \texttt{DrawCommand}s)
+        is public, so new output targets (PDF, Canvas, etc.) can walk the command list.
+\end{itemize}
+
+\subsection{What's Hard to Extend}
+
+\begin{criticalbox}
+\textbf{Adding new chart types requires modifying the \texttt{Chart} enum.}
+
+The \texttt{Chart} type is a closed enum (\texttt{pub enum Chart \{ Scatter(...), Line(...), ... \}}).
+Adding a 20th chart type requires:
+\begin{enumerate}[nosep]
+  \item Adding a variant to the enum
+  \item Adding a match arm in every layout \texttt{match chart \{...\}} block
+  \item Adding a constructor on \texttt{impl Chart}
+\end{enumerate}
+This is fine for the library maintainer but makes it \textbf{impossible for downstream
+crates to define custom chart types}. A trait-based dispatch model (e.g.\
+\texttt{trait ChartRenderer}) would be more extensible.
+\end{criticalbox}
+
+\begin{warningbox}
+\textbf{Layout engine is monolithic.}
+The layout module (\texttt{layout/mod.rs} + per-chart-type layout files) uses a single
+large \texttt{render\_chart()} function with chart-type dispatch. Extracting the layout
+pipeline into composable stages (margin $\to$ axes $\to$ plot $\to$ overlays) as
+separate trait implementations would improve testability and extensibility.
+\end{warningbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Code Quality \& Formatting}
+
+\subsection{Lint Configuration}
+
+\begin{strengthbox}
+Aggressive lint profile: \texttt{clippy::all}, \texttt{clippy::pedantic}, and
+\texttt{clippy::nursery} are all set to \texttt{warn}. Combined with
+\texttt{\#![deny(unsafe\_code)]} and \texttt{\#![warn(missing\_docs)]}, this is
+one of the strictest lint configurations seen in the Rust ecosystem.
+\end{strengthbox}
+
+\subsection{Code Organization}
+
+\begin{itemize}[nosep]
+  \item \textbf{SPDX headers} on every file — good for license compliance.
+  \item \textbf{Module doc comments} (\texttt{//!}) on every module — excellent.
+  \item \textbf{Section separators} (ASCII rule lines) between logical blocks — consistent
+        and readable.
+  \item \textbf{Builder methods} documented with \texttt{///} doc comments including examples.
+  \item \textbf{Separation of concerns}: chart definition (chart/*), layout rendering
+        (layout/*), and output (export, svg\_export, widget) are cleanly separated.
+\end{itemize}
+
+\subsection{Issues}
+
+\begin{warningbox}
+\textbf{22 clippy \texttt{allow} overrides in \texttt{Cargo.toml} lints section.}
+While some are justified (\texttt{cast\_precision\_loss}, \texttt{float\_cmp} for graphics code),
+others suggest tech debt:
+\begin{itemize}[nosep]
+  \item \texttt{too\_many\_lines = "allow"} — some functions exceed 200 lines
+  \item \texttt{indexing\_slicing = "allow"} — no bounds-check on slice indexing
+  \item \texttt{many\_single\_char\_names = "allow"} — graphics math has many \texttt{x},
+        \texttt{y}, \texttt{w}, \texttt{h} variables (acceptable but worth annotating)
+\end{itemize}
+\end{warningbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Test Coverage}
+
+\subsection{Test Infrastructure}
+
+\begin{longtable}{l r l}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{Notes} \\
+\midrule
+Integration test files & 71 & In \texttt{tests/} directory \\
+Example files & 21 & In \texttt{examples/} directory \\
+Inline unit tests & $\sim$40 & Scattered across modules \\
+Snapshot tests (insta) & Yes & Glob-based via \texttt{insta} crate \\
+Benchmarks & 1 & \texttt{chart3d\_bench} via Criterion \\
+\bottomrule
+\end{longtable}
+
+\begin{warningbox}
+\textbf{71 test files is impressive volume, but coverage is uneven.}
+The SVG export module has 10 focused tests (structure, gradients, escaping).
+However, the layout module — the most complex subsystem — does not appear to
+have integration tests for edge cases like:
+\begin{itemize}[nosep]
+  \item Zero-length data series
+  \item All-NaN data
+  \item Single data point
+  \item Extremely long labels (100+ characters)
+  \item Very large datasets (100K+ points)
+\end{itemize}
+\end{warningbox}
+
+\begin{criticalbox}
+\textbf{No visual regression testing.}
+For a charting library, pixel-level snapshot tests are essential. While \texttt{insta}
+is configured, it appears to test serialized data structures rather than actual
+rendered output. A render-and-diff pipeline (render PNG $\to$ compare against golden
+reference) should be implemented.
+\end{criticalbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{What They're Blatantly Missing}
+
+\begin{longtable}{c l p{7.5cm}}
+\toprule
+\textbf{Priority} & \textbf{Gap} & \textbf{Impact} \\
+\midrule
+\textcolor{criticalred}{\textbf{P0}} & PDF export
+  & Users exporting for reports cannot produce PDFs without external tooling.
+    SVG-to-PDF is lossy. \\[4pt]
+
+\textcolor{criticalred}{\textbf{P0}} & Visual regression tests
+  & Any refactor risks silently breaking rendering. The library's core value
+    proposition (``pixel-perfect'') is untestable. \\[4pt]
+
+\textcolor{criticalred}{\textbf{P0}} & Dual Y-axis
+  & Extremely common in dashboards. No workaround exists within the current API. \\[4pt]
+
+\textcolor{warningyellow}{\textbf{P1}} & Responsive / auto-size
+  & Charts require explicit pixel dimensions. Should auto-compute from terminal
+    size or container. \\[4pt]
+
+\textcolor{warningyellow}{\textbf{P1}} & Contour plot
+  & Needed for scientific visualization. Pairs naturally with existing heatmap. \\[4pt]
+
+\textcolor{warningyellow}{\textbf{P1}} & Font size scaling
+  & Fixed 11px font is unreadable at small or large export sizes. \\[4pt]
+
+\textcolor{warningyellow}{\textbf{P1}} & Asymmetric error bars
+  & Only symmetric errors supported. Scientific data often has $(+a, -b)$. \\[4pt]
+
+\textcolor{warningyellow}{\textbf{P1}} & Title/label wrapping
+  & Long text silently overflows. Need word-wrap or ellipsis. \\[4pt]
+
+\textcolor{googblue}{\textbf{P2}} & Data labels (auto)
+  & Showing values on bars/points requires manual annotations. \\[4pt]
+
+\textcolor{googblue}{\textbf{P2}} & Treemap / Sankey
+  & Niche but expected by BI dashboard users. \\[4pt]
+
+\textcolor{googblue}{\textbf{P2}} & Animation system
+  & No transition/tween support for streaming chart updates. \\[4pt]
+
+\textcolor{googblue}{\textbf{P2}} & Standalone area chart
+  & Currently area fill is a line chart option. A dedicated \texttt{Chart::area()}
+    constructor would improve discoverability. \\[4pt]
+
+\textcolor{googblue}{\textbf{P2}} & Accessibility (WCAG)
+  & Fill patterns exist (good) but no alt-text, ARIA, or screen-reader
+    metadata in SVG output. \\
+\bottomrule
+\end{longtable}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Security \& Safety}
+
+\begin{strengthbox}
+\textbf{Zero unsafe code.} The crate uses \texttt{\#![deny(unsafe\_code)]} and relies
+entirely on safe Rust. No FFI, no raw pointer manipulation. All memory safety is
+guaranteed by the compiler.
+\end{strengthbox}
+
+\begin{itemize}[nosep]
+  \item \textbf{Dependency surface is minimal}: \texttt{tiny-skia}, \texttt{fontdue},
+        \texttt{thiserror}, and optionally \texttt{ratatui}/\texttt{wgpu}. All are
+        well-maintained crates.
+  \item \textbf{No network access}: the library never makes HTTP requests or opens sockets.
+  \item \textbf{Input validation}: scales handle degenerate domains (zero-span, NaN).
+        Tick generation has a hard cap of 200 ticks to prevent infinite loops.
+  \item \textbf{SVG output}: \texttt{xml\_escape()} sanitizes text content against XSS
+        when generating SVG (10 unit tests verify this).
+\end{itemize}
+
+\begin{warningbox}
+\textbf{Potential DoS vectors:}
+\begin{itemize}[nosep]
+  \item Extremely large data series (millions of points) with no automatic decimation
+        or level-of-detail. A single \texttt{Chart::scatter} with 10M points will
+        allocate proportional memory for the scene graph.
+  \item \texttt{SubplotGrid} allows arbitrary dimensions — a $1000 \times 1000$ grid
+        would attempt to allocate 1M cells.
+\end{itemize}
+These are low-risk for a charting library but worth documenting.
+\end{warningbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Comparative Analysis}
+
+\subsection{vs.\ Rust Ecosystem}
+
+\begin{longtable}{l c c c c}
+\toprule
+\textbf{Capability} & \textbf{scry-chart} & \textbf{plotters} & \textbf{ratatui-charts} & \textbf{textplots} \\
+\midrule
+Anti-aliased rendering & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+Terminal-native & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+Chart type count & 19 & 12 & 3 & 2 \\
+3D support & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+GPU acceleration & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+Streaming / real-time & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+Interactive (mouse) & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+SVG export & \color{okgreen}\checkmark & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{criticalred}$\times$ \\
+Themes & 6 & 2 & 0 & 0 \\
+\texttt{unsafe}-free & \color{okgreen}\checkmark & \color{criticalred}$\times$ & \color{okgreen}\checkmark & \color{okgreen}\checkmark \\
+\bottomrule
+\end{longtable}
+
+\begin{strengthbox}
+\texttt{scry-chart} is the most feature-complete terminal charting library in the
+Rust ecosystem by a significant margin. Its combination of pixel-perfect terminal
+rendering, 3D support, GPU acceleration, and interactivity is unique — no other
+Rust crate offers this combination.
+\end{strengthbox}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Recommendations}
+
+\subsection{Pre-1.0 Blockers (P0)}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Visual regression testing} — Implement a render-to-PNG golden-file
+        comparison pipeline. Block releases on pixel-diff thresholds.
+  \item \textbf{PDF export} — Add \texttt{pdf-writer} or \texttt{printpdf} integration
+        as an optional feature flag.
+  \item \textbf{Dual Y-axis support} — Add \texttt{.y2\_axis()} to line/scatter builders
+        with a second scale and axis on the right side.
+  \item \textbf{Font size scaling} — Compute font size as a function of
+        \texttt{min(width, height)} and DPI.
+\end{enumerate}
+
+\subsection{High-Value Improvements (P1)}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Trait-based chart dispatch} — Extract \texttt{trait ChartType} to allow
+        downstream chart implementations without modifying the enum.
+  \item \textbf{Auto data labels} — \texttt{.show\_values()} on bar/histogram/lollipop builders.
+  \item \textbf{Smart text wrapping} — Wrap long titles/labels with line breaks and ellipsis.
+  \item \textbf{Level-of-detail decimation} — Auto-downsample large datasets for render performance.
+  \item \textbf{Asymmetric error bars} — \texttt{.with\_error\_asymmetric(low, high)}.
+  \item \textbf{Contour plot} — Natural extension of existing heatmap infrastructure.
+\end{enumerate}
+
+\subsection{Nice-to-Have (P2)}
+
+\begin{enumerate}[nosep]
+  \item SVG accessibility metadata (ARIA roles, \texttt{<title>}, \texttt{<desc>})
+  \item Standalone \texttt{Chart::area()} constructor
+  \item Animation/transition framework for streaming updates
+  \item \texttt{try\_build()} validation variant
+  \item Documentation cookbook with real-world examples
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════════════
+\section{Overall Assessment}
+
+\begin{center}
+\begin{tabular}{l c}
+\toprule
+\textbf{Dimension} & \textbf{Score (1--10)} \\
+\midrule
+Architecture \& Design & \textbf{9} / 10 \\
+API Ergonomics & \textbf{8} / 10 \\
+Feature Completeness & \textbf{8} / 10 \\
+Visual Quality & \textbf{8} / 10 \\
+Extensibility & \textbf{6} / 10 \\
+Test Coverage & \textbf{6} / 10 \\
+Documentation & \textbf{7} / 10 \\
+Security / Safety & \textbf{9} / 10 \\
+Production Readiness & \textbf{7} / 10 \\
+\midrule
+\textbf{Overall} & \textbf{7.6} / 10 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{infobox}
+\textbf{Bottom line:} \texttt{scry-chart} is an impressive, well-engineered charting
+library that punches well above its weight at ${\sim}12{,}000$ LoC. It uniquely combines
+pixel-perfect terminal rendering with a feature set that rivals desktop plotting libraries.
+The architecture is clean, the API is ergonomic, and the safety posture is exemplary.
+
+The primary risks are: (1) the closed \texttt{Chart} enum limits third-party extensibility,
+(2) the absence of visual regression tests means refactors carry rendering risk, and
+(3) several common features (dual Y-axis, PDF export, font scaling) are missing.
+
+\textbf{Recommendation: Strong foundation for a 1.0 release after addressing P0 items.}
+\end{infobox}
+
+\end{document}

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::items_after_statements,
+    clippy::needless_range_loop,
+    clippy::default_trait_access
+)]
 //! Cross-Validation benchmark: scry-learn accuracy vs competitors + charted results.
 //!
 //! This test:
@@ -7,7 +12,7 @@
 //!   4. Produces comparison bar charts via scry-chart (saved as PNGs)
 //!
 //! Run:
-//!   cargo test --test cv_benchmark -p scry-learn --release -- --nocapture
+//!   cargo test --test `cv_benchmark` -p scry-learn --release -- --nocapture
 
 use std::time::Instant;
 
@@ -72,7 +77,7 @@ fn to_linfa_dataset(
 
 // ── Helpers for manual K-fold on competitors ────────────────────────
 
-/// Generate 5-fold train/test index splits (same logic as scry-learn's k_fold).
+/// Generate 5-fold train/test index splits (same logic as scry-learn's `k_fold`).
 fn manual_k_fold(n: usize, k: usize, seed: u64) -> Vec<(Vec<usize>, Vec<usize>)> {
     let mut indices: Vec<usize> = (0..n).collect();
     let mut rng = fastrand::Rng::with_seed(seed);
@@ -124,7 +129,7 @@ fn cv_benchmark_with_charts() {
 
     // ── scry-learn cross_val_score (uses built-in API) ──────────────
     let scry_data = scry_learn::dataset::Dataset::new(
-        col_major.clone(),
+        col_major,
         target.clone(),
         (0..n_features).map(|i| format!("f{i}")).collect(),
         "target",

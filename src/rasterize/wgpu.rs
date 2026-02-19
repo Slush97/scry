@@ -103,14 +103,17 @@ impl WgpuRasterizer<'_> {
     /// Rasterize a canvas scene using the GPU.
     ///
     /// Creates a one-shot GPU context internally. For multi-frame rendering,
-    /// use [`WgpuContext2D::new()`] + [`with_context()`](Self::with_context).
+    /// use [`GpuDevice::global()`](crate::gpu::GpuDevice::global) +
+    /// [`WgpuContext2D::with_device()`] + [`with_context()`](Self::with_context).
     ///
     /// # Errors
     ///
     /// Returns [`PixelCanvasError::PixmapCreation`] if dimensions are invalid,
     /// or [`PixelCanvasError::Rasterization`] if GPU init fails.
     pub fn rasterize(canvas: &PixelCanvas) -> Result<Pixmap, PixelCanvasError> {
-        let ctx = WgpuContext2D::new().map_err(PixelCanvasError::Rasterization)?;
+        let gpu = crate::gpu::GpuDevice::global()
+            .ok_or_else(|| PixelCanvasError::Rasterization("GPU not available".to_string()))?;
+        let ctx = WgpuContext2D::with_device(gpu).map_err(PixelCanvasError::Rasterization)?;
         Self::rasterize_with_context(&ctx, canvas)
     }
 
@@ -148,7 +151,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
     /// Create a GPU rasterizer that borrows from an existing [`WgpuContext2D`].
     fn with_context(ctx: &'ctx WgpuContext2D, width: u32, height: u32) -> Self {
         let (texture, texture_view, uniform_bind_group) =
-            create_frame_resources(&ctx.device, &ctx.uniform_bgl, width, height);
+            create_frame_resources(&ctx.device, &ctx.pipelines.uniform_bgl, width, height);
 
         Self {
             device: &ctx.device,
@@ -157,11 +160,11 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             texture_view,
             width,
             height,
-            shape_pipeline: &ctx.shape_pipeline,
-            line_pipeline: &ctx.line_pipeline,
-            gradient_pipeline: &ctx.gradient_pipeline,
-            mesh_pipeline: &ctx.mesh_pipeline,
-            gradient_bgl: &ctx.gradient_bgl,
+            shape_pipeline: &ctx.pipelines.shape_pipeline,
+            line_pipeline: &ctx.pipelines.line_pipeline,
+            gradient_pipeline: &ctx.pipelines.gradient_pipeline,
+            mesh_pipeline: &ctx.pipelines.mesh_pipeline,
+            gradient_bgl: &ctx.pipelines.gradient_bgl,
             uniform_bind_group,
             shape_batches: Vec::new(),
             line_batches: Vec::new(),
@@ -480,7 +483,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
         let offset = tiny_skia::Transform::from_translate(-x0, -y0);
         let mut pool = Vec::new();
         let mut grad_cache = std::collections::HashMap::new();
-        Rasterizer::render_command(&mut pixmap, cmd, offset, &mut pool, &mut grad_cache);
+        Rasterizer::render_command(&mut pixmap, cmd, offset, &mut pool, &mut grad_cache, &mut None, 0);
 
         self.image_overlays.push(ImageOverlay {
             x: x0 as i32,
@@ -854,10 +857,16 @@ mod tests {
 
     /// Helper: check that GPU init succeeds (skip test if no GPU).
     fn require_gpu() -> WgpuContext2D {
-        match WgpuContext2D::new() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                eprintln!("Skipping GPU test: {e}");
+        match crate::gpu::GpuDevice::global() {
+            Some(gpu) => match WgpuContext2D::with_device(gpu) {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    eprintln!("Skipping GPU test: {e}");
+                    std::process::exit(0);
+                }
+            },
+            None => {
+                eprintln!("Skipping GPU test: no GPU available");
                 std::process::exit(0);
             }
         }

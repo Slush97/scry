@@ -26,6 +26,8 @@ pub struct Histogram {
     pub(crate) density: bool,
     /// Bar opacity (0.0–1.0).
     pub(crate) opacity: f32,
+    /// Gap between adjacent bins (0.0 = touching; academic default).
+    pub(crate) bar_gap: f32,
 }
 
 impl Histogram {
@@ -38,6 +40,7 @@ impl Histogram {
             bins: None,
             density: false,
             opacity: 0.8,
+            bar_gap: 0.0,
         }
     }
 
@@ -78,6 +81,12 @@ impl Histogram {
     /// Add another data series for overlaid histograms.
     pub fn add_series(mut self, s: Series) -> Self {
         self.extra.push(s);
+        self
+    }
+
+    /// Set gap between histogram bins (0.0 = touching, academic default). Range 0.0–0.5.
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.bar_gap = gap.clamp(0.0, 0.5);
         self
     }
 

@@ -47,6 +47,7 @@ const SHAPE_SMOOTH_BLEND: u32 = 5u;
 const SHAPE_CAPSULE: u32 = 6u;
 const SHAPE_ROUNDED_BOX: u32 = 7u;
 const SHAPE_CONE: u32 = 8u;
+const SHAPE_TEXT3D: u32 = 9u;
 
 // Material types (discriminant)
 const MAT_SOLID: u32 = 0u;
@@ -67,9 +68,10 @@ struct GpuObject {
     material_params: vec4<f32>,
     material_color: vec4<f32>,
     bounding_radius: f32,
-    rotation_cos_y: f32,  // cos of Y-axis rotation (1.0 = no rotation)
-    rotation_sin_y: f32,  // sin of Y-axis rotation (0.0 = no rotation)
-    _pad2: f32,
+    _pad2a: f32,
+    _pad2b: f32,
+    _pad2c: f32,
+    orientation: vec4<f32>,  // quaternion (x, y, z, w) — pre-conjugated for inverse rotation
 };
 
 struct GpuLight {
@@ -82,10 +84,23 @@ struct GpuLight {
 // Bindings
 // ═══════════════════════════════════════════════════════════════════
 
+struct GpuGlyphMeta {
+    x_offset: f32,
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+    grid_width: u32,
+    grid_height: u32,
+    grid_offset: u32,
+};
+
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var<storage, read> objects: array<GpuObject>;
 @group(0) @binding(2) var<storage, read> lights: array<GpuLight>;
 @group(0) @binding(3) var<storage, read_write> output: array<u32>;
+@group(0) @binding(4) var<storage, read> glyph_meta: array<GpuGlyphMeta>;
+@group(0) @binding(5) var<storage, read> glyph_grids: array<f32>;
 
 // ═══════════════════════════════════════════════════════════════════
 // Constants
@@ -270,6 +285,94 @@ fn sd_cone(p: vec3<f32>, radius: f32, height: f32) -> f32 {
     return dist_to_edge;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Text3D glyph sampling
+// ═══════════════════════════════════════════════════════════════════
+
+fn sample_glyph_sdf(glyph: GpuGlyphMeta, x: f32, y: f32) -> f32 {
+    let bw = glyph.max_x - glyph.min_x;
+    let bh = glyph.max_y - glyph.min_y;
+    if bw < 1e-10 || bh < 1e-10 {
+        return 1e6;
+    }
+
+    // Map world coords to grid coords
+    let gx = (x - glyph.min_x) / bw * (f32(glyph.grid_width) - 1.0);
+    let gy = (y - glyph.min_y) / bh * (f32(glyph.grid_height) - 1.0);
+
+    // Outside bounds: approximate distance to bounding box
+    if gx < -1.0 || gy < -1.0 || gx > f32(glyph.grid_width) || gy > f32(glyph.grid_height) {
+        var dx = 0.0;
+        if x < glyph.min_x { dx = glyph.min_x - x; }
+        else if x > glyph.max_x { dx = x - glyph.max_x; }
+        var dy = 0.0;
+        if y < glyph.min_y { dy = glyph.min_y - y; }
+        else if y > glyph.max_y { dy = y - glyph.max_y; }
+        return sqrt(dx * dx + dy * dy) + 0.01;
+    }
+
+    // Bilinear interpolation
+    let cgx = clamp(gx, 0.0, f32(glyph.grid_width - 1u));
+    let cgy = clamp(gy, 0.0, f32(glyph.grid_height - 1u));
+    let ix = u32(cgx);
+    let iy = u32(cgy);
+    let fx = cgx - f32(ix);
+    let fy = cgy - f32(iy);
+    let ix1 = min(ix + 1u, glyph.grid_width - 1u);
+    let iy1 = min(iy + 1u, glyph.grid_height - 1u);
+
+    let base = glyph.grid_offset;
+    let w = glyph.grid_width;
+    let d00 = glyph_grids[base + iy * w + ix];
+    let d10 = glyph_grids[base + iy * w + ix1];
+    let d01 = glyph_grids[base + iy1 * w + ix];
+    let d11 = glyph_grids[base + iy1 * w + ix1];
+
+    let d0 = d00 + (d10 - d00) * fx;
+    let d1 = d01 + (d11 - d01) * fx;
+    let grid_dist = d0 + (d1 - d0) * fy;
+
+    // Convert from grid-cell units to world units
+    let pixels_per_world = f32(glyph.grid_width) / bw;
+    return grid_dist / pixels_per_world;
+}
+
+fn sd_text3d(p: vec3<f32>, obj: GpuObject) -> f32 {
+    let depth = obj.shape_params.x;
+    let total_width = obj.shape_params.y;
+    let ascent = obj.shape_params.z;
+    let descent = obj.shape_params.w;
+
+    let glyph_start = u32(obj.blend_a_params.x);
+    let glyph_count = u32(obj.blend_a_params.y);
+
+    // Center the text
+    let center_x = total_width * 0.5;
+    let center_y = (ascent - descent) * 0.5;
+    let sample_x = p.x + center_x;
+    let sample_y = p.y + center_y;
+
+    // Find minimum 2D distance across all glyphs
+    var d2d = 1e6;
+    for (var i = 0u; i < glyph_count; i++) {
+        let glyph = glyph_meta[glyph_start + i];
+        let gx = sample_x - glyph.x_offset;
+        let d = sample_glyph_sdf(glyph, gx, sample_y);
+        d2d = min(d2d, d);
+    }
+
+    // IQ extrusion formula
+    let dz = abs(p.z) - depth * 0.5;
+    let w = max(vec2<f32>(d2d, dz), vec2<f32>(0.0));
+    return length(w) + min(max(d2d, dz), 0.0);
+}
+
+// Rotate vector by unit quaternion (q = xyz, w)
+fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
 fn smooth_min(d1: f32, d2: f32, k: f32) -> f32 {
     let h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0);
     return d2 + (d1 - d2) * h - k * h * (1.0 - h);
@@ -312,6 +415,9 @@ struct SdfResult {
 };
 
 fn shape_sdf(obj: GpuObject, local: vec3<f32>) -> f32 {
+    if obj.shape_type == SHAPE_TEXT3D {
+        return sd_text3d(local, obj);
+    }
     if obj.shape_type == SHAPE_SMOOTH_BLEND {
         let sub_a_type = u32(obj.shape_params.y);
         let sub_b_type = u32(obj.shape_params.z);
@@ -326,12 +432,9 @@ fn shape_sdf(obj: GpuObject, local: vec3<f32>) -> f32 {
 fn object_sdf(obj: GpuObject, point: vec3<f32>) -> f32 {
     var local = point - obj.position;
 
-    // Apply inverse Y-axis rotation if rotation is set (sin != 0)
-    if abs(obj.rotation_sin_y) > 0.0001 || abs(obj.rotation_cos_y - 1.0) > 0.0001 {
-        let rx = local.x * obj.rotation_cos_y - local.z * obj.rotation_sin_y;
-        let rz = local.x * obj.rotation_sin_y + local.z * obj.rotation_cos_y;
-        local = vec3<f32>(rx, local.y, rz);
-    }
+    // Apply inverse rotation via pre-conjugated quaternion
+    // Identity quaternion (0,0,0,1) is a no-op: cross with zero = zero
+    local = quat_rotate(obj.orientation, local);
 
     let base_dist = shape_sdf(obj, local);
 

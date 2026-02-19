@@ -577,6 +577,7 @@ fn parse_target_column(rows: &[Vec<String>], col_idx: usize) -> (Vec<f64>, Optio
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
 

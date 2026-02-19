@@ -1,10 +1,16 @@
+#![allow(
+    clippy::items_after_statements,
+    clippy::needless_range_loop,
+    clippy::type_complexity,
+    clippy::default_trait_access
+)]
 //! Regression model cross-library accuracy audit.
 //!
 //! Compares R2/MSE for regression models across scry-learn, smartcore, and linfa
 //! using proper 80/20 train/test splits. Outputs only measured numbers — no
 //! feature comparison tables, no marketing language.
 //!
-//! Run: cargo test --test regression_audit -p scry-learn --release -- --nocapture
+//! Run: cargo test --test `regression_audit` -p scry-learn --release -- --nocapture
 
 use std::time::Instant;
 
@@ -173,7 +179,7 @@ fn regression_audit_linear() {
     let train_flat: Vec<f64> = train_row.iter().flat_map(|r| r.iter().copied()).collect();
     let train_x_nd =
         ndarray::Array2::from_shape_vec((train_row.len(), n_features), train_flat).unwrap();
-    let train_y_nd = ndarray::Array1::from_vec(train_target.clone());
+    let train_y_nd = ndarray::Array1::from_vec(train_target);
     let linfa_train_ds = linfa::Dataset::new(train_x_nd, train_y_nd);
 
     let t0 = Instant::now();

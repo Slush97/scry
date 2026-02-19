@@ -1,7 +1,13 @@
+#![allow(
+    clippy::items_after_statements,
+    clippy::default_trait_access,
+    clippy::needless_range_loop,
+    clippy::cast_possible_wrap
+)]
 //! 3-way fairness audit: scry-learn vs smartcore 0.4.9 vs linfa-ensemble
 //! Also verifies accuracy & raw timing outside of criterion.
 //!
-//! Run: cargo test --test benchmark_audit -p scry-learn --release -- --nocapture
+//! Run: cargo test --test `benchmark_audit` -p scry-learn --release -- --nocapture
 
 use std::time::Instant;
 
@@ -166,7 +172,7 @@ fn audit_dt_predict_fairness() {
     let linfa_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     println!("\nDECISION TREE PREDICT LATENCY (1K samples, {n_iters} iters)");
-    println!("  scry-learn:          {:.2} µs", scry_us);
+    println!("  scry-learn:          {scry_us:.2} µs");
     println!(
         "  smartcore 0.4.9:     {:.2} µs  ({:.1}× slower)",
         smart_us,
@@ -288,7 +294,7 @@ fn audit_rf_predict_fairness() {
     let linfa_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     println!("\nRANDOM FOREST PREDICT (2K samples, 100t, {n_iters} iters)");
-    println!("  scry-learn:              {:.2} µs", scry_us);
+    println!("  scry-learn:              {scry_us:.2} µs");
     println!(
         "  smartcore 0.4.9:         {:.2} µs  ({:.1}× slower)",
         smart_us,
@@ -347,7 +353,7 @@ fn audit_rf_predict_fairness() {
     let linfa_train_ms = t0.elapsed().as_nanos() as f64 / n_train_iters as f64 / 1_000_000.0;
 
     println!("\nRANDOM FOREST TRAIN (2K×10, 100t, {n_train_iters} iters)");
-    println!("  scry-learn:              {:.2} ms", scry_train_ms);
+    println!("  scry-learn:              {scry_train_ms:.2} ms");
     println!(
         "  smartcore 0.4.9:         {:.2} ms  ({:.1}× slower)",
         smart_train_ms,
@@ -382,7 +388,7 @@ fn audit_pca_fairness() {
 
     // ── scry-learn ──
     let scry_ds = scry_learn::prelude::Dataset::new(
-        features_col.clone(),
+        features_col,
         target.clone(),
         (0..n_features).map(|i| format!("f{i}")).collect(),
         "target",
@@ -530,7 +536,7 @@ fn audit_pca_fairness() {
 
     println!("\n{}", "=".repeat(65));
     println!("PCA FIT ({n_samples}×{n_features} → {n_components} components, {n_fit_iters} iters)");
-    println!("  scry-learn:          {:.2} µs", scry_fit_us);
+    println!("  scry-learn:          {scry_fit_us:.2} µs");
     println!(
         "  smartcore 0.4.9:     {:.2} µs  ({:.2}×)",
         smart_fit_us,
@@ -545,7 +551,7 @@ fn audit_pca_fairness() {
     println!(
         "\nPCA TRANSFORM ({n_samples}×{n_features} → {n_components}, {n_transform_iters} iters)"
     );
-    println!("  scry-learn:          {:.2} µs", scry_transform_us);
+    println!("  scry-learn:          {scry_transform_us:.2} µs");
     println!(
         "  smartcore 0.4.9:     {:.2} µs  ({:.2}×)",
         smart_transform_us,
@@ -613,7 +619,7 @@ fn audit_ensemble_regression_fairness() {
 
     // ── scry-learn GBT Regressor ──
     let scry_ds = scry_learn::dataset::Dataset::new(
-        col_major.clone(),
+        col_major,
         target.clone(),
         (0..n_features).map(|i| format!("f{i}")).collect(),
         "y",
@@ -707,16 +713,15 @@ fn audit_ensemble_regression_fairness() {
     println!("  Accuracy/MSE numbers are NOT comparable across different algorithms.");
     println!();
     println!("  FIT ({n_samples}x{n_features}, {n_estimators} estimators, {n_iters} iters)");
-    println!("    scry-learn GBT:      {:.2} us", scry_fit_us);
-    println!("    smartcore RF 0.4:    {:.2} us", smart_fit_us);
+    println!("    scry-learn GBT:      {scry_fit_us:.2} us");
+    println!("    smartcore RF 0.4:    {smart_fit_us:.2} us");
 
     println!("\n  PREDICT ({n_samples} samples, {n_iters} iters)");
-    println!("    scry-learn GBT:      {:.2} us", scry_pred_us);
-    println!("    smartcore RF 0.4:    {:.2} us", smart_pred_us);
+    println!("    scry-learn GBT:      {scry_pred_us:.2} us");
+    println!("    smartcore RF 0.4:    {smart_pred_us:.2} us");
 
     println!(
-        "\n  scry-learn GBT train MSE (self-only, no comparison): {:.4}",
-        scry_mse
+        "\n  scry-learn GBT train MSE (self-only, no comparison): {scry_mse:.4}"
     );
     println!();
 }
@@ -756,8 +761,8 @@ fn audit_logreg_fairness() {
     use linfa::prelude::{Fit, Predict};
     let flat: Vec<f64> = features.iter().flat_map(|r| r.iter().copied()).collect();
     let x_nd = ndarray::Array2::from_shape_vec((1000, 10), flat).unwrap();
-    let y_nd = ndarray::Array1::from_vec(target_bool.clone());
-    let linfa_ds = linfa::Dataset::new(x_nd.clone(), y_nd);
+    let y_nd = ndarray::Array1::from_vec(target_bool);
+    let linfa_ds = linfa::Dataset::new(x_nd, y_nd);
     let linfa_lr = linfa_logistic::LogisticRegression::default()
         .max_iterations(200)
         .fit(&linfa_ds)
@@ -868,7 +873,7 @@ fn audit_logreg_fairness() {
     let linfa_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     println!("\nLOGISTIC REGRESSION TRAIN (1K×10, {n_iters} iters)");
-    println!("  scry-learn:          {:.2} µs", scry_us);
+    println!("  scry-learn:          {scry_us:.2} µs");
     println!(
         "  smartcore 0.4.9:     {:.2} µs  ({:.1}×)",
         smart_us,
@@ -958,7 +963,7 @@ fn audit_knn_fairness() {
     let smart_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     println!("\nKNN PREDICT (1K samples, k=5, {n_iters} iters)");
-    println!("  scry-learn:          {:.2} µs", scry_us);
+    println!("  scry-learn:          {scry_us:.2} µs");
     println!(
         "  smartcore 0.4.9:     {:.2} µs  ({:.1}×)",
         smart_us,
@@ -1007,7 +1012,7 @@ fn audit_kmeans_fairness() {
 
     println!("\n{}", "=".repeat(65));
     println!("K-MEANS CLUSTERING ({n_samples}×{n_features}, k={k})");
-    println!("  scry-learn inertia:      {:.2}", scry_inertia);
+    println!("  scry-learn inertia:      {scry_inertia:.2}");
     println!("  (linfa-clustering uses a different inertia metric)");
 
     // ── Train timing ──
@@ -1061,7 +1066,7 @@ fn audit_kmeans_fairness() {
     let linfa_us = t0.elapsed().as_nanos() as f64 / n_iters as f64 / 1000.0;
 
     println!("\nK-MEANS TRAIN ({n_samples}×{n_features}, k={k}, {n_iters} iters)");
-    println!("  scry-learn:              {:.2} µs", scry_us);
+    println!("  scry-learn:              {scry_us:.2} µs");
     println!(
         "  linfa-clustering 0.8:    {:.2} µs  ({:.2}×)",
         linfa_us,
@@ -1109,7 +1114,7 @@ fn audit_dbscan_fairness() {
         }
 
         let avg_ms = total_ms / n_iters as f64;
-        println!("  {:>8} {:>12.2}ms {:>14}", n, avg_ms, n_clusters,);
+        println!("  {n:>8} {avg_ms:>12.2}ms {n_clusters:>14}",);
     }
 
     println!("\n  Note: DBSCAN uses KD-tree for Euclidean distance with ≤ 20 features.");

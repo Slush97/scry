@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interactive example runner for scry-engine and scry-chart.
+# Interactive example runner for scry-engine, scry-chart, and scry-learn.
 # Select a category, then pick an example to run.
 
 set -euo pipefail
@@ -24,88 +24,78 @@ CAT1_NAME="Getting Started"
 CAT1_EXAMPLES=(
     "simple_shapes||"
     "cube_3d||"
+    "scatter3d||"
+    "dual_y_demo||"
 )
 
 CAT2_NAME="Feature Demos"
 CAT2_EXAMPLES=(
     "showcase||"
-    "feature_showcase||"
-    "new_features||"
     "animation_demo||"
     "spring_sequence_demo||"
-    "chart_features||"
+    "chart_integration||"
+    "ml_3d_viz||"
+    "pixel_dashboard||"
 )
 
-CAT3_NAME="Optical Illusions"
+CAT3_NAME="Gallery — Generative Art"
 CAT3_EXAMPLES=(
+    "aurora_borealis||"
+    "fractal_dreams||"
+    "fluid_symphony||"
+    "sacred_geometry||"
+    "hypnotic_tunnels||"
+    "wave_interference||"
+    "particle_life||"
+    "postmodern_manifesto||"
     "illusions||"
     "mind_benders||"
 )
 
-CAT4_NAME="Generative Art"
+CAT4_NAME="SDF Scenes"
 CAT4_EXAMPLES=(
-    "fractal_dreams||"
-    "sacred_geometry||"
-    "fluid_symphony||"
-    "hypnotic_tunnels||"
-    "aurora_borealis||"
-    "wave_interference||"
-    "particle_life||"
-    "postmodern_manifesto||"
-)
-
-CAT5_NAME="Stress Tests"
-CAT5_EXAMPLES=(
-    "powertest||"
-)
-
-CAT6_NAME="SDF Scenes"
-CAT6_EXAMPLES=(
     "sdf_showcase|sdf|"
-    "masonic_mirror|sdf,text,widget|"
-    "obsidian_mirror||"
+    "masonic_mirror|sdf,widget|"
+    "obsidian_mirror|sdf|"
+    "text3d_showcase|sdf-text|"
 )
 
-CAT7_NAME="Animated Showcases"
-CAT7_EXAMPLES=(
-    "masonic_mirror|sdf,text,widget|"
+CAT5_NAME="Animated Showcases"
+CAT5_EXAMPLES=(
     "circus_ball|text,widget|"
-    "session3_showcase||"
     "fastfetch_anim||"
+    "mission_control||"
+    "line_drawing|svg,widget|"
 )
 
-CAT8_NAME="Charts (scry-chart)"
-CAT8_EXAMPLES=(
-    "scatter_demo||scry-chart"
-    "dashboard||scry-chart"
+CAT6_NAME="Charts (scry-chart)"
+CAT6_EXAMPLES=(
     "demo||scry-chart"
     "showcase||scry-chart"
-    "chart_showcase||scry-chart"
-    "interactive||scry-chart"
-    "robustness_test||scry-chart"
-    "feature_showcase||scry-chart"
-    "tier2_charts||scry-chart"
+    "scatter_demo||scry-chart"
+    "dashboard||scry-chart"
     "subplot_demo||scry-chart"
-    "visual_demo||scry-chart"
-    "formatting_showcase||scry-chart"
+    "interactive||scry-chart"
+    "advanced_charts||scry-chart"
+    "render_png||scry-chart"
+    "render_all||scry-chart"
+    "chart_gallery||scry-chart"
+    "font_scaling_demo||scry-chart"
 )
 
-CAT9_NAME="Window Demos"
-CAT9_EXAMPLES=(
+CAT7_NAME="ML (scry-learn)"
+CAT7_EXAMPLES=(
+    "industry_report||scry-learn"
+    "ml_viz_showcase|viz|scry-learn"
+    "live_training|live-plot|scry-learn"
+)
+
+CAT8_NAME="Window Demos"
+CAT8_EXAMPLES=(
     "window_demo|window|"
 )
 
-CAT10_NAME="Other"
-CAT10_EXAMPLES=(
-    "line_drawing|svg,widget|"
-    "dual_y_demo||"
-    "pixel_dashboard||"
-    "mission_control||"
-    "ml_3d_demo||"
-    "scatter3d||"
-)
-
-ALL_CATS=(1 2 3 4 5 6 7 8 9 10)
+ALL_CATS=(1 2 3 4 5 6 7 8)
 
 # ── Helper functions ───────────────────────────────────────────────
 
@@ -154,6 +144,26 @@ run_example() {
     # Run with trap to catch Ctrl+C and return to menu
     eval "$cmd" || true
     echo ""
+}
+
+build_example() {
+    parse_example "$1"
+    local cmd="cargo build --example $EX_NAME --release"
+    if [[ -n "$EX_FEATURES" ]]; then
+        cmd+=" --features \"$EX_FEATURES\""
+    fi
+    if [[ -n "$EX_PACKAGE" ]]; then
+        cmd+=" -p $EX_PACKAGE"
+    fi
+
+    printf "  %-28s" "$EX_NAME"
+    if eval "$cmd" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${RESET}"
+        return 0
+    else
+        echo -e "${RED}✗${RESET}"
+        return 1
+    fi
 }
 
 show_category_menu() {
@@ -220,11 +230,12 @@ main_menu() {
             local name count
             name=$(get_cat_name "$cat")
             count=$(get_cat_count "$cat")
-            printf "  ${YELLOW}%2d${RESET}) %-24s ${DIM}(%d examples)${RESET}\n" "$cat" "$name" "$count"
+            printf "  ${YELLOW}%2d${RESET}) %-28s ${DIM}(%d examples)${RESET}\n" "$cat" "$name" "$count"
         done
 
         echo ""
         echo -e "  ${YELLOW} 0${RESET}) Run ALL examples"
+        echo -e "  ${YELLOW} t${RESET}) Build-test ALL examples (no run)"
         echo -e "  ${YELLOW} q${RESET}) Quit"
         echo ""
         echo -n "  Select category: "
@@ -234,6 +245,25 @@ main_menu() {
             q|Q)
                 echo -e "\n${GREEN}Done.${RESET}"
                 exit 0
+                ;;
+            t|T)
+                echo ""
+                echo -e "${CYAN}${BOLD}── Build-testing all examples ──${RESET}"
+                echo ""
+                local pass=0 fail=0
+                for cat in "${ALL_CATS[@]}"; do
+                    local var="CAT${cat}_EXAMPLES[@]"
+                    local examples=("${!var}")
+                    for ex in "${examples[@]}"; do
+                        if build_example "$ex"; then
+                            ((pass++))
+                        else
+                            ((fail++))
+                        fi
+                    done
+                done
+                echo ""
+                echo -e "  ${GREEN}$pass passed${RESET}, ${RED}$fail failed${RESET}"
                 ;;
             0)
                 for cat in "${ALL_CATS[@]}"; do
@@ -248,7 +278,7 @@ main_menu() {
                 done
                 ;;
             *)
-                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= 10 )); then
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#ALL_CATS[@]} )); then
                     show_category_menu "$choice"
                 else
                     echo -e "  ${RED}Invalid choice${RESET}"

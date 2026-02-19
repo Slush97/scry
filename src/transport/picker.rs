@@ -44,13 +44,17 @@ pub struct Picker {
 impl Picker {
     /// Auto-detect the best available protocol and font size.
     ///
-    /// This queries environment variables and terminal capabilities.
+    /// This runs the full detection pipeline: manual override via `SCRY_PROTOCOL`,
+    /// active terminal probing (XTVERSION, Kitty graphics query, DA1 Sixel), and
+    /// env-var fallback. Results are cached globally — subsequent calls are free.
+    ///
+    /// Set `SCRY_PROBE_TIMEOUT_MS` to adjust the per-query timeout (default: 150 ms).
     #[must_use]
     pub fn detect() -> Self {
-        let protocol = Self::detect_protocol();
+        let caps = Self::capabilities();
         let font_size = Self::detect_font_size();
         Self {
-            protocol,
+            protocol: caps.protocol,
             font_size,
         }
     }
@@ -93,7 +97,13 @@ impl Picker {
         match self.protocol {
             #[cfg(feature = "kitty")]
             ProtocolKind::Kitty => {
-                Box::new(crate::transport::kitty::KittyBackend::new(self.font_size))
+                let kb = crate::transport::kitty::KittyBackend::new(self.font_size);
+                // When the `shm` feature is compiled in, use shared memory
+                // as the default transport for Kitty — zero-copy, no base64,
+                // no pipe I/O overhead.
+                #[cfg(feature = "shm")]
+                let kb = kb.format(crate::transport::kitty::TransmitFormat::SharedMemory);
+                Box::new(kb)
             }
             #[cfg(feature = "iterm2")]
             ProtocolKind::Iterm2 => Box::new(crate::transport::iterm2::Iterm2Backend::new()),
@@ -124,111 +134,19 @@ impl Picker {
     /// On first call, runs the full detection pipeline (including active
     /// terminal probing if stdout is a TTY). The result is cached in a
     /// `OnceLock` — subsequent calls return immediately.
+    ///
+    /// Set `SCRY_PROBE_TIMEOUT_MS` to adjust the per-query timeout
+    /// (default: 150 ms).
     pub fn capabilities() -> &'static TerminalCapabilities {
-        CACHED_CAPABILITIES.get_or_init(|| probe::probe_capabilities(&ProbeConfig::default()))
-    }
-
-    /// Detect which protocol the terminal supports.
-    fn detect_protocol() -> ProtocolKind {
-        // Check for Kitty
-        #[cfg(feature = "kitty")]
-        if Self::is_kitty_compatible() {
-            return ProtocolKind::Kitty;
-        }
-
-        // Check for iTerm2
-        #[cfg(feature = "iterm2")]
-        if Self::is_iterm2_compatible() {
-            return ProtocolKind::Iterm2;
-        }
-
-        // Check for Sixel
-        #[cfg(feature = "sixel")]
-        if Self::is_sixel_compatible() {
-            return ProtocolKind::Sixel;
-        }
-
-        // Default fallback
-        ProtocolKind::Halfblock
-    }
-
-    /// Check if the terminal is Kitty-compatible.
-    #[cfg(feature = "kitty")]
-    fn is_kitty_compatible() -> bool {
-        // TERM_PROGRAM is set by Kitty and some other terminals
-        if let Ok(prog) = std::env::var("TERM_PROGRAM") {
-            let prog_lower = prog.to_lowercase();
-            if prog_lower.contains("kitty")
-                || prog_lower.contains("wezterm")
-                || prog_lower.contains("ghostty")
-            {
-                return true;
+        CACHED_CAPABILITIES.get_or_init(|| {
+            let mut config = ProbeConfig::default();
+            if let Ok(val) = std::env::var("SCRY_PROBE_TIMEOUT_MS") {
+                if let Ok(ms) = val.parse::<u64>() {
+                    config.timeout_ms = ms;
+                }
             }
-        }
-
-        // TERM=xterm-kitty is set by Kitty
-        if let Ok(term) = std::env::var("TERM") {
-            if term.contains("kitty") {
-                return true;
-            }
-        }
-
-        // KITTY_WINDOW_ID is set inside Kitty
-        if std::env::var("KITTY_WINDOW_ID").is_ok() {
-            return true;
-        }
-
-        false
-    }
-
-    /// Check if the terminal supports the Sixel protocol.
-    #[cfg(feature = "sixel")]
-    fn is_sixel_compatible() -> bool {
-        // Known Sixel-capable terminals
-        if let Ok(prog) = std::env::var("TERM_PROGRAM") {
-            let prog_lower = prog.to_lowercase();
-            if prog_lower.contains("foot")
-                || prog_lower.contains("mlterm")
-                || prog_lower.contains("contour")
-                || prog_lower.contains("yaft")
-            {
-                return true;
-            }
-        }
-
-        // xterm with Sixel support often sets TERM=xterm or xterm-256color
-        // We check TERM for known Sixel terminals
-        if let Ok(term) = std::env::var("TERM") {
-            let term_lower = term.to_lowercase();
-            if term_lower.contains("foot")
-                || term_lower.contains("mlterm")
-                || term_lower.contains("yaft")
-            {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Check if the terminal supports the iTerm2 inline image protocol.
-    #[cfg(feature = "iterm2")]
-    fn is_iterm2_compatible() -> bool {
-        if let Ok(prog) = std::env::var("TERM_PROGRAM") {
-            let prog_lower = prog.to_lowercase();
-            if prog_lower.contains("iterm2") || prog_lower.contains("mintty") {
-                return true;
-            }
-        }
-
-        // LC_TERMINAL is set by iTerm2
-        if let Ok(lc) = std::env::var("LC_TERMINAL") {
-            if lc.to_lowercase().contains("iterm2") {
-                return true;
-            }
-        }
-
-        false
+            probe::probe_capabilities(&config)
+        })
     }
 
     /// Detect font size using the `TIOCGWINSZ` ioctl.

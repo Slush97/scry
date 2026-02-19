@@ -24,8 +24,10 @@
 //! For animation loops, use [`Rasterizer::rasterize_into()`] with a reusable
 //! pixmap and [`RasterCache`] for content-hash caching.
 
+pub mod backend;
 pub mod batch;
 pub mod cache;
+pub mod pipeline;
 pub mod profiler;
 pub mod skia;
 
@@ -36,13 +38,19 @@ pub mod wgpu;
 #[cfg(feature = "gpu")]
 mod wgpu_context;
 
+pub use backend::{
+    AutoBackend, BackendKind, CpuBackend, GpuFallbackWarning, RasterBackend, RasterResult,
+};
 pub use cache::{DirtyTile, RasterCache, TILE_SIZE};
 pub use profiler::{
     CommandTiming, CommandType, PipelineProfile, ProfileHistory, ProfiledRasterizer, RasterProfile,
     SmoothedProfile, TransportProfile,
 };
-pub use skia::Rasterizer;
+pub use pipeline::RasterPipeline;
+pub use skia::{Rasterizer, RenderWarning};
 
+#[cfg(feature = "gpu")]
+pub use backend::GpuBackend;
 #[cfg(feature = "gpu")]
 pub use self::wgpu::rasterize_auto;
 #[cfg(feature = "gpu")]

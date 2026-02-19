@@ -111,6 +111,9 @@ impl<B: MathBackend> AdamW<B> {
                 wd,
                 self.step_count,
             );
+
+            // Invalidate cached bf16 shadow so it's re-created from updated f32 weights.
+            B::invalidate_bf16_cache(param);
         }
     }
 }

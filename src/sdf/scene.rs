@@ -21,8 +21,15 @@ use crate::scene::command::FontData;
 #[cfg(feature = "text")]
 use crate::scene::style::FillStyle;
 
+use std::sync::Arc;
+
 use super::materials::Material;
 use super::math::Vec3;
+
+#[cfg(feature = "sdf-text")]
+use super::glyph::{self, TextSdfLayout};
+
+use crate::math3d::Quaternion;
 
 // ── Text Labels ─────────────────────────────────────────────────────
 
@@ -170,6 +177,49 @@ pub enum SdfShape {
         /// Height (tip at y = height).
         height: f32,
     },
+    /// 3D extruded text from TTF font outlines.
+    ///
+    /// The text is centered at the object's position and extruded along the
+    /// Z axis by `depth`. Participates fully in the 3D scene: receives
+    /// lighting, casts/receives shadows, reflects in mirrors, and supports
+    /// all materials.
+    #[cfg(feature = "sdf-text")]
+    Text3D {
+        /// Pre-computed SDF layout for the text string.
+        layout: Arc<TextSdfLayout>,
+        /// Extrusion depth along Z.
+        depth: f32,
+    },
+}
+
+#[cfg(feature = "sdf-text")]
+impl SdfShape {
+    /// Create a 3D extruded text shape from font data and a string.
+    ///
+    /// `font_size` controls the world-space height of the text.
+    /// `depth` controls how far the text is extruded along Z.
+    /// Uses a 64×64 SDF grid per glyph and zero letter spacing.
+    pub fn text_3d(font_data: &[u8], text: &str, font_size: f32, depth: f32) -> Option<Self> {
+        let layout = glyph::layout_text(font_data, text, font_size, 0.0, 64)?;
+        Some(Self::Text3D { layout, depth })
+    }
+
+    /// Create a 3D extruded text shape with full control over layout parameters.
+    ///
+    /// `letter_spacing` adds extra space between glyphs (in world units).
+    /// `grid_resolution` controls the SDF grid size per glyph (higher = sharper edges,
+    /// default 64).
+    pub fn text_3d_with_options(
+        font_data: &[u8],
+        text: &str,
+        font_size: f32,
+        depth: f32,
+        letter_spacing: f32,
+        grid_resolution: u32,
+    ) -> Option<Self> {
+        let layout = glyph::layout_text(font_data, text, font_size, letter_spacing, grid_resolution)?;
+        Some(Self::Text3D { layout, depth })
+    }
 }
 
 // ── Object ──────────────────────────────────────────────────────────
@@ -193,6 +243,11 @@ pub struct SdfObject {
     ///
     /// Cached as `(cos, sin)` for fast domain rotation.
     pub rotation_y: Option<(f32, f32)>,
+    /// Full 3D rotation via quaternion (applied in local space before SDF eval).
+    ///
+    /// When set, takes precedence over `rotation_y`. Use `.orient(q)` or
+    /// `.rotate(axis, angle)` to set.
+    pub orientation: Option<Quaternion>,
 }
 
 impl SdfObject {
@@ -204,6 +259,7 @@ impl SdfObject {
             position: Vec3::ZERO,
             bounding_radius: f32::INFINITY,
             rotation_y: None,
+            orientation: None,
         }
     }
 
@@ -217,6 +273,23 @@ impl SdfObject {
     pub fn rotate_y(mut self, angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         self.rotation_y = Some((c, s));
+        self
+    }
+
+    /// Set the object's 3D orientation via a quaternion.
+    ///
+    /// Takes precedence over `rotation_y` when both are set.
+    pub fn orient(mut self, q: Quaternion) -> Self {
+        self.orientation = Some(q);
+        self
+    }
+
+    /// Rotate the object around an arbitrary axis by `angle` radians.
+    ///
+    /// This is a convenience wrapper that builds a quaternion from the axis
+    /// and angle, then sets it as the object's orientation.
+    pub fn rotate(mut self, axis: Vec3, angle: f32) -> Self {
+        self.orientation = Some(Quaternion::from_axis_angle(axis, angle));
         self
     }
 }
@@ -375,6 +448,13 @@ impl SdfScene {
                 radius,
             } => Some(half_extents.length() + *radius),
             SdfShape::Cone { radius, height } => Some(radius.hypot(*height)),
+            #[cfg(feature = "sdf-text")]
+            SdfShape::Text3D { layout, depth } => {
+                let half_w = layout.total_width * 0.5;
+                let half_h = (layout.ascent + layout.descent) * 0.5;
+                let half_d = depth * 0.5;
+                Some((half_w * half_w + half_h * half_h + half_d * half_d).sqrt())
+            }
         };
 
         if let Some(r) = obj_radius {
@@ -424,6 +504,13 @@ impl SdfScene {
                         radius,
                     } => half_extents.length() + *radius,
                     SdfShape::Cone { radius, height } => radius.hypot(*height),
+                    #[cfg(feature = "sdf-text")]
+                    SdfShape::Text3D { layout, depth } => {
+                        let half_w = layout.total_width * 0.5;
+                        let half_h = (layout.ascent + layout.descent) * 0.5;
+                        let half_d = depth * 0.5;
+                        (half_w * half_w + half_h * half_h + half_d * half_d).sqrt()
+                    }
                 };
                 let dist = (o.position - self.scene_center).length() + r;
                 max_r = max_r.max(dist);

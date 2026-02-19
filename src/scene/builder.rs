@@ -484,7 +484,7 @@ impl PixelCanvas {
         time: f32,
     ) -> Self {
         self.push(DrawCommand::Sdf3D {
-            scene: crate::scene::command::SdfSceneRef::new(scene, generation),
+            scene: crate::scene::command::SdfSceneRef::with_generation(scene, generation),
             rect: Rect::new(x, y, w, h),
             time,
             render_scale: None,
@@ -513,7 +513,7 @@ impl PixelCanvas {
         render_scale: f32,
     ) -> Self {
         self.push(DrawCommand::Sdf3D {
-            scene: crate::scene::command::SdfSceneRef::new(scene, generation),
+            scene: crate::scene::command::SdfSceneRef::with_generation(scene, generation),
             rect: Rect::new(x, y, w, h),
             time,
             render_scale: Some(render_scale),

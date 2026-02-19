@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! Centralized benchmark configuration: canonical model hyperparameters,
 //! dataset loaders, data generators, and result schema.
 //!
@@ -53,7 +54,7 @@ pub mod configs {
     pub const GBT_MAX_DEPTH: usize = 5;
     pub const GBT_LR: f64 = 0.1;
 
-    /// HistGBT: `n_estimators=100, max_depth=6, lr=0.1`
+    /// `HistGBT`: `n_estimators=100, max_depth=6, lr=0.1`
     /// sklearn: `max_iter=100, max_depth=6, learning_rate=0.1`
     pub const HGBT_N_ESTIMATORS: usize = 100;
     pub const HGBT_MAX_DEPTH: usize = 6;
@@ -68,12 +69,12 @@ pub mod configs {
     /// sklearn: `n_neighbors=5, weights='uniform'`
     pub const KNN_K: usize = 5;
 
-    /// LinearSVC: `C=1.0, max_iter=2000`
+    /// `LinearSVC`: `C=1.0, max_iter=2000`
     /// sklearn: `max_iter=2000, dual='auto'`
     pub const SVC_C: f64 = 1.0;
     pub const SVC_MAX_ITER: usize = 2000;
 
-    /// KernelSVC: `C=1.0, RBF gamma=0.1`
+    /// `KernelSVC`: `C=1.0, RBF gamma=0.1`
     pub const KSVC_C: f64 = 1.0;
     pub const KSVC_GAMMA: f64 = 0.1;
 
@@ -81,7 +82,7 @@ pub mod configs {
     /// sklearn: `alpha=0.01, max_iter=1000`
     pub const LASSO_ALPHA: f64 = 0.01;
 
-    /// ElasticNet: `alpha=0.01, l1_ratio=0.5`
+    /// `ElasticNet`: `alpha=0.01, l1_ratio=0.5`
     /// sklearn: identical
     pub const ENET_ALPHA: f64 = 0.01;
     pub const ENET_L1_RATIO: f64 = 0.5;
@@ -89,7 +90,7 @@ pub mod configs {
     /// Ridge: `alpha=1.0`
     pub const RIDGE_ALPHA: f64 = 1.0;
 
-    /// KMeans: `k=3, max_iter=100, n_init=3, seed=42`
+    /// `KMeans`: `k=3, max_iter=100, n_init=3, seed=42`
     pub const KMEANS_K: usize = 3;
     pub const KMEANS_MAX_ITER: usize = 100;
 
@@ -100,11 +101,11 @@ pub mod configs {
     /// Isolation Forest: `n_estimators=100, seed=42`
     pub const IFOREST_N_ESTIMATORS: usize = 100;
 
-    /// MultinomialNB: `alpha=1.0` (Laplace smoothing)
+    /// `MultinomialNB`: `alpha=1.0` (Laplace smoothing)
     /// sklearn: `alpha=1.0`
     pub const MNB_ALPHA: f64 = 1.0;
 
-    /// BernoulliNB: `alpha=1.0, binarize=0.0`
+    /// `BernoulliNB`: `alpha=1.0, binarize=0.0`
     /// sklearn: `alpha=1.0, binarize=0.0`
     pub const BNB_ALPHA: f64 = 1.0;
     pub const BNB_BINARIZE: f64 = 0.0;
@@ -116,36 +117,36 @@ pub mod configs {
     pub const MLP_LR: f64 = 0.001;
     pub const MLP_SEED: u64 = 42;
 
-    /// DecisionTreeRegressor: `max_depth=10`
+    /// `DecisionTreeRegressor`: `max_depth=10`
     pub const DTR_MAX_DEPTH: usize = 10;
 
-    /// RandomForestRegressor: `n_estimators=20, max_depth=10`
+    /// `RandomForestRegressor`: `n_estimators=20, max_depth=10`
     pub const RFR_N_ESTIMATORS: usize = 20;
     pub const RFR_MAX_DEPTH: usize = 10;
 
-    /// HistGBTRegressor: `n_estimators=100, max_depth=6, lr=0.1`
+    /// `HistGBTRegressor`: `n_estimators=100, max_depth=6, lr=0.1`
     pub const HGBTR_N_ESTIMATORS: usize = 100;
     pub const HGBTR_MAX_DEPTH: usize = 6;
     pub const HGBTR_LR: f64 = 0.1;
 
-    /// LinearSVR: `C=1.0, epsilon=0.1, max_iter=2000`
+    /// `LinearSVR`: `C=1.0, epsilon=0.1, max_iter=2000`
     pub const SVR_C: f64 = 1.0;
     pub const SVR_EPSILON: f64 = 0.1;
     pub const SVR_MAX_ITER: usize = 2000;
 
-    /// KernelSVR: `C=1.0, epsilon=0.1, gamma=0.1`
+    /// `KernelSVR`: `C=1.0, epsilon=0.1, gamma=0.1`
     pub const KSVR_C: f64 = 1.0;
     pub const KSVR_EPSILON: f64 = 0.1;
     pub const KSVR_GAMMA: f64 = 0.1;
 
-    /// MiniBatchKMeans: `k=3, batch_size=100, seed=42`
+    /// `MiniBatchKMeans`: `k=3, batch_size=100, seed=42`
     pub const MBKM_K: usize = 3;
     pub const MBKM_BATCH_SIZE: usize = 100;
 
     /// HDBSCAN: `min_cluster_size=5`
     pub const HDBSCAN_MIN_CLUSTER_SIZE: usize = 5;
 
-    /// AgglomerativeClustering: `n_clusters=3`
+    /// `AgglomerativeClustering`: `n_clusters=3`
     pub const AGGLO_N_CLUSTERS: usize = 3;
 }
 
@@ -198,7 +199,7 @@ pub fn gen_multiclass(n: usize, n_features: usize, n_classes: usize, seed: u64) 
     Dataset::new(col_major, target, names, "class")
 }
 
-/// Generate a regression dataset: y = Σ x_j·(j+1) + noise.
+/// Generate a regression dataset: y = Σ `x_j·(j+1)` + noise.
 pub fn gen_regression(n: usize, n_features: usize, seed: u64) -> Dataset {
     let mut rng = fastrand::Rng::with_seed(seed);
     let mut col_major = vec![vec![0.0; n]; n_features];
@@ -430,10 +431,10 @@ impl BenchResult {
         print!("  {:<28} {:<16}", self.model, self.dataset);
         print!(" {:>10}: {:.4}", self.metric_name, self.metric_value);
         if let Some(fit) = self.fit_time_us {
-            print!("  fit: {:.0}µs", fit);
+            print!("  fit: {fit:.0}µs");
         }
         if let Some(pred) = self.predict_time_us {
-            print!("  pred: {:.1}µs", pred);
+            print!("  pred: {pred:.1}µs");
         }
         println!();
     }

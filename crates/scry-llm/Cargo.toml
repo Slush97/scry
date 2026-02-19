@@ -10,11 +10,13 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["cuda"]
 cuda = ["dep:cudarc"]
+bf16 = ["cuda", "cudarc/f16", "dep:half"]
 safetensors = ["dep:safetensors"]
 tokenizer = ["dep:serde_json"]
 
 [dependencies]
 cudarc = { version = "0.19", features = ["cublas", "nvrtc", "cuda-13010"], optional = true }
+half = { version = "2", optional = true }
 safetensors = { version = "0.4", optional = true }
 arrayvec = "0.7"
 thiserror = "2"

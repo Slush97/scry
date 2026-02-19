@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(scores.len(), 4);
         for &s in &scores {
             assert!(
-                s >= -1.0 && s <= 1.0,
+                (-1.0..=1.0).contains(&s),
                 "silhouette must be in [-1, 1], got {s}"
             );
         }

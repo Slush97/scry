@@ -352,10 +352,12 @@ pub fn draw_axis(
 
     match config.side {
         AxisSide::Bottom => {
-            // Axis spine
+            // Axis spine — clipped to first/last tick positions
             if config.visible {
+                let spine_x0 = tick_label_pairs.first().map_or(px, |(t, _)| scale.to_pixel(*t) as f32);
+                let spine_x1 = tick_label_pairs.last().map_or(px + pw, |(t, _)| scale.to_pixel(*t) as f32);
                 canvas = canvas
-                    .line(px, py + ph, px + pw, py + ph)
+                    .line(spine_x0, py + ph, spine_x1, py + ph)
                     .color(config.axis_color)
                     .width(config.axis_width)
                     .done();
@@ -428,9 +430,13 @@ pub fn draw_axis(
         }
 
         AxisSide::Left => {
+            // Axis spine — clipped to first/last tick positions
             if config.visible {
+                let spine_y0 = tick_label_pairs.first().map_or(py, |(t, _)| scale.to_pixel(*t) as f32);
+                let spine_y1 = tick_label_pairs.last().map_or(py + ph, |(t, _)| scale.to_pixel(*t) as f32);
+                let (y_top, y_bot) = if spine_y0 < spine_y1 { (spine_y0, spine_y1) } else { (spine_y1, spine_y0) };
                 canvas = canvas
-                    .line(px, py, px, py + ph)
+                    .line(px, y_top, px, y_bot)
                     .color(config.axis_color)
                     .width(config.axis_width)
                     .done();
@@ -451,7 +457,12 @@ pub fn draw_axis(
                     .done();
 
                 if config.show_grid {
-                    canvas = draw_gridline(canvas, px, y, px + pw, y, config);
+                    // Skip gridline when it coincides with the bottom axis spine
+                    // to avoid double-drawing at y=0 on charts where domain starts at 0.
+                    let bottom_spine = py + ph;
+                    if (y - bottom_spine).abs() > 0.5 {
+                        canvas = draw_gridline(canvas, px, y, px + pw, y, config);
+                    }
                 }
 
                 tick_labels.push((y, label.clone()));

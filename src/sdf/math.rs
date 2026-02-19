@@ -5,7 +5,7 @@
 //! for backwards compatibility — existing `use super::math::*` imports
 //! in sibling SDF modules continue to work unchanged.
 
-pub use crate::math3d::{fast_inv_sqrt, look_at, Vec3};
+pub use crate::math3d::{fast_inv_sqrt, look_at, Quaternion, Vec2, Vec3};
 
 #[cfg(test)]
 mod tests {

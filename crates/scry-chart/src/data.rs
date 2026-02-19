@@ -198,6 +198,10 @@ pub struct Series {
     values: Vec<f64>,
     /// Symmetric error values (±error) for each data point.
     error_y: Option<Vec<f64>>,
+    /// Asymmetric error: lower bound offsets (distance below each point).
+    error_low: Option<Vec<f64>>,
+    /// Asymmetric error: upper bound offsets (distance above each point).
+    error_high: Option<Vec<f64>>,
     /// Per-series visual overrides.
     #[cfg_attr(feature = "serde", serde(skip))]
     style: SeriesStyle,
@@ -213,6 +217,8 @@ impl Series {
             label: label.into(),
             values,
             error_y: None,
+            error_low: None,
+            error_high: None,
             style: SeriesStyle::default(),
         }
     }
@@ -223,6 +229,8 @@ impl Series {
             label: String::new(),
             values,
             error_y: None,
+            error_low: None,
+            error_high: None,
             style: SeriesStyle::default(),
         }
     }
@@ -240,6 +248,29 @@ impl Series {
     #[must_use]
     pub fn error_values(&self) -> Option<&[f64]> {
         self.error_y.as_deref()
+    }
+
+    /// Attach asymmetric error bars.
+    ///
+    /// `low` contains the distance *below* each point, `high` contains the
+    /// distance *above*. Both vectors should have the same length as the
+    /// data values.
+    pub fn with_error_asymmetric(mut self, low: Vec<f64>, high: Vec<f64>) -> Self {
+        self.error_low = Some(low);
+        self.error_high = Some(high);
+        self
+    }
+
+    /// Get the lower (negative-direction) asymmetric error offsets.
+    #[must_use]
+    pub fn error_low(&self) -> Option<&[f64]> {
+        self.error_low.as_deref()
+    }
+
+    /// Get the upper (positive-direction) asymmetric error offsets.
+    #[must_use]
+    pub fn error_high(&self) -> Option<&[f64]> {
+        self.error_high.as_deref()
     }
 
     /// Return a new Series with all non-finite values (NaN, Infinity) removed.
@@ -268,6 +299,8 @@ impl Series {
                 .filter(|v| v.is_finite())
                 .collect(),
             error_y: None, // loses error association on sanitize
+            error_low: None,
+            error_high: None,
             style: self.style.clone(),
         }
     }

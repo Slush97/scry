@@ -671,6 +671,8 @@ fn full_training_step() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     // Pattern: [0, 1, 2, 3]

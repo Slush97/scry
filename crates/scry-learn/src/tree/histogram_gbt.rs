@@ -1501,7 +1501,7 @@ mod tests {
             let sum: f64 = row.iter().sum();
             assert!((sum - 1.0).abs() < 1e-6, "probabilities should sum to 1.0");
             for &p in row {
-                assert!(p >= 0.0 && p <= 1.0, "probability out of range: {p}");
+                assert!((0.0..=1.0).contains(&p), "probability out of range: {p}");
             }
         }
     }

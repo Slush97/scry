@@ -1,18 +1,19 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 1167
 expression: summarize(&rendered)
 ---
-canvas: 500x350, 21 commands
+canvas: 500x350, 20 commands
 overlays: 15
-  [0] (40, 318) Right "0"
-  [1] (40, 224) Right "200"
-  [2] (40, 130) Right "400"
-  [3] (40, 35) Right "600"
-  [4] (90, 324) Center "Revenue"
-  [5] (178, 324) Center "COGS"
-  [6] (266, 324) Center "OpEx"
-  [7] (354, 324) Center "Tax"
-  [8] (442, 324) Center "Total"
+  [0] (38, 318) Right "0"
+  [1] (38, 224) Right "200"
+  [2] (38, 130) Right "400"
+  [3] (38, 35) Right "600"
+  [4] (90, 326) Center "Revenue"
+  [5] (178, 326) Center "COGS"
+  [6] (266, 326) Center "OpEx"
+  [7] (354, 326) Center "Tax"
+  [8] (442, 326) Center "Total"
   [9] (90, 78) Center "500"
   [10] (178, 189) Center "-200"
   [11] (266, 260) Center "-150"

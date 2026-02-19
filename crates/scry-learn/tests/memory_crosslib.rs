@@ -1,10 +1,16 @@
+#![allow(
+    clippy::cast_possible_wrap,
+    clippy::needless_range_loop,
+    clippy::type_complexity,
+    dead_code
+)]
 //! Cross-library memory footprint & cold-start benchmark.
 //!
 //! Compares scry-learn vs smartcore on RSS delta, fit time, and
 //! first-predict latency (cold start).
 //!
 //! Run with:
-//!   cargo run -p scry-learn --example memory_crosslib --release
+//!   cargo run -p scry-learn --example `memory_crosslib` --release
 
 use std::time::Instant;
 
@@ -84,8 +90,8 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(),
-                target_f64.clone(),
+                col_major,
+                target_f64,
                 (0..nf).map(|j| format!("f{j}")).collect(),
                 "y",
             );
@@ -142,8 +148,8 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(),
-                target_f64.clone(),
+                col_major,
+                target_f64,
                 (0..nf).map(|j| format!("f{j}")).collect(),
                 "y",
             );
@@ -204,7 +210,7 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(),
+                col_major,
                 target.clone(),
                 (0..nf).map(|j| format!("f{j}")).collect(),
                 "y",
@@ -259,8 +265,8 @@ fn main() {
         // scry
         {
             let ds = scry_learn::dataset::Dataset::new(
-                col_major.clone(),
-                target_f64.clone(),
+                col_major,
+                target_f64,
                 (0..nf).map(|j| format!("f{j}")).collect(),
                 "y",
             );

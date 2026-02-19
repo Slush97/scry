@@ -94,4 +94,12 @@ impl Sparkline {
     pub fn build(self) -> Chart {
         Chart::Sparkline(self)
     }
+
+    /// Build with validation.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.values.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        Ok(Chart::Sparkline(self))
+    }
 }

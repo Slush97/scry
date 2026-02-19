@@ -62,6 +62,8 @@ fn tiny_model_loss_decreases() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -117,6 +119,8 @@ fn gradient_accumulation_correctness() {
         seed: 99,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer1 = Trainer::<Cpu>::new(model1, model_config.clone(), config1);
@@ -198,6 +202,8 @@ fn data_loader_training() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -234,6 +240,8 @@ fn evaluate_returns_finite_loss() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -271,6 +279,8 @@ fn checkpointed_training_loss_decreases() {
         seed: 42,
         use_checkpointing: true,
         checkpoint_every: 1,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -329,6 +339,8 @@ fn overfit_single_batch_to_near_zero() {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -425,6 +437,8 @@ fn gradient_accumulation_matches_manual() {
         seed: 99,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model1, model_config.clone(), config1);

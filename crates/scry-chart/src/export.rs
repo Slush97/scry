@@ -39,6 +39,8 @@ fn chart_dpi(chart: &Chart) -> u32 {
         Chart::Funnel(c) => c.config.dpi,
         Chart::Gauge(c) => c.config.dpi,
         Chart::Lollipop(c) => c.config.dpi,
+        Chart::Contour(c) => c.config.dpi,
+        Chart::Custom(_) => BASE_DPI,
     }
 }
 
@@ -98,9 +100,13 @@ pub fn render_to_rgba(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>,
 }
 
 /// Internal render — operates on pre-scaled dimensions.
+///
+/// Uses [`RasterPipeline`] which auto-selects the GPU backend when
+/// available and falls back to CPU (tiny-skia) otherwise.
 fn render_to_rgba_raw(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, String> {
     let rendered = layout::render_chart(chart, width, height);
-    let mut pixmap = scry_engine::rasterize::Rasterizer::rasterize(&rendered.canvas)
+    let mut pixmap = scry_engine::rasterize::RasterPipeline::new()
+        .rasterize(&rendered.canvas)
         .map_err(|e| format!("rasterization failed: {e}"))?;
 
     // Burn text overlays onto the pixmap using fontdue
@@ -137,7 +143,8 @@ pub fn render_to_png_with_metadata(
     let dpi = chart_dpi(chart);
     let (w, h) = dpi_scale(width, height, dpi);
     let rendered = layout::render_chart(chart, w, h);
-    let mut pixmap = scry_engine::rasterize::Rasterizer::rasterize(&rendered.canvas)
+    let mut pixmap = scry_engine::rasterize::RasterPipeline::new()
+        .rasterize(&rendered.canvas)
         .map_err(|e| format!("rasterization failed: {e}"))?;
 
     stamp_text_overlays(&mut pixmap, &rendered.text_overlays);

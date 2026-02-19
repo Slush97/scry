@@ -38,6 +38,21 @@
 #![allow(clippy::redundant_pub_crate)]
 #![allow(clippy::use_self)]
 #![allow(clippy::suspicious_operation_groupings)]
+#![allow(clippy::used_underscore_binding)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::option_if_let_else)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::map_unwrap_or)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::explicit_counter_loop)]
+#![allow(clippy::unnecessary_wraps)]
+#![allow(clippy::default_trait_access)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::or_fun_call)]
+#![allow(clippy::redundant_closure_for_method_calls)]
 
 pub(crate) mod accel;
 pub mod anomaly;

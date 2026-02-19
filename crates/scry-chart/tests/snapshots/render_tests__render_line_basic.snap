@@ -1,19 +1,20 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 145
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 25 commands
+canvas: 400x300, 24 commands
 overlays: 13
-  [0] (58, 262) Center "0"
-  [1] (152, 262) Center "2"
-  [2] (247, 262) Center "4"
-  [3] (341, 262) Center "6"
-  [4] (388, 262) Center "7"
+  [0] (60, 265) Center "0"
+  [1] (154, 265) Center "2"
+  [2] (247, 265) Center "4"
+  [3] (341, 265) Center "6"
+  [4] (388, 265) Center "7"
   [5] (53, 258) Right "0.0"
   [6] (53, 195) Right "2.5"
   [7] (53, 131) Right "5.0"
   [8] (53, 68) Right "7.5"
   [9] (53, 30) Right "9.0"
-  [10] (223, 16) Center "Line Test"
-  [11] (223, 288) Center "Time"
-  [12] (23, 144) Center rot=90° "Value"
+  [10] (224, 16) Center "Line Test"
+  [11] (224, 288) Center "Time"
+  [12] (24, 144) Center rot=90° "Value"

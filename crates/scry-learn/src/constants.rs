@@ -23,9 +23,6 @@ pub(crate) const PLATT_SINGULAR_DET: f64 = 1e-20;
 /// Minimum step size for Platt scaling Newton line search.
 pub(crate) const PLATT_MIN_STEP: f64 = 1e-10;
 
-/// Maximum iterations for Platt scaling Newton optimization.
-pub(crate) const PLATT_MAX_ITER: usize = 100;
-
 /// Convergence threshold for Platt scaling parameter updates.
 pub(crate) const PLATT_CONVERGENCE: f64 = 1e-9;
 
@@ -46,20 +43,6 @@ pub(crate) const JACOBI_TOL: f64 = 1e-12;
 
 /// Maximum Jacobi sweeps in PCA eigendecomposition.
 pub(crate) const JACOBI_MAX_SWEEPS: usize = 100;
-
-// ─── SMO / SVM constants ─────────────────────────────────────────────────────
-
-/// Default SMO convergence tolerance.
-pub(crate) const SMO_TOL: f64 = 1e-3;
-
-/// Threshold for considering an SMO alpha update significant enough to count.
-pub(crate) const SMO_ALPHA_CHANGE_THRESH: f64 = 1e-8;
-
-/// L/H bounds equality threshold in SMO.
-pub(crate) const SMO_BOUNDS_EQ: f64 = 1e-12;
-
-/// Alpha threshold for identifying support vectors (alpha > this → SV).
-pub(crate) const SV_ALPHA_THRESH: f64 = 1e-10;
 
 // ─── Line search constants ──────────────────────────────────────────────────
 
@@ -116,5 +99,3 @@ pub(crate) const KNN_PAR_THRESHOLD: usize = 10_000;
 /// Minimum n×k product to parallelize K-Means assignment step.
 pub(crate) const KMEANS_PAR_THRESHOLD: usize = 5_000;
 
-/// Minimum n² to parallelize SVM kernel matrix precomputation.
-pub(crate) const SVM_KERNEL_PAR_THRESHOLD: usize = 2_500;

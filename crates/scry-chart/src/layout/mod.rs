@@ -10,6 +10,7 @@ mod boxplot;
 mod bubble;
 mod candlestick;
 mod common_overlays;
+mod contour;
 mod funnel;
 mod gauge;
 mod heatmap;
@@ -48,13 +49,13 @@ const MARGIN_FRAC: f32 = 0.04;
 /// Proportional pixel offset from X-axis spine to X tick labels (downward).
 fn x_tick_label_offset(h: u32) -> f32 {
     let h = h as f32;
-    (h * 0.015).max(4.0).min(14.0)
+    (h * 0.018).max(7.0).min(16.0)
 }
 
 /// Proportional pixel offset from Y-axis spine to Y tick labels (leftward).
 pub(crate) fn y_tick_label_offset(w: u32) -> f32 {
     let w = w as f32;
-    (w * 0.012).max(4.0).min(14.0)
+    (w * 0.015).max(7.0).min(16.0)
 }
 
 /// Compute proportional margin based on canvas size.
@@ -395,6 +396,8 @@ pub fn render_chart_with_viewport(
         Chart::Funnel(fc) => funnel::render_funnel(fc, width, height),
         Chart::Gauge(gc) => gauge::render_gauge(gc, width, height),
         Chart::Lollipop(lc) => lollipop::render_lollipop(lc, width, height),
+        Chart::Contour(cc) => contour::render_contour(cc, width, height),
+        Chart::Custom(ct) => ct.render(width, height),
     }
 }
 

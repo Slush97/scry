@@ -712,8 +712,7 @@ impl CalibratedClassifierCV {
                 row.iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map(|(i, _)| i as f64)
-                    .unwrap_or(0.0)
+                    .map_or(0.0, |(i, _)| i as f64)
             })
             .collect())
     }
@@ -868,7 +867,7 @@ mod tests {
         // All probabilities should be valid.
         for row in &proba {
             for &p in row {
-                assert!(p >= 0.0 && p <= 1.0, "prob out of range: {p}");
+                assert!((0.0..=1.0).contains(&p), "prob out of range: {p}");
             }
         }
     }

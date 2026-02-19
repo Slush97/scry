@@ -40,4 +40,8 @@ pub enum ChartError {
     /// An I/O error occurred (e.g., writing to terminal).
     #[error("I/O error: {0}")]
     Io(String),
+
+    /// A configuration or data constraint was violated.
+    #[error("invalid config: {0}")]
+    InvalidConfig(String),
 }

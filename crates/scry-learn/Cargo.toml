@@ -82,21 +82,7 @@ name = "full_model_benchmark"
 harness = false
 
 [[example]]
-name = "bench_dashboard"
-required-features = ["viz"]
-
-[[example]]
-name = "parity_diagnostic"
-
-[[example]]
 name = "industry_report"
-
-[[example]]
-name = "benchmark_comparison"
-
-[[example]]
-name = "benchmark_report"
-required-features = ["viz"]
 
 [[example]]
 name = "ml_viz_showcase"

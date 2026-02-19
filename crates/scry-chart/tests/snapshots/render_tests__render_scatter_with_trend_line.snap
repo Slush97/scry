@@ -1,15 +1,16 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 705
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 26 commands
+canvas: 400x300, 25 commands
 overlays: 9
-  [0] (36, 278) Center "0.8"
-  [1] (117, 278) Center "2.0"
-  [2] (253, 278) Center "4.0"
-  [3] (388, 278) Center "6.0"
-  [4] (31, 273) Right "1"
-  [5] (31, 230) Right "2"
-  [6] (31, 142) Right "4"
-  [7] (31, 56) Right "6"
-  [8] (31, 12) Right "7"
+  [0] (36, 280) Center "0.8"
+  [1] (117, 280) Center "2.0"
+  [2] (253, 280) Center "4.0"
+  [3] (388, 280) Center "6.0"
+  [4] (29, 273) Right "1"
+  [5] (29, 230) Right "2"
+  [6] (29, 142) Right "4"
+  [7] (29, 56) Right "6"
+  [8] (29, 12) Right "7"

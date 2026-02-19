@@ -227,18 +227,10 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
     use scry_engine::transport::window::{run_loop_continuous, LoopAction};
     use winit::keyboard::KeyCode as WKey;
 
-    // Auto-detect GPU when sdf-gpu feature is enabled
+    // Auto-detect GPU with timeout to avoid hanging on broken drivers
     #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx = match scry_engine::sdf::SdfGpuContext::new() {
-        Ok(ctx) => {
-            eprintln!("GPU SDF renderer initialized — using GPU acceleration");
-            Some(ctx)
-        }
-        Err(e) => {
-            eprintln!("GPU not available ({e}), using CPU renderer");
-            None
-        }
-    };
+    let mut gpu_ctx =
+        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
 
     let mut scenes = build_scenes();
     let mut preset_idx: usize = 0;
@@ -386,15 +378,10 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_fps = 0.0_f32;
     let mut handle: Option<transport::backend::ImageHandle> = None;
 
-    // Auto-detect GPU
+    // Auto-detect GPU with timeout to avoid hanging on broken drivers
     #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx = match scry_engine::sdf::SdfGpuContext::new() {
-        Ok(ctx) => {
-            eprintln!("GPU SDF renderer initialized \u{2014} using GPU acceleration");
-            Some(ctx)
-        }
-        Err(_) => None,
-    };
+    let mut gpu_ctx =
+        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
 
     // Profiler state
     let mut profiling = false;

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Edge case battery: degenerate inputs for all 19 models.
 //!
 //! Tests: empty dataset, single sample, single feature, all-same-class,

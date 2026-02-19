@@ -56,6 +56,8 @@ struct Config {
     // Gradient checkpointing
     use_checkpointing: bool,
     checkpoint_every: usize,
+    // MFU reporting
+    peak_tflops: Option<f64>,
 }
 
 impl Default for Config {
@@ -93,6 +95,7 @@ impl Default for Config {
             merges_path: None,
             use_checkpointing: false,
             checkpoint_every: 3,
+            peak_tflops: None,
         }
     }
 }
@@ -136,6 +139,7 @@ fn parse_args() -> Config {
             "--merges" => { cfg.merges_path = Some(PathBuf::from(&args[i + 1])); i += 2; }
             "--grad-checkpoint" => { cfg.use_checkpointing = true; i += 1; }
             "--checkpoint-every" => { cfg.checkpoint_every = args[i + 1].parse().expect("invalid --checkpoint-every"); i += 2; }
+            "--peak-tflops" => { cfg.peak_tflops = Some(args[i + 1].parse().expect("invalid --peak-tflops")); i += 2; }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -156,7 +160,8 @@ fn print_help() {
          Data:\n  \
            --data-dir PATH          shard directory (default: data/shards)\n\n\
          Backend:\n  \
-           --backend cpu|cuda       compute backend (default: cpu)\n\n\
+           --backend cpu|cuda|cuda-bf16  compute backend (default: cpu)\n  \
+           --peak-tflops F          GPU peak TFLOPS for MFU reporting\n\n\
          Training:\n  \
            --total-steps N          total training steps (default: 10000)\n  \
            --batch-size N           batch size (default: 4)\n  \
@@ -221,6 +226,8 @@ fn run_training<B: scry_llm::backend::MathBackend>(cfg: &Config) {
         seed: cfg.seed,
         use_checkpointing: cfg.use_checkpointing,
         checkpoint_every: cfg.checkpoint_every,
+        peak_tflops: cfg.peak_tflops,
+        n_params: None, // set after model init
     };
 
     // Print config summary
@@ -236,6 +243,9 @@ fn run_training<B: scry_llm::backend::MathBackend>(cfg: &Config) {
     eprintln!("Dropout:       {:.2}", cfg.dropout);
     if cfg.use_checkpointing {
         eprintln!("Checkpointing: every {} blocks", cfg.checkpoint_every);
+    }
+    if let Some(tflops) = cfg.peak_tflops {
+        eprintln!("Peak TFLOPS:   {tflops:.1} (MFU reporting enabled)");
     }
     eprintln!("Data dir:      {}", cfg.data_dir.display());
     eprintln!("Seed:          {}", cfg.seed);
@@ -278,25 +288,13 @@ fn run_training<B: scry_llm::backend::MathBackend>(cfg: &Config) {
             std::process::exit(1);
         }
     } else {
-        let n_params: usize = {
-            // Rough param count for logging
-            let d = model_config.d_model;
-            let v = model_config.vocab_size;
-            let s = model_config.max_seq_len;
-            let ff = model_config.d_ff;
-            let nl = model_config.n_layers;
-            let embed = v * d + s * d;
-            let per_block = 4 * d * d + 4 * d   // attn (qkv + proj + biases)
-                          + 2 * d                 // ln1
-                          + d * ff + ff + ff * d + d  // mlp
-                          + 2 * d;                // ln2
-            let final_ln = 2 * d;
-            embed + nl * per_block + final_ln
-        };
-        eprintln!("Initializing fresh model (~{:.1}M params)", n_params as f64 / 1e6);
         let model = Gpt2Model::<B>::new(model_config.clone(), &mut rng);
+        eprintln!("Initializing fresh model (~{:.1}M params)", model.n_params() as f64 / 1e6);
         Trainer::new(model, model_config.clone(), training_config)
     };
+
+    // Set n_params for MFU computation
+    trainer.config.n_params = Some(trainer.model.n_params());
 
     // Load data
     eprintln!("Loading train shards from {}...", cfg.data_dir.display());
@@ -404,15 +402,37 @@ fn run_training_with_samples<B: scry_llm::backend::MathBackend>(
                 * trainer.config.seq_len
                 * trainer.config.grad_accum_steps;
             let tokens_per_sec = (trainer.step * tokens_per_step) as f64 / elapsed;
-            eprintln!(
-                "step {:>6} | loss {:.4} | ppl {:>8.2} | grad_norm {:.4} | lr {:.2e} | tok/s {:.0}",
-                trainer.step,
-                metrics.loss,
-                metrics.loss.exp(),
-                metrics.grad_norm,
-                metrics.lr,
-                tokens_per_sec,
-            );
+            let mfu = match (trainer.config.peak_tflops, trainer.config.n_params) {
+                (Some(peak), Some(n_params)) => {
+                    let flops_per_token = 6.0 * n_params as f64;
+                    let achieved_flops = tokens_per_sec * flops_per_token;
+                    achieved_flops / (peak * 1e12)
+                }
+                _ => 0.0,
+            };
+
+            if mfu > 0.0 {
+                eprintln!(
+                    "step {:>6} | loss {:.4} | ppl {:>8.2} | grad_norm {:.4} | lr {:.2e} | tok/s {:.0} | MFU {:.1}%",
+                    trainer.step,
+                    metrics.loss,
+                    metrics.loss.exp(),
+                    metrics.grad_norm,
+                    metrics.lr,
+                    tokens_per_sec,
+                    mfu * 100.0,
+                );
+            } else {
+                eprintln!(
+                    "step {:>6} | loss {:.4} | ppl {:>8.2} | grad_norm {:.4} | lr {:.2e} | tok/s {:.0}",
+                    trainer.step,
+                    metrics.loss,
+                    metrics.loss.exp(),
+                    metrics.grad_norm,
+                    metrics.lr,
+                    tokens_per_sec,
+                );
+            }
         }
 
         // Evaluation
@@ -497,8 +517,18 @@ fn main() {
             eprintln!("error: CUDA backend not available (compile with --features cuda)");
             std::process::exit(1);
         }
+        #[cfg(feature = "bf16")]
+        "cuda-bf16" => {
+            scry_llm::backend::cuda::init_gpu_bf16(0);
+            run_training::<scry_llm::backend::cuda::CudaBackend>(&cfg);
+        }
+        #[cfg(not(feature = "bf16"))]
+        "cuda-bf16" => {
+            eprintln!("error: BF16 backend not available (compile with --features bf16)");
+            std::process::exit(1);
+        }
         other => {
-            eprintln!("error: unknown backend '{other}' (use 'cpu' or 'cuda')");
+            eprintln!("error: unknown backend '{other}' (use 'cpu', 'cuda', or 'cuda-bf16')");
             std::process::exit(1);
         }
     }

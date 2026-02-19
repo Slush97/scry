@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_wrap)]
 //! Industry-standard ML vitals — single fast test covering every key metric.
 //!
 //! **9 sections** covering the complete benchmark landscape:
@@ -6,10 +7,10 @@
 //! |---|-------------------------------|---------------------------------------|
 //! | 1 | Classification multi-metric    | Accuracy, F1, Precision, Recall, AUC-ROC |
 //! | 2 | Regression vitals             | R², RMSE, MAE on California Housing   |
-//! | 3 | Confusion matrix parity       | ConfusionMatrix shape + report        |
+//! | 3 | Confusion matrix parity       | `ConfusionMatrix` shape + report        |
 //! | 4 | Prediction latency (approx)   | p50/p95 single-row, median of 10 runs |
 //! | 5 | Concurrent inference          | 4 threads × 250 predicts              |
-//! | 6 | Serialize round-trip          | serde_json save/load, prediction match |
+//! | 6 | Serialize round-trip          | `serde_json` save/load, prediction match |
 //! | 7 | Training throughput (approx)  | Wall-clock per model on 10K samples   |
 //! | 8 | Cold start                    | construct → fit → first predict       |
 //! | 9 | Memory footprint              | RSS delta per model family            |
@@ -97,7 +98,7 @@ fn fmt_time(us: f64) -> String {
     if us < 1.0 {
         format!("{:.0} ns", us * 1000.0)
     } else if us < 1000.0 {
-        format!("{:.1} µs", us)
+        format!("{us:.1} µs")
     } else if us < 1_000_000.0 {
         format!("{:.2} ms", us / 1000.0)
     } else {
@@ -671,7 +672,7 @@ fn section_4_prediction_latency() {
 
     // LogisticRegression
     {
-        let mut data_s = data.clone();
+        let mut data_s = data;
         let mut scaler = StandardScaler::new();
         Transformer::fit(&mut scaler, &data_s).unwrap();
         Transformer::transform(&scaler, &mut data_s).unwrap();
@@ -1169,7 +1170,7 @@ fn section_9_memory_footprint() {
     }
     let target: Vec<f64> = (0..n).map(|i| (i % n_classes) as f64).collect();
     let names: Vec<String> = (0..n_features).map(|j| format!("f{j}")).collect();
-    let data = Dataset::new(features.clone(), target.clone(), names.clone(), "target");
+    let data = Dataset::new(features.clone(), target, names.clone(), "target");
 
     println!("  Dataset: {n} samples × {n_features} features\n");
     println!("  {:<28} {:>12}", "Model", "RSS Δ");

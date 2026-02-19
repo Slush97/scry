@@ -85,6 +85,8 @@ pub struct LegendConfig {
     pub font_color: Color,
     /// Swatch shape for all entries.
     pub swatch_shape: SwatchShape,
+    /// Color swatch size in pixels (default: 12.0).
+    pub swatch_size: f32,
     /// Inner padding (px).
     pub padding: f32,
     /// Vertical spacing between entries (px).
@@ -107,12 +109,13 @@ impl Default for LegendConfig {
     fn default() -> Self {
         Self {
             position: LegendPosition::TopRight,
-            background: None,
-            border: None,
+            background: Some(Color::from_rgba8(30, 30, 40, 180)),
+            border: Some(Color::from_rgba8(80, 80, 100, 120)),
             font_color: Color::from_rgba8(200, 200, 220, 255),
             swatch_shape: SwatchShape::Rect,
-            padding: 8.0,
-            spacing: 4.0,
+            swatch_size: 12.0,
+            padding: 12.0,
+            spacing: 8.0,
             char_width: 7.0,
             visible: true,
             title: None,
@@ -170,7 +173,7 @@ pub fn measure_legend(
                 .unwrap_or(0);
 
             let label_width = max_label_len as f32 * config.char_width;
-            let swatch_gap = 4.0;
+            let swatch_gap = 6.0;
             let col_width = swatch_size + swatch_gap + label_width;
             let col_gap = config.spacing * 2.0;
 
@@ -190,7 +193,7 @@ pub fn measure_legend(
             (width.max(40.0), height.max(20.0))
         }
         LegendOrientation::Horizontal => {
-            let swatch_gap = 4.0;
+            let swatch_gap = 6.0;
             let entry_gap = config.spacing * 2.0; // gap between entries
             let total_width: f32 = entries
                 .iter()
@@ -234,8 +237,8 @@ pub fn draw_positioned_legend(
     entries: &[LegendEntry],
     plot: (f32, f32, f32, f32),
     config: &LegendConfig,
-    swatch_size: f32,
-    spacing: f32,
+    _swatch_size: f32,
+    _spacing: f32,
     data_points: Option<&[(f32, f32)]>,
 ) -> (PixelCanvas, Vec<(f32, f32, String)>) {
     if entries.is_empty() || !config.visible {
@@ -243,6 +246,10 @@ pub fn draw_positioned_legend(
     }
 
     let (_px, _py, _pw, ph) = plot;
+
+    // Use config's swatch_size and spacing (ignore legacy parameters)
+    let swatch_size = config.swatch_size;
+    let spacing = config.spacing;
 
     // --- Auto-column: keep legend from dwarfing the plot ---
     let effective_config = if config.columns == 1
@@ -425,7 +432,7 @@ pub fn draw_legend_entries(
                 .map(|e| e.label.chars().count())
                 .max()
                 .unwrap_or(0);
-            let swatch_gap = 4.0;
+            let swatch_gap = 6.0;
             let col_gap = spacing * 2.0;
             let label_width = max_label_len as f32 * config.char_width;
             let col_width = swatch_size + swatch_gap + label_width;
@@ -438,9 +445,10 @@ pub fn draw_legend_entries(
             for entry in entries {
                 let entry_x = x + (col_width + col_gap) * col_idx as f32;
                 canvas = draw_swatch(canvas, entry_x, current_y, swatch_size, entry.color, shape);
+                // Vertically center text with swatch: offset by half swatch height
                 text_entries.push((
                     entry_x + swatch_size + swatch_gap,
-                    current_y,
+                    current_y + swatch_size * 0.5 - 1.0,
                     entry.label.clone(),
                 ));
 
@@ -457,13 +465,14 @@ pub fn draw_legend_entries(
         LegendOrientation::Horizontal => {
             let mut current_x = x;
             let entry_y = y + y_offset;
-            let swatch_gap = 4.0;
+            let swatch_gap = 6.0;
             let entry_gap = spacing * 2.0;
             for entry in entries {
                 canvas = draw_swatch(canvas, current_x, entry_y, swatch_size, entry.color, shape);
+                // Vertically center text with swatch
                 text_entries.push((
                     current_x + swatch_size + swatch_gap,
-                    entry_y,
+                    entry_y + swatch_size * 0.5 - 1.0,
                     entry.label.clone(),
                 ));
                 let label_w = entry.label.chars().count() as f32 * config.char_width;

@@ -470,8 +470,11 @@ fn scene_sdf(scene: &SdfScene, point: Vec3, time: f32) -> (f32, usize) {
 fn object_sdf(obj: &SdfObject, point: Vec3, time: f32) -> f32 {
     let mut local = primitives::translate(point, obj.position);
 
-    // Apply inverse Y-axis rotation to the evaluation point (domain rotation).
-    if let Some((cos_y, sin_y)) = obj.rotation_y {
+    // Apply inverse rotation to the evaluation point (domain rotation).
+    // Quaternion orientation takes precedence over Y-axis rotation.
+    if let Some(q) = obj.orientation {
+        local = q.conjugate().rotate_vec3(local);
+    } else if let Some((cos_y, sin_y)) = obj.rotation_y {
         // Inverse rotation: rotate by -angle (swap sin sign)
         let rx = local.x * cos_y - local.z * sin_y;
         let rz = local.x * sin_y + local.z * cos_y;
@@ -529,6 +532,8 @@ fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
             radius,
         } => primitives::sd_rounded_box(p, *half_extents, *radius),
         SdfShape::Cone { radius, height } => primitives::sd_cone(p, *radius, *height),
+        #[cfg(feature = "sdf-text")]
+        SdfShape::Text3D { layout, depth } => super::glyph::sd_text3d(layout, p, *depth),
     }
 }
 

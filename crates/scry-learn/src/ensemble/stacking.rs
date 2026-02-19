@@ -727,7 +727,7 @@ mod tests {
     fn test_generate_fold_indices() {
         let folds = generate_fold_indices(10, 3, 42);
         assert_eq!(folds.len(), 3);
-        let total: usize = folds.iter().map(|f| f.len()).sum();
+        let total: usize = folds.iter().map(std::vec::Vec::len).sum();
         assert_eq!(total, 10);
         // All indices present.
         let mut all: Vec<usize> = folds.into_iter().flatten().collect();

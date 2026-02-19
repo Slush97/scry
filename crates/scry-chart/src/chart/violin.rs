@@ -85,4 +85,15 @@ impl ViolinPlot {
     pub fn build(self) -> Chart {
         Chart::Violin(self)
     }
+
+    /// Build with validation.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.groups.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        if self.groups.iter().all(|(_, v)| v.is_empty()) {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        Ok(Chart::Violin(self))
+    }
 }

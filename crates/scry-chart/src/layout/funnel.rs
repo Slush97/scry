@@ -62,13 +62,14 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
         .collect();
 
     // ── Precompute widths for trapezoid shaping ──
+    let min_width = pw * 0.12; // minimum 12% of plot width to prevent crushing
     let widths: Vec<f32> = (0..n)
         .map(|i| {
             let v = fc.values[i];
             if v.is_finite() && v > 0.0 {
-                (pw * (v / max_val) as f32).max(4.0)
+                (pw * (v / max_val) as f32).max(min_width)
             } else {
-                4.0
+                min_width
             }
         })
         .collect();
@@ -87,8 +88,8 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
         let bottom_w = if i + 1 < n {
             widths[i + 1]
         } else {
-            top_w * 0.3
-        }; // last stage tapers
+            (top_w * 0.3).max(min_width)
+        }; // last stage tapers but respects minimum
 
         let top_left = center_x - top_w / 2.0;
         let top_right = center_x + top_w / 2.0;
@@ -119,14 +120,20 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
         ctx.draw(|c| c.polygon(trapezoid).stroke(stroke_color, 1.0).done());
 
         // ── Text placement: inside if tall enough, outside if cramped ──
-        let text_inside = stage_h >= 24.0;
+        let detail = build_detail(fc, i, first_val);
+        let has_detail = !detail.is_empty();
+        // Need more height when detail is present (label + detail + spacing)
+        let min_inside_h = if has_detail { 40.0 } else { 28.0 };
+        let text_inside = stage_h >= min_inside_h;
 
         if text_inside {
-            // Label centered inside
-            let label_y = bar_y + stage_h / 2.0 - 6.0;
+            // Vertically center the text block (label + optional detail)
+            let text_block_h = if has_detail { tick_fs + data_fs * 0.8 + 4.0 } else { tick_fs };
+            let block_top = bar_y + (stage_h - text_block_h) / 2.0;
+
             ctx.overlays.push(TextOverlay {
                 x_px: center_x,
-                y_px: label_y,
+                y_px: block_top,
                 text: fc.labels[i].clone(),
                 color: contrast_text_color(color),
                 align: TextAlign::Center,
@@ -135,16 +142,14 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
                 rotation_deg: 0.0,
             });
 
-            // Detail text (value / percentage / conversion) below label
-            let detail = build_detail(fc, i, first_val);
-            if !detail.is_empty() {
+            if has_detail {
                 ctx.overlays.push(TextOverlay {
                     x_px: center_x,
-                    y_px: label_y + 14.0,
+                    y_px: block_top + tick_fs + 2.0,
                     text: detail,
-                    color: contrast_text_color(color).with_alpha(0.7),
+                    color: contrast_text_color(color).with_alpha(0.65),
                     align: TextAlign::Center,
-                    font_size: data_fs,
+                    font_size: data_fs * 0.85,
                     bold: false,
                     rotation_deg: 0.0,
                 });
@@ -155,8 +160,7 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
             let label_y = bar_y + stage_h / 2.0;
 
             let mut text = fc.labels[i].clone();
-            let detail = build_detail(fc, i, first_val);
-            if !detail.is_empty() {
+            if has_detail {
                 text.push_str(" · ");
                 text.push_str(&detail);
             }

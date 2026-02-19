@@ -66,6 +66,8 @@ fuzz_target!(|data: &[u8]| {
         seed: 42,
         use_checkpointing: false,
         checkpoint_every: 4,
+        peak_tflops: None,
+        n_params: None,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);

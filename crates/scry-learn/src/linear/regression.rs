@@ -582,7 +582,7 @@ mod tests {
     fn test_sparse_predict_matches_dense() {
         let features = vec![(0..20).map(|i| i as f64).collect::<Vec<f64>>()];
         let target: Vec<f64> = (0..20).map(|i| 2.0 * i as f64 + 3.0).collect();
-        let data = Dataset::new(features.clone(), target.clone(), vec!["x".into()], "y");
+        let data = Dataset::new(features, target, vec!["x".into()], "y");
 
         let mut lr = LinearRegression::new();
         lr.fit(&data).unwrap();

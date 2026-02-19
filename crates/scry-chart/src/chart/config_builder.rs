@@ -457,11 +457,33 @@ macro_rules! chart_config_semantic_zoom {
     };
 }
 
+/// Generate data label builder methods.
+macro_rules! chart_config_data_labels {
+    () => {
+        /// Show data value labels on bars, points, or markers.
+        ///
+        /// The default formatter uses the auto-format (2 sig digits). Use
+        /// [`values_fmt`](#method.values_fmt) for custom formatting.
+        pub fn show_values(mut self) -> Self {
+            self.config.show_data_labels = true;
+            self
+        }
+
+        /// Show data value labels with a custom formatter.
+        pub fn values_fmt(mut self, fmt: impl $crate::formatter::TickFormatter + 'static) -> Self {
+            self.config.show_data_labels = true;
+            self.config.data_label_formatter = Some(std::sync::Arc::new(fmt));
+            self
+        }
+    };
+}
+
 // Re-export macros for use in sibling modules.
 pub(crate) use chart_config_annotations;
 pub(crate) use chart_config_axis_labels;
 pub(crate) use chart_config_core;
-
+#[allow(unused_imports)]
+pub(crate) use chart_config_data_labels;
 pub(crate) use chart_config_formatters;
 pub(crate) use chart_config_grid;
 pub(crate) use chart_config_h_lines;
@@ -476,3 +498,4 @@ pub(crate) use chart_config_subtitle_footer;
 pub(crate) use chart_config_tick_rotation;
 pub(crate) use chart_config_tick_steps;
 pub(crate) use chart_config_v_lines;
+

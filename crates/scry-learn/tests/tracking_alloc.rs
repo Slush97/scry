@@ -1,4 +1,4 @@
-#![allow(unsafe_code)]
+#![allow(unsafe_code, missing_docs, dead_code, clippy::cast_possible_wrap)]
 
 //! A minimal `GlobalAlloc` wrapper that tracks peak heap usage and allocation count.
 //!
@@ -22,6 +22,12 @@ static PEAK_BYTES: AtomicUsize = AtomicUsize::new(0);
 static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Total number of `dealloc` calls since last reset.
 static DEALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+impl Default for TrackingAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TrackingAllocator {
     pub const fn new() -> Self {
@@ -114,9 +120,9 @@ impl AllocSnapshot {
 pub struct AllocDelta {
     /// Peak heap increase above the starting point.
     pub peak_increase: usize,
-    /// Number of alloc() calls in the window.
+    /// Number of `alloc()` calls in the window.
     pub alloc_count: usize,
-    /// Number of dealloc() calls in the window.
+    /// Number of `dealloc()` calls in the window.
     pub dealloc_count: usize,
     /// Net change in live bytes (positive = growth).
     pub net_bytes: isize,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Tests that NaN/Inf values in input data are rejected by fit().
+//! Tests that NaN/Inf values in input data are rejected by `fit()`.
 
 use scry_learn::dataset::Dataset;
 use scry_learn::error::ScryLearnError;

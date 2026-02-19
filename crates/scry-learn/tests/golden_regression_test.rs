@@ -1,3 +1,9 @@
+#![allow(
+    clippy::items_after_statements,
+    clippy::type_complexity,
+    clippy::redundant_locals,
+    dead_code
+)]
 //! Golden baseline regression test — verifies every model still hits
 //! its expected accuracy/metric within tolerance.
 //!
@@ -6,13 +12,13 @@
 //! has regressed and must be investigated before merging.
 //!
 //! Run:
-//!   cargo test --test golden_regression_test -p scry-learn --release -- --nocapture
+//!   cargo test --test `golden_regression_test` -p scry-learn --release -- --nocapture
 
 #[path = "../benches/benchmark_config.rs"]
 mod benchmark_config;
 
 use benchmark_config::*;
-use scry_learn::metrics::{accuracy, adjusted_rand_index, r2_score, roc_auc_score};
+use scry_learn::metrics::{accuracy, adjusted_rand_index, roc_auc_score};
 use scry_learn::preprocess::{StandardScaler, Transformer};
 use scry_learn::split::{cross_val_score_stratified, train_test_split, ScoringFn};
 
@@ -29,8 +35,8 @@ fn golden_classification_accuracy() {
     println!("  GOLDEN BASELINE REGRESSION TEST — Classification (5-fold stratified CV)");
     println!("{}", "═".repeat(80));
     println!(
-        "  {:<20} {:<16} {:>10} {:>10} {:>10}  {}",
-        "Model", "Dataset", "Expected", "Actual", "Δ", "Status"
+        "  {:<20} {:<16} {:>10} {:>10} {:>10}  Status",
+        "Model", "Dataset", "Expected", "Actual", "Δ"
     );
     println!("  {}", "─".repeat(76));
 
@@ -166,15 +172,15 @@ fn golden_regression_r2() {
     println!("  GOLDEN BASELINE REGRESSION TEST — Regression (California Housing, 80/20)");
     println!("{}", "═".repeat(80));
     println!(
-        "  {:<20} {:<16} {:>10} {:>10} {:>10}  {}",
-        "Model", "Dataset", "Expected", "Actual", "Δ", "Status"
+        "  {:<20} {:<16} {:>10} {:>10} {:>10}  Status",
+        "Model", "Dataset", "Expected", "Actual", "Δ"
     );
     println!("  {}", "─".repeat(76));
 
     let data = load_dataset("california");
 
     // Apply StandardScaler
-    let mut scaled = data.clone();
+    let mut scaled = data;
     let mut scaler = StandardScaler::new();
     scaler.fit(&scaled).unwrap();
     scaler.transform(&mut scaled).unwrap();
@@ -358,8 +364,8 @@ fn golden_determinism_check() {
         (
             "GaussianNB",
             Box::new({
-                let data = data.clone();
-                let rows = rows.clone();
+                let data = data;
+                let rows = rows;
                 move || {
                     let mut m = scry_learn::naive_bayes::GaussianNb::new();
                     m.fit(&data).unwrap();
@@ -386,7 +392,7 @@ fn golden_determinism_check() {
             "✗ NON-DETERMINISTIC"
         };
 
-        println!("  {:<20} {}/{} predictions match  {}", name, match_count, total, status);
+        println!("  {name:<20} {match_count}/{total} predictions match  {status}");
         assert_eq!(
             match_count, total,
             "{name} is not deterministic: {match_count}/{total} predictions differ!"
@@ -432,7 +438,7 @@ fn golden_mlp_classifier() {
         let min_acc = 0.70;
         let passed = acc >= min_acc;
         let status = if passed { "PASS" } else { "FAIL" };
-        println!("  {:<20} accuracy={:.4}  (min={:.2})  {}", ds_name, acc, min_acc, status);
+        println!("  {ds_name:<20} accuracy={acc:.4}  (min={min_acc:.2})  {status}");
 
         if !passed {
             failures.push(format!("MLPClassifier/{ds_name}: accuracy={acc:.4} < {min_acc:.2}"));

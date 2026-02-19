@@ -6,6 +6,15 @@
 //! cross-platform GPU rendering (Vulkan/Metal/DX12) with headless offscreen
 //! support — no window or display is required.
 //!
+//! # Architecture
+//!
+//! The 3D pipelines live in the engine's [`PipelineRegistry`] and are compiled
+//! lazily on first use. `WgpuRasterizer3D` borrows `&'static` references to
+//! the shared device, queue, and pipeline objects — identical to how the 2D
+//! and SDF contexts work.
+//!
+//! [`PipelineRegistry`]: scry_engine::gpu::PipelineRegistry
+//!
 //! # Performance
 //!
 //! Targets ≥10x throughput over [`SkiaRasterizer3D`](super::SkiaRasterizer3D)
@@ -22,46 +31,8 @@
 
 use super::projection::ProjectedPoint;
 use super::Rasterizer3D;
+use scry_engine::gpu::pipelines_3d::{LineVertex3D, PointInstance3D, Uniforms3D};
 use scry_engine::style::Color;
-use std::cell::RefCell;
-
-// ---------------------------------------------------------------------------
-// Vertex types (bytemuck-compatible for GPU upload)
-// ---------------------------------------------------------------------------
-
-/// Per-instance data for point rendering.
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(C)]
-struct PointInstance {
-    /// (screen_x, screen_y, radius, depth)
-    pos_size: [f32; 4],
-    /// (r, g, b, a) in [0, 1]
-    color: [f32; 4],
-}
-
-/// Per-vertex data for line rendering.
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(C)]
-struct LineVertex {
-    /// Screen-space pixel position.
-    position: [f32; 2],
-    /// Perpendicular normal direction.
-    normal: [f32; 2],
-    /// RGBA color.
-    color: [f32; 4],
-    /// Half-width of the line in pixels.
-    line_width: f32,
-    /// Signed distance from line center (-1 or +1).
-    edge_dist: f32,
-}
-
-/// Viewport uniform data.
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(C)]
-struct Uniforms {
-    viewport: [f32; 2],
-    _pad: [f32; 2],
-}
 
 // ---------------------------------------------------------------------------
 // Deferred draw commands
@@ -74,223 +45,6 @@ struct TextOverlay {
     text: String,
     color: Color,
     font_size: f32,
-}
-
-// ---------------------------------------------------------------------------
-// WgpuContext — reusable GPU device + pipeline cache
-// ---------------------------------------------------------------------------
-
-/// Reusable GPU context holding the wgpu device, queue, and compiled pipelines.
-///
-/// Creating a `WgpuContext` is expensive (~100ms) because it initializes the
-/// GPU adapter, device, and compiles WGSL shaders into render pipelines.
-/// Create one context and reuse it across many frames via
-/// [`WgpuRasterizer3D::with_context()`].
-///
-/// # Example
-///
-/// ```ignore
-/// use scry_chart::chart3d::wgpu_backend::WgpuContext;
-/// use scry_chart::chart3d::Chart3D;
-///
-/// let ctx = WgpuContext::new()?;
-/// for _ in 0..60 {
-///     let rgba = chart.render_gpu_with_context(&ctx, 1920, 1080)?;
-/// }
-/// ```
-/// Cached per-frame GPU resources, reusable when dimensions match.
-struct FrameResourceCache {
-    width: u32,
-    height: u32,
-    texture: wgpu::Texture,
-    texture_view: wgpu::TextureView,
-    uniform_bind_group: wgpu::BindGroup,
-    readback_buffer: wgpu::Buffer,
-    readback_padded_row: u32,
-}
-
-/// Reusable GPU context holding the wgpu device, queue, and compiled pipelines.
-///
-/// Creating a `WgpuContext` is expensive (~100ms) because it initializes the
-/// GPU adapter, device, and compiles WGSL shaders into render pipelines.
-/// Create one context and reuse it across many frames via
-/// [`WgpuRasterizer3D::with_context()`].
-pub struct WgpuContext {
-    device: std::sync::Arc<wgpu::Device>,
-    queue: std::sync::Arc<wgpu::Queue>,
-    point_pipeline: wgpu::RenderPipeline,
-    line_pipeline: wgpu::RenderPipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
-    frame_cache: RefCell<Option<FrameResourceCache>>,
-}
-
-impl WgpuContext {
-    /// Initialize the GPU context.
-    ///
-    /// This performs the expensive one-time setup:
-    /// - `Instance` → `Adapter` → `Device` + `Queue`
-    /// - Compile point and line WGSL shaders into render pipelines
-    ///
-    /// # Errors
-    ///
-    /// Returns an error string if no compatible GPU adapter is found or
-    /// device creation fails.
-    pub fn new() -> Result<Self, String> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .ok_or("wgpu: no compatible GPU adapter found")?;
-
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("scry-chart-3d"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        ))
-        .map_err(|e| format!("wgpu: device creation failed: {e}"))?;
-
-        Self::build_pipelines(std::sync::Arc::new(device), std::sync::Arc::new(queue))
-    }
-
-    /// Create a context sharing an existing [`GpuDevice`](scry_engine::gpu::GpuDevice).
-    ///
-    /// This skips the ~100ms adapter/device initialization. Only the
-    /// shader compilation and pipeline creation are performed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error string if pipeline creation fails.
-    pub fn with_device(gpu: &scry_engine::gpu::GpuDevice) -> Result<Self, String> {
-        let device = gpu.device_arc();
-        let queue = gpu.queue_arc();
-        Self::build_pipelines(device, queue)
-    }
-
-    /// Internal: compile shaders and build pipelines for a given device+queue.
-    fn build_pipelines(
-        device: std::sync::Arc<wgpu::Device>,
-        queue: std::sync::Arc<wgpu::Queue>,
-    ) -> Result<Self, String> {
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("uniform_bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        // --- Point pipeline ---
-        let point_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("point_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/point.wgsl").into()),
-        });
-
-        let point_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("point_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &point_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<PointInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[
-                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 16, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
-                    ],
-                }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &point_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        // --- Line pipeline ---
-        let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("line_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/line.wgsl").into()),
-        });
-
-        let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("line_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &line_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<LineVertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
-                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
-                        wgpu::VertexAttribute { offset: 16, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 32, shader_location: 3, format: wgpu::VertexFormat::Float32 },
-                        wgpu::VertexAttribute { offset: 36, shader_location: 4, format: wgpu::VertexFormat::Float32 },
-                    ],
-                }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &line_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        Ok(Self {
-            device,
-            queue,
-            point_pipeline,
-            line_pipeline,
-            bind_group_layout,
-            frame_cache: RefCell::new(None),
-        })
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,74 +71,19 @@ impl WgpuContext {
 /// let chart = Chart3D::scatter(&x, &y, &z);
 /// let rgba = chart.render_with(rast)?;
 /// ```
-pub struct WgpuRasterizer3D<'ctx> {
-    device: DeviceRef<'ctx>,
-    queue: QueueRef<'ctx>,
+pub struct WgpuRasterizer3D {
+    device: &'static wgpu::Device,
+    queue: &'static wgpu::Queue,
+    pipelines: &'static scry_engine::gpu::pipelines_3d::Pipelines3D,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     width: u32,
     height: u32,
     background: Color,
-    point_pipeline: PipelineRef<'ctx>,
-    line_pipeline: PipelineRef<'ctx>,
     uniform_bind_group: wgpu::BindGroup,
-    point_instances: Vec<PointInstance>,
-    line_vertices: Vec<LineVertex>,
+    point_instances: Vec<PointInstance3D>,
+    line_vertices: Vec<LineVertex3D>,
     text_overlays: Vec<TextOverlay>,
-    /// Cached readback buffer from previous frame (reused if dimensions match).
-    cached_readback: Option<wgpu::Buffer>,
-    /// Padded row stride for the cached readback buffer.
-    cached_readback_padded_row: u32,
-    /// Reference back to context for returning resources to cache.
-    ctx_ref: Option<&'ctx WgpuContext>,
-}
-
-/// Owned or borrowed reference to a wgpu device.
-enum DeviceRef<'a> {
-    Owned(std::sync::Arc<wgpu::Device>),
-    Borrowed(&'a wgpu::Device),
-}
-
-impl std::ops::Deref for DeviceRef<'_> {
-    type Target = wgpu::Device;
-    fn deref(&self) -> &wgpu::Device {
-        match self {
-            Self::Owned(d) => d,
-            Self::Borrowed(d) => d,
-        }
-    }
-}
-
-/// Owned or borrowed reference to a wgpu queue.
-enum QueueRef<'a> {
-    Owned(std::sync::Arc<wgpu::Queue>),
-    Borrowed(&'a wgpu::Queue),
-}
-
-impl std::ops::Deref for QueueRef<'_> {
-    type Target = wgpu::Queue;
-    fn deref(&self) -> &wgpu::Queue {
-        match self {
-            Self::Owned(q) => q,
-            Self::Borrowed(q) => q,
-        }
-    }
-}
-
-/// Owned or borrowed reference to a wgpu render pipeline.
-enum PipelineRef<'a> {
-    Owned(wgpu::RenderPipeline),
-    Borrowed(&'a wgpu::RenderPipeline),
-}
-
-impl std::ops::Deref for PipelineRef<'_> {
-    type Target = wgpu::RenderPipeline;
-    fn deref(&self) -> &wgpu::RenderPipeline {
-        match self {
-            Self::Owned(p) => p,
-            Self::Borrowed(p) => p,
-        }
-    }
 }
 
 /// Create per-frame resources (texture, uniform buffer, bind group) on a device.
@@ -394,8 +93,10 @@ fn create_frame_resources(
     width: u32,
     height: u32,
 ) -> (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup) {
+    use wgpu::util::DeviceExt;
+
     let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("render_target"),
+        label: Some("render_target_3d"),
         size: wgpu::Extent3d {
             width,
             height,
@@ -410,18 +111,18 @@ fn create_frame_resources(
     });
     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let uniform_data = Uniforms {
+    let uniform_data = Uniforms3D {
         viewport: [width as f32, height as f32],
         _pad: [0.0, 0.0],
     };
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("uniforms"),
+        label: Some("uniforms_3d"),
         contents: bytemuck::bytes_of(&uniform_data),
         usage: wgpu::BufferUsages::UNIFORM,
     });
 
     let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("uniform_bg"),
+        label: Some("uniform_bg_3d"),
         layout: bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
@@ -432,119 +133,74 @@ fn create_frame_resources(
     (texture, texture_view, uniform_bind_group)
 }
 
-impl WgpuRasterizer3D<'_> {
+impl WgpuRasterizer3D {
     /// Create a new GPU rasterizer with the given dimensions and background.
     ///
-    /// Initializes a headless wgpu device (no window/surface) and creates
-    /// render pipelines for points and lines. This is a convenience method
-    /// for one-shot rendering — for multi-frame rendering, use
-    /// [`WgpuContext::new()`] + [`with_context()`](Self::with_context).
+    /// Uses the global shared [`GpuDevice`](scry_engine::gpu::GpuDevice)
+    /// singleton — the first call may take ~100ms for device initialization,
+    /// but subsequent calls reuse the cached device and pipelines.
     ///
     /// # Errors
     ///
-    /// Returns an error string if GPU adapter or device creation fails
-    /// (e.g. no compatible GPU found).
+    /// Returns an error string if no compatible GPU adapter is found.
     pub fn new(width: u32, height: u32, background: Color) -> Result<Self, String> {
-        let ctx = WgpuContext::new()?;
-
-        let (texture, texture_view, uniform_bind_group) =
-            create_frame_resources(&ctx.device, &ctx.bind_group_layout, width, height);
-
-        Ok(Self {
-            device: DeviceRef::Owned(ctx.device),
-            queue: QueueRef::Owned(ctx.queue),
-            texture,
-            texture_view,
-            width,
-            height,
-            background,
-            point_pipeline: PipelineRef::Owned(ctx.point_pipeline),
-            line_pipeline: PipelineRef::Owned(ctx.line_pipeline),
-            uniform_bind_group,
-            point_instances: Vec::new(),
-            line_vertices: Vec::new(),
-            text_overlays: Vec::new(),
-            cached_readback: None,
-            cached_readback_padded_row: 0,
-            ctx_ref: None,
-        })
+        let gpu = scry_engine::gpu::GpuDevice::global_or_init()?;
+        Ok(Self::with_device(gpu, width, height, background))
     }
-}
 
-impl<'ctx> WgpuRasterizer3D<'ctx> {
-    /// Create a GPU rasterizer that borrows from an existing [`WgpuContext`].
+    /// Create a GPU rasterizer using an existing [`GpuDevice`](scry_engine::gpu::GpuDevice).
     ///
-    /// This skips all device and pipeline initialization, creating only the
-    /// per-frame resources (texture, uniform buffer). Use this in render loops
-    /// where a `WgpuContext` is created once and reused across many frames.
+    /// This is the **fast path** for multi-frame rendering. Pass the same
+    /// `GpuDevice` reference to skip all device and pipeline initialization.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// use scry_chart::chart3d::wgpu_backend::{WgpuContext, WgpuRasterizer3D};
+    /// use scry_chart::chart3d::wgpu_backend::WgpuRasterizer3D;
+    /// use scry_engine::gpu::GpuDevice;
     /// use scry_engine::style::Color;
     ///
-    /// let ctx = WgpuContext::new()?;
+    /// let gpu = GpuDevice::global().unwrap();
     /// for frame in 0..60 {
-    ///     let rast = WgpuRasterizer3D::with_context(&ctx, 1920, 1080, Color::BLACK);
+    ///     let rast = WgpuRasterizer3D::with_device(gpu, 1920, 1080, Color::BLACK);
     ///     // ... draw calls ...
     ///     let rgba = rast.finish();
     /// }
     /// ```
     #[must_use]
-    pub fn with_context(
-        ctx: &'ctx WgpuContext,
+    pub fn with_device(
+        gpu: &'static scry_engine::gpu::GpuDevice,
         width: u32,
         height: u32,
         background: Color,
     ) -> Self {
-        // Try to reuse cached frame resources if dimensions match
-        let cached = ctx.frame_cache.borrow_mut().take();
-        let (texture, texture_view, uniform_bind_group, cached_readback, cached_padded_row) =
-            if let Some(c) = cached {
-                if c.width == width && c.height == height {
-                    (
-                        c.texture,
-                        c.texture_view,
-                        c.uniform_bind_group,
-                        Some(c.readback_buffer),
-                        c.readback_padded_row,
-                    )
-                } else {
-                    let (t, tv, bg) =
-                        create_frame_resources(&ctx.device, &ctx.bind_group_layout, width, height);
-                    (t, tv, bg, None, 0)
-                }
-            } else {
-                let (t, tv, bg) =
-                    create_frame_resources(&ctx.device, &ctx.bind_group_layout, width, height);
-                (t, tv, bg, None, 0)
-            };
+        let device = gpu.device();
+        let queue = gpu.queue();
+        let pipelines = gpu.pipelines().get_3d(device);
+
+        let (texture, texture_view, uniform_bind_group) =
+            create_frame_resources(device, &pipelines.uniform_bgl, width, height);
 
         Self {
-            device: DeviceRef::Borrowed(&ctx.device),
-            queue: QueueRef::Borrowed(&ctx.queue),
+            device,
+            queue,
+            pipelines,
             texture,
             texture_view,
             width,
             height,
             background,
-            point_pipeline: PipelineRef::Borrowed(&ctx.point_pipeline),
-            line_pipeline: PipelineRef::Borrowed(&ctx.line_pipeline),
             uniform_bind_group,
             point_instances: Vec::new(),
             line_vertices: Vec::new(),
             text_overlays: Vec::new(),
-            cached_readback,
-            cached_readback_padded_row: cached_padded_row,
-            ctx_ref: Some(ctx),
         }
     }
 }
 
 use wgpu::util::DeviceExt;
 
-impl Rasterizer3D for WgpuRasterizer3D<'_> {
+impl Rasterizer3D for WgpuRasterizer3D {
     fn draw_points(&mut self, points: &[ProjectedPoint], colors: &[Color], sizes: &[f32]) {
         self.point_instances.extend(points.iter().map(|pt| {
             let color = colors
@@ -552,7 +208,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
                 .copied()
                 .unwrap_or(Color::WHITE);
             let size = sizes.get(pt.original_index).copied().unwrap_or(3.0);
-            PointInstance {
+            PointInstance3D {
                 pos_size: [pt.screen_x, pt.screen_y, size, pt.depth],
                 color: [color.r, color.g, color.b, color.a],
             }
@@ -590,42 +246,42 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
             let e = [end.screen_x, end.screen_y];
 
             // Each segment → 2 triangles (6 vertices): p0-p1-p2 and p1-p3-p2
-            self.line_vertices.push(LineVertex {
+            self.line_vertices.push(LineVertex3D {
                 position: s,
                 normal,
                 color: color_arr,
                 line_width: half_width,
                 edge_dist: 1.0,
             });
-            self.line_vertices.push(LineVertex {
+            self.line_vertices.push(LineVertex3D {
                 position: s,
                 normal,
                 color: color_arr,
                 line_width: half_width,
                 edge_dist: -1.0,
             });
-            self.line_vertices.push(LineVertex {
+            self.line_vertices.push(LineVertex3D {
                 position: e,
                 normal,
                 color: color_arr,
                 line_width: half_width,
                 edge_dist: 1.0,
             });
-            self.line_vertices.push(LineVertex {
+            self.line_vertices.push(LineVertex3D {
                 position: s,
                 normal,
                 color: color_arr,
                 line_width: half_width,
                 edge_dist: -1.0,
             });
-            self.line_vertices.push(LineVertex {
+            self.line_vertices.push(LineVertex3D {
                 position: e,
                 normal,
                 color: color_arr,
                 line_width: half_width,
                 edge_dist: -1.0,
             });
-            self.line_vertices.push(LineVertex {
+            self.line_vertices.push(LineVertex3D {
                 position: e,
                 normal,
                 color: color_arr,
@@ -645,7 +301,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
         });
     }
 
-    fn finish(mut self) -> Vec<u8> {
+    fn finish(self) -> Vec<u8> {
         let bg = wgpu::Color {
             r: f64::from(self.background.r),
             g: f64::from(self.background.g),
@@ -660,7 +316,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
             Some((
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("line_vertices"),
+                        label: Some("line_vertices_3d"),
                         contents: bytemuck::cast_slice(&self.line_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     }),
@@ -674,7 +330,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
             Some((
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("point_instances"),
+                        label: Some("point_instances_3d"),
                         contents: bytemuck::cast_slice(&self.point_instances),
                         usage: wgpu::BufferUsages::VERTEX,
                     }),
@@ -685,12 +341,12 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render_encoder"),
+                label: Some("render_encoder_3d"),
             });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("main_pass"),
+                label: Some("main_pass_3d"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.texture_view,
                     resolve_target: None,
@@ -706,7 +362,7 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
 
             // Draw lines first (behind points) — single draw call
             if let Some((ref buf, vert_count)) = line_buffer {
-                render_pass.set_pipeline(&self.line_pipeline);
+                render_pass.set_pipeline(&self.pipelines.line_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buf.slice(..));
                 render_pass.draw(0..vert_count, 0..1);
@@ -714,37 +370,24 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
 
             // Draw points on top — single instanced draw call
             if let Some((ref buf, inst_count)) = point_buffer {
-                render_pass.set_pipeline(&self.point_pipeline);
+                render_pass.set_pipeline(&self.pipelines.point_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buf.slice(..));
                 render_pass.draw(0..6, 0..inst_count);
             }
         }
 
-        // --- Readback (reuse cached buffer when dimensions match) ---
+        // --- Readback ---
         let bytes_per_row_unpadded = self.width * 4;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let bytes_per_row_padded = bytes_per_row_unpadded.div_ceil(align) * align;
 
-        let output_buffer = if let Some(buf) = self.cached_readback.take() {
-            if self.cached_readback_padded_row == bytes_per_row_padded {
-                buf // reuse — same dimensions
-            } else {
-                self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("readback"),
-                    size: u64::from(bytes_per_row_padded) * u64::from(self.height),
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                })
-            }
-        } else {
-            self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("readback"),
-                size: u64::from(bytes_per_row_padded) * u64::from(self.height),
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        };
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback_3d"),
+            size: u64::from(bytes_per_row_padded) * u64::from(self.height),
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -799,26 +442,6 @@ impl Rasterizer3D for WgpuRasterizer3D<'_> {
         // --- CPU text overlay (stamp directly on raw bytes) ---
         if !self.text_overlays.is_empty() {
             stamp_text_raw(&mut rgba, self.width, self.height, &self.text_overlays);
-        }
-
-        // --- Return resources to context cache for next frame ---
-        let width = self.width;
-        let height = self.height;
-        let texture = self.texture;
-        let texture_view = self.texture_view;
-        let uniform_bind_group = self.uniform_bind_group;
-        let ctx_ref = self.ctx_ref;
-
-        if let Some(ctx) = ctx_ref {
-            *ctx.frame_cache.borrow_mut() = Some(FrameResourceCache {
-                width,
-                height,
-                texture,
-                texture_view,
-                uniform_bind_group,
-                readback_buffer: output_buffer,
-                readback_padded_row: bytes_per_row_padded,
-            });
         }
 
         rgba
@@ -1025,13 +648,13 @@ mod tests {
     }
 
     #[test]
-    fn wgpu_context_reuse() {
-        let ctx = WgpuContext::new().expect("WgpuContext init");
+    fn wgpu_device_reuse() {
+        let gpu = scry_engine::gpu::GpuDevice::global().expect("GpuDevice init");
 
-        // Render 3 frames with different data using the same context
+        // Render 3 frames with different data using the same device
         for i in 0..3 {
             let offset = i as f32 * 10.0;
-            let mut rast = WgpuRasterizer3D::with_context(&ctx, 120, 90, Color::BLACK);
+            let mut rast = WgpuRasterizer3D::with_device(gpu, 120, 90, Color::BLACK);
             rast.draw_points(
                 &[ProjectedPoint {
                     screen_x: 60.0 + offset,
@@ -1050,16 +673,16 @@ mod tests {
     }
 
     #[test]
-    fn chart3d_render_gpu_with_context() {
+    fn chart3d_render_gpu_with_device() {
         use super::super::Chart3D;
 
-        let ctx = WgpuContext::new().expect("WgpuContext init");
+        let gpu = scry_engine::gpu::GpuDevice::global().expect("GpuDevice init");
         let chart = Chart3D::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], &[7.0, 8.0, 9.0])
             .title("Cached GPU");
 
-        // Render twice with the same context
+        // Render twice with the same device
         for _ in 0..2 {
-            let data = chart.render_gpu_with_context(&ctx, 160, 120).unwrap();
+            let data = chart.render_gpu_with_device(gpu, 160, 120).unwrap();
             assert_eq!(data.len(), 160 * 120 * 4);
             let has_content = data
                 .chunks(4)

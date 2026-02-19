@@ -66,8 +66,16 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
         }
     }
 
-    // Draw needle
+    // Draw value fill arc (from 0 to current value)
     let value_t = ((gc.value - gc.min) / range_safe).clamp(0.0, 1.0);
+    if value_t > 0.0 {
+        let fill_color = gc
+            .needle_color
+            .unwrap_or_else(|| theme.palette.first().copied().unwrap_or(theme.text_color()));
+        draw_arc_band(&mut ctx, &arc, 0.0, value_t as f32, fill_color.with_alpha(0.7));
+    }
+
+    // Draw needle
     let needle_angle = PI - value_t * PI; // π (left) to 0 (right)
     let nx = center_x + (radius * needle_angle.cos() as f32);
     let ny = center_y - (radius * needle_angle.sin() as f32);

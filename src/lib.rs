@@ -108,6 +108,20 @@ pub mod wasm;
 pub mod sdf;
 
 // ---------------------------------------------------------------------------
+// Debug logging
+// ---------------------------------------------------------------------------
+
+/// Returns `true` when the `SCRY_DEBUG` environment variable is set.
+///
+/// Checked once on first call and cached via `OnceLock`.
+#[must_use]
+pub fn scry_debug_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("SCRY_DEBUG").is_ok())
+}
+
+// ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
 
@@ -150,8 +164,11 @@ pub enum PixelCanvasError {
 /// use scry_engine::prelude::*;
 /// ```
 pub mod prelude {
+    pub use crate::rasterize::{
+        AutoBackend, BackendKind, CpuBackend, RasterBackend, RasterPipeline, RasterResult,
+    };
     #[cfg(feature = "gpu")]
-    pub use crate::rasterize::{rasterize_auto, WgpuContext2D, WgpuRasterizer};
+    pub use crate::rasterize::{rasterize_auto, GpuBackend, WgpuContext2D, WgpuRasterizer};
     pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
     pub use crate::render::IncrementalRenderer;
     pub use crate::scene::animation::{
@@ -162,6 +179,8 @@ pub mod prelude {
     pub use crate::scene::PixelCanvas;
     pub use crate::transport::{FontSize, Picker, ProtocolKind};
     pub use crate::PixelCanvasError;
+    #[cfg(feature = "sdf")]
+    pub use crate::sdf::{SdfBackend, SdfPipeline, SdfRenderResult};
 
     #[cfg(feature = "input")]
     pub use crate::scene::hit::{HitResult, HitTag, HitTestConfig, HitTester};

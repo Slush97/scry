@@ -444,21 +444,41 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
             }
         }
 
-        // Error bars — use original data indices directly (independent of segments)
-        if let Some(errors) = series.error_values() {
+        // Error bars — symmetric or asymmetric (independent of segments)
+        let has_sym = series.error_values().is_some();
+        let has_asym = series.error_low().is_some() && series.error_high().is_some();
+        if has_sym || has_asym {
             let cap_w = theme.point_radius() * 0.6;
             let err_color = color.with_alpha(0.8);
-            for i in 0..n.min(errors.len()) {
+            let sym_errors = series.error_values();
+            let asym_lo = series.error_low();
+            let asym_hi = series.error_high();
+            for i in 0..n {
                 let xv = x_data[i];
                 let yv = series.values()[i];
-                let ev = errors[i];
-                if !xv.is_finite() || !yv.is_finite() || !ev.is_finite() || ev <= 0.0 {
+                if !xv.is_finite() || !yv.is_finite() {
                     continue;
                 }
+
+                let (lo_off, hi_off) = if let (Some(lo), Some(hi)) = (asym_lo, asym_hi) {
+                    if i >= lo.len() || i >= hi.len() { continue; }
+                    let l = lo[i];
+                    let h = hi[i];
+                    if !l.is_finite() || !h.is_finite() { continue; }
+                    (l, h)
+                } else if let Some(errs) = sym_errors {
+                    if i >= errs.len() { continue; }
+                    let ev = errs[i];
+                    if !ev.is_finite() || ev <= 0.0 { continue; }
+                    (ev, ev)
+                } else {
+                    continue;
+                };
+
                 let effective_y = if lc.stacked { cumulative[i] + yv } else { yv };
                 let sx = x_scale.to_pixel(xv) as f32;
-                let sy_top = active_y_scale.to_pixel(effective_y + ev) as f32;
-                let sy_bot = active_y_scale.to_pixel(effective_y - ev) as f32;
+                let sy_top = active_y_scale.to_pixel(effective_y + hi_off) as f32;
+                let sy_bot = active_y_scale.to_pixel(effective_y - lo_off) as f32;
                 ctx.draw(|c| {
                     c.line(sx, sy_top, sx, sy_bot)
                         .color(err_color)

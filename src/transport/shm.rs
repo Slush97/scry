@@ -38,6 +38,8 @@ pub(crate) struct ShmBuffer {
     ptr: *mut u8,
     /// Total size of the mapping in bytes.
     capacity: usize,
+    /// If true, skip `shm_unlink` on drop (the consumer already unlinks).
+    consumer_unlinks: bool,
 }
 
 impl std::fmt::Debug for ShmBuffer {
@@ -106,6 +108,7 @@ impl ShmBuffer {
             c_name,
             ptr: ptr.cast::<u8>(),
             capacity,
+            consumer_unlinks: false,
         })
     }
 
@@ -142,8 +145,10 @@ impl ShmBuffer {
         Ok(())
     }
 
-    /// The shared memory object name (without leading `/`), suitable
-    /// for the Kitty protocol escape sequence.
+    /// The shared memory object name (without leading `/`).
+    ///
+    /// This is the name the terminal will use to open the SHM object.
+    /// The terminal internally prepends `/` for `shm_open`.
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
@@ -151,6 +156,14 @@ impl ShmBuffer {
     /// Total capacity in bytes.
     pub(crate) const fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    /// Mark this buffer as consumer-unlinked: the reader (e.g. Kitty)
+    /// unlinks the SHM object after reading, so our Drop should skip
+    /// `shm_unlink`.
+    pub(crate) fn consumer_unlinks(mut self) -> Self {
+        self.consumer_unlinks = true;
+        self
     }
 
     /// Resize the shared memory buffer if `new_capacity` differs.
@@ -214,7 +227,9 @@ impl Drop for ShmBuffer {
             if !self.ptr.is_null() {
                 libc::munmap(self.ptr.cast(), self.capacity);
             }
-            libc::shm_unlink(self.c_name.as_ptr());
+            if !self.consumer_unlinks {
+                libc::shm_unlink(self.c_name.as_ptr());
+            }
         }
     }
 }

@@ -75,9 +75,8 @@ struct GpuObject {
     material_params: [f32; 4],
     material_color: [f32; 4],
     bounding_radius: f32,
-    rotation_cos_y: f32,
-    rotation_sin_y: f32,
-    _pad2: f32,
+    _pad2: [f32; 3], // padding to align orientation to vec4 (16-byte boundary)
+    orientation: [f32; 4], // quaternion (x, y, z, w) — pre-conjugated for inverse rotation
 }
 
 /// Must match the WGSL `GpuLight` struct.
@@ -87,6 +86,22 @@ struct GpuLight {
     position: [f32; 3],
     intensity: f32,
     color: [f32; 4],
+}
+
+/// Glyph metadata for GPU text3d rendering (binding 4).
+/// Must match the WGSL `GpuGlyphMeta` struct.
+#[cfg(feature = "sdf-text")]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct GpuGlyphMeta {
+    x_offset: f32,
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+    grid_width: u32,
+    grid_height: u32,
+    grid_offset: u32,
 }
 
 // Shape type discriminants (must match WGSL constants)
@@ -99,6 +114,8 @@ const SHAPE_SMOOTH_BLEND: u32 = 5;
 const SHAPE_CAPSULE: u32 = 6;
 const SHAPE_ROUNDED_BOX: u32 = 7;
 const SHAPE_CONE: u32 = 8;
+#[cfg(feature = "sdf-text")]
+const SHAPE_TEXT3D: u32 = 9;
 
 // Material type discriminants
 const MAT_SOLID: u32 = 0;
@@ -192,6 +209,16 @@ fn flatten_shape(shape: &SdfShape) -> (u32, [f32; 4], [f32; 4], [f32; 4], [f32; 
             [0.0; 4],
             [0.0; 3],
         ),
+        // Text3D: encode layout params and glyph indices for GPU evaluation.
+        // glyph_start is set to 0 here; the caller (build_objects) patches it.
+        #[cfg(feature = "sdf-text")]
+        SdfShape::Text3D { layout, depth } => (
+            SHAPE_TEXT3D,
+            [*depth, layout.total_width, layout.ascent, layout.descent],
+            [0.0, layout.glyphs.len() as f32, 0.0, 0.0], // [glyph_start, glyph_count, -, -]
+            [0.0; 4],
+            [0.0; 3],
+        ),
     }
 }
 
@@ -280,41 +307,66 @@ fn build_uniforms(scene: &SdfScene, width: u32, height: u32, time: f32) -> GpuUn
 }
 
 fn build_objects(scene: &SdfScene) -> Vec<GpuObject> {
-    scene
-        .objects
-        .iter()
-        .map(|obj| {
-            let (shape_type, shape_params, blend_a, blend_b, blend_b_off) =
-                flatten_shape(&obj.shape);
-            let (material_type, material_params, material_color) = flatten_material(&obj.material);
+    let mut result = Vec::with_capacity(scene.objects.len());
+    #[allow(unused_variables, unused_mut)]
+    let mut glyph_cursor: u32 = 0;
 
-            // For checkerboard materials, pack color_b into blend_a_params
-            // (safe because checkerboard is always on Plane, never SmoothBlend).
-            let blend_a = if let Material::Checkerboard { color_b, .. } = &obj.material {
-                color_to_arr(*color_b)
-            } else {
-                blend_a
-            };
+    for obj in &scene.objects {
+        let (shape_type, shape_params, blend_a, blend_b, blend_b_off) =
+            flatten_shape(&obj.shape);
+        let (material_type, material_params, material_color) = flatten_material(&obj.material);
 
-            let (rot_cos, rot_sin) = obj.rotation_y.unwrap_or((1.0, 0.0));
+        // For checkerboard materials, pack color_b into blend_a_params
+        // (safe because checkerboard is always on Plane, never SmoothBlend).
+        #[allow(unused_mut)]
+        let mut blend_a = if let Material::Checkerboard { color_b, .. } = &obj.material {
+            color_to_arr(*color_b)
+        } else {
+            blend_a
+        };
 
-            GpuObject {
-                position: vec3_to_arr(obj.position),
-                shape_type,
-                shape_params,
-                blend_a_params: blend_a,
-                blend_b_params: blend_b,
-                blend_b_offset: blend_b_off,
-                material_type,
-                material_params,
-                material_color,
-                bounding_radius: obj.bounding_radius,
-                rotation_cos_y: rot_cos,
-                rotation_sin_y: rot_sin,
-                _pad2: 0.0,
-            }
-        })
-        .collect()
+        // Patch glyph_start index for Text3D objects
+        #[cfg(feature = "sdf-text")]
+        if let SdfShape::Text3D { layout, .. } = &obj.shape {
+            blend_a[0] = glyph_cursor as f32;
+            glyph_cursor += layout.glyphs.len() as u32;
+        }
+
+        // Compute conjugated quaternion for inverse rotation on GPU.
+        // Quaternion orientation takes precedence over Y-axis rotation.
+        let orientation = if let Some(q) = obj.orientation {
+            let c = q.conjugate();
+            [c.x, c.y, c.z, c.w]
+        } else if let Some((cos_y, sin_y)) = obj.rotation_y {
+            // Y-axis rotation quaternion: q = (0, sin(θ/2), 0, cos(θ/2))
+            // We need the conjugate for inverse rotation.
+            // From cos/sin of full angle: half-angle via cos(θ/2) = sqrt((1+cosθ)/2),
+            // sin(θ/2) = sqrt((1-cosθ)/2) * sign(sinθ)
+            let half_cos = ((1.0 + cos_y) * 0.5).sqrt();
+            let half_sin = ((1.0 - cos_y) * 0.5).sqrt().copysign(sin_y);
+            // Conjugate negates the vector part
+            [0.0, -half_sin, 0.0, half_cos]
+        } else {
+            [0.0, 0.0, 0.0, 1.0] // identity
+        };
+
+        result.push(GpuObject {
+            position: vec3_to_arr(obj.position),
+            shape_type,
+            shape_params,
+            blend_a_params: blend_a,
+            blend_b_params: blend_b,
+            blend_b_offset: blend_b_off,
+            material_type,
+            material_params,
+            material_color,
+            bounding_radius: obj.bounding_radius,
+            _pad2: [0.0; 3],
+            orientation,
+        });
+    }
+
+    result
 }
 
 fn build_lights(scene: &SdfScene) -> Vec<GpuLight> {
@@ -329,17 +381,73 @@ fn build_lights(scene: &SdfScene) -> Vec<GpuLight> {
         .collect()
 }
 
+/// Collect glyph metadata and grids from all Text3D objects in the scene.
+///
+/// Returns `(meta_bytes, grids_bytes)` ready for GPU upload. When no Text3D
+/// objects exist, returns 1-element placeholder buffers (same pattern as
+/// objects/lights).
+fn build_glyph_data(scene: &SdfScene) -> (Vec<u8>, Vec<u8>) {
+    #[cfg(feature = "sdf-text")]
+    {
+        let mut metas: Vec<GpuGlyphMeta> = Vec::new();
+        let mut grids: Vec<f32> = Vec::new();
+
+        for obj in &scene.objects {
+            if let SdfShape::Text3D { layout, .. } = &obj.shape {
+                for (glyph, x_offset) in &layout.glyphs {
+                    let (min_x, min_y, max_x, max_y) = glyph.bounds;
+                    metas.push(GpuGlyphMeta {
+                        x_offset: *x_offset,
+                        min_x,
+                        min_y,
+                        max_x,
+                        max_y,
+                        grid_width: glyph.width as u32,
+                        grid_height: glyph.height as u32,
+                        grid_offset: grids.len() as u32,
+                    });
+                    grids.extend_from_slice(&glyph.grid);
+                }
+            }
+        }
+
+        if metas.is_empty() {
+            let placeholder_meta = [GpuGlyphMeta::zeroed()];
+            let placeholder_grid = [0.0_f32];
+            return (
+                bytemuck::cast_slice(&placeholder_meta).to_vec(),
+                bytemuck::cast_slice(&placeholder_grid).to_vec(),
+            );
+        }
+
+        (
+            bytemuck::cast_slice(&metas).to_vec(),
+            bytemuck::cast_slice(&grids).to_vec(),
+        )
+    }
+
+    #[cfg(not(feature = "sdf-text"))]
+    {
+        let _ = scene;
+        // Placeholder buffers when sdf-text feature is disabled
+        let placeholder_meta = [0u8; 32]; // size of one GpuGlyphMeta
+        let placeholder_grid = [0u8; 4]; // one f32
+        (placeholder_meta.to_vec(), placeholder_grid.to_vec())
+    }
+}
+
 // ── GPU context ────────────────────────────────────────────────────
 
 /// Reusable GPU context for SDF rendering.
 ///
-/// Creating a context is expensive (~100ms) because it initializes the GPU
-/// adapter, device, and compiles the compute shader. Create once and reuse.
+/// Creating a context via [`with_device()`](Self::with_device) is cheap
+/// because it borrows already-compiled pipelines from the global
+/// [`PipelineRegistry`](crate::gpu::PipelineRegistry).
 pub struct SdfGpuContext {
     device: std::sync::Arc<wgpu::Device>,
     queue: std::sync::Arc<wgpu::Queue>,
-    pipeline: wgpu::ComputePipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
+    /// Borrowed reference to the shared SDF pipelines.
+    pipelines: &'static crate::gpu::PipelinesSdf,
     /// Cached output storage buffer: `(buffer, byte_size)`.
     cached_output: Option<(wgpu::Buffer, u64)>,
     /// Cached readback staging buffer: `(buffer, byte_size)`.
@@ -350,8 +458,12 @@ pub struct SdfGpuContext {
     cached_objects: Option<(wgpu::Buffer, u64)>,
     /// Cached lights storage buffer: `(buffer, byte_size)`.
     cached_lights: Option<(wgpu::Buffer, u64)>,
-    /// Cached bind group: `(bind_group, output_size, objects_size, lights_size)`.
-    cached_bind_group: Option<(wgpu::BindGroup, u64, u64, u64)>,
+    /// Cached bind group: `(bind_group, output_size, objects_size, lights_size, glyph_meta_size, glyph_grids_size)`.
+    cached_bind_group: Option<(wgpu::BindGroup, u64, u64, u64, u64, u64)>,
+    /// Cached glyph metadata storage buffer (binding 4): `(buffer, byte_size)`.
+    cached_glyph_meta: Option<(wgpu::Buffer, u64)>,
+    /// Cached glyph grids storage buffer (binding 5): `(buffer, byte_size)`.
+    cached_glyph_grids: Option<(wgpu::Buffer, u64)>,
     /// Whether a GPU submission is in-flight and readback is pending.
     pending_readback: bool,
     /// Reusable pixmap for readback to avoid per-frame allocation.
@@ -364,124 +476,63 @@ impl SdfGpuContext {
     /// # Errors
     ///
     /// Returns an error string if no compatible GPU adapter is found.
+    #[deprecated(
+        since = "0.8.0",
+        note = "Use `GpuDevice::global()` + `SdfGpuContext::with_device()` to share a single GPU device across contexts"
+    )]
     pub fn new() -> Result<Self, String> {
-        let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .ok_or_else(|| "no suitable GPU adapter found".to_string())?;
+        // Delegate to the global device for pipeline sharing.
+        let gpu = crate::gpu::GpuDevice::global_or_init()?;
+        Self::with_device(gpu)
+    }
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("sdf-gpu-device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        ))
-        .map_err(|e| format!("GPU device creation failed: {e}"))?;
-
-        Self::build_pipelines(std::sync::Arc::new(device), std::sync::Arc::new(queue))
+    /// Try to initialize GPU with a timeout. Returns `None` on failure or timeout.
+    ///
+    /// Spawns GPU init on a background thread so that a hung adapter request
+    /// (driver issue, display server contention, etc.) doesn't block the
+    /// caller forever.
+    #[deprecated(
+        since = "0.8.0",
+        note = "Use `GpuDevice::global()` + `SdfGpuContext::with_device()` instead — the global device already has built-in timeout"
+    )]
+    pub fn try_new(timeout: std::time::Duration) -> Option<Self> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            #[allow(deprecated)]
+            let _ = tx.send(Self::new());
+        });
+        match rx.recv_timeout(timeout) {
+            Ok(Ok(ctx)) => Some(ctx),
+            Ok(Err(_)) => None,
+            Err(_) => None, // timeout — GPU init hung
+        }
     }
 
     /// Create a context sharing an existing [`GpuDevice`](crate::gpu::GpuDevice).
     ///
-    /// This skips the ~100ms adapter/device initialization. Only the
-    /// shader compilation and pipeline creation are performed.
+    /// This is nearly instant because it borrows the lazily-compiled
+    /// pipelines from the device's [`PipelineRegistry`](crate::gpu::PipelineRegistry).
     ///
     /// # Errors
     ///
-    /// Returns an error string if pipeline creation fails.
-    pub fn with_device(gpu: &crate::gpu::GpuDevice) -> Result<Self, String> {
+    /// Returns an error string if pipeline compilation fails.
+    pub fn with_device(gpu: &'static crate::gpu::GpuDevice) -> Result<Self, String> {
         let device = std::sync::Arc::clone(&gpu.device);
         let queue = std::sync::Arc::clone(&gpu.queue);
-        Self::build_pipelines(device, queue)
-    }
-
-    fn build_pipelines(
-        device: std::sync::Arc<wgpu::Device>,
-        queue: std::sync::Arc<wgpu::Queue>,
-    ) -> Result<Self, String> {
-        let shader_source = include_str!("shaders/sdf_compute.wgsl");
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sdf-compute-shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("sdf-compute-bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("sdf-compute-pipeline-layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("sdf-compute-pipeline"),
-            layout: Some(&pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-
+        // Lazily compile SDF pipelines (or return cached)
+        let pipelines = gpu.pipelines().get_sdf(gpu.device());
         Ok(Self {
             device,
             queue,
-            pipeline,
-            bind_group_layout,
+            pipelines,
             cached_output: None,
             cached_readback: None,
             cached_uniform: None,
             cached_objects: None,
             cached_lights: None,
             cached_bind_group: None,
+            cached_glyph_meta: None,
+            cached_glyph_grids: None,
             pending_readback: false,
             cached_pixmap: None,
         })
@@ -611,6 +662,51 @@ impl SdfGpuRenderer {
         let lights_buf = &ctx.cached_lights.as_ref().unwrap().0;
         ctx.queue.write_buffer(lights_buf, 0, lights_bytes);
 
+        // Build glyph data for Text3D objects
+        let (glyph_meta_bytes, glyph_grids_bytes) = build_glyph_data(scene);
+        let glyph_meta_size = glyph_meta_bytes.len() as u64;
+        let glyph_grids_size = glyph_grids_bytes.len() as u64;
+
+        let mut glyph_meta_reallocated = false;
+        if ctx
+            .cached_glyph_meta
+            .as_ref()
+            .is_none_or(|(_, s)| *s < glyph_meta_size)
+        {
+            ctx.cached_glyph_meta = Some((
+                ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("sdf-glyph-meta"),
+                    size: glyph_meta_size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }),
+                glyph_meta_size,
+            ));
+            glyph_meta_reallocated = true;
+        }
+        let glyph_meta_buf = &ctx.cached_glyph_meta.as_ref().unwrap().0;
+        ctx.queue.write_buffer(glyph_meta_buf, 0, &glyph_meta_bytes);
+
+        let mut glyph_grids_reallocated = false;
+        if ctx
+            .cached_glyph_grids
+            .as_ref()
+            .is_none_or(|(_, s)| *s < glyph_grids_size)
+        {
+            ctx.cached_glyph_grids = Some((
+                ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("sdf-glyph-grids"),
+                    size: glyph_grids_size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }),
+                glyph_grids_size,
+            ));
+            glyph_grids_reallocated = true;
+        }
+        let glyph_grids_buf = &ctx.cached_glyph_grids.as_ref().unwrap().0;
+        ctx.queue.write_buffer(glyph_grids_buf, 0, &glyph_grids_bytes);
+
         let output_size = (width * height * 4) as u64;
 
         // Reuse cached output buffer if size matches, otherwise allocate
@@ -653,11 +749,13 @@ impl SdfGpuRenderer {
         let need_new_bind_group = output_reallocated
             || objects_reallocated
             || lights_reallocated
+            || glyph_meta_reallocated
+            || glyph_grids_reallocated
             || ctx.cached_bind_group.is_none();
         if need_new_bind_group {
             let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("sdf-compute-bg"),
-                layout: &ctx.bind_group_layout,
+                layout: &ctx.pipelines.bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -675,9 +773,24 @@ impl SdfGpuRenderer {
                         binding: 3,
                         resource: (*output_buf).as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: (*glyph_meta_buf).as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: (*glyph_grids_buf).as_entire_binding(),
+                    },
                 ],
             });
-            ctx.cached_bind_group = Some((bind_group, output_size, objects_size, lights_size));
+            ctx.cached_bind_group = Some((
+                bind_group,
+                output_size,
+                objects_size,
+                lights_size,
+                glyph_meta_size,
+                glyph_grids_size,
+            ));
         }
 
         // Dispatch compute shader
@@ -692,7 +805,7 @@ impl SdfGpuRenderer {
                 label: Some("sdf-compute-pass"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&ctx.pipeline);
+            pass.set_pipeline(&ctx.pipelines.pipeline);
             pass.set_bind_group(0, &ctx.cached_bind_group.as_ref().unwrap().0, &[]);
             pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
         }
@@ -862,6 +975,96 @@ mod tests {
         // Verify buffers were cached (not None after first render)
         assert!(ctx.cached_output.is_some());
         assert!(ctx.cached_readback.is_some());
+    }
+
+    #[cfg(feature = "sdf-text")]
+    #[test]
+    fn gpu_text3d_renders_non_block() {
+        let mut ctx = match SdfGpuContext::new() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let font = include_bytes!("../../crates/scry-chart/src/fonts/Inter-Bold.ttf");
+        let text_shape = SdfShape::text_3d(font.as_slice(), "AB", 1.0, 0.3)
+            .expect("font parse failed");
+        let scene = SdfScene::new()
+            .object(
+                SdfObject::new(text_shape, Material::matte(Color::from_rgba8(200, 200, 200, 255)))
+                    .at(Vec3::new(0.0, 1.0, 0.0)),
+            )
+            .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.0))
+            .camera(SdfCamera::new(
+                Vec3::new(0.0, 1.0, 4.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                45.0,
+            ));
+
+        let result = SdfGpuRenderer::render_to_pixmap(&mut ctx, &scene, 64, 48, 0.0);
+        let pixmap = result.expect("GPU Text3D render failed");
+
+        let pixels = pixmap.pixels();
+        let has_nonblack = pixels
+            .iter()
+            .any(|p| p.red() > 0 || p.green() > 0 || p.blue() > 0);
+        assert!(has_nonblack, "GPU Text3D render produced an all-black image");
+
+        // Check that it's NOT a uniform block — text should have varied silhouette
+        let first = pixels[0];
+        let has_variation = pixels.iter().any(|p| *p != first);
+        assert!(has_variation, "GPU Text3D render produced a uniform image");
+    }
+
+    #[cfg(feature = "sdf-text")]
+    #[test]
+    fn gpu_text3d_matches_cpu() {
+        let mut ctx = match SdfGpuContext::new() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let font = include_bytes!("../../crates/scry-chart/src/fonts/Inter-Bold.ttf");
+        let text_shape = SdfShape::text_3d(font.as_slice(), "A", 1.0, 0.3)
+            .expect("font parse failed");
+        let scene = SdfScene::new()
+            .object(
+                SdfObject::new(
+                    text_shape,
+                    Material::matte(Color::from_rgba8(200, 200, 200, 255)),
+                )
+                .at(Vec3::new(0.0, 1.0, 0.0)),
+            )
+            .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.0))
+            .camera(SdfCamera::new(
+                Vec3::new(0.0, 1.0, 4.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                45.0,
+            ));
+
+        let gpu_pm =
+            SdfGpuRenderer::render_to_pixmap(&mut ctx, &scene, 32, 24, 0.0).unwrap();
+        let cpu_pm =
+            super::super::SdfRenderer::render_to_pixmap(&scene, 32, 24, 0.0).unwrap();
+
+        // Count how many pixels match roughly (within tolerance)
+        let gpu_px = gpu_pm.pixels();
+        let cpu_px = cpu_pm.pixels();
+        let mut close = 0usize;
+        for (g, c) in gpu_px.iter().zip(cpu_px.iter()) {
+            let dr = (g.red() as i32 - c.red() as i32).unsigned_abs();
+            let dg = (g.green() as i32 - c.green() as i32).unsigned_abs();
+            let db = (g.blue() as i32 - c.blue() as i32).unsigned_abs();
+            if dr <= 30 && dg <= 30 && db <= 30 {
+                close += 1;
+            }
+        }
+        let total = gpu_px.len();
+        let pct = close as f64 / total as f64 * 100.0;
+        eprintln!("GPU vs CPU text3d similarity: {close}/{total} ({pct:.1}%)");
+        assert!(
+            pct > 50.0,
+            "GPU and CPU Text3D renders differ too much: only {pct:.1}% similar"
+        );
     }
 
     #[test]

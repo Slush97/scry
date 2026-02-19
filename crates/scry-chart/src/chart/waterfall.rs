@@ -121,4 +121,17 @@ impl WaterfallChart {
     pub fn build(self) -> Chart {
         Chart::Waterfall(self)
     }
+
+    /// Build with validation.
+    pub fn try_build(self) -> Result<Chart, crate::error::ChartError> {
+        if self.labels.is_empty() || self.values.is_empty() {
+            return Err(crate::error::ChartError::EmptyData);
+        }
+        if self.labels.len() != self.values.len() {
+            return Err(crate::error::ChartError::InvalidConfig(
+                format!("labels ({}) and values ({}) have different lengths", self.labels.len(), self.values.len()),
+            ));
+        }
+        Ok(Chart::Waterfall(self))
+    }
 }

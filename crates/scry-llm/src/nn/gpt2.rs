@@ -79,6 +79,11 @@ impl<B: MathBackend> Gpt2Model<B> {
         }
     }
 
+    /// Returns the total number of trainable parameters.
+    pub fn n_params(&self) -> usize {
+        self.parameters().iter().map(|t| t.numel()).sum()
+    }
+
     /// Returns the set of parameter IDs that should be exempt from weight decay.
     ///
     /// This includes all bias parameters, and all layernorm gamma/beta parameters:

@@ -52,7 +52,12 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
 
     let grid_x = margin + row_label_w;
     let grid_y = margin + title_h + subtitle_h + col_label_h;
-    let grid_w = (w as f32 - grid_x - margin).max(1.0);
+    // Reserve space on the right for the color legend bar
+    let legend_bar_w = 16.0;
+    let legend_label_w = tick_fs * 4.0; // space for min/max labels
+    let legend_gap = 12.0;
+    let legend_total_w = legend_gap + legend_bar_w + 4.0 + legend_label_w;
+    let grid_w = (w as f32 - grid_x - margin - legend_total_w).max(1.0);
     let grid_h = (h as f32 - grid_y - margin).max(1.0);
 
     // Override the plot area so add_common_overlays positions elements correctly
@@ -120,6 +125,61 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
         }
     }
 
+    // ── Color legend bar (vertical gradient on right side) ──
+    let bar_x = grid_x + grid_w + legend_gap;
+    let bar_y = grid_y;
+    let bar_h = grid_h;
+    let n_steps = 50;
+    let step_h = bar_h / n_steps as f32;
+    for s in 0..n_steps {
+        // Draw from top (high) to bottom (low)
+        let t = 1.0 - s as f64 / (n_steps - 1) as f64;
+        let c = hm.colormap.as_ref().map_or_else(
+            || heatmap::lerp_color(hm.color_lo, hm.color_hi, t),
+            |cmap| cmap.color_at(t as f32),
+        );
+        let sy = bar_y + s as f32 * step_h;
+        ctx.draw(|canv| canv.rect(bar_x, sy, legend_bar_w, step_h + 0.5).fill(c).done());
+    }
+    // Outline around the bar
+    let bar_outline = theme.text_color().with_alpha(0.3);
+    ctx.draw(|canv| {
+        canv.rect(bar_x, bar_y, legend_bar_w, bar_h)
+            .stroke(bar_outline, 0.5)
+            .done()
+    });
+    // Min/max value labels
+    let fmt_hi = if v_hi.abs() < 10.0 {
+        format!("{v_hi:.1}")
+    } else {
+        format!("{}", v_hi as i64)
+    };
+    let fmt_lo = if v_lo.abs() < 10.0 {
+        format!("{v_lo:.1}")
+    } else {
+        format!("{}", v_lo as i64)
+    };
+    ctx.overlays.push(TextOverlay {
+        x_px: bar_x + legend_bar_w + 4.0,
+        y_px: bar_y + 2.0,
+        text: fmt_hi,
+        color: theme.text_color(),
+        align: TextAlign::Left,
+        font_size: data_fs,
+        bold: false,
+        rotation_deg: 0.0,
+    });
+    ctx.overlays.push(TextOverlay {
+        x_px: bar_x + legend_bar_w + 4.0,
+        y_px: bar_y + bar_h - 2.0,
+        text: fmt_lo,
+        color: theme.text_color(),
+        align: TextAlign::Left,
+        font_size: data_fs,
+        bold: false,
+        rotation_deg: 0.0,
+    });
+
     // Row labels
     for (ri, label) in hm.row_labels.iter().enumerate() {
         let cy = grid_y + ri as f32 * (cell_h + hm.cell_gap) + cell_h / 2.0;
@@ -135,12 +195,12 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
         });
     }
 
-    // Column labels
+    // Column labels — positioned above the grid with adequate clearance
     for (ci, label) in hm.col_labels.iter().enumerate() {
         let cx = grid_x + ci as f32 * (cell_w + hm.cell_gap) + cell_w / 2.0;
         ctx.overlays.push(TextOverlay {
             x_px: cx,
-            y_px: grid_y - 6.0,
+            y_px: grid_y - col_label_h * 0.45,
             text: label.clone(),
             color: theme.text_color(),
             align: TextAlign::Center,

@@ -115,30 +115,30 @@ fn bench_render_gpu_100k_1080p(c: &mut Criterion) {
 
 #[cfg(feature = "gpu")]
 fn bench_render_gpu_cached_50k_1080p(c: &mut Criterion) {
-    use scry_chart::chart3d::wgpu_backend::WgpuContext;
+    use scry_engine::gpu::GpuDevice;
 
     let (x, y, z) = gen_data(50_000);
     let chart = Chart3D::scatter(&x, &y, &z).title("50K GPU Cached");
-    let ctx = WgpuContext::new().expect("WgpuContext init");
+    let gpu = GpuDevice::global().expect("GpuDevice init");
 
     c.bench_function("chart3d_render_gpu_cached_50k_1080p", |b| {
         b.iter(|| {
-            let _ = black_box(chart.render_gpu_with_context(&ctx, 1920, 1080));
+            let _ = black_box(chart.render_gpu_with_device(gpu, 1920, 1080));
         });
     });
 }
 
 #[cfg(feature = "gpu")]
 fn bench_render_gpu_cached_100k_1080p(c: &mut Criterion) {
-    use scry_chart::chart3d::wgpu_backend::WgpuContext;
+    use scry_engine::gpu::GpuDevice;
 
     let (x, y, z) = gen_data(100_000);
     let chart = Chart3D::scatter(&x, &y, &z).title("100K GPU Cached");
-    let ctx = WgpuContext::new().expect("WgpuContext init");
+    let gpu = GpuDevice::global().expect("GpuDevice init");
 
     c.bench_function("chart3d_render_gpu_cached_100k_1080p", |b| {
         b.iter(|| {
-            let _ = black_box(chart.render_gpu_with_context(&ctx, 1920, 1080));
+            let _ = black_box(chart.render_gpu_with_device(gpu, 1920, 1080));
         });
     });
 }

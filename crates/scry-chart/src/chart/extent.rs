@@ -174,6 +174,8 @@ pub fn data_extent(chart: &Chart) -> Option<(f64, f64, f64, f64)> {
         | Chart::Radar(_)
         | Chart::Sparkline(_)
         | Chart::Funnel(_)
-        | Chart::Gauge(_) => None,
+        | Chart::Gauge(_)
+        | Chart::Contour(_)
+        | Chart::Custom(_) => None,
     }
 }

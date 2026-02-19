@@ -494,7 +494,7 @@ mod tests {
         for _ in 0..100 {
             let mut p = Vec::new();
             for _ in 0..5 {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 p.push((seed >> 33) as f64 / 1e9);
             }
             points.push(p);
@@ -550,7 +550,7 @@ mod tests {
         for _ in 0..50 {
             let mut p = Vec::new();
             for _ in 0..20 {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 p.push((seed >> 33) as f64 / 1e9);
             }
             points.push(p);
@@ -578,7 +578,7 @@ mod tests {
 
         // radius² = 2.0 → includes points within sqrt(2) ≈ 1.414 of query (0.5, 0.5)
         let mut result = tree.query_radius(&[0.5, 0.5], 2.0, &points);
-        result.sort();
+        result.sort_unstable();
         assert_eq!(result, vec![0, 1, 2, 3], "Should find the 4 nearby points");
 
         // Verify against brute-force on larger random data.
@@ -587,7 +587,7 @@ mod tests {
         for _ in 0..200 {
             let mut p = Vec::new();
             for _ in 0..3 {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 p.push((seed >> 33) as f64 / 1e9);
             }
             rng_points.push(p);
@@ -597,7 +597,7 @@ mod tests {
         let radius_sq = 1.0;
 
         let mut kd_result = tree2.query_radius(query, radius_sq, &rng_points);
-        kd_result.sort();
+        kd_result.sort_unstable();
 
         let brute: Vec<usize> = rng_points
             .iter()

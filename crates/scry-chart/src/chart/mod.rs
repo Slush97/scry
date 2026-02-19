@@ -3,11 +3,14 @@
 //!
 //! Each chart type has a builder struct for fluent configuration.
 
+use crate::chart_trait::ChartType;
+
 pub(crate) mod bar;
 pub(crate) mod boxplot;
 pub(crate) mod bubble;
 pub(crate) mod candlestick;
 pub(crate) mod config_builder;
+pub(crate) mod contour;
 pub mod extent;
 pub(crate) mod funnel;
 pub(crate) mod gauge;
@@ -26,6 +29,7 @@ pub use bar::BarChart;
 pub use boxplot::BoxPlot;
 pub use bubble::BubbleChart;
 pub use candlestick::{CandlestickChart, OhlcEntry};
+pub use contour::ContourChart;
 pub use funnel::FunnelChart;
 pub use gauge::GaugeChart;
 pub use heatmap::Heatmap;
@@ -91,6 +95,10 @@ pub enum Chart {
     Gauge(GaugeChart),
     /// Lollipop chart (dot plot — thin stem + circle marker).
     Lollipop(LollipopChart),
+    /// Contour chart (iso-level lines from 2D scalar field).
+    Contour(ContourChart),
+    /// User-defined custom chart via [`ChartType`] trait.
+    Custom(Box<dyn ChartType>),
 }
 
 impl Chart {
@@ -190,6 +198,23 @@ impl Chart {
         LollipopChart::new(labels, values.to_vec())
     }
 
+    /// Create a contour chart from a 2D grid of values.
+    pub fn contour(data: Vec<Vec<f64>>) -> ContourChart {
+        ContourChart::new(data)
+    }
+
+    /// Create an area chart (filled + smooth line chart).
+    pub fn area(y: &[f64]) -> LineChart {
+        LineChart::new(vec![Series::from_values(y.to_vec())]).filled().smooth()
+    }
+
+    /// Create a chart from a custom [`ChartType`] implementation.
+    ///
+    /// This enables third-party chart types without modifying the core enum.
+    pub fn custom(ct: impl ChartType + 'static) -> Chart {
+        Chart::Custom(Box::new(ct))
+    }
+
     /// Get a mutable reference to the chart's shared configuration.
     ///
     /// Useful for injecting zoom viewport ranges before rendering.
@@ -211,6 +236,8 @@ impl Chart {
             Self::Funnel(c) => &mut c.config,
             Self::Gauge(c) => &mut c.config,
             Self::Lollipop(c) => &mut c.config,
+            Self::Contour(c) => &mut c.config,
+            Self::Custom(_) => panic!("Custom charts do not have a ChartConfig"),
         }
     }
 }
@@ -288,6 +315,11 @@ pub struct ChartConfig {
     /// The export functions scale the output pixel dimensions by `dpi / 144`.
     /// Set to 288 for 2× (Retina) resolution, 72 for lower-res, etc.
     pub dpi: u32,
+    /// Whether to show data value labels on bars, points, etc.
+    pub show_data_labels: bool,
+    /// Custom formatter for data value labels.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub data_label_formatter: Option<Arc<dyn TickFormatter>>,
 }
 
 impl Clone for ChartConfig {
@@ -321,6 +353,8 @@ impl Clone for ChartConfig {
             secondary_y_formatter: self.secondary_y_formatter.clone(),
             secondary_series_indices: self.secondary_series_indices.clone(),
             dpi: self.dpi,
+            show_data_labels: self.show_data_labels,
+            data_label_formatter: self.data_label_formatter.clone(),
         }
     }
 }
@@ -428,6 +462,8 @@ impl Default for ChartConfig {
             secondary_y_formatter: None,
             secondary_series_indices: Vec::new(),
             dpi: 144,
+            show_data_labels: false,
+            data_label_formatter: None,
         }
     }
 }

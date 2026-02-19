@@ -357,23 +357,42 @@ impl Default for TextStyle {
 
 /// A reference to an [`SdfScene`](crate::sdf::SdfScene) with a generation counter.
 ///
-/// Because `SdfScene` doesn't implement `Hash` or `Eq`, we use a caller-provided
-/// generation counter for identity. Two `SdfSceneRef` values are equal if they
-/// point to the same `Arc` allocation OR have the same generation number.
+/// Because `SdfScene` doesn't implement `Hash` or `Eq`, we use a globally unique
+/// generation counter for identity. Each `SdfSceneRef` created via [`new()`](Self::new)
+/// receives a unique generation, so two distinct scenes will never collide.
 #[cfg(feature = "sdf")]
 #[derive(Clone, Debug)]
 pub struct SdfSceneRef {
     /// The shared scene.
     scene: Arc<crate::sdf::SdfScene>,
-    /// Generation counter — bump when the scene changes.
+    /// Globally unique generation counter.
     generation: u64,
 }
 
 #[cfg(feature = "sdf")]
 impl SdfSceneRef {
-    /// Create a new scene reference with a generation counter.
+    /// Global monotonic counter for unique generation IDs.
+    fn next_generation() -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_GEN: AtomicU64 = AtomicU64::new(1);
+        NEXT_GEN.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Create a new scene reference with an auto-assigned unique generation.
     #[must_use]
-    pub fn new(scene: Arc<crate::sdf::SdfScene>, generation: u64) -> Self {
+    pub fn new(scene: Arc<crate::sdf::SdfScene>) -> Self {
+        Self {
+            scene,
+            generation: Self::next_generation(),
+        }
+    }
+
+    /// Create a new scene reference with an explicit generation counter.
+    ///
+    /// Use this when you need deterministic generation values (e.g., for tests
+    /// or when synchronizing with external state).
+    #[must_use]
+    pub fn with_generation(scene: Arc<crate::sdf::SdfScene>, generation: u64) -> Self {
         Self { scene, generation }
     }
 
@@ -393,7 +412,7 @@ impl SdfSceneRef {
 #[cfg(feature = "sdf")]
 impl PartialEq for SdfSceneRef {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.scene, &other.scene) || self.generation == other.generation
+        self.generation == other.generation
     }
 }
 

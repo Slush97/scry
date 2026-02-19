@@ -75,8 +75,8 @@ impl CandlestickChart {
         Self {
             data,
             config: ChartConfig::default(),
-            up_color: Color::from_rgba8(38, 166, 91, 255), // green
-            down_color: Color::from_rgba8(214, 48, 49, 255), // red
+            up_color: Color::from_rgba8(0, 114, 178, 255),   // Okabe-Ito blue (bullish)
+            down_color: Color::from_rgba8(213, 94, 0, 255),  // Okabe-Ito vermillion (bearish)
             wick_width: 1.5,
             body_width_frac: 0.7,
         }

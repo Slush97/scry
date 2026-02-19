@@ -146,7 +146,7 @@ impl Theme {
             label_style: TextStyle {
                 color: text_color,
                 bold: false,
-                font_size: 13.0,
+                font_size: 14.0,
             },
             tick_style: TextStyle {
                 color: text_color,
@@ -162,7 +162,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(60, 60, 80, 180),
+                color: Color::from_rgba8(60, 60, 80, 55),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -172,7 +172,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 1.5,
+                bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
@@ -205,7 +205,7 @@ impl Theme {
             label_style: TextStyle {
                 color: text_color,
                 bold: false,
-                font_size: 13.0,
+                font_size: 14.0,
             },
             tick_style: TextStyle {
                 color: text_color,
@@ -221,7 +221,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(180, 180, 200, 160),
+                color: Color::from_rgba8(180, 180, 200, 40),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -231,7 +231,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 1.5,
+                bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
@@ -264,7 +264,7 @@ impl Theme {
             label_style: TextStyle {
                 color: text_color,
                 bold: false,
-                font_size: 13.0,
+                font_size: 14.0,
             },
             tick_style: TextStyle {
                 color: text_color,
@@ -280,7 +280,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(55, 55, 75, 180),
+                color: Color::from_rgba8(55, 55, 75, 55),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -290,7 +290,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 1.5,
+                bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
@@ -323,7 +323,7 @@ impl Theme {
             label_style: TextStyle {
                 color: text_color,
                 bold: false,
-                font_size: 13.0,
+                font_size: 14.0,
             },
             tick_style: TextStyle {
                 color: text_color,
@@ -339,7 +339,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(40, 65, 90, 180),
+                color: Color::from_rgba8(40, 65, 90, 55),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -349,7 +349,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 1.5,
+                bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
@@ -382,7 +382,7 @@ impl Theme {
             label_style: TextStyle {
                 color: text_color,
                 bold: false,
-                font_size: 13.0,
+                font_size: 14.0,
             },
             tick_style: TextStyle {
                 color: text_color,
@@ -398,7 +398,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(50, 58, 42, 180),
+                color: Color::from_rgba8(50, 58, 42, 55),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -408,7 +408,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 1.5,
+                bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
@@ -447,7 +447,7 @@ impl Theme {
             label_style: TextStyle {
                 color: text_color,
                 bold: false,
-                font_size: 13.0,
+                font_size: 14.0,
             },
             tick_style: TextStyle {
                 color: text_color,
@@ -463,7 +463,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(60, 60, 80, 180),
+                color: Color::from_rgba8(60, 60, 80, 55),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -473,7 +473,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 1.5,
+                bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },

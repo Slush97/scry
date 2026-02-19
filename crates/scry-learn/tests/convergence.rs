@@ -1,7 +1,7 @@
 //! Convergence tests — verify that iterative algorithms improve monotonically
 //! with increasing iteration counts.
 //!
-//! For each iterative solver, we run with max_iter in [1, 5, 10, 50, 200, 1000]
+//! For each iterative solver, we run with `max_iter` in [1, 5, 10, 50, 200, 1000]
 //! and assert that the evaluation metric improves (or stays flat) at each step.
 //! This proves: (a) solvers actually converge, (b) default iteration counts are
 //! sufficient, (c) loss decreases monotonically within noise tolerance.
@@ -78,7 +78,7 @@ fn convergence_logistic_regression() {
         lr.fit(&train).unwrap();
         let preds = lr.predict(&test_rows).unwrap();
         let acc = accuracy(&test.target, &preds);
-        println!("  {:>10} {:>12.4}", mi, acc);
+        println!("  {mi:>10} {acc:>12.4}");
 
         assert!(
             acc >= prev_acc - MONO_TOL,
@@ -120,7 +120,7 @@ fn convergence_lasso() {
         let preds = lasso.predict(&test_rows).unwrap();
         let mse = mean_squared_error(&test.target, &preds);
         let r2 = r2_score(&test.target, &preds);
-        println!("  {:>10} {:>12.4} {:>12.4}", mi, mse, r2);
+        println!("  {mi:>10} {mse:>12.4} {r2:>12.4}");
 
         // MSE should decrease (or stay flat) as iterations increase
         assert!(
@@ -164,7 +164,7 @@ fn convergence_elastic_net() {
         let preds = en.predict(&test_rows).unwrap();
         let mse = mean_squared_error(&test.target, &preds);
         let r2 = r2_score(&test.target, &preds);
-        println!("  {:>10} {:>12.4} {:>12.4}", mi, mse, r2);
+        println!("  {mi:>10} {mse:>12.4} {r2:>12.4}");
 
         assert!(
             mse <= prev_mse + prev_mse * MONO_TOL,
@@ -203,7 +203,7 @@ fn convergence_linear_svc() {
         svc.fit(&train).unwrap();
         let preds = svc.predict(&test_rows).unwrap();
         let acc = accuracy(&test.target, &preds);
-        println!("  {:>10} {:>12.4}", mi, acc);
+        println!("  {mi:>10} {acc:>12.4}");
         accs.push(acc);
     }
 
@@ -246,7 +246,7 @@ fn convergence_kmeans() {
             .n_init(1);
         km.fit(&ds).unwrap();
         let inertia = km.inertia();
-        println!("  {:>10} {:>14.4}", mi, inertia);
+        println!("  {mi:>10} {inertia:>14.4}");
 
         assert!(
             inertia <= prev_inertia + prev_inertia * MONO_TOL,
@@ -291,7 +291,7 @@ fn convergence_gradient_boosting() {
         let preds = gbr.predict(&test_rows).unwrap();
         let mse = mean_squared_error(&test.target, &preds);
         let r2 = r2_score(&test.target, &preds);
-        println!("  {:>14} {:>12.4} {:>12.4}", ne, mse, r2);
+        println!("  {ne:>14} {mse:>12.4} {r2:>12.4}");
 
         assert!(
             mse <= prev_mse + prev_mse * MONO_TOL,

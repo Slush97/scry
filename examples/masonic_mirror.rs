@@ -8,8 +8,9 @@
 //!   `q`     — quit
 //!
 //! Run with:
-//!   CPU:  `cargo run --example masonic_mirror --features "sdf,text,widget" --release`
-//!   GPU:  `cargo run --example masonic_mirror --features "sdf-gpu,text,widget" --release`
+//!   CPU:  `cargo run --example masonic_mirror --features "sdf,widget" --release`
+//!   GPU:  `cargo run --example masonic_mirror --features "sdf-gpu,widget" --release`
+//!   SHM:  `cargo run --example masonic_mirror --features "sdf,widget,shm" --release -- --shm`
 
 #![allow(
     clippy::cast_precision_loss,
@@ -25,7 +26,6 @@
 
 use std::io::stdout;
 use std::io::Write as IoWrite;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -39,7 +39,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use scry_engine::prelude::{
     Picker, PixelCanvasState, PixelCanvasWidget,
-    ProfileHistory, ProfiledRasterizer, ProtocolKind,
+    ProfileHistory, ProfiledRasterizer,
 };
 use scry_engine::scene::style::Color;
 use scry_engine::scene::PixelCanvas;
@@ -47,10 +47,7 @@ use scry_engine::scene::command::ImageData;
 use scry_engine::sdf::{
     Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
 };
-use scry_engine::transport;
-
-#[cfg(feature = "sdf-gpu")]
-use scry_engine::sdf::gpu_renderer::{SdfGpuContext, SdfGpuRenderer};
+use scry_engine::sdf::pipeline::SdfPipeline;
 
 // ═══════════════════════════════════════════════════════════════════
 // State
@@ -65,30 +62,13 @@ struct MasonicState {
     last_profile_str: String,
     canvas_w: u32,
     canvas_h: u32,
-    #[cfg(feature = "sdf-gpu")]
-    gpu_ctx: Option<SdfGpuContext>,
-    gpu_active: bool,
-    render_scale: f32,
+    /// Unified SDF rendering pipeline (auto-detects GPU, handles double-
+    /// buffered pipelining and CPU fallback internally).
+    sdf_pipeline: SdfPipeline,
 }
 
 impl MasonicState {
     fn new() -> Self {
-        #[cfg(feature = "sdf-gpu")]
-        let gpu_ctx = match SdfGpuContext::new() {
-            Ok(ctx) => {
-                eprintln!("[masonic_mirror] GPU SDF renderer initialized");
-                Some(ctx)
-            }
-            Err(e) => {
-                eprintln!("[masonic_mirror] GPU not available ({e}), using CPU");
-                None
-            }
-        };
-        #[cfg(feature = "sdf-gpu")]
-        let gpu_active = gpu_ctx.is_some();
-        #[cfg(not(feature = "sdf-gpu"))]
-        let gpu_active = false;
-
         Self {
             paused: false,
             profiling: false,
@@ -98,17 +78,10 @@ impl MasonicState {
             last_profile_str: String::new(),
             canvas_w: 0,
             canvas_h: 0,
-            #[cfg(feature = "sdf-gpu")]
-            gpu_ctx,
-            gpu_active,
-            render_scale: 1.0,
+            sdf_pipeline: SdfPipeline::new(),
         }
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// Color helpers
-// ═══════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════
 // SDF Scene
@@ -238,49 +211,16 @@ fn build_sdf_scene(time: f32) -> SdfScene {
 fn build_scene(
     w: u32,
     h: u32,
-    state: &MasonicState,
-    time: f32,
-    sdf_image: Option<ImageData>,
+    sdf_image: ImageData,
 ) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }
 
-    let wf = w as f32;
-    let hf = h as f32;
-
     let mut canvas = PixelCanvas::new(w, h).background(Color::from_rgba8(5, 5, 15, 255));
 
-    // SDF 3D layer — full canvas
-    if let Some(img) = sdf_image {
-        // GPU pre-rendered: blit as image
-        canvas = canvas.image(img, 0.0, 0.0).done();
-    } else {
-        // CPU fallback: inline SDF render
-        let sdf_scene = build_sdf_scene(time);
-        if state.render_scale < 1.0 {
-            canvas = canvas.sdf_scene_scaled(
-                Arc::new(sdf_scene),
-                (time * 60.0) as u64,
-                0.0,
-                0.0,
-                wf,
-                hf,
-                time,
-                state.render_scale,
-            );
-        } else {
-            canvas = canvas.sdf_scene(
-                Arc::new(sdf_scene),
-                (time * 60.0) as u64,
-                0.0,
-                0.0,
-                wf,
-                hf,
-                time,
-            );
-        }
-    }
+    // SDF 3D layer — pre-rendered by SdfPipeline, blit as image
+    canvas = canvas.image(sdf_image, 0.0, 0.0).done();
 
     canvas
 }
@@ -325,8 +265,8 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
     writeln!(f, "  Pixels:      {}", u64::from(state.canvas_w) * u64::from(state.canvas_h))?;
     writeln!(f, "  Protocol:    {protocol}")?;
     writeln!(f, "  SDF render:  {} (scale {}%)",
-        if state.gpu_active { "GPU" } else { "CPU" },
-        (state.render_scale * 100.0) as u32)?;
+        state.sdf_pipeline.backend_name(),
+        (state.sdf_pipeline.get_render_scale() * 100.0) as u32)?;
     writeln!(f, "  Duration:    {duration:.1}s")?;
     writeln!(f, "  Frames:      {frame_count}")?;
     writeln!(f)?;
@@ -425,7 +365,6 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
 
 #[cfg(feature = "window")]
 fn run_window() -> Result<(), Box<dyn std::error::Error>> {
-    use scry_engine::rasterize::Rasterizer;
     use scry_engine::transport::window::{run_loop_continuous, LoopAction};
     use winit::keyboard::KeyCode as WKey;
 
@@ -457,8 +396,10 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
         let _dt = elapsed - last_time;
         last_time = elapsed;
 
-        let canvas = build_scene(w, h, &state, elapsed, None);
-        if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+        let sdf_scene = build_sdf_scene(elapsed);
+        let sdf_result = state.sdf_pipeline.render_sync(&sdf_scene, w, h, elapsed);
+        let canvas = build_scene(w, h, sdf_result.image);
+        if let Ok(pixmap) = scry_engine::rasterize::RasterPipeline::new().rasterize(&canvas) {
             let _ = backend.blit(&pixmap);
         }
         LoopAction::Continue
@@ -490,20 +431,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let picker = Picker::detect();
     let protocol_name = format!("{:?}", picker.protocol());
-    let backend: Box<dyn transport::ProtocolBackend> = match picker.protocol() {
-        ProtocolKind::Kitty => {
-            let kb = transport::kitty::KittyBackend::new(picker.font_size());
-            #[cfg(feature = "shm")]
-            let kb = if std::env::args().any(|a| a == "--shm") {
-                eprintln!("[masonic_mirror] Using shared memory transport");
-                kb.format(transport::kitty::TransmitFormat::SharedMemory)
-            } else {
-                kb
-            };
-            Box::new(kb)
-        }
-        _ => Box::new(transport::halfblock::HalfblockBackend::new()),
-    };
+    let backend = picker.create_backend();
     let mut px_state = PixelCanvasState::new(backend, picker.font_size());
 
     let mut state = MasonicState::new();
@@ -511,16 +439,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_frame = Instant::now();
     let mut frozen_time = 0.0_f32;
     let mut frame_num = 0u64;
-    // Pipelined rendering: display frame N-1's SDF image while GPU computes frame N.
-    let mut prev_sdf_image: Option<ImageData> = None;
-    // Track render dimensions for readback.
-    let mut pending_render_w = 0u32;
-    let mut pending_render_h = 0u32;
-    let mut pending_full_w = 0u32;
-    let mut pending_full_h = 0u32;
-    let mut gpu_submitted = false;
-    // Reusable buffer for GPU readback (avoids per-frame allocation).
-    let mut readback_buf: Vec<u8> = Vec::new();
+
+    eprintln!("[masonic_mirror] SDF backend: {}", state.sdf_pipeline.backend_name());
 
     loop {
         frame_num += 1;
@@ -551,55 +471,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let w = u32::from(area.width) * u32::from(font.width);
         let h = u32::from(area.height) * u32::from(font.height);
 
-        // ── Pipeline step 1: submit GPU work for THIS frame ──
-        {
-            #[cfg(feature = "sdf-gpu")]
-            if state.gpu_active && h > 0 && w > 0 {
-                let sdf_scene = build_sdf_scene(elapsed);
-                let render_w = if state.render_scale < 1.0 {
-                    ((w as f32 * state.render_scale) as u32).max(1)
-                } else {
-                    w
-                };
-                let render_h = if state.render_scale < 1.0 {
-                    ((h as f32 * state.render_scale) as u32).max(1)
-                } else {
-                    h
-                };
-                if let Some(ctx) = state.gpu_ctx.as_mut() {
-                    if SdfGpuRenderer::submit(ctx, &sdf_scene, render_w, render_h, elapsed).is_ok()
-                    {
-                        pending_render_w = render_w;
-                        pending_render_h = render_h;
-                        pending_full_w = w;
-                        pending_full_h = h;
-                        gpu_submitted = true;
-                    }
-                }
-            }
-
-            #[cfg(not(feature = "sdf-gpu"))]
-            { let _ = &state.gpu_active; }
-        }
-
-        // ── Pipeline step 2: build scene with PREVIOUS frame's SDF image ──
-        // On the very first frame prev_sdf_image is None, so CPU SDF fallback runs.
-        // For frame 2+ we display the previous GPU result (1 frame latency).
-        let sdf_image: Option<ImageData> = {
-            #[cfg(feature = "sdf-gpu")]
-            { if state.gpu_active { prev_sdf_image.take() } else { None } }
-
-            #[cfg(not(feature = "sdf-gpu"))]
-            { None }
-        };
-
-        let canvas = build_scene(w, h, &state, elapsed, sdf_image);
+        // ── Render SDF via pipeline (handles GPU pipelining internally) ──
+        let sdf_scene = build_sdf_scene(elapsed);
+        let sdf_result = state.sdf_pipeline.render(&sdf_scene, w, h, elapsed);
+        let canvas = build_scene(w, h, sdf_result.image);
         let cmd_count = canvas.command_count();
 
         // Diagnostic: log first frame info
         if frame_num == 1 {
-            eprintln!("[diag] frame=1 w={w} h={h} cmds={cmd_count} gpu={} scale={:.0}%",
-                state.gpu_active, state.render_scale * 100.0);
+            eprintln!("[diag] frame=1 w={w} h={h} cmds={cmd_count} backend={} scale={:.0}%",
+                state.sdf_pipeline.backend_name(),
+                state.sdf_pipeline.get_render_scale() * 100.0);
         }
 
         // Track resolution for report
@@ -630,8 +512,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let profile_line = state.last_profile_str.clone();
         let is_profiling = state.profiling;
-        let render_mode = if state.gpu_active { "GPU" } else { "CPU" };
-        let scale_pct = (state.render_scale * 100.0) as u32;
+        let render_mode = state.sdf_pipeline.backend_name();
+        let scale_pct = (state.sdf_pipeline.get_render_scale() * 100.0) as u32;
 
         terminal.draw(|frame| {
             frame.render_stateful_widget(
@@ -652,54 +534,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?;
         px_state.flush()?;
 
-        // ── Pipeline step 3: readback GPU result (now that draw+flush overlapped) ──
-        {
-            #[cfg(feature = "sdf-gpu")]
-            if gpu_submitted {
-                if let Some(ctx) = state.gpu_ctx.as_mut() {
-                    if pending_render_w == pending_full_w
-                        && pending_render_h == pending_full_h
-                    {
-                        // No upscale needed — read directly into reusable buffer
-                        if SdfGpuRenderer::readback_into(
-                            ctx,
-                            pending_render_w,
-                            pending_render_h,
-                            &mut readback_buf,
-                        )
-                        .is_ok()
-                        {
-                            // Move buffer into ImageData, replace with empty vec
-                            // (will be re-allocated on next readback_into)
-                            let data = std::mem::take(&mut readback_buf);
-                            prev_sdf_image = Some(ImageData::new(
-                                pending_full_w,
-                                pending_full_h,
-                                data,
-                            ));
-                        }
-                    } else if let Ok(pm) = SdfGpuRenderer::readback(
-                        ctx,
-                        pending_render_w,
-                        pending_render_h,
-                    ) {
-                        let upscaled = scry_engine::sdf::upscale::upscale_bicubic(
-                            pm.data(),
-                            pending_render_w,
-                            pending_render_h,
-                            pending_full_w,
-                            pending_full_h,
-                        );
-                        prev_sdf_image =
-                            Some(ImageData::new(pending_full_w, pending_full_h, upscaled));
-                    }
-                    gpu_submitted = false;
-                }
-            }
-
-            #[cfg(not(feature = "sdf-gpu"))]
-            { let _ = gpu_submitted; }
-        }
+        // Flush pipeline — readback GPU result to overlap with terminal I/O
+        state.sdf_pipeline.flush();
 
         if event::poll(Duration::ZERO)? {
             if let Event::Key(key) = event::read()? {
@@ -713,21 +549,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         KeyCode::Char(' ') => state.paused = !state.paused,
                         KeyCode::Char('g') => {
-                            #[cfg(feature = "sdf-gpu")]
-                            {
-                                if state.gpu_ctx.is_some() {
-                                    state.gpu_active = !state.gpu_active;
-                                }
-                            }
+                            let currently_gpu = state.sdf_pipeline.is_gpu_active();
+                            state.sdf_pipeline.set_gpu_active(!currently_gpu);
                         }
                         KeyCode::Char('s') => {
                             // Cycle: 1.0 → 0.75 → 0.5 → 0.25 → 1.0
-                            state.render_scale = match (state.render_scale * 100.0) as u32 {
+                            let new_scale = match (state.sdf_pipeline.get_render_scale() * 100.0) as u32 {
                                 100 => 0.75,
                                 75 => 0.5,
                                 50 => 0.25,
                                 _ => 1.0,
                             };
+                            state.sdf_pipeline.set_render_scale(new_scale);
                         }
                         KeyCode::Char('p') => {
                             if state.profiling {

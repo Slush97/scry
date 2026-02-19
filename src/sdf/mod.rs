@@ -29,6 +29,7 @@ pub mod materials;
 pub mod math;
 pub mod noise;
 pub mod overlay;
+pub mod pipeline;
 pub mod primitives;
 pub mod profiler;
 pub mod renderer;
@@ -37,6 +38,9 @@ pub mod upscale;
 
 #[cfg(feature = "sdf-gpu")]
 pub mod gpu_renderer;
+
+#[cfg(feature = "sdf-text")]
+pub mod glyph;
 
 pub use materials::Material;
 pub use math::Vec3;
@@ -49,3 +53,5 @@ pub use upscale::upscale_bicubic;
 
 #[cfg(feature = "sdf-gpu")]
 pub use gpu_renderer::{SdfGpuContext, SdfGpuRenderer};
+
+pub use pipeline::{SdfBackend, SdfPipeline, SdfRenderResult};

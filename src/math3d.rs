@@ -7,6 +7,93 @@
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
+// ── Vec2 ─────────────────────────────────────────────────────────────
+
+/// A 2-component `f32` vector used for 2D SDF operations and UV coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Vec2 {
+    /// X component.
+    pub x: f32,
+    /// Y component.
+    pub y: f32,
+}
+
+impl Vec2 {
+    /// Zero vector.
+    pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
+
+    /// Create a new vector.
+    #[inline]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+
+    /// Euclidean length.
+    #[inline]
+    pub fn length(self) -> f32 {
+        self.x.hypot(self.y)
+    }
+
+    /// Component-wise maximum.
+    #[inline]
+    pub fn max_comp(self, rhs: Self) -> Self {
+        Self {
+            x: self.x.max(rhs.x),
+            y: self.y.max(rhs.y),
+        }
+    }
+
+    /// Largest component.
+    #[inline]
+    pub fn max_element(self) -> f32 {
+        self.x.max(self.y)
+    }
+}
+
+impl Add for Vec2 {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Sub for Vec2 {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Self;
+    #[inline]
+    fn mul(self, s: f32) -> Self {
+        Self {
+            x: self.x * s,
+            y: self.y * s,
+        }
+    }
+}
+
+impl Neg for Vec2 {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+        }
+    }
+}
+
 // ── Vec3 ─────────────────────────────────────────────────────────────
 
 /// A 3-component `f32` vector used for positions, directions, and colors.

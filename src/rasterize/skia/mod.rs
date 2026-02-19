@@ -27,6 +27,18 @@ use crate::PixelCanvasError;
 /// faster than re-evaluating the gradient shader per pixel.
 pub(crate) type GradientCache = HashMap<u64, Pixmap>;
 
+/// A warning emitted when a draw command is silently dropped during rasterization.
+///
+/// Commands are dropped when their geometry is degenerate (zero radius, zero-area
+/// rect, etc.) and `tiny-skia` returns `None` from the path builder.
+#[derive(Clone, Debug)]
+pub struct RenderWarning {
+    /// Index of the command in the draw list (after batching).
+    pub command_index: usize,
+    /// Human-readable reason the command was dropped.
+    pub reason: &'static str,
+}
+
 /// Rasterizes a [`PixelCanvas`] scene into a `tiny_skia::Pixmap`.
 pub struct Rasterizer;
 
@@ -47,8 +59,35 @@ impl Rasterizer {
         })?;
 
         let mut gc = GradientCache::new();
-        Self::rasterize_into_pixmap(canvas, &mut pixmap, &mut gc);
+        Self::rasterize_into_pixmap(canvas, &mut pixmap, &mut gc, &mut None);
         Ok(pixmap)
+    }
+
+    /// Rasterize a canvas scene, collecting warnings about dropped commands.
+    ///
+    /// Same as [`rasterize()`](Self::rasterize) but returns a list of
+    /// [`RenderWarning`]s for any commands that were silently dropped due
+    /// to degenerate geometry (zero radius, zero-area rect, etc.).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PixelCanvasError::PixmapCreation`] if the pixmap dimensions
+    /// are invalid (zero or too large).
+    pub fn rasterize_verbose(
+        canvas: &PixelCanvas,
+    ) -> Result<(Pixmap, Vec<RenderWarning>), PixelCanvasError> {
+        let mut pixmap = Pixmap::new(canvas.width(), canvas.height()).ok_or_else(|| {
+            PixelCanvasError::PixmapCreation(format!(
+                "failed to create {}x{} pixmap",
+                canvas.width(),
+                canvas.height()
+            ))
+        })?;
+
+        let mut gc = GradientCache::new();
+        let mut warnings = Some(Vec::new());
+        Self::rasterize_into_pixmap(canvas, &mut pixmap, &mut gc, &mut warnings);
+        Ok((pixmap, warnings.unwrap_or_default()))
     }
 
     /// Rasterize into an existing pixmap, avoiding allocation.
@@ -74,7 +113,7 @@ impl Rasterizer {
             canvas.height()
         );
         let mut gc = GradientCache::new();
-        Self::rasterize_into_pixmap(canvas, pixmap, &mut gc);
+        Self::rasterize_into_pixmap(canvas, pixmap, &mut gc, &mut None);
     }
 
     /// Rasterize into an existing pixmap, using a persistent gradient cache.
@@ -100,14 +139,17 @@ impl Rasterizer {
             canvas.width(),
             canvas.height()
         );
-        Self::rasterize_into_pixmap(canvas, pixmap, grad_cache);
+        Self::rasterize_into_pixmap(canvas, pixmap, grad_cache, &mut None);
     }
 
     /// Internal: clear and render into a pixmap (shared by both public methods).
+    ///
+    /// When `warnings` is `Some`, dropped commands are recorded instead of silently ignored.
     fn rasterize_into_pixmap(
         canvas: &PixelCanvas,
         pixmap: &mut Pixmap,
         grad_cache: &mut GradientCache,
+        warnings: &mut Option<Vec<RenderWarning>>,
     ) {
         // Fill background in a single pass (avoids double-write).
         let bg = canvas.background_color();
@@ -128,7 +170,7 @@ impl Rasterizer {
         // with many same-style primitives (e.g., 39 circles → 1 compound path).
         let batched = crate::rasterize::batch::batch_commands(canvas.commands());
 
-        for op in &batched {
+        for (cmd_idx, op) in batched.iter().enumerate() {
             match op {
                 crate::rasterize::batch::BatchedOp::Single(cmd) => {
                     Self::render_command(
@@ -137,6 +179,8 @@ impl Rasterizer {
                         SkiaTransform::identity(),
                         &mut pool,
                         grad_cache,
+                        warnings,
+                        cmd_idx,
                     );
                 }
                 crate::rasterize::batch::BatchedOp::Compound { path, style } => {
@@ -153,6 +197,8 @@ impl Rasterizer {
         parent_transform: SkiaTransform,
         pool: &mut Vec<Pixmap>,
         grad_cache: &mut GradientCache,
+        warnings: &mut Option<Vec<RenderWarning>>,
+        command_index: usize,
     ) {
         match cmd {
             DrawCommand::Clear { color } => {
@@ -169,6 +215,8 @@ impl Rasterizer {
             } => {
                 if let Some(path) = PathBuilder::from_circle(*cx, *cy, *radius) {
                     Self::render_shape(pixmap, &path, style, parent_transform);
+                } else if let Some(ref mut w) = warnings {
+                    w.push(RenderWarning { command_index, reason: "Circle: degenerate geometry (zero or negative radius)" });
                 }
             }
 
@@ -188,11 +236,15 @@ impl Rasterizer {
                             *corner_radius,
                         ) {
                             Self::render_shape(pixmap, &path, style, parent_transform);
+                        } else if let Some(ref mut w) = warnings {
+                            w.push(RenderWarning { command_index, reason: "Rectangle: round rect path construction failed" });
                         }
                     } else {
                         let path = PathBuilder::from_rect(r);
                         Self::render_shape(pixmap, &path, style, parent_transform);
                     }
+                } else if let Some(ref mut w) = warnings {
+                    w.push(RenderWarning { command_index, reason: "Rectangle: degenerate geometry (zero or negative dimensions)" });
                 }
             }
 
@@ -239,6 +291,8 @@ impl Rasterizer {
 
                     let skia_stroke = Self::to_skia_stroke(stroke);
                     pixmap.stroke_path(&path, &paint, &skia_stroke, parent_transform, None);
+                } else if let Some(ref mut w) = warnings {
+                    w.push(RenderWarning { command_index, reason: "Line: path construction failed" });
                 }
             }
 
@@ -265,7 +319,11 @@ impl Rasterizer {
                         } else {
                             Self::render_shape(pixmap, &path, style, parent_transform);
                         }
+                    } else if let Some(ref mut w) = warnings {
+                        w.push(RenderWarning { command_index, reason: "Ellipse: oval path construction failed" });
                     }
+                } else if let Some(ref mut w) = warnings {
+                    w.push(RenderWarning { command_index, reason: "Ellipse: degenerate geometry (zero or negative radii)" });
                 }
             }
 
@@ -289,7 +347,11 @@ impl Rasterizer {
                     }
                     if let Some(path) = pb.finish() {
                         Self::render_shape(pixmap, &path, style, parent_transform);
+                    } else if let Some(ref mut w) = warnings {
+                        w.push(RenderWarning { command_index, reason: "Polyline: path construction failed" });
                     }
+                } else if let Some(ref mut w) = warnings {
+                    w.push(RenderWarning { command_index, reason: "Polyline: fewer than 2 points" });
                 }
             }
 
@@ -375,6 +437,8 @@ impl Rasterizer {
                     Self::build_arc_path(*cx, *cy, *radius, *start_angle, *sweep_angle)
                 {
                     Self::render_shape(pixmap, &path, style, parent_transform);
+                } else if let Some(ref mut w) = warnings {
+                    w.push(RenderWarning { command_index, reason: "Arc: degenerate geometry" });
                 }
             }
 
@@ -560,8 +624,8 @@ impl Rasterizer {
                         combined
                     };
 
-                    for child in commands {
-                        Self::render_command(&mut temp, child, child_transform, pool, grad_cache);
+                    for (i, child) in commands.iter().enumerate() {
+                        Self::render_command(&mut temp, child, child_transform, pool, grad_cache, warnings, command_index + i);
                     }
 
                     // Build clip mask if needed (only for non-rect clips or
@@ -606,8 +670,8 @@ impl Rasterizer {
                     pool.push(temp);
                 } else {
                     // Fast path: no compositing needed
-                    for child in commands {
-                        Self::render_command(pixmap, child, combined, pool, grad_cache);
+                    for (i, child) in commands.iter().enumerate() {
+                        Self::render_command(pixmap, child, combined, pool, grad_cache, warnings, command_index + i);
                     }
                 }
             }

@@ -242,7 +242,7 @@ mod tests {
             .map(|i| (0..n).map(|j| rows[i][j] * true_beta[j]).sum())
             .collect();
 
-        let row_refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
+        let row_refs: Vec<&[f64]> = rows.iter().map(std::vec::Vec::as_slice).collect();
         let x = to_col_major(&row_refs, n, n);
         let result = svd_solve(&x, &y, n, n).unwrap();
 

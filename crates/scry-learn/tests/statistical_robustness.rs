@@ -60,7 +60,7 @@ fn gen_regression_dataset(n: usize, seed: u64) -> Dataset {
 // 4.5C: Multi-seed statistical testing
 // ═══════════════════════════════════════════════════════════════════
 
-/// RandomForestClassifier on Iris across 50 seeds:
+/// `RandomForestClassifier` on Iris across 50 seeds:
 /// mean accuracy ≥ 90%, std ≤ 10%.
 #[test]
 fn multi_seed_random_forest_classifier() {
@@ -87,8 +87,8 @@ fn multi_seed_random_forest_classifier() {
     eprintln!("RF Classifier 50-seed: mean={mean:.4}, std={std:.4}");
     eprintln!(
         "  min={:.4}, max={:.4}",
-        accs.iter().cloned().fold(f64::INFINITY, f64::min),
-        accs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+        accs.iter().copied().fold(f64::INFINITY, f64::min),
+        accs.iter().copied().fold(f64::NEG_INFINITY, f64::max)
     );
 
     assert!(
@@ -103,7 +103,7 @@ fn multi_seed_random_forest_classifier() {
     );
 }
 
-/// RandomForestRegressor on y=2x₁+3x₂+1 across 50 seeds:
+/// `RandomForestRegressor` on y=2x₁+3x₂+1 across 50 seeds:
 /// mean R² ≥ 0.85, std ≤ 0.10.
 #[test]
 fn multi_seed_random_forest_regressor() {
@@ -138,7 +138,7 @@ fn multi_seed_random_forest_regressor() {
     );
 }
 
-/// GradientBoostingClassifier on Iris across 50 seeds:
+/// `GradientBoostingClassifier` on Iris across 50 seeds:
 /// mean accuracy ≥ 90%, std ≤ 10%.
 #[test]
 fn multi_seed_gbt_classifier() {
@@ -176,7 +176,7 @@ fn multi_seed_gbt_classifier() {
     );
 }
 
-/// GradientBoostingRegressor on y=2x₁+3x₂+1 across 50 seeds:
+/// `GradientBoostingRegressor` on y=2x₁+3x₂+1 across 50 seeds:
 /// mean R² ≥ 0.85, std ≤ 0.10.
 #[test]
 fn multi_seed_gbt_regressor() {
@@ -212,7 +212,7 @@ fn multi_seed_gbt_regressor() {
     );
 }
 
-/// KMeans on Iris across 50 seeds:
+/// `KMeans` on Iris across 50 seeds:
 /// mean silhouette ≥ 0.40, std ≤ 0.15.
 #[test]
 fn multi_seed_kmeans() {
@@ -245,7 +245,7 @@ fn multi_seed_kmeans() {
 // 4.5E: Scaling & overfitting tests
 // ═══════════════════════════════════════════════════════════════════
 
-/// DecisionTree accuracy should improve (or at least not degrade) with more data.
+/// `DecisionTree` accuracy should improve (or at least not degrade) with more data.
 #[test]
 fn scaling_dt_accuracy_vs_dataset_size() {
     use scry_learn::tree::DecisionTreeClassifier;
@@ -425,7 +425,7 @@ fn determinism_gbt_same_seed() {
     eprintln!("GBT determinism: identical predictions across 2 runs with same seed ✓");
 }
 
-/// Same seed → identical KMeans labels (determinism).
+/// Same seed → identical `KMeans` labels (determinism).
 #[test]
 fn determinism_kmeans_same_seed() {
     use scry_learn::cluster::KMeans;
@@ -447,7 +447,7 @@ fn determinism_kmeans_same_seed() {
     eprintln!("KMeans determinism: identical labels across 2 runs with same seed ✓");
 }
 
-/// LogisticRegression with GD and L-BFGS should converge to similar loss.
+/// `LogisticRegression` with GD and L-BFGS should converge to similar loss.
 #[test]
 fn convergence_logreg_solvers_agree() {
     use scry_learn::linear::LogisticRegression;
@@ -505,7 +505,7 @@ fn convergence_logreg_solvers_agree() {
     );
 }
 
-/// GBT Regressor: increasing n_estimators should decrease training error.
+/// GBT Regressor: increasing `n_estimators` should decrease training error.
 #[test]
 fn convergence_gbt_error_decreases_with_estimators() {
     use scry_learn::tree::GradientBoostingRegressor;

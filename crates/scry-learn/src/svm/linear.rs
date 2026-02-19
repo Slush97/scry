@@ -992,7 +992,7 @@ mod tests {
                 "probabilities should sum to 1, got {sum}"
             );
             for &p in row {
-                assert!(p >= 0.0 && p <= 1.0, "probability out of range: {p}");
+                assert!((0.0..=1.0).contains(&p), "probability out of range: {p}");
             }
         }
     }

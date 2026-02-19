@@ -1,7 +1,7 @@
 //! Quick diagnostic: compare scry-learn predictions vs sklearn golden references
 //! on full datasets to determine if accuracy gaps are model bugs or eval bugs.
 //!
-//! Run: cargo run --example parity_diagnostic -p scry-learn
+//! Run: cargo run --example `parity_diagnostic` -p scry-learn
 
 fn main() {
     let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -126,9 +126,9 @@ fn main() {
 
         // Scale features first (sklearn used StandardScaler)
         let mut ds = scry_learn::dataset::Dataset::new(
-            features.clone(),
+            features,
             target.clone(),
-            feat_names.clone(),
+            feat_names,
             "target",
         );
         let mut scaler = scry_learn::preprocess::StandardScaler::new();

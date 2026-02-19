@@ -149,20 +149,42 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
         }
     }
 
-    // Error bars on main series
-    if let Some(errors) = sc.y.error_values() {
+    // Error bars on main series (symmetric or asymmetric)
+    let has_sym = sc.y.error_values().is_some();
+    let has_asym = sc.y.error_low().is_some() && sc.y.error_high().is_some();
+    if has_sym || has_asym {
         let cap_w = radius * 0.8;
         let err_color = color0.with_alpha(0.8);
-        for i in 0..sc.x.len().min(sc.y.len()).min(errors.len()) {
+        let n = sc.x.len().min(sc.y.len());
+        let sym_errors = sc.y.error_values();
+        let asym_lo = sc.y.error_low();
+        let asym_hi = sc.y.error_high();
+        for i in 0..n {
             let xv = sc.x.values()[i];
             let yv = sc.y.values()[i];
-            let ev = errors[i];
-            if !xv.is_finite() || !yv.is_finite() || !ev.is_finite() || ev <= 0.0 {
+            if !xv.is_finite() || !yv.is_finite() {
                 continue;
             }
+
+            // Determine lower and upper offsets.
+            let (lo_off, hi_off) = if let (Some(lo), Some(hi)) = (asym_lo, asym_hi) {
+                if i >= lo.len() || i >= hi.len() { continue; }
+                let l = lo[i];
+                let h = hi[i];
+                if !l.is_finite() || !h.is_finite() { continue; }
+                (l, h)
+            } else if let Some(errs) = sym_errors {
+                if i >= errs.len() { continue; }
+                let ev = errs[i];
+                if !ev.is_finite() || ev <= 0.0 { continue; }
+                (ev, ev)
+            } else {
+                continue;
+            };
+
             let sx = x_scale.to_pixel(xv) as f32;
-            let sy_top = y_scale.to_pixel(yv + ev) as f32;
-            let sy_bot = y_scale.to_pixel(yv - ev) as f32;
+            let sy_top = y_scale.to_pixel(yv + hi_off) as f32;
+            let sy_bot = y_scale.to_pixel(yv - lo_off) as f32;
             // Vertical line
             ctx.draw(|c| {
                 c.line(sx, sy_top, sx, sy_bot)

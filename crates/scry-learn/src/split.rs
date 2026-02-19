@@ -421,6 +421,7 @@ pub fn cross_val_predict<M: PipelineModel + Clone>(
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use crate::metrics::accuracy;
@@ -469,9 +470,9 @@ mod tests {
         let test_class_0 = test.target.iter().filter(|&&v| v == 0.0).count();
         let test_class_1 = test.target.iter().filter(|&&v| v == 1.0).count();
         let test_class_2 = test.target.iter().filter(|&&v| v == 2.0).count();
-        assert!(test_class_0 >= 4 && test_class_0 <= 8);
-        assert!(test_class_1 >= 4 && test_class_1 <= 8);
-        assert!(test_class_2 >= 4 && test_class_2 <= 8);
+        assert!((4..=8).contains(&test_class_0));
+        assert!((4..=8).contains(&test_class_1));
+        assert!((4..=8).contains(&test_class_2));
     }
 
     #[test]

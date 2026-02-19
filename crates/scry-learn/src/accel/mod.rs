@@ -30,6 +30,7 @@ pub use gpu::GpuBackend;
 ///
 /// Implementations provide accelerated matrix operations used by
 /// model training and prediction.
+#[allow(dead_code)]
 pub trait ComputeBackend {
     /// Matrix multiply: C = A × B.
     ///
@@ -141,6 +142,7 @@ pub fn auto() -> Box<dyn ComputeBackend> {
 }
 
 /// Get the CPU compute backend (always available).
+#[allow(dead_code)]
 pub fn cpu() -> CpuBackend {
     CpuBackend
 }

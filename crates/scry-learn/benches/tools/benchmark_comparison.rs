@@ -1,4 +1,10 @@
-//! Consolidated benchmark comparison: scry-learn vs scikit-learn vs XGBoost vs LightGBM.
+#![allow(
+    clippy::struct_field_names,
+    clippy::type_complexity,
+    clippy::or_fun_call,
+    clippy::option_if_let_else
+)]
+//! Consolidated benchmark comparison: scry-learn vs scikit-learn vs `XGBoost` vs `LightGBM`.
 //!
 //! Loads Python baseline JSON results and runs scry-learn models inline,
 //! then prints a unified comparison table with accuracy, latency percentiles,
@@ -98,7 +104,7 @@ fn measure_latency<F: FnMut()>(mut f: F, n_iters: usize) -> LatencyStats {
 
 // ─── Memory measurement (Linux) ─────────────────────────────────
 
-/// Read peak RSS (VmHWM) from /proc/self/status in KB.
+/// Read peak RSS (`VmHWM`) from /proc/self/status in KB.
 #[cfg(target_os = "linux")]
 fn peak_rss_kb() -> Option<u64> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
@@ -120,7 +126,7 @@ fn fmt_time(us: f64) -> String {
     if us < 1.0 {
         format!("{:.1} ns", us * 1000.0)
     } else if us < 1_000.0 {
-        format!("{:.1} µs", us)
+        format!("{us:.1} µs")
     } else if us < 1_000_000.0 {
         format!("{:.2} ms", us / 1_000.0)
     } else {
@@ -153,7 +159,7 @@ fn load_python_accuracy(filename: &str) -> HashMap<String, HashMap<String, Pytho
         for (key, val) in cv {
             let mean = val
                 .get("mean_accuracy")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
 
             // sklearn uses "model/dataset" keys, xgboost/lightgbm use "dataset" keys
@@ -331,7 +337,7 @@ fn main() {
             };
 
             let sk_str = sk_acc.map_or("  n/a".to_string(), |v| format!("{v:.4}"));
-            let sk_delta = sk_acc.map_or("".to_string(), |v| delta_str(r.mean_accuracy, v));
+            let sk_delta = sk_acc.map_or(String::new(), |v| delta_str(r.mean_accuracy, v));
 
             // Show XGBoost or LightGBM (whichever is available, prefer XGBoost)
             let (xgb_str, xgb_delta) = if let Some(xgb) = xgb_acc {
@@ -339,7 +345,7 @@ fn main() {
             } else if let Some(lgb) = lgb_acc {
                 (format!("{lgb:.4}"), delta_str(r.mean_accuracy, lgb))
             } else {
-                ("".to_string(), "".to_string())
+                (String::new(), String::new())
             };
 
             println!(
@@ -379,13 +385,11 @@ fn main() {
         let xgb_acc = xgboost
             .get(ds_name)
             .and_then(|m| m.get("default"))
-            .map(|a| a.mean)
-            .unwrap_or(0.0);
+            .map_or(0.0, |a| a.mean);
         let lgb_acc = lightgbm
             .get(ds_name)
             .and_then(|m| m.get("default"))
-            .map(|a| a.mean)
-            .unwrap_or(0.0);
+            .map_or(0.0, |a| a.mean);
 
         let dx = delta_str(hgbt_result.mean_accuracy, xgb_acc);
         let dl = delta_str(hgbt_result.mean_accuracy, lgb_acc);
@@ -412,8 +416,7 @@ fn main() {
 
     println!("  {}", "-".repeat(68));
     println!(
-        "  Scoreboard: scry wins {}, XGBoost wins {}, LightGBM wins {}, ties {}",
-        scry_wins, xgb_wins, lgb_wins, ties
+        "  Scoreboard: scry wins {scry_wins}, XGBoost wins {xgb_wins}, LightGBM wins {lgb_wins}, ties {ties}"
     );
 
     // ─── SECTION 3: Prediction Latency ──────────────────────────

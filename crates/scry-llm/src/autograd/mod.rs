@@ -4,7 +4,6 @@ pub mod ops;
 use crate::backend::DeviceBackend;
 use crate::tensor::shape::Shape;
 use crate::tensor::TensorId;
-use ops::BatchItemAttnSaved;
 
 /// What data each operation saves for backward.
 pub enum SavedData<B: DeviceBackend> {
@@ -89,11 +88,21 @@ pub enum SavedData<B: DeviceBackend> {
         batch_size: Option<usize>,
         seq_len: Option<usize>,
     },
-    /// Batched attention: per-batch-item saved data + shared weight info.
+    /// Batched attention: contiguous tensors for all batch×heads (no per-item vectors).
     AttentionBatched {
-        per_batch: Vec<BatchItemAttnSaved<B>>,
+        input: B::Storage,
         qkv_weight: B::Storage,
         proj_weight: B::Storage,
+        /// `[B*H, S, S]` — attention weights (pre-dropout softmax output)
+        attn_weights: B::Storage,
+        /// `[B*H, S, d_head]` — Q, K, V in head-first layout
+        q_heads: B::Storage,
+        k_heads: B::Storage,
+        v_heads: B::Storage,
+        /// `[B*H*S*S]` — dropout mask (scale values or 1.0 if no dropout)
+        attn_dropout_mask: B::Storage,
+        /// `[B*S, D]` — concatenated head outputs before projection
+        head_concat: B::Storage,
         n_heads: usize,
         d_model: usize,
         d_head: usize,

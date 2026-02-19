@@ -497,7 +497,7 @@ impl LogisticRegression {
                 let errors: &[f64] = &prob;
                 if use_par {
                     data.features.par_iter()
-                        .zip(grad[1..m + 1].par_iter_mut())
+                        .zip(grad[1..=m].par_iter_mut())
                         .for_each(|(col, g)| {
                             let mut acc = 0.0;
                             for i in 0..n { acc += errors[i] * col[i]; }
@@ -1105,7 +1105,7 @@ mod tests {
 
         for i in 0..n {
             // Strong signal: class 0 centered at -3, class 1 centered at +3
-            let class = if i < n / 2 { 0 } else { 1 };
+            let class = i32::from(i >= n / 2);
             let offset = if class == 0 { -3.0 } else { 3.0 };
             f0.push(offset + (i % 7) as f64 * 0.1);
             f1.push(offset * 0.5 + (i % 5) as f64 * 0.05);
@@ -1207,7 +1207,7 @@ mod tests {
         let mut target = Vec::with_capacity(n);
 
         for i in 0..n {
-            let class = if i < n / 2 { 0 } else { 1 };
+            let class = i32::from(i >= n / 2);
             let offset = if class == 0 { -3.0 } else { 3.0 };
             f0.push(offset + (i % 7) as f64 * 0.1);
             f1.push(offset * 0.5 + (i % 5) as f64 * 0.05);

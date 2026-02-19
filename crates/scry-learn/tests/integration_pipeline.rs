@@ -429,7 +429,7 @@ fn cluster_kmeans() {
     model.fit(&data).unwrap();
     let labels = model.labels();
     let features = data.feature_matrix();
-    let sil = silhouette_score(&features, &labels);
+    let sil = silhouette_score(&features, labels);
     println!("KMeans silhouette: {sil:.3}");
     assert!(sil > 0.4, "silhouette {sil} <= 0.4");
 }
@@ -441,7 +441,7 @@ fn cluster_mini_batch_kmeans() {
     model.fit(&data).unwrap();
     let labels = model.labels();
     let features = data.feature_matrix();
-    let sil = silhouette_score(&features, &labels);
+    let sil = silhouette_score(&features, labels);
     println!("MiniBatchKMeans silhouette: {sil:.3}");
     assert!(sil > 0.4, "silhouette {sil} <= 0.4");
 }
@@ -481,8 +481,8 @@ fn preprocess_minmax_scaler() {
 
     for col_idx in 0..train.n_features() {
         let col = &train.features[col_idx];
-        let min = col.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = col.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = col.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         assert!(min >= -1e-10, "feature {col_idx} min {min} < 0");
         assert!(max <= 1.0 + 1e-10, "feature {col_idx} max {max} > 1");
     }

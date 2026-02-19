@@ -600,9 +600,9 @@ mod tests {
         scaler.fit_sparse(&csc).unwrap();
 
         // Also fit dense for comparison.
-        let mut ds = Dataset::new(cols, vec![0.0; 5], vec!["x".into()], "y");
+        let ds = Dataset::new(cols, vec![0.0; 5], vec!["x".into()], "y");
         let mut scaler_d = StandardScaler::new();
-        scaler_d.fit(&mut ds).unwrap();
+        scaler_d.fit(&ds).unwrap();
 
         // Means should match.
         assert!(

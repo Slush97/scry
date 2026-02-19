@@ -18,9 +18,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
 
-use crate::rasterize::{RasterCache, Rasterizer};
-#[cfg(feature = "gpu")]
-use crate::rasterize::{WgpuContext2D, WgpuRasterizer};
+use crate::rasterize::{RasterCache, RasterPipeline};
 use crate::scene::PixelCanvas;
 use crate::transport::backend::{
     FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
@@ -144,18 +142,14 @@ struct PendingFrame {
 /// - Deferred frame pending transmission (protocol backends only)
 pub struct PixelCanvasState {
     backend: Box<dyn ProtocolBackend>,
-    cache: RasterCache,
+    pipeline: RasterPipeline,
     current_handle: Option<ImageHandle>,
     font_size: FontSize,
     /// Transmission metadata for a frame rasterized during `render()`.
-    /// The pixmap itself lives in `cache`.
+    /// The pixmap itself lives in the pipeline's cache.
     pending: Option<PendingFrame>,
     /// Reusable flat buffer for halfblock cell rendering (avoids per-frame Vec<Vec<>> allocation).
     halfblock_buf: Vec<HalfblockCell>,
-    /// Cached GPU context for accelerated rasterization (lazy-initialized).
-    /// `None` = not yet tried, `Some(None)` = tried and failed, `Some(Some(_))` = ready.
-    #[cfg(feature = "gpu")]
-    gpu_ctx: Option<Option<WgpuContext2D>>,
 }
 
 impl PixelCanvasState {
@@ -163,13 +157,11 @@ impl PixelCanvasState {
     pub fn new(backend: Box<dyn ProtocolBackend>, font_size: FontSize) -> Self {
         Self {
             backend,
-            cache: RasterCache::new(),
+            pipeline: RasterPipeline::new(),
             current_handle: None,
             font_size,
             pending: None,
             halfblock_buf: Vec::new(),
-            #[cfg(feature = "gpu")]
-            gpu_ctx: None,
         }
     }
 
@@ -203,7 +195,7 @@ impl PixelCanvasState {
         };
 
         // Verify the cache has a valid pixmap for this frame.
-        if !self.cache.is_valid(frame.content_hash) {
+        if !self.pipeline.cache.is_valid(frame.content_hash) {
             return Ok(());
         }
 
@@ -211,7 +203,7 @@ impl PixelCanvasState {
         if frame.incremental {
             // compute_dirty_tiles_cached() borrows &mut self.cache internally
             // and returns owned Vec<DirtyTile>, breaking the borrow.
-            let dirty_tiles = self.cache.compute_dirty_tiles_cached().unwrap_or_default();
+            let dirty_tiles = self.pipeline.cache.compute_dirty_tiles_cached().unwrap_or_default();
 
             if dirty_tiles.is_empty() {
                 // Nothing changed at pixel level — skip transmission.
@@ -221,6 +213,7 @@ impl PixelCanvasState {
             if let Some(ref old_handle) = self.current_handle {
                 // Re-borrow pixmap immutably for transmission.
                 let pixmap = self
+                    .pipeline
                     .cache
                     .get(frame.content_hash)
                     .expect("cache validated above");
@@ -237,7 +230,7 @@ impl PixelCanvasState {
                     }
                     Err(e) => {
                         self.current_handle = None;
-                        self.cache.clear();
+                        self.pipeline.cache.clear();
                         return Err(e);
                     }
                 }
@@ -248,6 +241,7 @@ impl PixelCanvasState {
         }
 
         let pixmap = self
+            .pipeline
             .cache
             .get(frame.content_hash)
             .expect("cache validated above");
@@ -265,7 +259,7 @@ impl PixelCanvasState {
             }
             Err(e) => {
                 self.current_handle = None;
-                self.cache.clear();
+                self.pipeline.cache.clear();
                 return Err(e);
             }
         }
@@ -277,8 +271,8 @@ impl PixelCanvasState {
     ///
     /// Useful for manual profiled rasterization where you need to
     /// rasterize into the cache's pixmap directly.
-    pub const fn cache_mut(&mut self) -> &mut RasterCache {
-        &mut self.cache
+    pub fn cache_mut(&mut self) -> &mut RasterCache {
+        &mut self.pipeline.cache
     }
 
     /// The protocol kind used by this state's backend.
@@ -302,12 +296,13 @@ impl PixelCanvasState {
 
         // Store the pixmap in the cache
         let (cache_pixmap, _gc) = self
+            .pipeline
             .cache
             .get_or_insert_with_grad_cache(pixmap.width(), pixmap.height());
         if let Some(target) = cache_pixmap {
             target.data_mut().copy_from_slice(pixmap.data());
         }
-        self.cache.mark_valid(hash);
+        self.pipeline.cache.mark_valid(hash);
 
         let position = TerminalPosition::new(area.x, area.y, area.width, area.height);
         self.pending = Some(PendingFrame {
@@ -330,7 +325,7 @@ impl PixelCanvasState {
         if let Some(handle) = self.current_handle.take() {
             let _ = self.backend.remove(&handle);
         }
-        self.cache.clear();
+        self.pipeline.cache.clear();
     }
 }
 
@@ -375,9 +370,9 @@ impl StatefulWidget for PixelCanvasWidget {
             canvas.content_hash()
         };
 
-        if !self.skip_cache && state.cache.is_valid(content_hash) {
+        if !self.skip_cache && state.pipeline.cache.is_valid(content_hash) {
             if is_halfblock {
-                if let Some(pixmap) = state.cache.get(content_hash) {
+                if let Some(pixmap) = state.pipeline.cache.get(content_hash) {
                     render_halfblock_to_buffer(
                         buf,
                         area,
@@ -392,46 +387,14 @@ impl StatefulWidget for PixelCanvasWidget {
             return;
         }
 
-        // Rasterize scene into cache's reusable pixmap (avoids per-frame allocation)
-        let (pixmap_opt, gc) = state
-            .cache
-            .get_or_insert_with_grad_cache(canvas.width(), canvas.height());
-        let Some(pixmap) = pixmap_opt else {
+        // Rasterize via shared pipeline (GPU → CPU fallback handled inside)
+        let Some(store_hash) = state.pipeline.rasterize_into_cache(&canvas, self.skip_cache) else {
             return;
         };
 
-        #[cfg(feature = "gpu")]
-        {
-            // Lazily initialize GPU context on first render; record failure permanently
-            if state.gpu_ctx.is_none() {
-                state.gpu_ctx = Some(WgpuContext2D::new().ok());
-            }
-            if let Some(Some(ref ctx)) = state.gpu_ctx {
-                if let Ok(gpu_pixmap) = WgpuRasterizer::rasterize_with_context(ctx, &canvas) {
-                    pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
-                } else {
-                    Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
-                }
-            } else {
-                Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
-            }
-        }
-        #[cfg(not(feature = "gpu"))]
-        Rasterizer::rasterize_into_cached(&canvas, pixmap, gc);
-        // Use a unique hash per frame when skip_cache is on, so flush() can find it.
-        let store_hash = if self.skip_cache {
-            // Monotonic counter to ensure cache is always "valid" for flush()
-            use std::sync::atomic::{AtomicU64, Ordering};
-            static FRAME_SEQ: AtomicU64 = AtomicU64::new(1);
-            FRAME_SEQ.fetch_add(1, Ordering::Relaxed)
-        } else {
-            content_hash
-        };
-        state.cache.mark_valid(store_hash);
-
         if is_halfblock {
             // Halfblock path: render directly into the ratatui Buffer.
-            if let Some(pixmap) = state.cache.get(store_hash) {
+            if let Some(pixmap) = state.pipeline.cache.get(store_hash) {
                 render_halfblock_to_buffer(
                     buf,
                     area,

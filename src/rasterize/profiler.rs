@@ -915,6 +915,8 @@ impl ProfiledRasterizer {
                     parent_transform,
                     pool,
                     grad_cache,
+                    &mut None,
+                    0,
                 );
             }
         }

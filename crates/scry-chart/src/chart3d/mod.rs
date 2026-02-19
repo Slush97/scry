@@ -635,20 +635,21 @@ impl Chart3D {
         self.render_with(rasterizer)
     }
 
-    /// Render using a pre-initialized GPU context (cached device + pipelines).
+    /// Render using a pre-initialized GPU device (cached device + pipelines).
     ///
-    /// This is the **fast path** for multi-frame GPU rendering. Create a
-    /// [`WgpuContext`](wgpu_backend::WgpuContext) once and pass it to each
-    /// frame to skip the ~100ms device initialization overhead.
+    /// This is the **fast path** for multi-frame GPU rendering. Use
+    /// [`GpuDevice::global()`](scry_engine::gpu::GpuDevice::global) to get the
+    /// shared device reference and pass it to each frame.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// use scry_chart::chart3d::{Chart3D, wgpu_backend::WgpuContext};
+    /// use scry_chart::chart3d::Chart3D;
+    /// use scry_engine::gpu::GpuDevice;
     ///
-    /// let ctx = WgpuContext::new()?;
+    /// let gpu = GpuDevice::global().unwrap();
     /// for _ in 0..60 {
-    ///     let rgba = chart.render_gpu_with_context(&ctx, 1920, 1080)?;
+    ///     let rgba = chart.render_gpu_with_device(gpu, 1920, 1080)?;
     /// }
     /// ```
     ///
@@ -656,14 +657,14 @@ impl Chart3D {
     ///
     /// Returns an error if the data is empty or all non-finite.
     #[cfg(feature = "gpu")]
-    pub fn render_gpu_with_context(
+    pub fn render_gpu_with_device(
         &self,
-        ctx: &wgpu_backend::WgpuContext,
+        gpu: &'static scry_engine::gpu::GpuDevice,
         width: u32,
         height: u32,
     ) -> Result<Vec<u8>, String> {
         let rasterizer =
-            wgpu_backend::WgpuRasterizer3D::with_context(ctx, width, height, self.background);
+            wgpu_backend::WgpuRasterizer3D::with_device(gpu, width, height, self.background);
         self.render_with(rasterizer)
     }
 
@@ -952,20 +953,20 @@ impl Chart3D {
     /// Render to a [`PixelCanvas`] using the GPU-accelerated wgpu backend.
     ///
     /// This is the GPU equivalent of [`render_to_canvas()`](Self::render_to_canvas).
-    /// Uses a pre-initialized [`WgpuContext`](wgpu_backend::WgpuContext) to skip
+    /// Uses a shared [`GpuDevice`](scry_engine::gpu::GpuDevice) to skip
     /// the expensive ~100ms device initialization on each frame.
     ///
     /// # Errors
     ///
     /// Returns an error if the data is empty or all non-finite.
     #[cfg(feature = "gpu")]
-    pub fn render_gpu_to_canvas_with_context(
+    pub fn render_gpu_to_canvas_with_device(
         &self,
-        ctx: &wgpu_backend::WgpuContext,
+        gpu: &'static scry_engine::gpu::GpuDevice,
         width: u32,
         height: u32,
     ) -> Result<scry_engine::scene::PixelCanvas, String> {
-        let rgba = self.render_gpu_with_context(ctx, width, height)?;
+        let rgba = self.render_gpu_with_device(gpu, width, height)?;
         let image = scry_engine::scene::ImageData::new(width, height, rgba);
         Ok(scry_engine::scene::PixelCanvas::new(width, height)
             .image(image, 0.0, 0.0)
