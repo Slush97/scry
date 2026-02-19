@@ -465,3 +465,337 @@ fn miri_gpt2_tiny_forward_backward() {
     let de = Cpu::to_vec(grads.get(&model.embedding.token_embedding.id).unwrap());
     assert!(de.iter().all(|v| v.is_finite()));
 }
+
+// ============================================================
+// Phase 3: Scheduler, DataLoader, Training (dims ≤ 8 for Miri)
+// ============================================================
+
+#[test]
+fn miri_cosine_scheduler() {
+    use scry_llm::optim::scheduler::CosineScheduler;
+
+    let warmup = 10;
+    let total = 100;
+    let peak_lr = 3e-4;
+    let min_lr = 1e-5;
+    let sched = CosineScheduler::new(warmup, total, peak_lr, min_lr);
+
+    // Step 0: should be 0 (linear warmup from 0)
+    let lr0 = sched.get_lr(0);
+    assert!(lr0.is_finite());
+    assert!(lr0 >= 0.0);
+    assert!(lr0 <= peak_lr);
+
+    // Warmup midpoint
+    let lr_mid_warmup = sched.get_lr(warmup / 2);
+    assert!(lr_mid_warmup.is_finite());
+    assert!(lr_mid_warmup >= min_lr);
+    assert!(lr_mid_warmup <= peak_lr);
+
+    // Peak (at warmup boundary)
+    let lr_peak = sched.get_lr(warmup);
+    assert!(lr_peak.is_finite());
+    assert!((lr_peak - peak_lr).abs() < 1e-6);
+
+    // Decay midpoint
+    let lr_decay_mid = sched.get_lr((warmup + total) / 2);
+    assert!(lr_decay_mid.is_finite());
+    assert!(lr_decay_mid >= min_lr);
+    assert!(lr_decay_mid <= peak_lr);
+
+    // At total_steps: should be min_lr
+    let lr_end = sched.get_lr(total);
+    assert!(lr_end.is_finite());
+    assert!((lr_end - min_lr).abs() < 1e-6);
+}
+
+#[test]
+fn miri_data_loader_from_tokens() {
+    use scry_llm::data::DataLoader;
+
+    let tokens: Vec<u16> = (0..20).collect();
+    let seq_len = 3;
+    let batch_size = 2;
+    let mut loader = DataLoader::from_tokens(tokens, seq_len, batch_size, 42);
+
+    // First batch
+    let b1 = loader.next_batch().unwrap();
+    assert_eq!(b1.batch_size, batch_size);
+    assert_eq!(b1.seq_len, seq_len);
+    assert_eq!(b1.input_ids.len(), batch_size * seq_len);
+    assert_eq!(b1.targets.len(), batch_size * seq_len);
+
+    // Verify input/target offset by 1
+    // First sequence: tokens[0..3] input, tokens[1..4] target
+    assert_eq!(b1.input_ids[0], 0);
+    assert_eq!(b1.targets[0], 1);
+    assert_eq!(b1.input_ids[1], 1);
+    assert_eq!(b1.targets[1], 2);
+
+    // Second batch
+    let b2 = loader.next_batch().unwrap();
+    assert_eq!(b2.input_ids.len(), batch_size * seq_len);
+    assert_eq!(b2.targets.len(), batch_size * seq_len);
+}
+
+#[test]
+fn miri_data_loader_wrap() {
+    use scry_llm::data::DataLoader;
+
+    // Only 8 tokens, seq_len=2, batch_size=1 → need 3 tokens per batch
+    // Can fit 2 batches (6 tokens consumed), then must wrap
+    let tokens: Vec<u16> = (0..8).collect();
+    let mut loader = DataLoader::from_tokens(tokens, 2, 1, 42);
+
+    // Exhaust: ceil(8/3)=2 full batches, then wrap
+    for _ in 0..5 {
+        let batch = loader.next_batch().unwrap();
+        assert_eq!(batch.input_ids.len(), 2);
+        assert_eq!(batch.targets.len(), 2);
+    }
+}
+
+#[test]
+fn miri_batched_attention_forward_backward() {
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+    use scry_llm::nn::Module;
+
+    let config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 8,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(config.clone(), &mut rng);
+
+    let batch_size = 2;
+    let seq_len = 3;
+    let input_ids: Vec<usize> = vec![0, 1, 2, 3, 4, 0];
+    let targets: Vec<usize> = vec![1, 2, 3, 4, 0, 1];
+
+    let mut tape = GradTape::<Cpu>::new();
+    let logits = model.forward_batch(&input_ids, batch_size, seq_len, &mut rng, &mut tape);
+    assert_eq!(logits.shape.dims(), &[batch_size * seq_len, config.vocab_size]);
+    assert!(logits.to_vec().iter().all(|v| v.is_finite()));
+
+    let loss = ops::cross_entropy(
+        &logits,
+        &targets,
+        batch_size * seq_len,
+        config.vocab_size,
+        Some(&mut tape),
+    );
+    let loss_val = loss.to_vec()[0];
+    assert!(loss_val.is_finite());
+
+    let grads = backward(&tape, loss.id);
+    for param in model.parameters() {
+        let g = Cpu::to_vec(grads.get(&param.id).unwrap());
+        assert!(g.iter().all(|v| v.is_finite()));
+    }
+}
+
+#[test]
+fn miri_gpt2_batched_forward_backward() {
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+
+    let config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 8,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(config.clone(), &mut rng);
+
+    let batch_size = 2;
+    let seq_len = 3;
+    let input_ids: Vec<usize> = vec![0, 2, 4, 1, 3, 0];
+    let targets: Vec<usize> = vec![2, 4, 1, 3, 0, 2];
+
+    let mut tape = GradTape::<Cpu>::new();
+    let logits = model.forward_batch(&input_ids, batch_size, seq_len, &mut rng, &mut tape);
+    let loss = ops::cross_entropy(
+        &logits,
+        &targets,
+        batch_size * seq_len,
+        config.vocab_size,
+        Some(&mut tape),
+    );
+    let loss_val = loss.to_vec()[0];
+    assert!(loss_val.is_finite());
+    assert!(loss_val > 0.0);
+
+    let grads = backward(&tape, loss.id);
+    assert!(grads.contains_key(&model.embedding.token_embedding.id));
+    let de = Cpu::to_vec(grads.get(&model.embedding.token_embedding.id).unwrap());
+    assert!(de.iter().all(|v| v.is_finite()));
+}
+
+#[test]
+fn miri_training_step() {
+    use scry_llm::data::Batch;
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+    use scry_llm::training::{Trainer, TrainingConfig};
+
+    let model_config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 8,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(model_config.clone(), &mut rng);
+
+    let config = TrainingConfig {
+        batch_size: 1,
+        seq_len: 3,
+        total_steps: 10,
+        warmup_steps: 2,
+        peak_lr: 3e-4,
+        min_lr: 1e-5,
+        grad_accum_steps: 1,
+        max_grad_norm: 1.0,
+        log_interval: 10,
+        eval_interval: 0,
+        checkpoint_interval: 0,
+        checkpoint_dir: std::path::PathBuf::from("/tmp"),
+        seed: 42,
+    };
+
+    let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
+    assert_eq!(trainer.step, 0);
+
+    let batch = Batch {
+        input_ids: vec![0, 1, 2],
+        targets: vec![1, 2, 3],
+        batch_size: 1,
+        seq_len: 3,
+    };
+
+    let metrics = trainer.train_step(&[batch]);
+    assert!(metrics.loss.is_finite());
+    assert!(metrics.grad_norm.is_finite());
+    assert_eq!(trainer.step, 1);
+}
+
+#[test]
+fn miri_gradient_accumulation() {
+    use scry_llm::data::Batch;
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+    use scry_llm::training::{Trainer, TrainingConfig};
+
+    let model_config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 8,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(model_config.clone(), &mut rng);
+
+    let config = TrainingConfig {
+        batch_size: 1,
+        seq_len: 3,
+        total_steps: 10,
+        warmup_steps: 2,
+        peak_lr: 3e-4,
+        min_lr: 1e-5,
+        grad_accum_steps: 2,
+        max_grad_norm: 1.0,
+        log_interval: 10,
+        eval_interval: 0,
+        checkpoint_interval: 0,
+        checkpoint_dir: std::path::PathBuf::from("/tmp"),
+        seed: 42,
+    };
+
+    let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
+
+    let batch1 = Batch {
+        input_ids: vec![0, 1, 2],
+        targets: vec![1, 2, 3],
+        batch_size: 1,
+        seq_len: 3,
+    };
+    let batch2 = Batch {
+        input_ids: vec![2, 3, 4],
+        targets: vec![3, 4, 0],
+        batch_size: 1,
+        seq_len: 3,
+    };
+
+    let metrics = trainer.train_step(&[batch1, batch2]);
+    assert!(metrics.loss.is_finite());
+    assert!(metrics.grad_norm.is_finite());
+    assert_eq!(trainer.step, 1);
+}
+
+#[test]
+fn miri_evaluate() {
+    use scry_llm::data::Batch;
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+    use scry_llm::training::{Trainer, TrainingConfig};
+
+    let model_config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 8,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(model_config.clone(), &mut rng);
+
+    let config = TrainingConfig {
+        batch_size: 1,
+        seq_len: 3,
+        total_steps: 10,
+        warmup_steps: 2,
+        peak_lr: 3e-4,
+        min_lr: 1e-5,
+        grad_accum_steps: 1,
+        max_grad_norm: 1.0,
+        log_interval: 10,
+        eval_interval: 0,
+        checkpoint_interval: 0,
+        checkpoint_dir: std::path::PathBuf::from("/tmp"),
+        seed: 42,
+    };
+
+    let trainer = Trainer::<Cpu>::new(model, model_config, config);
+
+    let batches = vec![
+        Batch {
+            input_ids: vec![0, 1, 2],
+            targets: vec![1, 2, 3],
+            batch_size: 1,
+            seq_len: 3,
+        },
+        Batch {
+            input_ids: vec![2, 3, 4],
+            targets: vec![3, 4, 0],
+            batch_size: 1,
+            seq_len: 3,
+        },
+    ];
+
+    let val_loss = trainer.evaluate(&batches);
+    assert!(val_loss.is_finite());
+    assert!(val_loss > 0.0);
+}

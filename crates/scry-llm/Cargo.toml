@@ -11,6 +11,7 @@ license = "MIT OR Apache-2.0"
 default = ["cuda"]
 cuda = ["dep:cudarc"]
 safetensors = ["dep:safetensors"]
+tokenizer = ["dep:serde_json"]
 
 [dependencies]
 cudarc = { version = "0.19", features = ["cublas", "nvrtc", "cuda-13010"], optional = true }
@@ -18,8 +19,14 @@ safetensors = { version = "0.4", optional = true }
 arrayvec = "0.7"
 thiserror = "2"
 fastrand = "2"
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "llm_ops"
+harness = false
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

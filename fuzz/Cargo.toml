@@ -268,3 +268,39 @@ path = "fuzz_targets/fuzz_hist_gbt.rs"
 test = false
 doc = false
 bench = false
+
+# ═══════════════════════════════════════════
+# Phase 7: scry-llm fuzz targets
+# ═══════════════════════════════════════════
+
+[dependencies.scry-llm]
+path = "../crates/scry-llm"
+default-features = false
+
+[[bin]]
+name = "fuzz_llm_forward"
+path = "fuzz_targets/fuzz_llm_forward.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_llm_batched_forward"
+path = "fuzz_targets/fuzz_llm_batched_forward.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_llm_data_loader"
+path = "fuzz_targets/fuzz_llm_data_loader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_llm_training_step"
+path = "fuzz_targets/fuzz_llm_training_step.rs"
+test = false
+doc = false
+bench = false
