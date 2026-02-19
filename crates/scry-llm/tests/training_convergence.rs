@@ -1,5 +1,5 @@
 //! Training convergence test for a tiny GPT-2 model on synthetic data.
-//! Gate: loss decreases to < 0.01 within 500 steps.
+//! Gate: loss decreases to < 0.5 within 500 steps (repeating sequential patterns).
 
 use scry_llm::autograd::backward::backward;
 use scry_llm::autograd::ops;
