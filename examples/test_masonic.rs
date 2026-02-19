@@ -1,5 +1,5 @@
 // Quick test: render the masonic_mirror scene to a tiny pixmap and check
-use scry_engine::scene::style::Color;
+use scry_engine::style::Color;
 use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
 use scry_engine::sdf::pipeline::SdfPipeline;
 

@@ -11,13 +11,13 @@
 //! Controls:
 //!   `1`–`5`  — switch scene preset
 //!   `Space`  — pause/resume animation
-//!   `p`      — toggle per-stage profiler
+//!   `g`      — toggle GPU/CPU rendering
 //!   `+`/`-`  — cycle render scale (25%, 50%, 75%, 100%)
 //!   `q`/`Esc` — quit
 //!
 //! Run with:
-//!   Terminal: `cargo run --example text3d_showcase --features sdf-text --release`
-//!   Window:   `cargo run --example text3d_showcase --features "sdf-text,window" --release -- --window`
+//!   Terminal: `cargo run --example text3d_showcase --features "sdf-text,sdf-gpu,widget" --release`
+//!   Window:   `cargo run --example text3d_showcase --features "sdf-text,sdf-gpu,widget,window" --release -- --window`
 
 #![allow(
     clippy::cast_precision_loss,
@@ -28,33 +28,28 @@
     clippy::doc_markdown,
     clippy::similar_names,
     clippy::needless_range_loop,
-    clippy::wildcard_imports,
-    unused_labels
+    clippy::wildcard_imports
 )]
 
-use std::io::{stdout, Write};
+use std::io::stdout;
 use std::time::{Duration, Instant};
 
 use crossterm::{
-    cursor,
     event::{self, Event, KeyCode, KeyEventKind},
-    style,
-    terminal::{self, disable_raw_mode, enable_raw_mode},
-    ExecutableCommand, QueueableCommand,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
 };
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Paragraph};
 
-use scry_engine::sdf::profiler::{render_profile_bar, SdfProfileHistory};
+use scry_engine::prelude::{
+    Picker, PixelCanvasState, PixelCanvasWidget,
+};
+use scry_engine::scene::style::Color as C;
+use scry_engine::scene::PixelCanvas;
+use scry_engine::scene::command::ImageData;
+use scry_engine::sdf::pipeline::SdfPipeline;
 use scry_engine::sdf::*;
-use scry_engine::style::Color as C;
-use scry_engine::transport::backend::{ProtocolBackend, TerminalPosition};
-use scry_engine::transport::{self, Picker, ProtocolKind};
-
-// ═══════════════════════════════════════════════════════════════════
-// Resolution cap (terminal mode only)
-// ═══════════════════════════════════════════════════════════════════
-
-const MAX_RENDER_W: u32 = 640;
-const MAX_RENDER_H: u32 = 360;
 
 // ═══════════════════════════════════════════════════════════════════
 // Font data
@@ -494,56 +489,44 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Terminal mode — direct transport, no widget/rasterizer overhead
+// Terminal mode — ratatui + PixelCanvasWidget (matches masonic_mirror)
 // ═══════════════════════════════════════════════════════════════════
 
-fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
-    // Install panic hook that restores terminal before printing the panic.
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = disable_raw_mode();
-        let _ = stdout().execute(terminal::LeaveAlternateScreen);
-        let _ = stdout().execute(cursor::Show);
-        default_hook(info);
-    }));
+fn build_canvas(w: u32, h: u32, sdf_image: ImageData) -> PixelCanvas {
+    if w == 0 || h == 0 {
+        return PixelCanvas::new(1, 1);
+    }
+    let mut canvas = PixelCanvas::new(w, h).background(C::from_rgba8(10, 12, 20, 255));
+    canvas = canvas.image(sdf_image, 0.0, 0.0).done();
+    canvas
+}
 
+fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
-    let mut out = stdout();
-    out.execute(terminal::EnterAlternateScreen)?;
-    out.execute(cursor::Hide)?;
+    stdout().execute(EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let picker = Picker::detect();
-    let font = picker.font_size();
-    let mut backend: Box<dyn ProtocolBackend> = match picker.protocol() {
-        ProtocolKind::Kitty => Box::new(transport::kitty::KittyBackend::new(font)),
-        _ => Box::new(transport::halfblock::HalfblockBackend::new()),
-    };
+    let backend = picker.create_backend();
+    let mut px_state = PixelCanvasState::new(backend, picker.font_size());
+
+    let mut sdf_pipeline = SdfPipeline::new();
 
     let mut static_scenes = build_static_scenes();
-
-    // Auto-detect GPU with timeout to avoid hanging on broken drivers
-    #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx =
-        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
+    let mut dynamic_scene: SdfScene = build_museum();
 
     let mut preset_idx: usize = 0;
     let mut paused = false;
     let start = Instant::now();
     let mut frozen_time = 0.0_f32;
-    let mut last_fps = 0.0_f32;
-    let mut handle: Option<transport::backend::ImageHandle> = None;
-
-    // Profiler state
-    let mut profiling = false;
-    let mut profile_history = SdfProfileHistory::new(32);
-
-    let mut scale_idx: usize = 1; // default 0.5 (bicubic upscale)
-
-    // Dynamic scenes rebuilt per-frame
-    let mut dynamic_scene: SdfScene = build_museum();
+    let mut last_frame = Instant::now();
+    let mut scale_idx: usize = 2; // default 75%
 
     loop {
-        let frame_start = Instant::now();
+        let now = Instant::now();
+        let dt = now.duration_since(last_frame);
+        last_frame = now;
+        let fps = if dt.as_secs_f32() > 0.0 { 1.0 / dt.as_secs_f32() } else { 0.0 };
 
         let elapsed = if paused {
             frozen_time
@@ -553,18 +536,21 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
             e
         };
 
-        // Get terminal size in pixels
-        let (cols, rows) = terminal::size()?;
-        let status_rows = if profiling { 3 } else { 1 };
-        let full_w = u32::from(cols) * u32::from(font.width);
-        let full_h = u32::from(rows.saturating_sub(status_rows + 1)) * u32::from(font.height);
+        // Compute layout
+        let term_size = terminal.size()?;
+        let term_rect = ratatui::layout::Rect::new(0, 0, term_size.width, term_size.height);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(2)])
+            .split(term_rect);
 
-        if full_w > 0 && full_h > 0 {
-            let cap_w = full_w.min(MAX_RENDER_W);
-            let cap_h = full_h.min(MAX_RENDER_H);
-            let render_scale = SCALE_STEPS[scale_idx];
+        let area = chunks[0];
+        let font = px_state.font_size();
+        let w = u32::from(area.width) * u32::from(font.width);
+        let h = u32::from(area.height) * u32::from(font.height);
 
-            // Get the active scene (rebuild dynamic ones each frame)
+        if w > 0 && h > 0 {
+            // Get the active scene
             let scene = match preset_idx {
                 0..=2 => {
                     set_camera(&mut static_scenes[preset_idx], preset_idx, elapsed);
@@ -582,147 +568,57 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let pixmap = 'render: {
-                // GPU path: render at full resolution
-                #[cfg(feature = "sdf-gpu")]
-                if let Some(ref mut ctx) = gpu_ctx {
-                    let gpu_start = Instant::now();
-                    match scry_engine::sdf::SdfGpuRenderer::render_to_pixmap(
-                        ctx,
-                        scene,
-                        cap_w,
-                        cap_h,
-                        elapsed,
-                    ) {
-                        Ok(pm) => {
-                            if profiling {
-                                let gpu_us = gpu_start.elapsed().as_micros() as u64;
-                                profile_history.push(scry_engine::sdf::SdfProfile::total_only(
-                                    gpu_us, cap_w, cap_h,
-                                ));
-                            }
-                            break 'render pm;
-                        }
-                        Err(_) => {
-                            // GPU render failed, fall through to CPU
-                        }
-                    }
-                }
+            // Render via SdfPipeline (handles GPU/CPU, scale, upscale)
+            let sdf_result = sdf_pipeline.render(scene, w, h, elapsed);
+            let canvas = build_canvas(w, h, sdf_result.image);
 
-                // CPU path
-                let pm = if profiling {
-                    let (pm, profile) = SdfRenderer::render_to_pixmap_upscaled_profiled(
-                        scene,
-                        cap_w,
-                        cap_h,
-                        render_scale,
-                        elapsed,
-                    )?;
-                    profile_history.push(profile);
-                    pm
-                } else {
-                    SdfRenderer::render_to_pixmap_upscaled(
-                        scene,
-                        cap_w,
-                        cap_h,
-                        render_scale,
-                        elapsed,
-                    )?
-                };
-                pm
-            };
+            let render_mode = sdf_pipeline.backend_name();
+            let scale_pct = (sdf_pipeline.get_render_scale() * 100.0) as u32;
 
-            let pos = TerminalPosition::new(0, 0, cols, rows.saturating_sub(status_rows + 1));
+            terminal.draw(|frame| {
+                frame.render_stateful_widget(
+                    PixelCanvasWidget::new(canvas).skip_cache().z_index(-1),
+                    area,
+                    &mut px_state,
+                );
 
-            let new_handle = if let Some(ref old) = handle {
-                backend.replace(old, &pixmap, pos, -1)?
-            } else {
-                backend.transmit(&pixmap, pos, -1)?
-            };
-            handle = Some(new_handle);
+                let status_text = format!(
+                    " Text3D: {} | {render_mode} {scale_pct}% | {fps:.0}fps | {elapsed:.1}s | [1-5] scene [+/-] scale [space] pause [g] gpu [q] quit",
+                    PRESET_NAMES[preset_idx],
+                );
+                let status = Paragraph::new(status_text).block(Block::default().borders(Borders::TOP));
+                frame.render_widget(status, chunks[1]);
+            })?;
+            px_state.flush()?;
+            sdf_pipeline.flush();
         }
 
-        // Status bar at bottom
-        let (cols, rows) = terminal::size()?;
-        let frame_ms = frame_start.elapsed().as_secs_f32();
-        if frame_ms > 0.0 {
-            last_fps = last_fps * 0.8 + (1.0 / frame_ms) * 0.2;
-        }
-
-        #[cfg(feature = "sdf-gpu")]
-        let gpu_tag = if gpu_ctx.is_some() { "  [GPU]" } else { "" };
-        #[cfg(not(feature = "sdf-gpu"))]
-        let gpu_tag = "";
-
-        if profiling {
-            let summary = profile_history.summary();
-            let total_ms = summary.total_us as f64 / 1000.0;
-
-            let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
-            out.queue(cursor::MoveTo(0, rows.saturating_sub(3)))?;
-            out.queue(style::Print(format!(
-                "\x1b[K Text3D: {}{} | {:.0} fps | {}x{} @{}% | {:.1}ms total",
-                PRESET_NAMES[preset_idx],
-                gpu_tag,
-                last_fps,
-                MAX_RENDER_W.min(full_w),
-                MAX_RENDER_H.min(full_h),
-                pct,
-                total_ms,
-            )))?;
-
-            let bar_width = (cols as usize).saturating_sub(4).min(40);
-            let bar = render_profile_bar(&summary, bar_width);
-            out.queue(cursor::MoveTo(0, rows.saturating_sub(2)))?;
-            out.queue(style::Print(format!("\x1b[K {bar}")))?;
-
-            out.queue(cursor::MoveTo(0, rows.saturating_sub(1)))?;
-            out.queue(style::Print(
-                "\x1b[K [1-5] scene  [+/-] scale  [space] pause  [p] profile  [q] quit"
-            ))?;
-        } else {
-            let pct = (SCALE_STEPS[scale_idx] * 100.0) as u32;
-            out.queue(cursor::MoveTo(0, rows - 1))?;
-            out.queue(style::Print(format!(
-                "\x1b[K Text3D: {}{} | {:.0} fps | {}% upscale | [1-5] scene [+/-] scale [space] pause [p] profile [q] quit",
-                PRESET_NAMES[preset_idx], gpu_tag, last_fps, pct,
-            )))?;
-        }
-        out.flush()?;
-
-        // Drain all pending events
-        while event::poll(Duration::ZERO)? {
+        if event::poll(Duration::ZERO)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            if let Some(ref h) = handle {
-                                let _ = backend.remove(h);
-                            }
-                            out.execute(cursor::Show)?;
-                            out.execute(terminal::LeaveAlternateScreen)?;
-                            disable_raw_mode()?;
-                            return Ok(());
-                        }
+                        KeyCode::Char('q') | KeyCode::Esc => break,
                         KeyCode::Char('1') => preset_idx = 0,
                         KeyCode::Char('2') => preset_idx = 1,
                         KeyCode::Char('3') => preset_idx = 2,
                         KeyCode::Char('4') => preset_idx = 3,
                         KeyCode::Char('5') => preset_idx = 4,
                         KeyCode::Char(' ') => paused = !paused,
-                        KeyCode::Char('p') => {
-                            profiling = !profiling;
-                            if profiling {
-                                profile_history = SdfProfileHistory::new(32);
-                            }
+                        KeyCode::Char('g') => {
+                            let currently_gpu = sdf_pipeline.is_gpu_active();
+                            sdf_pipeline.set_gpu_active(!currently_gpu);
                         }
                         KeyCode::Char('+' | '=') => {
                             if scale_idx < SCALE_STEPS.len() - 1 {
                                 scale_idx += 1;
+                                sdf_pipeline.set_render_scale(SCALE_STEPS[scale_idx]);
                             }
                         }
                         KeyCode::Char('-') => {
-                            scale_idx = scale_idx.saturating_sub(1);
+                            if scale_idx > 0 {
+                                scale_idx -= 1;
+                                sdf_pipeline.set_render_scale(SCALE_STEPS[scale_idx]);
+                            }
                         }
                         _ => {}
                     }
@@ -730,6 +626,11 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    px_state.cleanup();
+    disable_raw_mode()?;
+    stdout().execute(LeaveAlternateScreen)?;
+    Ok(())
 }
 
 // ═══════════════════════════════════════════════════════════════════

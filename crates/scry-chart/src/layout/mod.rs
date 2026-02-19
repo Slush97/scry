@@ -497,8 +497,10 @@ pub(crate) fn compute_plot_area(
         proportional_y_axis_width(w)
     };
 
+    let title_fs = scaled_font_size(config.theme.title_style.font_size, w, h);
     let title_h = if config.titles.title.is_some() {
-        proportional_title_height(h)
+        // Title height + font-relative gap to plot area
+        proportional_title_height(h) + (title_fs * 0.4).max(6.0)
     } else {
         0.0
     };

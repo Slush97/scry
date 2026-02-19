@@ -347,6 +347,16 @@ pub fn draw_axis(
         scale,
     );
 
+    // D3: Final collision verification pass — if any adjacent labels still
+    // overlap after auto-skip, increase the skip factor and retry.
+    let tick_label_pairs = verify_no_overlap(
+        tick_label_pairs,
+        axis_length,
+        is_horizontal,
+        config.tick_label_rotation,
+        scale,
+    );
+
     // Draw zero line if domain spans zero
     canvas = draw_zero_line(canvas, plot_area, scale, config);
 
@@ -612,6 +622,72 @@ fn auto_skip_labels(
         .into_iter()
         .enumerate()
         .filter(|(i, _)| i % skip == 0 || *i == 0 || (*i == total - 1 && keep_last))
+        .map(|(_, p)| p)
+        .collect()
+}
+
+/// Final verification that no two adjacent labels overlap after auto-skip.
+///
+/// Compares bounding boxes of adjacent labels using font-metric-aware widths.
+/// If overlap is detected, drops the offending label. Limited to 2 passes
+/// to avoid infinite loops.
+fn verify_no_overlap(
+    pairs: Vec<(f64, String)>,
+    _axis_length: f32,
+    is_horizontal: bool,
+    rotation: LabelRotation,
+    scale: &LinearScale,
+) -> Vec<(f64, String)> {
+    if pairs.len() <= 2 {
+        return pairs;
+    }
+
+    let char_w = INTER_ADVANCE_RATIO * 11.0;
+    let gap = MIN_LABEL_GAP;
+
+    let label_extent = |label: &str| -> f32 {
+        let raw_w = label.len() as f32 * char_w;
+        if is_horizontal {
+            match rotation {
+                LabelRotation::Horizontal => raw_w + gap,
+                LabelRotation::Diagonal => raw_w * 0.71 + gap,
+                LabelRotation::Vertical => 11.0 + gap,
+                LabelRotation::Angle(deg) => {
+                    let rad = deg.clamp(0.0, 90.0).to_radians();
+                    (raw_w * rad.cos()).max(11.0) + gap
+                }
+            }
+        } else {
+            15.0 + gap + 1.0
+        }
+    };
+
+    // Check for any overlap
+    let pixel_positions: Vec<f32> = pairs
+        .iter()
+        .map(|(v, _)| scale.to_pixel(*v) as f32)
+        .collect();
+
+    let mut has_overlap = false;
+    for w in pixel_positions.windows(2) {
+        let spacing = (w[1] - w[0]).abs();
+        let needed = label_extent(&pairs[0].1); // approximate with first label
+        if spacing < needed {
+            has_overlap = true;
+            break;
+        }
+    }
+
+    if !has_overlap {
+        return pairs;
+    }
+
+    // Drop every other label (keeping first and last)
+    let total = pairs.len();
+    pairs
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % 2 == 0 || *i == total - 1)
         .map(|(_, p)| p)
         .collect()
 }

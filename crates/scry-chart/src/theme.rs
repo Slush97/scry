@@ -88,6 +88,20 @@ pub struct SeriesTheme {
 // Theme
 // ---------------------------------------------------------------------------
 
+/// Legend visual tokens.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub struct LegendTheme {
+    /// Legend label font size in pixels (before canvas-proportional scaling).
+    /// Defaults to `tick_style.font_size`.
+    pub font_size: f32,
+    /// Legend box background color (near-opaque to occlude grid lines).
+    pub background: Color,
+    /// Optional border color around the legend box.
+    pub border: Option<Color>,
+}
+
 /// A complete visual theme for chart rendering.
 ///
 /// Uses hierarchical tokens: `axis`, `grid`, `series`, and text styles
@@ -115,6 +129,8 @@ pub struct Theme {
     pub grid: GridTheme,
     /// Series rendering tokens.
     pub series: SeriesTheme,
+    /// Legend rendering tokens.
+    pub legend: LegendTheme,
 }
 
 impl Theme {
@@ -176,6 +192,11 @@ impl Theme {
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
+            legend: LegendTheme {
+                font_size: 11.0,
+                background: Color::from_rgba8(30, 30, 40, 240),
+                border: Some(Color::from_rgba8(80, 80, 100, 200)),
+            },
         }
     }
 
@@ -234,6 +255,11 @@ impl Theme {
                 bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
+            },
+            legend: LegendTheme {
+                font_size: 11.0,
+                background: Color::from_rgba8(255, 255, 255, 240),
+                border: Some(Color::from_rgba8(200, 200, 200, 200)),
             },
         }
     }
@@ -294,6 +320,11 @@ impl Theme {
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
+            legend: LegendTheme {
+                font_size: 11.0,
+                background: Color::from_rgba8(250, 248, 245, 240),
+                border: Some(Color::from_rgba8(200, 195, 190, 200)),
+            },
         }
     }
 
@@ -353,6 +384,11 @@ impl Theme {
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
+            legend: LegendTheme {
+                font_size: 11.0,
+                background: Color::from_rgba8(10, 20, 40, 240),
+                border: Some(Color::from_rgba8(60, 90, 120, 200)),
+            },
         }
     }
 
@@ -411,6 +447,11 @@ impl Theme {
                 bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
+            },
+            legend: LegendTheme {
+                font_size: 11.0,
+                background: Color::from_rgba8(18, 22, 15, 240),
+                border: Some(Color::from_rgba8(80, 75, 60, 200)),
             },
         }
     }
@@ -476,6 +517,11 @@ impl Theme {
                 bar_stroke_width: 0.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
+            },
+            legend: LegendTheme {
+                font_size: 11.0,
+                background: Color::from_rgba8(240, 240, 240, 240),
+                border: Some(Color::from_rgba8(150, 150, 150, 200)),
             },
         }
     }

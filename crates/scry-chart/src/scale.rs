@@ -529,6 +529,11 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
         }
     }
 
+    // Scientific notation for very small non-zero values
+    if abs > 0.0 && abs < 0.01 && span < 1.0 {
+        return format!("{value:.2e}");
+    }
+
     // Integer formatting when value is whole and span is reasonable
     if (value - value.round()).abs() < f64::EPSILON * 100.0 && span >= 1.0 {
         // Guard against i64 overflow for huge values

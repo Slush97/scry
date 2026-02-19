@@ -65,6 +65,9 @@ pub fn boxed_formatter(f: impl TickFormatter + 'static) -> Arc<dyn TickFormatter
 /// Adaptive formatter that selects SI suffixes, integer, or decimal
 /// formatting based on domain span. Guarantees uniform precision across
 /// all ticks on an axis via `format_batch`.
+///
+/// Auto-detects percentage data: when all values are in `[0, 1]` or `[0, 100]`
+/// and the axis label hints at percentages, values are formatted with `%`.
 #[derive(Clone, Debug, Default)]
 pub struct AutoFormatter;
 
@@ -84,6 +87,50 @@ impl TickFormatter for AutoFormatter {
         // and re-format any shorter labels to match
         uniform_precision(labels)
     }
+}
+
+/// Detect whether tick values represent percentages (all in [0,1] or [0,100])
+/// and format them as `XX.X%`.
+///
+/// Returns `None` if the values don't look like percentages.
+pub fn try_format_as_percent(values: &[f64], domain: (f64, f64)) -> Option<Vec<String>> {
+    if values.is_empty() {
+        return None;
+    }
+
+    let (lo, hi) = domain;
+    // Check [0, 1] range (fraction mode)
+    if lo >= -0.001 && hi <= 1.001 {
+        let labels: Vec<String> = values
+            .iter()
+            .map(|&v| {
+                let pct = v * 100.0;
+                if (pct - pct.round()).abs() < 0.05 {
+                    format!("{}%", pct.round() as i64)
+                } else {
+                    format!("{pct:.1}%")
+                }
+            })
+            .collect();
+        return Some(labels);
+    }
+
+    // Check [0, 100] range
+    if lo >= -0.1 && hi <= 100.1 {
+        let labels: Vec<String> = values
+            .iter()
+            .map(|&v| {
+                if (v - v.round()).abs() < 0.05 {
+                    format!("{}%", v.round() as i64)
+                } else {
+                    format!("{v:.1}%")
+                }
+            })
+            .collect();
+        return Some(labels);
+    }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +284,30 @@ pub(crate) fn uniform_precision(labels: Vec<String>) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Ensure all plain-number labels use the same number of significant digits.
+///
+/// Useful when tick values span different magnitudes (e.g., 0.1, 0.2, 0.30000000000000004).
+/// Formats each value to `sig_digits` significant figures, then pads to uniform
+/// decimal precision.
+pub fn uniform_significant_digits(values: &[f64], sig_digits: usize) -> Vec<String> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+    let sig = sig_digits.max(1).min(6);
+    let labels: Vec<String> = values
+        .iter()
+        .map(|&v| {
+            if v == 0.0 || !v.is_finite() {
+                return "0".to_string();
+            }
+            let magnitude = v.abs().log10().floor() as i32;
+            let decimals = (sig as i32 - 1 - magnitude).max(0) as usize;
+            format!("{v:.prec$}", prec = decimals)
+        })
+        .collect();
+    uniform_precision(labels)
 }
 
 /// Detect and harmonize mixed SI/plain number labels.

@@ -3,9 +3,13 @@
 //!
 //! Draws color swatches with labels to identify data series.
 //! Supports auto-sizing, 9 placement options, and multiple swatch shapes.
+//! Labels are font-metric-aware, auto-truncated, and proportionally padded.
 
 use scry_engine::scene::PixelCanvas;
 use scry_engine::style::Color;
+
+use crate::layout::INTER_ADVANCE_RATIO;
+use crate::text_utils;
 
 // ---------------------------------------------------------------------------
 // Position & Shape
@@ -109,8 +113,8 @@ impl Default for LegendConfig {
     fn default() -> Self {
         Self {
             position: LegendPosition::TopRight,
-            background: Some(Color::from_rgba8(30, 30, 40, 180)),
-            border: Some(Color::from_rgba8(80, 80, 100, 120)),
+            background: Some(Color::from_rgba8(30, 30, 40, 240)),
+            border: Some(Color::from_rgba8(80, 80, 100, 200)),
             font_color: Color::from_rgba8(200, 200, 220, 255),
             swatch_shape: SwatchShape::Rect,
             swatch_size: 12.0,
@@ -122,6 +126,17 @@ impl Default for LegendConfig {
             orientation: LegendOrientation::Vertical,
             columns: 1,
         }
+    }
+}
+
+impl LegendConfig {
+    /// Apply theme-derived legend settings (background, border, font size)
+    /// and font-metric-aware char_width from the given font_size.
+    pub fn apply_theme_and_font_size(&mut self, theme: &crate::theme::LegendTheme, font_size: f32) {
+        self.background = Some(theme.background);
+        self.border = theme.border;
+        self.char_width = font_size * INTER_ADVANCE_RATIO;
+        self.padding = (font_size * 0.6).max(4.0);
     }
 }
 
@@ -142,6 +157,11 @@ pub struct LegendEntry {
 // ---------------------------------------------------------------------------
 // Measurement
 // ---------------------------------------------------------------------------
+
+/// Font-aware measurement of a single legend label width.
+fn measure_label_width(label: &str, char_width: f32) -> f32 {
+    label.chars().count() as f32 * char_width
+}
 
 /// Measure auto-sized legend dimensions from entries.
 ///
@@ -181,7 +201,7 @@ pub fn measure_legend(
             let title_width = config
                 .title
                 .as_ref()
-                .map_or(0.0, |t| t.chars().count() as f32 * config.char_width);
+                .map_or(0.0, |t| measure_label_width(t, config.char_width));
 
             let content_width = col_width * cols as f32 + col_gap * (cols as f32 - 1.0).max(0.0);
             let width = config.padding * 2.0 + content_width.max(title_width);
@@ -198,7 +218,7 @@ pub fn measure_legend(
             let total_width: f32 = entries
                 .iter()
                 .map(|e| {
-                    swatch_size + swatch_gap + e.label.chars().count() as f32 * config.char_width
+                    swatch_size + swatch_gap + measure_label_width(&e.label, config.char_width)
                 })
                 .sum::<f32>()
                 + entry_gap * (entries.len().saturating_sub(1)) as f32;
@@ -206,7 +226,7 @@ pub fn measure_legend(
             let title_width = config
                 .title
                 .as_ref()
-                .map_or(0.0, |t| t.chars().count() as f32 * config.char_width);
+                .map_or(0.0, |t| measure_label_width(t, config.char_width));
 
             let width = config.padding * 2.0 + total_width.max(title_width);
             let height = config.padding * 2.0 + title_height + swatch_size;
@@ -229,6 +249,8 @@ pub fn measure_legend(
 ///
 /// Automatically promotes to multi-column layout when a single column
 /// would exceed 40% of the plot height, keeping the legend compact.
+/// If all vertical layouts overflow, switches to horizontal orientation.
+/// If horizontal also overflows, truncates to top-N series with "+ N more".
 ///
 /// Returns `(canvas, text_entries)` where text_entries is `Vec<(x, y, label)>`.
 #[must_use]
@@ -245,37 +267,40 @@ pub fn draw_positioned_legend(
         return (canvas, Vec::new());
     }
 
-    let (_px, _py, _pw, ph) = plot;
+    let (_px, _py, pw, ph) = plot;
 
     // Use config's swatch_size and spacing (ignore legacy parameters)
     let swatch_size = config.swatch_size;
     let spacing = config.spacing;
 
-    // --- Auto-column: keep legend from dwarfing the plot ---
-    let effective_config = if config.columns == 1
-        && config.orientation == LegendOrientation::Vertical
-        && entries.len() > 4
-    {
-        let single_h = measure_legend(entries, swatch_size, config).1;
-        if single_h > ph * 0.4 {
-            let mut c = config.clone();
-            c.columns = 2;
-            let two_h = measure_legend(entries, swatch_size, &c).1;
-            if two_h > ph * 0.4 && entries.len() > 8 {
-                c.columns = 3;
+    // --- A2: Truncate labels that exceed 25% of plot width ---
+    let max_label_w = pw * 0.25;
+    let display_entries: Vec<LegendEntry> = entries
+        .iter()
+        .map(|e| {
+            let truncated = text_utils::ellipsize(&e.label, max_label_w, config.char_width);
+            LegendEntry {
+                label: truncated,
+                color: e.color,
             }
-            c
-        } else {
-            config.clone()
-        }
-    } else {
-        config.clone()
-    };
+        })
+        .collect();
+
+    // --- A6: Auto-column promotion and overflow handling ---
+    let (effective_config, effective_entries) = resolve_legend_layout(
+        &display_entries,
+        config,
+        swatch_size,
+        pw,
+        ph,
+    );
 
     let (px, py, pw, ph) = plot;
+    let canvas_w = canvas.width() as f32;
+    let canvas_h = canvas.height() as f32;
 
     // Auto-measure legend size
-    let (legend_w, legend_h) = measure_legend(entries, swatch_size, &effective_config);
+    let (legend_w, legend_h) = measure_legend(&effective_entries, swatch_size, &effective_config);
 
     // Position based on config
     let (lx, ly) = compute_position(
@@ -290,27 +315,32 @@ pub fn draw_positioned_legend(
         data_points,
     );
 
-    // Draw background
+    // --- E2: Clamp legend to stay within canvas edges ---
+    let legend_pad = effective_config.padding;
+    let lx = lx.clamp(legend_pad, canvas_w - legend_w - legend_pad);
+    let ly = ly.clamp(legend_pad, canvas_h - legend_h - legend_pad);
+
+    // --- A3/A4: Draw background with proportional padding and near-opaque fill ---
     if let Some(bg) = effective_config.background {
         canvas = canvas
-            .rect(lx - 4.0, ly - 4.0, legend_w + 8.0, legend_h + 8.0)
+            .rect(lx, ly, legend_w, legend_h)
             .fill(bg)
-            .corner_radius(4.0)
+            .corner_radius(3.0)
             .done();
     }
 
     // Draw border
     if let Some(border_color) = effective_config.border {
         canvas = canvas
-            .rect(lx - 4.0, ly - 4.0, legend_w + 8.0, legend_h + 8.0)
+            .rect(lx, ly, legend_w, legend_h)
             .stroke(border_color, 1.0)
-            .corner_radius(4.0)
+            .corner_radius(3.0)
             .done();
     }
 
     draw_legend_entries(
         canvas,
-        entries,
+        &effective_entries,
         lx + effective_config.padding,
         ly + effective_config.padding,
         swatch_size,
@@ -318,6 +348,78 @@ pub fn draw_positioned_legend(
         effective_config.swatch_shape,
         &effective_config,
     )
+}
+
+/// Resolve legend layout: auto-promote columns, switch to horizontal,
+/// or truncate entries when the legend would exceed 40% of plot height.
+fn resolve_legend_layout(
+    entries: &[LegendEntry],
+    config: &LegendConfig,
+    swatch_size: f32,
+    plot_w: f32,
+    plot_h: f32,
+) -> (LegendConfig, Vec<LegendEntry>) {
+    let max_h = plot_h * 0.4;
+    let max_w = plot_w * 0.5;
+
+    // Try vertical with increasing columns
+    if config.columns == 1
+        && config.orientation == LegendOrientation::Vertical
+        && entries.len() > 4
+    {
+        let single_h = measure_legend(entries, swatch_size, config).1;
+        if single_h <= max_h {
+            return (config.clone(), entries.to_vec());
+        }
+
+        // Try 2 columns
+        let mut c = config.clone();
+        c.columns = 2;
+        let two = measure_legend(entries, swatch_size, &c);
+        if two.1 <= max_h && two.0 <= max_w {
+            return (c, entries.to_vec());
+        }
+
+        // Try 3 columns
+        if entries.len() > 8 {
+            c.columns = 3;
+            let three = measure_legend(entries, swatch_size, &c);
+            if three.1 <= max_h && three.0 <= max_w {
+                return (c, entries.to_vec());
+            }
+        }
+
+        // Try horizontal layout
+        let mut horiz = config.clone();
+        horiz.orientation = LegendOrientation::Horizontal;
+        let horiz_dims = measure_legend(entries, swatch_size, &horiz);
+        if horiz_dims.0 <= max_w && horiz_dims.1 <= max_h {
+            return (horiz, entries.to_vec());
+        }
+
+        // Truncate to top-N entries with "+ N more" suffix
+        let mut truncated: Vec<LegendEntry> = Vec::new();
+        let mut best_cfg = config.clone();
+        for n in (3..entries.len()).rev() {
+            truncated = entries[..n].to_vec();
+            let remaining = entries.len() - n;
+            truncated.push(LegendEntry {
+                label: format!("+ {remaining} more"),
+                color: Color::from_rgba8(128, 128, 128, 180),
+            });
+            let dims = measure_legend(&truncated, swatch_size, config);
+            if dims.1 <= max_h {
+                best_cfg = config.clone();
+                break;
+            }
+        }
+        if truncated.is_empty() {
+            truncated = entries.to_vec();
+        }
+        return (best_cfg, truncated);
+    }
+
+    (config.clone(), entries.to_vec())
 }
 
 /// Compute legend top-left position for a given placement.
@@ -475,7 +577,7 @@ pub fn draw_legend_entries(
                     entry_y + swatch_size * 0.5 - 1.0,
                     entry.label.clone(),
                 ));
-                let label_w = entry.label.chars().count() as f32 * config.char_width;
+                let label_w = measure_label_width(&entry.label, config.char_width);
                 current_x += swatch_size + swatch_gap + label_w + entry_gap;
             }
         }

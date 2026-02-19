@@ -5,12 +5,10 @@
 //! any [`Chart`] into a standalone image — useful for docs, CI artifacts,
 //! headless testing, and embedding in web pages.
 //!
-//! Text overlays (titles, axis labels, tick labels) are burned into the image
-//! using `fontdue` for scalable, anti-aliased glyph rasterization with
-//! size hierarchy (title > labels > ticks).
+//! Text rendering is delegated to the engine's `DrawCommand::Text` pipeline.
 
 use crate::chart::Chart;
-use crate::layout::{self, RenderedChart, TextAlign, TextOverlay};
+use crate::layout::{self, RenderedChart};
 
 // ---------------------------------------------------------------------------
 // DPI helper
@@ -134,170 +132,11 @@ pub fn render_to_png_with_metadata(
 }
 
 // ---------------------------------------------------------------------------
-// Fontdue-powered text stamping
-// ---------------------------------------------------------------------------
-
-/// Embedded font data: Liberation Sans (SIL OFL 1.1 licensed, freely redistributable).
-/// Falls back to fontdue's built-in if not available.
-static FONT_DATA: &[u8] = include_bytes!("fonts/Inter-Regular.ttf");
-static FONT_DATA_BOLD: &[u8] = include_bytes!("fonts/Inter-Bold.ttf");
-
-/// Cache for fontdue Font objects (one regular, one bold).
-struct FontCache {
-    regular: fontdue::Font,
-    bold: fontdue::Font,
-}
-
-impl FontCache {
-    fn new() -> Self {
-        let settings = fontdue::FontSettings::default();
-        let regular = fontdue::Font::from_bytes(FONT_DATA, settings)
-            .unwrap_or_else(|e| panic!("Failed to parse regular font: {e}"));
-        let bold = fontdue::Font::from_bytes(FONT_DATA_BOLD, settings)
-            .unwrap_or_else(|e| panic!("Failed to parse bold font: {e}"));
-        Self { regular, bold }
-    }
-
-    fn font(&self, bold: bool) -> &fontdue::Font {
-        if bold {
-            &self.bold
-        } else {
-            &self.regular
-        }
-    }
-}
-
-/// Thread-local font cache to avoid re-parsing font data on every render.
-fn with_font_cache<R>(f: impl FnOnce(&FontCache) -> R) -> R {
-    use std::cell::RefCell;
-    thread_local! {
-        static CACHE: RefCell<Option<FontCache>> = const { RefCell::new(None) };
-    }
-    CACHE.with(|cell| {
-        let mut opt = cell.borrow_mut();
-        if opt.is_none() {
-            *opt = Some(FontCache::new());
-        }
-        f(opt.as_ref().unwrap())
-    })
-}
-
-/// Stamp text overlays onto a pixmap using fontdue for anti-aliased glyph rendering.
-fn stamp_text_overlays(pixmap: &mut tiny_skia::Pixmap, overlays: &[TextOverlay]) {
-    let pw = pixmap.width();
-    let ph = pixmap.height();
-
-    with_font_cache(|cache| {
-        for overlay in overlays {
-            let font = cache.font(overlay.bold);
-            let size = overlay.font_size;
-            let text = &overlay.text;
-            let color = overlay.color;
-
-            // Pre-rasterize all glyphs and measure total width
-            let mut glyphs: Vec<(fontdue::Metrics, Vec<u8>)> = Vec::with_capacity(text.len());
-            let mut total_width = 0.0_f32;
-
-            for ch in text.chars() {
-                let (metrics, bitmap) = font.rasterize(ch, size);
-                total_width += metrics.advance_width;
-                glyphs.push((metrics, bitmap));
-            }
-
-            // Compute baseline position
-            // fontdue metrics: ymin is the descent (negative for glyphs that hang below baseline)
-            let line_metrics = font.horizontal_line_metrics(size);
-            let ascent = line_metrics.map_or(size * 0.8, |m| m.ascent);
-
-            let x_start = match overlay.align {
-                TextAlign::Left => overlay.x_px,
-                TextAlign::Center => overlay.x_px - total_width / 2.0,
-                TextAlign::Right => overlay.x_px - total_width,
-            };
-
-            let baseline_y = overlay.y_px + ascent * 0.5;
-
-            let r = (color.r * 255.0) as u8;
-            let g = (color.g * 255.0) as u8;
-            let b = (color.b * 255.0) as u8;
-            let text_alpha = color.a;
-
-            let has_rotation = overlay.rotation_deg.abs() > 0.01;
-            let (sin_a, cos_a) = if has_rotation {
-                // Negate the angle so positive rotation_deg = counter-clockwise,
-                // matching the SVG convention and standard math convention.
-                // For Y-axis labels (90°), this produces text reading bottom-to-top.
-                let rad = (-overlay.rotation_deg).to_radians();
-                (rad.sin(), rad.cos())
-            } else {
-                (0.0, 1.0)
-            };
-
-            // Anchor point for rotation: use the visual center of the text
-            // so the rotation pivots around the text's midpoint, producing
-            // consistent results regardless of text length.
-            let anchor_x = match overlay.align {
-                TextAlign::Left => overlay.x_px + total_width / 2.0,
-                TextAlign::Center => overlay.x_px,
-                TextAlign::Right => overlay.x_px - total_width / 2.0,
-            };
-            let anchor_y = overlay.y_px + ascent * 0.25;
-
-            let mut cursor_x = x_start;
-
-            for (metrics, bitmap) in &glyphs {
-                // Glyph origin in un-rotated space
-                let gx_f = cursor_x + metrics.xmin as f32;
-                let gy_f = baseline_y - metrics.height as f32 - metrics.ymin as f32;
-
-                let data = pixmap.data_mut();
-
-                for row in 0..metrics.height {
-                    for col in 0..metrics.width {
-                        let coverage = bitmap[row * metrics.width + col];
-                        if coverage == 0 {
-                            continue;
-                        }
-
-                        // Position of this pixel in the un-rotated frame
-                        let src_x = gx_f + col as f32;
-                        let src_y = gy_f + row as f32;
-
-                        // Apply rotation around anchor if needed
-                        let (px, py) = if has_rotation {
-                            let dx = src_x - anchor_x;
-                            let dy = src_y - anchor_y;
-                            let rx = dx * cos_a - dy * sin_a + anchor_x;
-                            let ry = dx * sin_a + dy * cos_a + anchor_y;
-                            (rx as i32, ry as i32)
-                        } else {
-                            (src_x as i32, src_y as i32)
-                        };
-
-                        if px < 0 || py < 0 || (px as u32) >= pw || (py as u32) >= ph {
-                            continue;
-                        }
-
-                        let idx = ((py as u32) * pw + px as u32) as usize * 4;
-                        let sa = ((coverage as f32 / 255.0) * text_alpha * 255.0) as u32;
-                        let inv = 255 - sa;
-
-                        data[idx] = ((r as u32 * sa + data[idx] as u32 * inv) / 255) as u8;
-                        data[idx + 1] = ((g as u32 * sa + data[idx + 1] as u32 * inv) / 255) as u8;
-                        data[idx + 2] = ((b as u32 * sa + data[idx + 2] as u32 * inv) / 255) as u8;
-                        data[idx + 3] = (sa + data[idx + 3] as u32 * inv / 255).min(255) as u8;
-                    }
-                }
-
-                cursor_x += metrics.advance_width;
-            }
-        }
-    });
-}
-
-// ---------------------------------------------------------------------------
 // Subplot / multi-panel export
 // ---------------------------------------------------------------------------
+
+/// Embedded bold font data for subplot grid titles.
+static FONT_DATA_BOLD: &[u8] = include_bytes!("fonts/Inter-Bold.ttf");
 
 use crate::subplot::SubplotGrid;
 
@@ -490,24 +329,52 @@ fn render_subplot_to_rgba_raw(
 
     // Stamp grid title if present
     if let Some(ref title) = grid.title {
-        let mut title_pixmap = tiny_skia::Pixmap::from_vec(
-            master,
-            tiny_skia::IntSize::from_wh(width, height).unwrap(),
-        )
-        .ok_or("failed to create master pixmap")?;
+        use scry_engine::scene::command::{FontData, TextAlign as EngineTextAlign};
 
-        let overlay = TextOverlay {
-            x_px: width as f32 / 2.0,
-            y_px: 4.0,
-            text: title.clone(),
-            color: scry_engine::style::Color::from_rgba8(230, 230, 240, 255),
-            align: TextAlign::Center,
-            font_size: 18.0,
-            bold: true,
-            rotation_deg: 0.0,
-        };
-        stamp_text_overlays(&mut title_pixmap, &[overlay]);
-        master = title_pixmap.take();
+        let bold_fd = FontData::new(FONT_DATA_BOLD.to_vec());
+        let font_size = 18.0_f32;
+        let color = scry_engine::style::Color::from_rgba8(230, 230, 240, 255);
+
+        // Measure text to compute baseline y (top padding + ascent)
+        let metrics =
+            scry_engine::rasterize::skia::text::measure_text(title, Some(&bold_fd), font_size);
+        let baseline_y = 4.0 + metrics.ascent;
+
+        // Render title text into a small canvas via the engine
+        let title_canvas = scry_engine::scene::PixelCanvas::new(width, title_h)
+            .text(title, width as f32 / 2.0, baseline_y)
+            .size(font_size)
+            .color(color)
+            .font(bold_fd)
+            .align(EngineTextAlign::Center)
+            .done();
+
+        let title_pixmap = scry_engine::rasterize::skia::Rasterizer::rasterize(&title_canvas)
+            .map_err(|e| format!("title rasterization failed: {e}"))?;
+
+        // Alpha-composite title pixels onto master buffer
+        let title_data = title_pixmap.data();
+        for ty in 0..title_h as usize {
+            for tx in 0..width as usize {
+                let src_idx = (ty * width as usize + tx) * 4;
+                let dst_idx = (ty * width as usize + tx) * 4;
+                let sa = title_data[src_idx + 3] as u32;
+                if sa == 0 {
+                    continue;
+                }
+                let inv = 255 - sa;
+                master[dst_idx] =
+                    ((title_data[src_idx] as u32 * sa + master[dst_idx] as u32 * inv) / 255) as u8;
+                master[dst_idx + 1] = ((title_data[src_idx + 1] as u32 * sa
+                    + master[dst_idx + 1] as u32 * inv)
+                    / 255) as u8;
+                master[dst_idx + 2] = ((title_data[src_idx + 2] as u32 * sa
+                    + master[dst_idx + 2] as u32 * inv)
+                    / 255) as u8;
+                master[dst_idx + 3] =
+                    (sa + master[dst_idx + 3] as u32 * inv / 255).min(255) as u8;
+            }
+        }
     }
 
     Ok(master)

@@ -529,8 +529,11 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
             .collect();
 
         let plot = ctx.plot;
+        let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
+        let mut legend_cfg = config.legend.clone();
+        legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &config.legend, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
         });
 
         // Add legend text overlays
@@ -541,7 +544,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                 &label,
                 theme.text_color(),
                 TextAlign::Left,
-                tick_fs,
+                legend_fs,
                 false,
                 0.0,
             );

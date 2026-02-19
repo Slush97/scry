@@ -20,7 +20,6 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     let config = &bc.config;
     let theme = &config.theme;
     let data_fs = super::scaled_font_size(9.0, w, h);
-    let tick_fs = super::scaled_font_size(theme.tick_style.font_size, w, h);
 
     // Pre-compute Y extent for measurement-based layout
     let (y_lo, y_hi) = compute_value_extent(bc);
@@ -299,12 +298,15 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
             .collect();
 
         let plot = ctx.plot;
+        let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
+        let mut legend_cfg = config.legend.clone();
+        legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &config.legend, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, tick_fs, false, 0.0);
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
         }
     }
 
@@ -539,12 +541,15 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
             .collect();
 
         let plot = ctx.plot;
+        let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
+        let mut legend_cfg = config.legend.clone();
+        legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &config.legend, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, tick_fs, false, 0.0);
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
         }
     }
 

@@ -117,7 +117,7 @@ fn build_subtitle_footer() -> Chart {
         })
         .collect();
 
-    Chart::line(&y)
+    Charts::line(&y)
         .title("Monthly Revenue")
         .subtitle("Q3–Q4 2025 · All Regions")
         .footer("Source: internal analytics · Updated Feb 2026")
@@ -135,7 +135,7 @@ fn build_margins() -> Chart {
         })
         .collect();
 
-    Chart::line(&y)
+    Charts::line(&y)
         .title("Growth Curve")
         .subtitle("with 30px margins all around")
         .x_label("Time")
@@ -153,7 +153,7 @@ fn build_inverted() -> Chart {
         })
         .collect();
 
-    Chart::line(&y)
+    Charts::line(&y)
         .title("Depth Profile")
         .subtitle("Y-axis inverted ↓ deeper = lower")
         .x_label("Station")
@@ -188,7 +188,7 @@ fn build_dual_y() -> Chart {
     // Combine into two series
     let x: Vec<f64> = (0..24).map(|i| i as f64).collect();
 
-    Chart::line_xy(&x, &temp)
+    Charts::line_xy(&x, &temp)
         .title("Weather Station")
         .subtitle("Temperature + Humidity (dual axis)")
         .x_label("Hour of Day")

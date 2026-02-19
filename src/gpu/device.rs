@@ -77,10 +77,17 @@ impl GpuDevice {
             device_type: format!("{:?}", adapter_info.device_type),
         };
 
+        // Request pipeline cache feature if available (Vulkan only) to
+        // persist compiled shaders across runs and avoid 90s+ cold starts.
+        let mut features = wgpu::Features::empty();
+        if adapter.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            features |= wgpu::Features::PIPELINE_CACHE;
+        }
+
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("scry-shared-gpu"),
-                required_features: wgpu::Features::empty(),
+                required_features: features,
                 required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::Performance,
             },

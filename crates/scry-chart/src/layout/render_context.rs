@@ -337,11 +337,18 @@ impl RenderContext {
 
             // Chart layout positions text at the vertical center (y_px),
             // but the engine's text rasterizer expects the baseline.
-            // Convert: baseline = center_y + ascent * 0.5
             let fd = chart_font(ov.bold);
             let metrics =
                 scry_engine::rasterize::skia::text::measure_text("X", Some(&fd), ov.font_size);
-            let baseline_y = ov.y_px + metrics.ascent * 0.5;
+
+            let baseline_y = if ov.rotation_deg.abs() > 0.1 {
+                // For rotated text, rotate around the visual center of the glyph line
+                // so the text stays anchored at its midpoint.
+                ov.y_px + (metrics.ascent - metrics.descent) * 0.25
+            } else {
+                // Horizontal: baseline = center_y + ascent * 0.5
+                ov.y_px + metrics.ascent * 0.5
+            };
 
             canvas.push_command(DrawCommand::Text {
                 text: ov.text.clone(),

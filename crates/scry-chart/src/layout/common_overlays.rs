@@ -38,10 +38,14 @@ impl RenderContext {
             0.0
         };
 
+        // Font-relative gaps between title elements
+        let title_gap = title_fs * 0.3;
+        let subtitle_gap = subtitle_fs * 0.2;
+
         if let Some(ref title) = config.titles.title {
             self.add_text(
                 px + pw / 2.0,
-                margin + extra_top + 4.0,
+                margin + extra_top + title_gap,
                 title,
                 config.theme.title_style.color,
                 TextAlign::Center,
@@ -53,7 +57,7 @@ impl RenderContext {
 
         // Subtitle: positioned below the title, smaller and not bold.
         if let Some(ref subtitle) = config.titles.subtitle {
-            let sub_y = margin + extra_top + title_h + 2.0;
+            let sub_y = margin + extra_top + title_h + subtitle_gap;
             self.add_text(
                 px + pw / 2.0,
                 sub_y,
@@ -116,9 +120,10 @@ impl RenderContext {
         // Footer: small text at bottom center.
         if let Some(ref footer) = config.titles.footer {
             let extra_bottom = config.margin.as_ref().map_or(0.0, |m| m.bottom);
+            let footer_gap = footer_fs * 0.25;
             self.add_text(
                 px + pw / 2.0,
-                (h as f32) - margin - extra_bottom + 2.0,
+                (h as f32) - margin - extra_bottom + footer_gap,
                 footer,
                 config.theme.label_style.color,
                 TextAlign::Center,

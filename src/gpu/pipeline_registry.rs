@@ -319,6 +319,73 @@ pub struct PipelinesSdf {
 }
 
 impl PipelinesSdf {
+    /// Path to the persistent pipeline cache file.
+    ///
+    /// Uses `$XDG_CACHE_HOME/scry/` or `~/.cache/scry/` on Linux/macOS.
+    fn cache_path() -> Option<std::path::PathBuf> {
+        let dir = if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+            std::path::PathBuf::from(xdg)
+        } else {
+            let home = std::env::var("HOME").ok()?;
+            std::path::PathBuf::from(home).join(".cache")
+        };
+        Some(dir.join("scry").join("sdf_pipeline.cache"))
+    }
+
+    /// Load pipeline cache data from disk, if available.
+    ///
+    /// # Safety
+    ///
+    /// `create_pipeline_cache` is unsafe because corrupted cache data could
+    /// cause driver-level UB. We mitigate by using `fallback: true` which
+    /// creates an empty cache if the data is invalid, and by using atomic
+    /// writes when saving.
+    #[allow(unsafe_code)]
+    fn load_cache(device: &wgpu::Device) -> Option<wgpu::PipelineCache> {
+        let path = Self::cache_path()?;
+        let data = std::fs::read(&path).ok()?;
+        // SAFETY: fallback=true ensures an empty cache on invalid data.
+        Some(unsafe {
+            device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                label: Some("sdf-pipeline-cache"),
+                data: Some(&data),
+                fallback: true,
+            })
+        })
+    }
+
+    /// Create an empty pipeline cache (first run or corrupted data).
+    #[allow(unsafe_code)]
+    fn empty_cache(device: &wgpu::Device) -> wgpu::PipelineCache {
+        // SAFETY: data=None creates a fresh empty cache — no driver UB risk.
+        unsafe {
+            device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                label: Some("sdf-pipeline-cache"),
+                data: None,
+                fallback: true,
+            })
+        }
+    }
+
+    /// Save pipeline cache data to disk for next run.
+    fn save_cache(cache: &wgpu::PipelineCache) {
+        let Some(path) = Self::cache_path() else { return };
+        let Some(data) = cache.get_data() else { return };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        // Atomic write: temp file then rename
+        let tmp = path.with_extension("tmp");
+        if std::fs::write(&tmp, &data).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+
+    /// Whether the device supports pipeline caching.
+    fn supports_cache(device: &wgpu::Device) -> bool {
+        device.features().contains(wgpu::Features::PIPELINE_CACHE)
+    }
+
     /// Compile the SDF compute pipeline for the given device.
     pub(crate) fn compile(device: &wgpu::Device) -> Self {
         use std::io::Write;
@@ -413,7 +480,15 @@ impl PipelinesSdf {
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
-        slog!("[compile] layout created in {:?}, creating compute pipeline...", t0.elapsed());
+
+        // Load persistent pipeline cache (Vulkan only — other backends ignore it)
+        let cache_loaded = Self::load_cache(device);
+        let cache = cache_loaded.unwrap_or_else(|| Self::empty_cache(device));
+        let had_cache = Self::cache_path()
+            .as_ref()
+            .is_some_and(|p| p.exists());
+        slog!("[compile] layout created in {:?}, creating compute pipeline (cache={})...",
+            t0.elapsed(), if had_cache { "loaded" } else { "cold" });
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("sdf-compute-pipeline"),
@@ -421,9 +496,12 @@ impl PipelinesSdf {
             module: &shader_module,
             entry_point: Some("main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
+            cache: Some(&cache),
         });
         slog!("[compile] compute pipeline created in {:?} — done!", t0.elapsed());
+
+        // Persist cache to disk for next run
+        Self::save_cache(&cache);
 
         Self {
             pipeline,

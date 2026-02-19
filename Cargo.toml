@@ -104,6 +104,14 @@ required-features = ["window"]
 name = "dual_y_demo"
 
 [[example]]
+name = "chart_integration"
+required-features = ["widget"]
+
+[[example]]
+name = "test_masonic"
+required-features = ["sdf-gpu"]
+
+[[example]]
 name = "masonic_mirror"
 required-features = ["sdf-gpu", "widget"]
 
@@ -113,7 +121,7 @@ required-features = ["text", "widget"]
 
 [[example]]
 name = "text3d_showcase"
-required-features = ["sdf-text"]
+required-features = ["sdf-text", "sdf-gpu", "widget"]
 
 # ── Gallery (AI art demos) ──
 
