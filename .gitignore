@@ -36,3 +36,16 @@ debug*.log
 *.pdf
 masonic_mirror_bench_*.txt
 text3d_debug.log
+
+# Coverage reports
+tarpaulin-report.json
+
+# Generated viz output
+ml_viz_output/
+subplot_demo.png
+
+# Log files
+*.log
+
+# Comparison reports
+ml_ecosystem_comparison.*
