@@ -16,7 +16,7 @@
 //! Anti-aliasing can vary across platforms and tiny-skia versions, so we
 //! allow a small per-pixel tolerance (configurable via `MAX_DIFF_PERCENT`).
 
-use scry_chart::chart::{Chart, LineChart, OhlcEntry};
+use scry_chart::chart::{Chart, Charts, LineChart, OhlcEntry};
 use scry_chart::data::Series;
 use scry_chart::export::render_to_png;
 use scry_chart::theme::Theme;
@@ -125,7 +125,7 @@ fn assert_golden(name: &str, chart: Chart) {
 
 #[test]
 fn golden_line_basic() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0, 6.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0, 6.0])
         .title("Line Chart")
         .x_label("Time")
         .y_label("Value")
@@ -136,7 +136,7 @@ fn golden_line_basic() {
 
 #[test]
 fn golden_line_smooth_filled() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
         .smooth()
         .filled()
         .with_points()
@@ -161,7 +161,7 @@ fn golden_line_multi_series() {
 
 #[test]
 fn golden_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         &[2.0, 4.0, 1.0, 8.0, 5.0, 9.0, 3.0, 7.0],
     )
@@ -175,7 +175,7 @@ fn golden_scatter() {
 
 #[test]
 fn golden_bar() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "Mon".into(),
             "Tue".into(),
@@ -194,7 +194,7 @@ fn golden_bar() {
 
 #[test]
 fn golden_bar_grouped() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "Q1".into(),
             "Q2".into(),
@@ -215,7 +215,7 @@ fn golden_histogram() {
     let data: Vec<f64> = (0..200)
         .map(|i| (i as f64 * 0.05).sin() * 50.0 + 50.0)
         .collect();
-    let chart = Chart::histogram(&data)
+    let chart = Charts::histogram(&data)
         .bins(20)
         .title("Distribution")
         .x_label("Value")
@@ -227,7 +227,7 @@ fn golden_histogram() {
 
 #[test]
 fn golden_boxplot() {
-    let chart = Chart::boxplot(vec![
+    let chart = Charts::boxplot(vec![
         ("Group A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
         ("Group B", vec![3.0, 4.0, 5.0, 6.0, 6.0, 7.0, 7.0, 8.0, 12.0, 15.0]),
         ("Group C", vec![0.5, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 20.0]),
@@ -241,7 +241,7 @@ fn golden_boxplot() {
 
 #[test]
 fn golden_heatmap() {
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, 2.0, 3.0, 4.0],
         vec![5.0, 6.0, 7.0, 8.0],
         vec![9.0, 10.0, 11.0, 12.0],
@@ -256,7 +256,7 @@ fn golden_heatmap() {
 
 #[test]
 fn golden_pie() {
-    let chart = Chart::pie(
+    let chart = Charts::pie(
         vec![
             "Rent".into(),
             "Food".into(),
@@ -274,7 +274,7 @@ fn golden_pie() {
 
 #[test]
 fn golden_radar() {
-    let chart = Chart::radar(vec!["Speed", "Power", "Range", "Defense", "Magic"])
+    let chart = Charts::radar(vec!["Speed", "Power", "Range", "Defense", "Magic"])
         .add_series("Hero", &[0.8, 0.6, 0.9, 0.4, 0.7])
         .add_series("Villain", &[0.5, 0.9, 0.3, 0.8, 0.6])
         .title("Character Stats")
@@ -292,7 +292,7 @@ fn golden_candlestick() {
         OhlcEntry { x: 4.0, open: 106.0, high: 120.0, low: 104.0, close: 118.0 },
         OhlcEntry { x: 5.0, open: 118.0, high: 125.0, low: 112.0, close: 110.0 },
     ];
-    let chart = Chart::candlestick(data)
+    let chart = Charts::candlestick(data)
         .title("OHLC Chart")
         .theme(Theme::dark())
         .build();
@@ -301,7 +301,7 @@ fn golden_candlestick() {
 
 #[test]
 fn golden_violin() {
-    let chart = Chart::violin(vec![
+    let chart = Charts::violin(vec![
         ("A", vec![1.0, 2.0, 2.5, 3.0, 3.0, 3.5, 4.0, 5.0, 6.0]),
         ("B", vec![2.0, 3.0, 3.5, 4.0, 4.0, 4.5, 5.0, 5.5, 8.0]),
     ])
@@ -313,7 +313,7 @@ fn golden_violin() {
 
 #[test]
 fn golden_waterfall() {
-    let chart = Chart::waterfall(
+    let chart = Charts::waterfall(
         vec![
             "Revenue".into(),
             "COGS".into(),
@@ -331,7 +331,7 @@ fn golden_waterfall() {
 
 #[test]
 fn golden_bubble() {
-    let chart = Chart::bubble(
+    let chart = Charts::bubble(
         &[1.0, 3.0, 5.0, 7.0, 9.0],
         &[2.0, 8.0, 4.0, 6.0, 3.0],
         &[10.0, 30.0, 20.0, 40.0, 15.0],
@@ -344,7 +344,7 @@ fn golden_bubble() {
 
 #[test]
 fn golden_lollipop() {
-    let chart = Chart::lollipop(
+    let chart = Charts::lollipop(
         vec!["A".into(), "B".into(), "C".into(), "D".into()],
         &[15.0, 30.0, 22.0, 40.0],
     )
@@ -356,7 +356,7 @@ fn golden_lollipop() {
 
 #[test]
 fn golden_funnel() {
-    let chart = Chart::funnel(
+    let chart = Charts::funnel(
         vec![
             "Visitors".into(),
             "Leads".into(),
@@ -373,7 +373,7 @@ fn golden_funnel() {
 
 #[test]
 fn golden_gauge() {
-    let chart = Chart::gauge(73.0)
+    let chart = Charts::gauge(73.0)
         .title("CPU Usage")
         .theme(Theme::dark())
         .build();
@@ -386,7 +386,7 @@ fn golden_gauge() {
 
 #[test]
 fn golden_light_theme() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0])
         .title("Light Theme")
         .theme(Theme::light())
         .build();

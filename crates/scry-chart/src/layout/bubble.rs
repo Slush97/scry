@@ -24,11 +24,13 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
     let x_extent = resolve_x_extent(config, bc.x.extent().unwrap_or((0.0, 1.0)));
 
     let x_exact = config
+        .axes
         .x_range
-        .is_some_and(|(a, b)| a.is_finite() && b.is_finite());
+        .is_some_and(|(a, b): (f64, f64)| a.is_finite() && b.is_finite());
     let y_exact = config
+        .axes
         .y_range
-        .is_some_and(|(a, b)| a.is_finite() && b.is_finite());
+        .is_some_and(|(a, b): (f64, f64)| a.is_finite() && b.is_finite());
     let x_scale = if x_exact {
         LinearScale::new(x_extent, (px as f64, (px + pw) as f64))
     } else {
@@ -149,7 +151,7 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
     }
 
     // Annotations
-    if !config.annotations.is_empty() {
+    if !config.overlays.annotations.is_empty() {
         ctx.draw_annotations(config, &x_scale, &y_scale);
     }
 

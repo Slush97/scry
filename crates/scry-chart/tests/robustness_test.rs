@@ -102,7 +102,7 @@ fn build_negative_bars() -> Chart {
         "Apr".into(),
         "May".into(),
     ];
-    Chart::bar(labels, &[-15.0, -30.0, -22.0, -8.0, -45.0])
+    Charts::bar(labels, &[-15.0, -30.0, -22.0, -8.0, -45.0])
         .title("All-Negative Bars")
         .x_label("Month")
         .y_label("P&L ($K)")
@@ -122,7 +122,7 @@ fn build_mixed_sign_bars() -> Chart {
         "G".into(),
         "H".into(),
     ];
-    Chart::bar(labels, &[25.0, -10.0, 40.0, -35.0, 15.0, -5.0, 30.0, -20.0])
+    Charts::bar(labels, &[25.0, -10.0, 40.0, -35.0, 15.0, -5.0, 30.0, -20.0])
         .title("Mixed-Sign Bars — Bidirectional")
         .x_label("Category")
         .y_label("Value")
@@ -139,7 +139,7 @@ fn build_horizontal_neg_bars() -> Chart {
         "Delta".into(),
         "Epsilon".into(),
     ];
-    Chart::bar(labels, &[-40.0, 20.0, -15.0, 60.0, -30.0])
+    Charts::bar(labels, &[-40.0, 20.0, -15.0, 60.0, -30.0])
         .title("Horizontal Mixed-Sign")
         .x_label("Group")
         .y_label("Δ Change")
@@ -150,7 +150,7 @@ fn build_horizontal_neg_bars() -> Chart {
 /// Stacked bars with mixed signs — tricky stacking geometry.
 fn build_stacked_mixed() -> Chart {
     let labels = vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()];
-    Chart::bar(labels, &[20.0, -10.0, 30.0, -5.0])
+    Charts::bar(labels, &[20.0, -10.0, 30.0, -5.0])
         .title("Stacked Mixed-Sign")
         .x_label("Quarter")
         .y_label("Revenue vs Cost")
@@ -167,7 +167,7 @@ fn build_extreme_scatter() -> Chart {
     let x: Vec<f64> = (0..20).map(|i| i as f64 * 50_000.0).collect();
     let y: Vec<f64> = x.iter().map(|&v| v * 1.5 + 100_000.0).collect();
 
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("Extreme Scale (Millions)")
         .x_label("Population")
         .y_label("GDP ($)")
@@ -206,7 +206,7 @@ fn build_nan_scatter() -> Chart {
         9.0,
     ];
 
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("NaN/Inf Contaminated — Should Not Crash")
         .x_label("X (has NaN, ±∞)")
         .y_label("Y (has NaN, ±∞)")
@@ -220,7 +220,7 @@ fn build_nan_scatter() -> Chart {
 fn build_tiny_range() -> Chart {
     let y: Vec<f64> = (0..15).map(|i| 1.000 + (i as f64) * 0.001).collect();
 
-    Chart::line(&y)
+    Charts::line(&y)
         .title("Tiny Range: 1.000 → 1.014")
         .x_label("Sample")
         .y_label("Voltage (V)")
@@ -234,7 +234,7 @@ fn build_tiny_range() -> Chart {
 fn build_huge_range() -> Chart {
     let y: Vec<f64> = (0..20).map(|i| (i as f64 * 0.3).exp() * 100.0).collect();
 
-    Chart::line(&y)
+    Charts::line(&y)
         .title("Exponential Growth → 28K+")
         .x_label("Day")
         .y_label("Users")
@@ -245,7 +245,7 @@ fn build_huge_range() -> Chart {
 
 /// Notched boxplot with varying group sizes — tests confidence interval rendering.
 fn build_notched_boxplot() -> Chart {
-    Chart::boxplot(vec![
+    Charts::boxplot(vec![
         ("n=5", vec![2.0, 4.0, 5.0, 6.0, 8.0]),
         (
             "n=10",
@@ -285,7 +285,7 @@ fn build_nan_heatmap() -> Chart {
         "Fri".into(),
     ];
 
-    Chart::heatmap(vec![
+    Charts::heatmap(vec![
         vec![1.0, nan, 3.0, 4.0, 5.0],
         vec![nan, 7.0, 8.0, nan, 10.0],
         vec![11.0, 12.0, nan, 14.0, 15.0],
@@ -307,7 +307,7 @@ fn build_nan_heatmap() -> Chart {
 
 /// Single data point — the degenerate case for all chart math.
 fn build_single_point() -> Chart {
-    Chart::scatter(&[42.0], &[99.0])
+    Charts::scatter(&[42.0], &[99.0])
         .title("Single Point — Degenerate Case")
         .x_label("X")
         .y_label("Y")
@@ -333,7 +333,7 @@ fn build_density_histogram() -> Chart {
     let finite_mean = data.iter().filter(|v| v.is_finite()).sum::<f64>()
         / data.iter().filter(|v| v.is_finite()).count() as f64;
 
-    Chart::histogram(&data)
+    Charts::histogram(&data)
         .title("Density Histogram — NaN/Inf in Data")
         .x_label("Value")
         .y_label("Density")

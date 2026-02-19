@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         // Build chart with current zoom range
-        let mut chart_builder = Chart::scatter(&x_data, &y_data)
+        let mut chart_builder = Charts::scatter(&x_data, &y_data)
             .title("Interactive: Damped Oscillation")
             .x_label("time (s)")
             .y_label("amplitude")

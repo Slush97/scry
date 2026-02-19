@@ -5,25 +5,25 @@
 //! measures the components (margins, axes, legend), and emits
 //! `PixelCanvas` drawing commands.
 
-mod bar;
-mod boxplot;
-mod bubble;
-mod candlestick;
+pub(crate) mod bar;
+pub(crate) mod boxplot;
+pub(crate) mod bubble;
+pub(crate) mod candlestick;
 mod common_overlays;
-mod contour;
-mod funnel;
-mod gauge;
-mod heatmap;
-mod histogram;
-mod line;
-mod lollipop;
-mod pie;
-mod radar;
+pub(crate) mod contour;
+pub(crate) mod funnel;
+pub(crate) mod gauge;
+pub(crate) mod heatmap;
+pub(crate) mod histogram;
+pub(crate) mod line;
+pub(crate) mod lollipop;
+pub(crate) mod pie;
+pub(crate) mod radar;
 pub(crate) mod render_context;
-mod scatter;
-mod sparkline;
-mod violin;
-mod waterfall;
+pub(crate) mod scatter;
+pub(crate) mod sparkline;
+pub(crate) mod violin;
+pub(crate) mod waterfall;
 
 pub(crate) use render_context::RenderContext;
 
@@ -363,42 +363,7 @@ pub fn render_chart_with_viewport(
     height: u32,
     viewport: Option<(f64, f64, f64, f64)>,
 ) -> RenderedChart {
-    // If a viewport is provided, we need to temporarily inject the ranges
-    // into the chart's config. Since we only have a &Chart, we clone the
-    // config once (cheap — no data) rather than the entire Chart (expensive).
-    let chart_ref;
-    let mut owned_chart;
-    let effective_chart: &Chart = if let Some((x0, x1, y0, y1)) = viewport {
-        owned_chart = chart.clone();
-        let cfg = owned_chart.config_mut();
-        cfg.x_range = Some((x0, x1));
-        cfg.y_range = Some((y0, y1));
-        chart_ref = &owned_chart;
-        chart_ref
-    } else {
-        chart
-    };
-
-    match effective_chart {
-        Chart::Scatter(sc) => scatter::render_scatter(sc, width, height),
-        Chart::Line(lc) => line::render_line(lc, width, height),
-        Chart::Bar(bc) => bar::render_bar(bc, width, height),
-        Chart::Histogram(hc) => histogram::render_histogram(hc, width, height),
-        Chart::BoxPlot(bp) => boxplot::render_boxplot(bp, width, height),
-        Chart::Heatmap(hm) => heatmap::render_heatmap(hm, width, height),
-        Chart::Pie(pc) => pie::render_pie(pc, width, height),
-        Chart::Candlestick(cc) => candlestick::render_candlestick(cc, width, height),
-        Chart::Radar(rc) => radar::render_radar(rc, width, height),
-        Chart::Bubble(bc) => bubble::render_bubble(bc, width, height),
-        Chart::Violin(vp) => violin::render_violin(vp, width, height),
-        Chart::Sparkline(sp) => sparkline::render_sparkline(sp, width, height),
-        Chart::Waterfall(wc) => waterfall::render_waterfall(wc, width, height),
-        Chart::Funnel(fc) => funnel::render_funnel(fc, width, height),
-        Chart::Gauge(gc) => gauge::render_gauge(gc, width, height),
-        Chart::Lollipop(lc) => lollipop::render_lollipop(lc, width, height),
-        Chart::Contour(cc) => contour::render_contour(cc, width, height),
-        Chart::Custom(ct) => ct.render(width, height),
-    }
+    chart.render_with_viewport(width, height, viewport)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,42 +402,42 @@ pub(crate) fn compute_plot_area(
         estimate_y_tick_width_scaled(
             y_extent,
             h,
-            config.y_tick_formatter.as_deref(),
-            config.locale.as_ref(),
+            config.ticks.y_tick_formatter.as_deref(),
+            config.ticks.locale.as_ref(),
             tick_fs,
         )
     } else {
         proportional_y_axis_width(w)
     };
 
-    let title_h = if config.title.is_some() {
+    let title_h = if config.titles.title.is_some() {
         proportional_title_height(h)
     } else {
         0.0
     };
 
     // Subtitle: smaller text below title
-    let subtitle_h = if config.subtitle.is_some() {
+    let subtitle_h = if config.titles.subtitle.is_some() {
         (proportional_title_height(h) * 0.65).max(10.0).min(20.0)
     } else {
         0.0
     };
 
     // Footer: small text at the very bottom
-    let footer_h = if config.footer.is_some() {
+    let footer_h = if config.titles.footer.is_some() {
         (proportional_title_height(h) * 0.55).max(10.0).min(18.0)
     } else {
         0.0
     };
 
     let y_label_w = estimate_y_label_width(
-        config.y_label.as_deref(),
+        config.titles.y_label.as_deref(),
         w,
         h,
         config.theme.label_style.font_size,
     );
-    let x_tick_h = proportional_x_tick_height(h, config.x_tick_rotation);
-    let x_label_h = if config.x_label.is_some() {
+    let x_tick_h = proportional_x_tick_height(h, config.ticks.x_tick_rotation);
+    let x_label_h = if config.titles.x_label.is_some() {
         proportional_x_label_height(h)
     } else {
         0.0
@@ -480,12 +445,12 @@ pub(crate) fn compute_plot_area(
 
     // Secondary Y-axis gutter (right side) — allocated when any secondary
     // Y-axis config is present.
-    let has_secondary = config.secondary_y_label.is_some()
-        || config.secondary_y_range.is_some()
-        || config.secondary_y_formatter.is_some();
+    let has_secondary = config.secondary.label.is_some()
+        || config.secondary.range.is_some()
+        || config.secondary.formatter.is_some();
     let secondary_y_w = if has_secondary {
         let sec_label_w = estimate_y_label_width(
-            config.secondary_y_label.as_deref(),
+            config.secondary.label.as_deref(),
             w,
             h,
             config.theme.label_style.font_size,
@@ -518,7 +483,7 @@ pub(crate) fn axis_config_from_theme(config: &ChartConfig, side: AxisSide) -> Ax
     };
     // Only apply label rotation to X axes (Bottom/Top)
     let rotation = if is_x_axis {
-        config.x_tick_rotation
+        config.ticks.x_tick_rotation
     } else {
         LabelRotation::Horizontal
     };
@@ -526,14 +491,14 @@ pub(crate) fn axis_config_from_theme(config: &ChartConfig, side: AxisSide) -> Ax
     // If a locale is set and no custom formatter is provided, wrap the default
     // AutoFormatter with locale-aware post-processing.
     let tick_formatter = if is_x_axis {
-        match (&config.x_tick_formatter, &config.locale) {
+        match (&config.ticks.x_tick_formatter, &config.ticks.locale) {
             (Some(f), _) => Some(f.clone()),
             (None, Some(loc)) => Some(Arc::new(LocaleFormatter::new(AutoFormatter, loc.clone()))
                 as Arc<dyn TickFormatter>),
             _ => None,
         }
     } else {
-        match (&config.y_tick_formatter, &config.locale) {
+        match (&config.ticks.y_tick_formatter, &config.ticks.locale) {
             (Some(f), _) => Some(f.clone()),
             (None, Some(loc)) => Some(Arc::new(LocaleFormatter::new(AutoFormatter, loc.clone()))
                 as Arc<dyn TickFormatter>),
@@ -541,9 +506,9 @@ pub(crate) fn axis_config_from_theme(config: &ChartConfig, side: AxisSide) -> Ax
         }
     };
     let tick_step = if is_x_axis {
-        config.x_tick_step
+        config.ticks.x_tick_step
     } else {
-        config.y_tick_step
+        config.ticks.y_tick_step
     };
     AxisConfig {
         side,
@@ -571,7 +536,7 @@ pub(crate) fn axis_config_from_theme(config: &ChartConfig, side: AxisSide) -> Ax
 pub(crate) fn axis_config_from_theme_secondary(config: &ChartConfig) -> AxisConfig {
     let theme = &config.theme;
     let tick_formatter =
-        match (&config.secondary_y_formatter, &config.locale) {
+        match (&config.secondary.formatter, &config.ticks.locale) {
             (Some(f), _) => Some(f.clone()),
             (None, Some(loc)) => Some(Arc::new(LocaleFormatter::new(AutoFormatter, loc.clone()))
                 as Arc<dyn TickFormatter>),
@@ -601,7 +566,7 @@ pub(crate) fn axis_config_from_theme_secondary(config: &ChartConfig) -> AxisConf
 /// Handles partial overrides: when only one bound is set (the other is
 /// ±INFINITY), the unset bound falls back to the data extent.
 pub(crate) fn resolve_x_extent(config: &ChartConfig, data_extent: (f64, f64)) -> (f64, f64) {
-    match config.x_range {
+    match config.axes.x_range {
         Some((lo, hi)) => {
             let eff_lo = if lo.is_finite() { lo } else { data_extent.0 };
             let eff_hi = if hi.is_finite() { hi } else { data_extent.1 };
@@ -616,7 +581,7 @@ pub(crate) fn resolve_x_extent(config: &ChartConfig, data_extent: (f64, f64)) ->
 /// Handles partial overrides: when only one bound is set (the other is
 /// ±INFINITY), the unset bound falls back to the data extent.
 pub(crate) fn resolve_y_extent(config: &ChartConfig, data_extent: (f64, f64)) -> (f64, f64) {
-    match config.y_range {
+    match config.axes.y_range {
         Some((lo, hi)) => {
             let eff_lo = if lo.is_finite() { lo } else { data_extent.0 };
             let eff_hi = if hi.is_finite() { hi } else { data_extent.1 };

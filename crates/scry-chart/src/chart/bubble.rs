@@ -13,6 +13,7 @@ use crate::chart::config_builder::{
 use crate::chart::scatter::Marker;
 use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
+use crate::spec::ChartSpec;
 
 /// A bubble chart — scatter plot where each point has a variable size.
 ///
@@ -25,7 +26,7 @@ use crate::data::Series;
 /// use scry_chart::chart::Chart;
 /// use scry_chart::data::Series;
 ///
-/// let chart = Chart::bubble(
+/// let chart = Charts::bubble(
 ///     &[1.0, 2.0, 3.0],
 ///     &[10.0, 20.0, 15.0],
 ///     &[5.0, 20.0, 10.0],
@@ -156,8 +157,39 @@ impl BubbleChart {
         Ok(self.build())
     }
 
-    /// Build into a Chart enum variant.
+    /// Build into a Chart.
     pub fn build(self) -> Chart {
-        Chart::Bubble(self)
+        Box::new(self) as Chart
     }
+}
+
+impl ChartSpec for BubbleChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::bubble::render_bubble(self, w, h)
+    }
+    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+        if let Some((x0, x1, y0, y1)) = vp {
+            let mut c = self.clone();
+            c.config.axes.x_range = Some((x0, x1));
+            c.config.axes.y_range = Some((y0, y1));
+            c.render(w, h)
+        } else {
+            self.render(w, h)
+        }
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn data_extent(&self) -> Option<(f64, f64, f64, f64)> {
+        let xs = self.x.values();
+        let ys = self.y.values();
+        if xs.is_empty() { return None; }
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        for &v in xs { if v < x_min { x_min = v; } if v > x_max { x_max = v; } }
+        for &v in ys { if v < y_min { y_min = v; } if v > y_max { y_max = v; } }
+        Some((x_min, x_max, y_min, y_max))
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

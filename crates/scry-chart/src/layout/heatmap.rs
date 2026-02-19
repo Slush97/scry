@@ -24,13 +24,13 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
 
     // Heatmap-specific layout: row labels on the left, col labels on top.
     let margin = proportional_margin(w, h);
-    let title_h = if config.title.is_some() {
+    let title_h = if config.titles.title.is_some() {
         proportional_title_height(h)
     } else {
         0.0
     };
     // Subtitle adds extra space below title
-    let subtitle_h = if config.subtitle.is_some() {
+    let subtitle_h = if config.titles.subtitle.is_some() {
         title_h * 0.5
     } else {
         0.0

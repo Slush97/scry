@@ -8,6 +8,7 @@ use crate::chart::config_builder::{
     chart_config_core, chart_config_margin, chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 use scry_engine::style::Color;
 
 /// A gauge chart — semicircular arc with a needle indicator.
@@ -18,7 +19,7 @@ use scry_engine::style::Color;
 /// use scry_chart::chart::Chart;
 /// use scry_engine::style::Color;
 ///
-/// let chart = Chart::gauge(75.0)
+/// let chart = Charts::gauge(75.0)
 ///     .range(0.0, 100.0)
 ///     .threshold(60.0, Color::from_rgba8(40, 180, 99, 255))
 ///     .threshold(80.0, Color::from_rgba8(241, 196, 15, 255))
@@ -101,9 +102,9 @@ impl GaugeChart {
         self
     }
 
-    /// Build into a Chart enum variant.
+    /// Build into a Chart.
     pub fn build(self) -> Chart {
-        Chart::Gauge(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -117,6 +118,15 @@ impl GaugeChart {
                 max: self.max,
             });
         }
-        Ok(Chart::Gauge(self))
+        Ok(self.build())
     }
+}
+
+impl ChartSpec for GaugeChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::gauge::render_gauge(self, w, h)
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

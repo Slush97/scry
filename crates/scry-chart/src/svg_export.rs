@@ -11,7 +11,7 @@
 //! # Example
 //!
 //! ```ignore
-//! let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0]).title("Demo").build();
+//! let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0]).title("Demo").build();
 //! let svg = scry_chart::svg_export::render_to_svg(&chart, 800, 500);
 //! std::fs::write("chart.svg", svg).unwrap();
 //! ```
@@ -628,12 +628,12 @@ fn xml_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chart::Chart;
+    use crate::chart::Charts;
     use crate::theme::Theme;
 
     #[test]
     fn svg_contains_svg_root() {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0]).title("SVG Test").build();
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0]).title("SVG Test").build();
         let svg = render_to_svg(&chart, 400, 300);
         assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg""#));
         assert!(svg.ends_with("</svg>\n"));
@@ -641,7 +641,7 @@ mod tests {
 
     #[test]
     fn svg_has_text_overlays() {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
             .title("Test Title")
             .x_label("X Axis")
             .y_label("Y Axis")
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn svg_contains_line_elements() {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
             .theme(Theme::dark())
             .build();
         let svg = render_to_svg(&chart, 400, 300);
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn svg_contains_rect_for_bar_chart() {
-        let chart = Chart::bar(
+        let chart = Charts::bar(
             vec!["A".into(), "B".into(), "C".into()],
             &[10.0, 20.0, 30.0],
         )
@@ -675,14 +675,14 @@ mod tests {
 
     #[test]
     fn svg_contains_circle_for_scatter() {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]).build();
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]).build();
         let svg = render_to_svg(&chart, 400, 300);
         assert!(svg.contains("<circle"));
     }
 
     #[test]
     fn svg_gradient_defs() {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
             .filled()
             .theme(Theme::dark())
             .build();
@@ -694,7 +694,7 @@ mod tests {
 
     #[test]
     fn svg_is_valid_structure() {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
             .title("Scatter")
             .build();
         let svg = render_to_svg(&chart, 400, 300);
@@ -712,7 +712,7 @@ mod tests {
 
     #[test]
     fn svg_dash_pattern_renders() {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
             .h_line(3.0)
             .theme(Theme::dark())
             .build();
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn save_svg_creates_file() {
-        let chart = Chart::line(&[1.0, 2.0, 3.0]).build();
+        let chart = Charts::line(&[1.0, 2.0, 3.0]).build();
         let path = std::env::temp_dir().join("scry_chart_test_save.svg");
         save_svg(&chart, 200, 150, &path).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
@@ -753,7 +753,7 @@ mod tests {
 
     #[test]
     fn svg_pie_chart_renders() {
-        let chart = Chart::pie(
+        let chart = Charts::pie(
             vec!["A".into(), "B".into(), "C".into()],
             &[30.0, 50.0, 20.0],
         )
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn svg_heatmap_has_rects() {
-        let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]]).build();
+        let chart = Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]]).build();
         let svg = render_to_svg(&chart, 300, 250);
         // Heatmap should have rectangles for cells
         assert!(svg.contains("<rect"));

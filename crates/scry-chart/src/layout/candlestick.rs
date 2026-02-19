@@ -50,7 +50,7 @@ pub(crate) fn render_candlestick(cc: &CandlestickChart, w: u32, h: u32) -> Rende
     let (px, py, pw, ph) = ctx.plot;
 
     // Override x domain if user set x_range
-    let x_domain = config.x_range.unwrap_or((x_lo - x_pad, x_hi + x_pad));
+    let x_domain = config.axes.x_range.unwrap_or((x_lo - x_pad, x_hi + x_pad));
     let x_scale = LinearScale::nice(x_domain, (px as f64, (px + pw) as f64));
     let y_scale = LinearScale::nice(y_extent, ((py + ph) as f64, py as f64));
 

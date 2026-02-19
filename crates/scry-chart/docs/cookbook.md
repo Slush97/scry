@@ -8,7 +8,7 @@ All examples assume `use scry_chart::prelude::*;`.
 ## Quick Line Chart
 
 ```rust
-let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
     .title("Quick Line")
     .build();
 ```
@@ -16,7 +16,7 @@ let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
 ## Area Chart (filled + smooth)
 
 ```rust
-let chart = Chart::area(&[3.0, 7.0, 4.0, 9.0, 6.0])
+let chart = Charts::area(&[3.0, 7.0, 4.0, 9.0, 6.0])
     .title("Revenue Trend")
     .build();
 ```
@@ -57,7 +57,7 @@ let grid = vec![
     vec![2.0, 3.0, 4.0, 5.0],
     vec![3.0, 4.0, 5.0, 6.0],
 ];
-let chart = Chart::contour(grid)
+let chart = Charts::contour(grid)
     .levels(8)
     .filled()
     .title("Temperature Field")
@@ -93,14 +93,14 @@ let short = ellipsize("United States of America", 80.0, 7.0);
 ## Validated Chart Construction
 
 ```rust
-let result = Chart::contour(vec![vec![1.0, 2.0], vec![3.0]])
+let result = Charts::contour(vec![vec![1.0, 2.0], vec![3.0]])
     .try_build();
 assert!(result.is_err()); // JaggedGrid
 
-let result = Chart::gauge(f64::NAN).try_build();
+let result = Charts::gauge(f64::NAN).try_build();
 assert!(result.is_err()); // AllNonFinite
 
-let result = Chart::funnel(
+let result = Charts::funnel(
     vec!["A".into(), "B".into()],
     &[100.0],               // length mismatch
 ).try_build();
@@ -113,12 +113,12 @@ assert!(result.is_err()); // InvalidConfig
 use scry_chart::prelude::*;
 
 // Format ticks as currency:
-let chart = Chart::bar(labels, &values)
+let chart = Charts::bar(labels, &values)
     .y_formatter(FnFormatter::new(|v| format!("${:.0}", v)))
     .build();
 
 // Locale-aware number grouping:
-let chart = Chart::line(&data)
+let chart = Charts::line(&data)
     .locale(LocaleConfig { grouping: Some(','), ..Default::default() })
     .build();
 ```
@@ -128,7 +128,7 @@ let chart = Chart::line(&data)
 ```rust
 use scry_chart::svg_export::render_to_svg;
 
-let chart = Chart::line(&[1.0, 2.0, 3.0])
+let chart = Charts::line(&[1.0, 2.0, 3.0])
     .title("Accessible Chart")
     .build();
 let svg_string = render_to_svg(&chart, 800, 500);
@@ -139,11 +139,11 @@ let svg_string = render_to_svg(&chart, 800, 500);
 
 ```rust
 // Dark (default), Light, Colorblind-safe:
-let chart = Chart::line(&data)
+let chart = Charts::line(&data)
     .theme(Theme::dark())
     .build();
 
-let chart = Chart::line(&data)
+let chart = Charts::line(&data)
     .theme(Theme::colorblind())
     .build();
 ```

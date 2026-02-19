@@ -3,14 +3,14 @@
 use scry_chart::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let line = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 7.0, 3.0])
+    let line = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 7.0, 3.0])
         .title("Revenue Trend")
         .x_label("Month")
         .y_label("Revenue ($k)")
         .theme(Theme::dark())
         .build();
 
-    let scatter = Chart::scatter(
+    let scatter = Charts::scatter(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
         &[2.0, 4.5, 3.0, 7.0, 5.5, 8.0],
     )
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .theme(Theme::dark())
     .build();
 
-    let bar = Chart::bar(
+    let bar = Charts::bar(
         vec![
             "Q1".to_string(),
             "Q2".to_string(),
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .theme(Theme::dark())
     .build();
 
-    let hist = Chart::histogram(&[
+    let hist = Charts::histogram(&[
         22.0, 25.0, 27.0, 28.0, 30.0, 31.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 40.0, 42.0, 45.0,
     ])
     .title("Response Times")

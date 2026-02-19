@@ -104,7 +104,7 @@ impl RenderContext {
             &x_ticks,
             &y_ticks,
             config.theme.foreground,
-            config.x_tick_rotation,
+            config.ticks.x_tick_rotation,
             tick_fs,
         );
     }
@@ -143,7 +143,7 @@ impl RenderContext {
         let x_ticks = self.draw_with(|c| axis::draw_axis(c, plot, x_scale, &cfg));
 
         let (_px, py, _pw, ph) = self.plot;
-        let rot_deg = config.x_tick_rotation.degrees();
+        let rot_deg = config.ticks.x_tick_rotation.degrees();
         let align = if rot_deg > 0.0 {
             TextAlign::Right
         } else {
@@ -177,7 +177,7 @@ impl RenderContext {
         let dash = scry_engine::style::DashPattern::new(vec![8.0, 5.0], 0.0);
 
         // Horizontal reference lines
-        for rl in &config.h_lines {
+        for rl in &config.overlays.h_lines {
             let y = y_scale.to_pixel(rl.value) as f32;
             if y >= py && y <= py + ph {
                 let color = rl.color;
@@ -195,7 +195,7 @@ impl RenderContext {
         }
 
         // Vertical reference lines
-        for rl in &config.v_lines {
+        for rl in &config.overlays.v_lines {
             let x = x_scale.to_pixel(rl.value) as f32;
             if x >= px && x <= px + pw {
                 let color = rl.color;

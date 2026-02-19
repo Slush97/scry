@@ -184,7 +184,7 @@ fn build_scatter_connected() -> Chart {
     let x = linspace(0.0, 10.0, 60);
     let y = noisy_sin(&x, 1.0, 3.0, 42);
 
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("Signal Analysis — sin(x) + noise")
         .x_label("Time (s)")
         .y_label("Amplitude")
@@ -203,7 +203,7 @@ fn build_scatter_multi() -> Chart {
     let y2: Vec<f64> = x.iter().map(|&v| v.sqrt() * 1.5).collect();
     let y3: Vec<f64> = x.iter().map(|&v| (v * 0.7).cos() * 2.0 + 1.0).collect();
 
-    Chart::scatter(&x, &y1)
+    Charts::scatter(&x, &y1)
         .title("Multi-Series — Diverse Markers")
         .x_label("x")
         .y_label("y")
@@ -230,7 +230,7 @@ fn build_line_area_fill() -> Chart {
         .collect();
     let profit: Vec<f64> = revenue.iter().zip(&costs).map(|(r, c)| r - c).collect();
 
-    Chart::line(&revenue)
+    Charts::line(&revenue)
         .title("Revenue vs Costs — Filled Area")
         .x_label("Month")
         .y_label("$M")
@@ -259,7 +259,7 @@ fn build_bar_grouped() -> Chart {
     let safety = vec![99.0, 58.0, 74.0, 38.0, 72.0, 55.0];
     let ergonomics = vec![82.0, 96.0, 68.0, 32.0, 90.0, 50.0];
 
-    Chart::bar(labels, &perf)
+    Charts::bar(labels, &perf)
         .title("Language Comparison — Grouped Bars")
         .y_label("Score")
         .add_series(Series::new("Safety", safety))
@@ -280,7 +280,7 @@ fn build_bar_stacked_horizontal() -> Chart {
     let q2 = vec![200.0, 190.0, 110.0, 180.0, 140.0];
     let q3 = vec![220.0, 230.0, 130.0, 210.0, 135.0];
 
-    Chart::bar(labels, &q1)
+    Charts::bar(labels, &q1)
         .title("Engineering Hours — Stacked Horizontal")
         .x_label("Total Hours")
         .add_series(Series::new("Q2", q2))
@@ -300,7 +300,7 @@ fn build_histogram_frequency() -> Chart {
     let mean1 = data1.iter().sum::<f64>() / data1.len() as f64;
     let mean2 = data2.iter().sum::<f64>() / data2.len() as f64;
 
-    Chart::histogram(&data1)
+    Charts::histogram(&data1)
         .title("Frequency — Two Normal Distributions")
         .x_label("Value")
         .y_label("Count")
@@ -317,7 +317,7 @@ fn build_histogram_density() -> Chart {
     let data = pseudo_normal(500, 0.0, 1.0, 333);
     let mean = data.iter().sum::<f64>() / data.len() as f64;
 
-    Chart::histogram(&data)
+    Charts::histogram(&data)
         .title("Density — Normalized (area = 1)")
         .x_label("Standard Deviations")
         .y_label("Density")
@@ -341,7 +341,7 @@ fn build_histogram_density() -> Chart {
 }
 
 fn build_boxplot_standard() -> Chart {
-    Chart::boxplot(vec![
+    Charts::boxplot(vec![
         ("Control", pseudo_normal(60, 10.0, 2.0, 300)),
         ("Drug A", pseudo_normal(60, 14.0, 3.0, 400)),
         ("Drug B", pseudo_normal(60, 12.0, 1.5, 500)),
@@ -356,7 +356,7 @@ fn build_boxplot_standard() -> Chart {
 }
 
 fn build_boxplot_notched() -> Chart {
-    Chart::boxplot(vec![
+    Charts::boxplot(vec![
         ("Jan", pseudo_normal(50, 22.0, 3.0, 10)),
         ("Feb", pseudo_normal(50, 20.0, 2.5, 20)),
         ("Mar", pseudo_normal(50, 25.0, 4.0, 30)),
@@ -418,7 +418,7 @@ fn build_heatmap_custom() -> Chart {
         vec![  8.0,  5.0, 15.0, 18.0, 25.0, 30.0, 12.0],
     ];
 
-    Chart::heatmap(data)
+    Charts::heatmap(data)
         .title("Website Traffic — Users per Hour")
         .row_labels(rows)
         .col_labels(cols)
@@ -437,7 +437,7 @@ fn build_heatmap_custom() -> Chart {
 fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
     // Line chart
     let x = linspace(0.0, 8.0, 40);
-    let line = Chart::line(&noisy_sin(&x, 1.2, 4.0, 10))
+    let line = Charts::line(&noisy_sin(&x, 1.2, 4.0, 10))
         .title("Signal Waveform")
         .x_values(x)
         .filled()
@@ -451,7 +451,7 @@ fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
         .into_iter()
         .map(String::from)
         .collect();
-    let bar = Chart::bar(bar_labels, &[42.0, 58.0, 35.0, 71.0])
+    let bar = Charts::bar(bar_labels, &[42.0, 58.0, 35.0, 71.0])
         .title("Quarterly Revenue")
         .y_label("$M")
         .y_range(0.0, 80.0)
@@ -459,7 +459,7 @@ fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
         .build();
 
     // Histogram
-    let hist = Chart::histogram(&pseudo_normal(200, 0.0, 1.0, 77))
+    let hist = Charts::histogram(&pseudo_normal(200, 0.0, 1.0, 77))
         .title("Noise Distribution")
         .bins(18)
         .theme(Theme::dark())
@@ -471,7 +471,7 @@ fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
         .iter()
         .map(|&x| x.sqrt() * 2.0 + (x * 0.8).sin())
         .collect();
-    let scatter = Chart::scatter(&sx, &sy)
+    let scatter = Charts::scatter(&sx, &sy)
         .title("Growth Curve")
         .connected()
         .marker(Marker::Triangle)

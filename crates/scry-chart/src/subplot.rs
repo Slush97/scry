@@ -9,14 +9,14 @@
 //! # Example
 //!
 //! ```ignore
-//! use scry_chart::{Chart, SubplotGrid};
+//! use scry_chart::{Chart, Charts, SubplotGrid};
 //!
 //! let grid = SubplotGrid::new(2, 2)
 //!     .gap(12)
-//!     .set(0, 0, Chart::line(&[1.0, 4.0, 2.0]).title("A").build())
-//!     .set(0, 1, Chart::scatter(&[(1.0, 2.0)]).title("B").build())
-//!     .set(1, 0, Chart::bar(vec!["x"], &[3.0]).title("C").build())
-//!     .set(1, 1, Chart::histogram(&[1.0, 2.0, 3.0]).title("D").build());
+//!     .set(0, 0, Charts::line(&[1.0, 4.0, 2.0]).title("A").build())
+//!     .set(0, 1, Charts::scatter(&[(1.0, 2.0)]).title("B").build())
+//!     .set(1, 0, Charts::bar(vec!["x"], &[3.0]).title("C").build())
+//!     .set(1, 1, Charts::histogram(&[1.0, 2.0, 3.0]).title("D").build());
 //!
 //! scry_chart::export::save_subplot_png(&grid, 1600, 1000, "subplot.png")?;
 //! ```

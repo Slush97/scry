@@ -105,18 +105,18 @@ th { color: var(--accent); font-weight: 600; }
 
 fn type_gallery() -> Vec<(&'static str, Chart)> {
     vec![
-        ("Line", Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0, 6.0])
+        ("Line", Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0, 6.0])
             .title("Line Chart").x_label("Time").y_label("Value")
             .theme(Theme::dark()).build()),
-        ("Area (filled)", Chart::area(&[3.0, 7.0, 4.0, 9.0, 6.0, 8.0, 5.0])
+        ("Area (filled)", Charts::area(&[3.0, 7.0, 4.0, 9.0, 6.0, 8.0, 5.0])
             .title("Area Chart").x_label("Time").y_label("Revenue")
             .theme(Theme::dark()).build()),
-        ("Scatter", Chart::scatter(
+        ("Scatter", Charts::scatter(
             &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
             &[2.0, 4.0, 1.5, 8.0, 5.0, 7.5, 3.0, 9.0],
         ).title("Scatter Plot").x_label("X").y_label("Y")
             .theme(Theme::dark()).build()),
-        ("Bar", Chart::bar(
+        ("Bar", Charts::bar(
             vec!["Mon".into(), "Tue".into(), "Wed".into(), "Thu".into(), "Fri".into()],
             &[12.0, 19.0, 8.0, 15.0, 22.0],
         ).title("Bar Chart").y_label("Units")
@@ -126,17 +126,17 @@ fn type_gallery() -> Vec<(&'static str, Chart)> {
                 let x = i as f64 * 0.05;
                 x.sin() * 50.0 + 50.0
             }).collect();
-            Chart::histogram(&data).bins(20).title("Histogram")
+            Charts::histogram(&data).bins(20).title("Histogram")
                 .x_label("Value").y_label("Frequency")
                 .theme(Theme::dark()).build()
         }),
-        ("Box Plot", Chart::boxplot(vec![
+        ("Box Plot", Charts::boxplot(vec![
             ("Group A", (0..40).map(|i| 10.0 + (i as f64 * 0.5).sin() * 3.0).collect()),
             ("Group B", (0..40).map(|i| 15.0 + (i as f64 * 0.3).cos() * 4.0).collect()),
             ("Group C", (0..40).map(|i| 8.0 + (i as f64 * 0.7).sin() * 2.0 + i as f64 * 0.15).collect()),
         ]).title("Box Plot").y_label("Score")
             .theme(Theme::dark()).build()),
-        ("Heatmap", Chart::heatmap(vec![
+        ("Heatmap", Charts::heatmap(vec![
             vec![1.0, 2.0, 3.0, 4.0, 5.0],
             vec![5.0, 4.0, 3.0, 2.0, 1.0],
             vec![2.0, 4.0, 6.0, 4.0, 2.0],
@@ -145,46 +145,46 @@ fn type_gallery() -> Vec<(&'static str, Chart)> {
             .row_labels(vec!["R1".into(), "R2".into(), "R3".into(), "R4".into()])
             .col_labels(vec!["C1".into(), "C2".into(), "C3".into(), "C4".into(), "C5".into()])
             .theme(Theme::dark()).build()),
-        ("Pie", Chart::pie(
+        ("Pie", Charts::pie(
             vec!["Rust".into(), "Python".into(), "Go".into(), "TypeScript".into(), "Other".into()],
             &[35.0, 25.0, 15.0, 15.0, 10.0],
         ).title("Pie Chart").theme(Theme::dark()).build()),
-        ("Radar", Chart::radar(vec!["Speed", "Power", "Range", "Defense", "Magic"])
+        ("Radar", Charts::radar(vec!["Speed", "Power", "Range", "Defense", "Magic"])
             .add_series("Hero", &[0.8, 0.6, 0.9, 0.4, 0.7])
             .add_series("Villain", &[0.5, 0.9, 0.3, 0.8, 0.6])
             .title("Radar Chart").theme(Theme::dark()).build()),
-        ("Candlestick", Chart::candlestick(vec![
+        ("Candlestick", Charts::candlestick(vec![
             OhlcEntry { x: 1.0, open: 100.0, high: 110.0, low: 95.0, close: 105.0 },
             OhlcEntry { x: 2.0, open: 105.0, high: 115.0, low: 100.0, close: 98.0 },
             OhlcEntry { x: 3.0, open: 98.0, high: 108.0, low: 92.0, close: 106.0 },
             OhlcEntry { x: 4.0, open: 106.0, high: 120.0, low: 104.0, close: 118.0 },
             OhlcEntry { x: 5.0, open: 118.0, high: 125.0, low: 112.0, close: 110.0 },
         ]).title("Candlestick Chart").theme(Theme::dark()).build()),
-        ("Violin", Chart::violin(vec![
+        ("Violin", Charts::violin(vec![
             ("A", (0..80).map(|i| 10.0 + (i as f64 * 0.2).sin() * 5.0).collect()),
             ("B", (0..80).map(|i| 15.0 + (i as f64 * 0.15).cos() * 6.0).collect()),
         ]).title("Violin Plot").theme(Theme::dark()).build()),
-        ("Waterfall", Chart::waterfall(
+        ("Waterfall", Charts::waterfall(
             vec!["Revenue".into(), "COGS".into(), "OpEx".into(), "Tax".into(), "Net".into()],
             &[100.0, -40.0, -25.0, -10.0, 25.0],
         ).title("Waterfall Chart").theme(Theme::dark()).build()),
-        ("Bubble", Chart::bubble(
+        ("Bubble", Charts::bubble(
             &[1.0, 3.0, 5.0, 7.0, 9.0],
             &[2.0, 8.0, 4.0, 6.0, 3.0],
             &[10.0, 30.0, 20.0, 40.0, 15.0],
         ).title("Bubble Chart").theme(Theme::dark()).build()),
-        ("Lollipop", Chart::lollipop(
+        ("Lollipop", Charts::lollipop(
             vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
             &[15.0, 30.0, 22.0, 40.0, 18.0],
         ).title("Lollipop Chart").theme(Theme::dark()).build()),
-        ("Funnel", Chart::funnel(
+        ("Funnel", Charts::funnel(
             vec!["Visitors".into(), "Leads".into(), "Qualified".into(), "Deals".into()],
             &[1000.0, 600.0, 300.0, 100.0],
         ).title("Sales Funnel").theme(Theme::dark()).build()),
-        ("Gauge", Chart::gauge(73.0)
+        ("Gauge", Charts::gauge(73.0)
             .range(0.0, 100.0).title("CPU Usage")
             .theme(Theme::dark()).build()),
-        ("Contour", Chart::contour({
+        ("Contour", Charts::contour({
             let n = 20;
             (0..n).map(|r| {
                 let y = r as f64 / n as f64 * 4.0 - 2.0;
@@ -195,7 +195,7 @@ fn type_gallery() -> Vec<(&'static str, Chart)> {
             }).collect()
         }).levels(8).filled().title("Contour Plot")
             .theme(Theme::dark()).build()),
-        ("Sparkline", Chart::sparkline(&[3.0, 7.0, 4.0, 8.0, 2.0, 9.0, 5.0, 6.0, 3.0])
+        ("Sparkline", Charts::sparkline(&[3.0, 7.0, 4.0, 8.0, 2.0, 9.0, 5.0, 6.0, 3.0])
             .build()),
     ]
 }
@@ -211,7 +211,7 @@ fn theme_sweep() -> Vec<(&'static str, Chart)> {
         ("Colorblind", Theme::colorblind()),
     ];
     themes.into_iter().map(|(name, theme)| {
-        let chart = Chart::line(data)
+        let chart = Charts::line(data)
             .title(&format!("{name} Theme"))
             .x_label("Time").y_label("Value")
             .theme(theme).build();
@@ -221,19 +221,19 @@ fn theme_sweep() -> Vec<(&'static str, Chart)> {
 
 fn text_stress() -> Vec<(&'static str, Chart)> {
     vec![
-        ("Long title", Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+        ("Long title", Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
             .title("A Very Long Chart Title That Should Probably Wrap or Ellipsize on Small Canvases")
             .subtitle("And This Is an Equally Long Subtitle Testing Hierarchical Font Sizing")
             .x_label("X-Axis Label With Extra Detail (thousands of units)")
             .y_label("Y-Axis Label With Units (μg/mL)")
             .theme(Theme::dark()).build()),
-        ("20 categories", Chart::bar(
+        ("20 categories", Charts::bar(
             (0..20).map(|i| format!("Category {}", i + 1)).collect(),
             &(0..20).map(|i| (i as f64 + 1.0) * 5.0).collect::<Vec<_>>(),
         ).title("Many Categories — Collision Test")
             .y_label("Value")
             .theme(Theme::dark()).build()),
-        ("Long cat labels", Chart::bar(
+        ("Long cat labels", Charts::bar(
             vec![
                 "United States of America".into(),
                 "United Kingdom".into(),
@@ -245,7 +245,7 @@ fn text_stress() -> Vec<(&'static str, Chart)> {
         ).title("Long Category Labels")
             .y_label("Population (M)")
             .theme(Theme::dark()).build()),
-        ("Unicode labels", Chart::bar(
+        ("Unicode labels", Charts::bar(
             vec!["日本語".into(), "中文".into(), "한국어".into(), "العربية".into(), "Ελληνικά".into()],
             &[125.0, 1400.0, 51.0, 420.0, 10.0],
         ).title("Unicode Category Labels")
@@ -278,7 +278,7 @@ fn data_density() -> Vec<(&'static str, Chart)> {
                 let t = i as f64 / n as f64 * 20.0;
                 t.sin() * 10.0 + ((i as u64 * 2654435761) % 1000) as f64 * 0.003
             }).collect();
-            Chart::scatter(&x, &y)
+            Charts::scatter(&x, &y)
                 .title("10K Points — Density Stress")
                 .x_label("X").y_label("Y")
                 .theme(Theme::dark()).build()
@@ -288,7 +288,7 @@ fn data_density() -> Vec<(&'static str, Chart)> {
                 let t = i as f64 * 0.01;
                 t.sin() + (t * 7.0).sin() * 0.3
             }).collect();
-            Chart::line(&data)
+            Charts::line(&data)
                 .title("5K Points — Line Density")
                 .x_label("Sample").y_label("Amplitude")
                 .theme(Theme::dark()).build()
@@ -298,26 +298,26 @@ fn data_density() -> Vec<(&'static str, Chart)> {
 
 fn extreme_values() -> Vec<(&'static str, Chart)> {
     vec![
-        ("Huge (1e15)", Chart::line(&[1e15, 2e15, 1.5e15, 3e15, 2.5e15])
+        ("Huge (1e15)", Charts::line(&[1e15, 2e15, 1.5e15, 3e15, 2.5e15])
             .title("Huge Values (×10¹⁵)").x_label("Step").y_label("Count")
             .theme(Theme::dark()).build()),
-        ("Tiny (1e-12)", Chart::line(&[1e-12, 2e-12, 1.5e-12, 3e-12, 2.5e-12])
+        ("Tiny (1e-12)", Charts::line(&[1e-12, 2e-12, 1.5e-12, 3e-12, 2.5e-12])
             .title("Tiny Values (×10⁻¹²)").x_label("Step").y_label("ppm²")
             .theme(Theme::dark()).build()),
-        ("All negative", Chart::bar(
+        ("All negative", Charts::bar(
             vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
             &[-50.0, -30.0, -80.0, -20.0],
         ).title("All Negative — Bar Baseline").y_label("Loss ($K)")
             .theme(Theme::dark()).build()),
-        ("Mixed ±", Chart::bar(
+        ("Mixed ±", Charts::bar(
             vec!["Jan".into(), "Feb".into(), "Mar".into(), "Apr".into(), "May".into(), "Jun".into()],
             &[10.0, -5.0, 15.0, -8.0, 20.0, -12.0],
         ).title("Mixed Positive/Negative").y_label("P&L ($K)")
             .theme(Theme::dark()).build()),
-        ("Constant", Chart::line(&[42.0, 42.0, 42.0, 42.0, 42.0])
+        ("Constant", Charts::line(&[42.0, 42.0, 42.0, 42.0, 42.0])
             .title("Constant Data (all 42)").x_label("Step").y_label("Value")
             .theme(Theme::dark()).build()),
-        ("Near-zero range", Chart::line(&[100.001, 100.002, 100.0015, 100.003, 100.0025])
+        ("Near-zero range", Charts::line(&[100.001, 100.002, 100.0015, 100.003, 100.0025])
             .title("Near-Zero Range (100.001–100.003)").x_label("Step").y_label("Measurement")
             .theme(Theme::dark()).build()),
     ]
@@ -325,7 +325,7 @@ fn extreme_values() -> Vec<(&'static str, Chart)> {
 
 fn size_stress() -> Vec<(&'static str, u32, u32, Chart)> {
     let make = |_w, _h| {
-        Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
+        Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
             .title("Size Stress Test")
             .x_label("Time").y_label("Value")
             .theme(Theme::dark()).build()

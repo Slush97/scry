@@ -1,9 +1,8 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 238
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 18 commands
+canvas: 400x300, 20 commands
 overlays: 10
   [0] (29, 273) Right "0"
   [1] (29, 192) Right "10"
@@ -12,6 +11,6 @@ overlays: 10
   [4] (95, 280) Center "A"
   [5] (212, 280) Center "B"
   [6] (329, 280) Center "C"
-  [7] (316, 46) Left "Series 1"
-  [8] (316, 60) Left "Layer 2"
+  [7] (308, 59) Left "Series 1"
+  [8] (308, 79) Left "Layer 2"
   [9] (212, 16) Center "Stacked Bars"

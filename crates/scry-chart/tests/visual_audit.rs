@@ -50,7 +50,7 @@ fn main() {
         .collect();
     emit!(
         "line_basic",
-        Chart::line(&y)
+        Charts::line(&y)
             .title("Basic Line Chart")
             .x_label("Sample Index")
             .y_label("Value")
@@ -64,7 +64,7 @@ fn main() {
     let y3: Vec<f64> = x.iter().map(|&v| (v * 1.5).sin() * 2.0 + 1.0).collect();
     emit!(
         "line_multi_series",
-        Chart::line(&y1)
+        Charts::line(&y1)
             .title("Multi-Series Line")
             .x_label("Time")
             .y_label("Amplitude")
@@ -83,7 +83,7 @@ fn main() {
         .collect();
     emit!(
         "line_smooth",
-        Chart::line(&y_smooth)
+        Charts::line(&y_smooth)
             .title("Smooth Line (Catmull-Rom Spline)")
             .x_label("X")
             .y_label("Y")
@@ -97,7 +97,7 @@ fn main() {
     let y_step: Vec<f64> = vec![2.0, 2.0, 5.0, 5.0, 3.0, 8.0, 8.0, 4.0, 4.0, 6.0];
     emit!(
         "line_step",
-        Chart::line(&y_step)
+        Charts::line(&y_step)
             .title("Step Line (Stairstep)")
             .x_label("Stage")
             .y_label("Level")
@@ -116,7 +116,7 @@ fn main() {
         .collect();
     emit!(
         "line_filled_area",
-        Chart::line(&y_fill)
+        Charts::line(&y_fill)
             .title("Filled Area Chart")
             .x_label("Time")
             .y_label("Load")
@@ -136,7 +136,7 @@ fn main() {
         .collect();
     emit!(
         "line_full_features",
-        Chart::line(&y_revenue)
+        Charts::line(&y_revenue)
             .title("Revenue vs Costs — Full Features")
             .x_label("Month")
             .y_label("$M")
@@ -158,7 +158,7 @@ fn main() {
     let y_nonuniform = vec![1.0, 3.0, 2.0, 8.0, 5.0, 9.0, 4.0];
     emit!(
         "line_xy_nonuniform",
-        Chart::line_xy(&x_nonuniform, &y_nonuniform)
+        Charts::line_xy(&x_nonuniform, &y_nonuniform)
             .title("Line XY — Non-Uniform X Spacing")
             .x_label("Position")
             .y_label("Value")
@@ -185,7 +185,7 @@ fn main() {
     // 8. Vertical bars
     emit!(
         "bar_vertical",
-        Chart::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
+        Charts::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
             .title("Vertical Bar Chart")
             .x_label("Category")
             .y_label("Score")
@@ -195,7 +195,7 @@ fn main() {
     // 9. Horizontal bars
     emit!(
         "bar_horizontal",
-        Chart::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
+        Charts::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
             .title("Horizontal Bar Chart")
             .x_label("Category")
             .y_label("Score")
@@ -207,7 +207,7 @@ fn main() {
     // 10. Grouped bars (3 series)
     emit!(
         "bar_grouped",
-        Chart::bar(
+        Charts::bar(
             vec!["Rust".into(), "Go".into(), "Python".into(), "C++".into()],
             &[95.0, 78.0, 42.0, 90.0]
         )
@@ -223,7 +223,7 @@ fn main() {
     // 11. Stacked bars
     emit!(
         "bar_stacked",
-        Chart::bar(labels4(), &[100.0, 120.0, 90.0, 150.0])
+        Charts::bar(labels4(), &[100.0, 120.0, 90.0, 150.0])
             .title("Quarterly Revenue — Stacked")
             .y_label("$K")
             .add_named_series("Services", &[60.0, 80.0, 70.0, 100.0])
@@ -236,7 +236,7 @@ fn main() {
     // 12. Mixed-sign bars
     emit!(
         "bar_mixed_sign",
-        Chart::bar(
+        Charts::bar(
             vec![
                 "Jan".into(),
                 "Feb".into(),
@@ -256,7 +256,7 @@ fn main() {
     // 13. Value labels + rounded bars
     emit!(
         "bar_value_labels",
-        Chart::bar(labels4(), &[42.0, 67.0, 31.0, 89.0])
+        Charts::bar(labels4(), &[42.0, 67.0, 31.0, 89.0])
             .title("Sales — Value Labels + Rounded")
             .y_label("Units")
             .show_values()
@@ -269,7 +269,7 @@ fn main() {
     // 14. Stacked horizontal
     emit!(
         "bar_stacked_horizontal",
-        Chart::bar(labels5(), &[180.0, 210.0, 95.0, 150.0, 120.0])
+        Charts::bar(labels5(), &[180.0, 210.0, 95.0, 150.0, 120.0])
             .title("Team Hours — Stacked Horizontal")
             .x_label("Hours")
             .add_named_series("Q2", &[200.0, 190.0, 110.0, 180.0, 140.0])
@@ -304,7 +304,7 @@ fn main() {
     for (name, marker) in &markers {
         emit!(
             &format!("scatter_{name}"),
-            Chart::scatter(&sx, &sy)
+            Charts::scatter(&sx, &sy)
                 .title(&format!("Scatter — Marker: {}", name.to_uppercase()))
                 .x_label("X")
                 .y_label("Y")
@@ -316,7 +316,7 @@ fn main() {
     // 20. Connected scatter
     emit!(
         "scatter_connected",
-        Chart::scatter(&sx, &sy)
+        Charts::scatter(&sx, &sy)
             .title("Scatter — Connected Points")
             .x_label("X")
             .y_label("Y")
@@ -329,7 +329,7 @@ fn main() {
     let s2y: Vec<f64> = sx.iter().map(|&v| v.ln().max(0.0) * 4.0).collect();
     emit!(
         "scatter_multi_series",
-        Chart::scatter(&sx, &sy)
+        Charts::scatter(&sx, &sy)
             .title("Scatter — Multi-Series + Trend Line")
             .x_label("X")
             .y_label("Y")
@@ -342,7 +342,7 @@ fn main() {
     // 22. Size override
     emit!(
         "scatter_large_markers",
-        Chart::scatter(&sx[..15], &sy[..15])
+        Charts::scatter(&sx[..15], &sy[..15])
             .title("Scatter — Large Markers (size=8)")
             .x_label("X")
             .y_label("Y")
@@ -362,7 +362,7 @@ fn main() {
     // 23. Frequency histogram
     emit!(
         "histogram_frequency",
-        Chart::histogram(&normal_data)
+        Charts::histogram(&normal_data)
             .title("Histogram — Frequency Distribution")
             .x_label("Value")
             .y_label("Count")
@@ -373,7 +373,7 @@ fn main() {
     // 24. Density histogram
     emit!(
         "histogram_density",
-        Chart::histogram(&normal_data)
+        Charts::histogram(&normal_data)
             .title("Histogram — Density Normalized")
             .x_label("Value")
             .y_label("Density")
@@ -389,7 +389,7 @@ fn main() {
     let norm2 = pseudo_normal(300, 60.0, 8.0, 99);
     emit!(
         "histogram_overlaid",
-        Chart::histogram(&normal_data)
+        Charts::histogram(&normal_data)
             .title("Histogram — Overlaid Distributions")
             .x_label("Value")
             .y_label("Count")
@@ -404,7 +404,7 @@ fn main() {
     // 26. Bin count comparison (few bins)
     emit!(
         "histogram_few_bins",
-        Chart::histogram(&normal_data)
+        Charts::histogram(&normal_data)
             .title("Histogram — 8 Bins (Coarse)")
             .x_label("Value")
             .y_label("Count")
@@ -421,7 +421,7 @@ fn main() {
     // 27. Standard box plot
     emit!(
         "boxplot_standard",
-        Chart::boxplot(vec![
+        Charts::boxplot(vec![
             ("Control", pseudo_normal(80, 10.0, 2.0, 300)),
             ("Drug A", pseudo_normal(80, 14.0, 3.0, 400)),
             ("Drug B", pseudo_normal(80, 12.0, 1.5, 500)),
@@ -437,7 +437,7 @@ fn main() {
     // 28. Notched box plot
     emit!(
         "boxplot_notched",
-        Chart::boxplot(vec![
+        Charts::boxplot(vec![
             ("Mon", pseudo_normal(60, 22.0, 3.0, 10)),
             ("Tue", pseudo_normal(60, 20.0, 2.5, 20)),
             ("Wed", pseudo_normal(60, 25.0, 4.0, 30)),
@@ -455,7 +455,7 @@ fn main() {
     // 29. No outliers + varying sizes
     emit!(
         "boxplot_no_outliers",
-        Chart::boxplot(vec![
+        Charts::boxplot(vec![
             ("n=5", vec![2.0, 4.0, 5.0, 6.0, 8.0]),
             ("n=20", pseudo_normal(20, 6.0, 2.0, 100)),
             ("n=100", pseudo_normal(100, 5.0, 3.0, 200)),
@@ -483,7 +483,7 @@ fn main() {
     ];
     emit!(
         "heatmap_basic",
-        Chart::heatmap(heatmap_data)
+        Charts::heatmap(heatmap_data)
             .title("Basic Heatmap — Multiplication Table")
             .values(true)
             .build()
@@ -520,7 +520,7 @@ fn main() {
     ];
     emit!(
         "heatmap_custom_colors",
-        Chart::heatmap(activity)
+        Charts::heatmap(activity)
             .title("Website Traffic — Custom Palette")
             .row_labels(vec![
                 "Mon".into(),
@@ -553,7 +553,7 @@ fn main() {
     let nan = f64::NAN;
     emit!(
         "heatmap_nan_cells",
-        Chart::heatmap(vec![
+        Charts::heatmap(vec![
             vec![1.0, nan, 3.0, 4.0],
             vec![nan, 7.0, 8.0, nan],
             vec![11.0, 12.0, nan, 14.0],
@@ -584,7 +584,7 @@ fn main() {
     // 34. Basic pie
     emit!(
         "pie_basic",
-        Chart::pie(pie_labels(), pie_vals)
+        Charts::pie(pie_labels(), pie_vals)
             .title("Traffic Sources — Pie")
             .build()
     );
@@ -592,7 +592,7 @@ fn main() {
     // 35. Donut chart
     emit!(
         "pie_donut",
-        Chart::pie(pie_labels(), pie_vals)
+        Charts::pie(pie_labels(), pie_vals)
             .title("Traffic Sources — Donut")
             .donut(0.5)
             .build()
@@ -601,7 +601,7 @@ fn main() {
     // 36. Thin donut
     emit!(
         "pie_thin_donut",
-        Chart::pie(pie_labels(), pie_vals)
+        Charts::pie(pie_labels(), pie_vals)
             .title("Traffic Sources — Thin Donut (0.7)")
             .donut(0.7)
             .theme(Theme::pastel())
@@ -611,7 +611,7 @@ fn main() {
     // 37. No percentages + custom angle
     emit!(
         "pie_custom",
-        Chart::pie(
+        Charts::pie(
             vec![
                 "A".into(),
                 "B".into(),
@@ -637,7 +637,7 @@ fn main() {
     // 38. Single data point
     emit!(
         "edge_single_point",
-        Chart::scatter(&[42.0], &[99.0])
+        Charts::scatter(&[42.0], &[99.0])
             .title("Single Data Point")
             .x_label("X")
             .y_label("Y")
@@ -649,7 +649,7 @@ fn main() {
     // 39. All-NaN data (should not crash)
     emit!(
         "edge_all_nan",
-        Chart::line(&[f64::NAN, f64::NAN, f64::NAN])
+        Charts::line(&[f64::NAN, f64::NAN, f64::NAN])
             .title("All-NaN Data (Should Render Empty)")
             .build()
     );
@@ -658,7 +658,7 @@ fn main() {
     let tiny: Vec<f64> = (0..15).map(|i| 1.000 + i as f64 * 0.001).collect();
     emit!(
         "edge_tiny_range",
-        Chart::line(&tiny)
+        Charts::line(&tiny)
             .title("Tiny Range: 1.000 → 1.014")
             .x_label("Sample")
             .y_label("Voltage (V)")
@@ -671,7 +671,7 @@ fn main() {
     let huge: Vec<f64> = (0..20).map(|i| (i as f64 * 0.3).exp() * 100.0).collect();
     emit!(
         "edge_huge_range",
-        Chart::line(&huge)
+        Charts::line(&huge)
             .title("Exponential Growth → 28K+")
             .x_label("Day")
             .y_label("Users")
@@ -682,7 +682,7 @@ fn main() {
     // 42. NaN/Inf-contaminated scatter
     emit!(
         "edge_nan_inf_scatter",
-        Chart::scatter(
+        Charts::scatter(
             &[1.0, 2.0, f64::NAN, 4.0, 5.0, f64::INFINITY, 7.0, 8.0],
             &[2.0, f64::NAN, 3.0, 5.0, f64::INFINITY, 4.0, 7.0, 6.0]
         )
@@ -697,7 +697,7 @@ fn main() {
     let many_vals: Vec<f64> = (1..=15).map(|i| (i as f64 * 7.0 % 23.0) + 5.0).collect();
     emit!(
         "edge_many_categories",
-        Chart::bar(many_labels, &many_vals)
+        Charts::bar(many_labels, &many_vals)
             .title("15 Categories — Label Crowding Test")
             .y_label("Value")
             .build()
@@ -706,7 +706,7 @@ fn main() {
     // 44. Identical values (flat line / zero-range)
     emit!(
         "edge_identical_values",
-        Chart::line(&[5.0, 5.0, 5.0, 5.0, 5.0])
+        Charts::line(&[5.0, 5.0, 5.0, 5.0, 5.0])
             .title("All Identical Values (y=5)")
             .x_label("X")
             .y_label("Y")
@@ -717,7 +717,7 @@ fn main() {
     // 45. All-negative bars
     emit!(
         "edge_negative_bars",
-        Chart::bar(
+        Charts::bar(
             vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
             &[-15.0, -30.0, -22.0, -8.0, -45.0]
         )
@@ -737,7 +737,7 @@ fn main() {
     let ay: Vec<f64> = ax.iter().map(|&v| v.sin() * 4.0 + 5.0).collect();
     emit!(
         "feature_annotations",
-        Chart::scatter(&ax, &ay)
+        Charts::scatter(&ax, &ay)
             .title("Annotations + Reference Lines")
             .x_label("X")
             .y_label("Y")
@@ -762,7 +762,7 @@ fn main() {
     for (name, theme) in &themes {
         emit!(
             &format!("theme_{name}"),
-            Chart::scatter(&sx[..20], &sy[..20])
+            Charts::scatter(&sx[..20], &sy[..20])
                 .title(&format!("Theme: {}", name.to_uppercase()))
                 .x_label("X")
                 .y_label("Y")
@@ -782,7 +782,7 @@ fn main() {
         .collect();
     emit!(
         "feature_trend_line",
-        Chart::scatter(&trend_x, &trend_y)
+        Charts::scatter(&trend_x, &trend_y)
             .title("Scatter + Linear Regression Trend")
             .x_label("X")
             .y_label("Y")

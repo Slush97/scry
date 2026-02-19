@@ -20,7 +20,7 @@
 //!   - Histogram density mode, single/many bins, custom opacity
 
 use scry_chart::annotation::Annotation;
-use scry_chart::chart::{BarChart, BoxPlot, Chart, Heatmap, Histogram, LineChart, PieChart};
+use scry_chart::chart::{BarChart, BoxPlot, Chart, Charts, Heatmap, Histogram, LineChart, PieChart};
 use scry_chart::data::Series;
 use scry_chart::error::ChartError;
 use scry_chart::layout;
@@ -74,13 +74,13 @@ fn render_transparent(chart: &Chart, label: &str) -> layout::RenderedChart {
 
 #[test]
 fn try_build_scatter_empty() {
-    let r = Chart::scatter(&[], &[]).try_build();
+    let r = Charts::scatter(&[], &[]).try_build();
     assert_eq!(r.unwrap_err(), ChartError::EmptyData);
 }
 
 #[test]
 fn try_build_scatter_mismatched() {
-    let r = Chart::scatter(&[1.0, 2.0], &[1.0]).try_build();
+    let r = Charts::scatter(&[1.0, 2.0], &[1.0]).try_build();
     assert_eq!(
         r.unwrap_err(),
         ChartError::MismatchedLengths { x_len: 2, y_len: 1 }
@@ -89,13 +89,13 @@ fn try_build_scatter_mismatched() {
 
 #[test]
 fn try_build_scatter_all_nan() {
-    let r = Chart::scatter(&[f64::NAN], &[f64::NAN]).try_build();
+    let r = Charts::scatter(&[f64::NAN], &[f64::NAN]).try_build();
     assert_eq!(r.unwrap_err(), ChartError::AllNonFinite);
 }
 
 #[test]
 fn try_build_scatter_valid() {
-    assert!(Chart::scatter(&[1.0], &[2.0]).try_build().is_ok());
+    assert!(Charts::scatter(&[1.0], &[2.0]).try_build().is_ok());
 }
 
 #[test]
@@ -106,12 +106,12 @@ fn try_build_line_empty() {
 
 #[test]
 fn try_build_line_valid() {
-    assert!(Chart::line(&[1.0, 2.0]).try_build().is_ok());
+    assert!(Charts::line(&[1.0, 2.0]).try_build().is_ok());
 }
 
 #[test]
 fn try_build_bar_empty_labels() {
-    let r = Chart::bar(vec![], &[1.0]).try_build();
+    let r = Charts::bar(vec![], &[1.0]).try_build();
     assert_eq!(r.unwrap_err(), ChartError::EmptyData);
 }
 
@@ -123,7 +123,7 @@ fn try_build_bar_empty_series() {
 
 #[test]
 fn try_build_bar_valid() {
-    assert!(Chart::bar(vec!["A".into()], &[1.0]).try_build().is_ok());
+    assert!(Charts::bar(vec!["A".into()], &[1.0]).try_build().is_ok());
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn try_build_histogram_empty() {
 
 #[test]
 fn try_build_histogram_valid() {
-    assert!(Chart::histogram(&[1.0, 2.0, 3.0]).try_build().is_ok());
+    assert!(Charts::histogram(&[1.0, 2.0, 3.0]).try_build().is_ok());
 }
 
 #[test]
@@ -145,25 +145,25 @@ fn try_build_pie_empty() {
 
 #[test]
 fn try_build_pie_all_non_positive() {
-    let r = Chart::pie(vec!["A".into()], &[0.0]).try_build();
+    let r = Charts::pie(vec!["A".into()], &[0.0]).try_build();
     assert_eq!(r.unwrap_err(), ChartError::AllNonFinite);
 }
 
 #[test]
 fn try_build_pie_all_nan() {
-    let r = Chart::pie(vec!["A".into()], &[f64::NAN]).try_build();
+    let r = Charts::pie(vec!["A".into()], &[f64::NAN]).try_build();
     assert_eq!(r.unwrap_err(), ChartError::AllNonFinite);
 }
 
 #[test]
 fn try_build_pie_negative_values() {
-    let r = Chart::pie(vec!["A".into()], &[-5.0]).try_build();
+    let r = Charts::pie(vec!["A".into()], &[-5.0]).try_build();
     assert_eq!(r.unwrap_err(), ChartError::AllNonFinite);
 }
 
 #[test]
 fn try_build_pie_valid() {
-    assert!(Chart::pie(vec!["A".into()], &[1.0]).try_build().is_ok());
+    assert!(Charts::pie(vec!["A".into()], &[1.0]).try_build().is_ok());
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn try_build_boxplot_empty() {
 
 #[test]
 fn try_build_boxplot_valid() {
-    assert!(Chart::boxplot(vec![("A".to_string(), vec![1.0, 2.0, 3.0])])
+    assert!(Charts::boxplot(vec![("A".to_string(), vec![1.0, 2.0, 3.0])])
         .try_build()
         .is_ok());
 }
@@ -187,7 +187,7 @@ fn try_build_heatmap_empty() {
 
 #[test]
 fn try_build_heatmap_valid() {
-    assert!(Chart::heatmap(vec![vec![1.0]]).try_build().is_ok());
+    assert!(Charts::heatmap(vec![vec![1.0]]).try_build().is_ok());
 }
 
 // ===========================================================================
@@ -196,7 +196,7 @@ fn try_build_heatmap_valid() {
 
 #[test]
 fn transparent_scatter() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
         .theme(transparent_theme())
         .title("Transparent Scatter")
         .build();
@@ -206,7 +206,7 @@ fn transparent_scatter() {
 
 #[test]
 fn transparent_line() {
-    let chart = Chart::line(&[10.0, 20.0, 15.0, 25.0])
+    let chart = Charts::line(&[10.0, 20.0, 15.0, 25.0])
         .theme(transparent_theme())
         .title("Transparent Line")
         .build();
@@ -216,7 +216,7 @@ fn transparent_line() {
 
 #[test]
 fn transparent_bar() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 20.0, 30.0],
     )
@@ -229,7 +229,7 @@ fn transparent_bar() {
 
 #[test]
 fn transparent_histogram() {
-    let chart = Chart::histogram(&[1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0])
+    let chart = Charts::histogram(&[1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0])
         .theme(transparent_theme())
         .title("Transparent Histogram")
         .build();
@@ -239,7 +239,7 @@ fn transparent_histogram() {
 
 #[test]
 fn transparent_boxplot() {
-    let chart = Chart::boxplot(vec![
+    let chart = Charts::boxplot(vec![
         ("Group A".to_string(), vec![1.0, 2.0, 3.0, 4.0, 5.0, 10.0]),
         ("Group B".to_string(), vec![2.0, 3.0, 4.0, 5.0, 6.0]),
     ])
@@ -252,7 +252,7 @@ fn transparent_boxplot() {
 
 #[test]
 fn transparent_pie() {
-    let chart = Chart::pie(
+    let chart = Charts::pie(
         vec!["A".into(), "B".into(), "C".into()],
         &[30.0, 50.0, 20.0],
     )
@@ -265,7 +265,7 @@ fn transparent_pie() {
 
 #[test]
 fn transparent_heatmap() {
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, 2.0, 3.0],
         vec![4.0, 5.0, 6.0],
         vec![7.0, 8.0, 9.0],
@@ -284,20 +284,20 @@ fn transparent_heatmap() {
 #[test]
 fn canvas_1x1_all_types() {
     let charts = [
-        Chart::scatter(&[1.0], &[1.0])
+        Charts::scatter(&[1.0], &[1.0])
             .theme(transparent_theme())
             .build(),
-        Chart::line(&[1.0]).theme(transparent_theme()).build(),
-        Chart::bar(vec!["A".into()], &[1.0])
+        Charts::line(&[1.0]).theme(transparent_theme()).build(),
+        Charts::bar(vec!["A".into()], &[1.0])
             .theme(transparent_theme())
             .build(),
-        Chart::histogram(&[1.0, 2.0])
+        Charts::histogram(&[1.0, 2.0])
             .theme(transparent_theme())
             .build(),
-        Chart::pie(vec!["A".into()], &[1.0])
+        Charts::pie(vec!["A".into()], &[1.0])
             .theme(transparent_theme())
             .build(),
-        Chart::heatmap(vec![vec![1.0]])
+        Charts::heatmap(vec![vec![1.0]])
             .theme(transparent_theme())
             .build(),
     ];
@@ -308,7 +308,7 @@ fn canvas_1x1_all_types() {
 
 #[test]
 fn canvas_very_wide() {
-    let chart = Chart::scatter(&[1.0, 2.0], &[1.0, 2.0])
+    let chart = Charts::scatter(&[1.0, 2.0], &[1.0, 2.0])
         .theme(transparent_theme())
         .build();
     assert_render(&chart, 5000, 5, "very_wide");
@@ -316,7 +316,7 @@ fn canvas_very_wide() {
 
 #[test]
 fn canvas_very_tall() {
-    let chart = Chart::scatter(&[1.0, 2.0], &[1.0, 2.0])
+    let chart = Charts::scatter(&[1.0, 2.0], &[1.0, 2.0])
         .theme(transparent_theme())
         .build();
     assert_render(&chart, 5, 5000, "very_tall");
@@ -324,7 +324,7 @@ fn canvas_very_tall() {
 
 #[test]
 fn canvas_square_large() {
-    let chart = Chart::line(&[1.0, 2.0, 3.0, 4.0])
+    let chart = Charts::line(&[1.0, 2.0, 3.0, 4.0])
         .theme(transparent_theme())
         .build();
     assert_render(&chart, 2000, 2000, "square_large");
@@ -338,7 +338,7 @@ fn canvas_square_large() {
 fn data_f64_max_scatter() {
     // f64::MAX causes scale arithmetic overflow → NaN overlay coordinates.
     // The important invariant: no panic during rendering.
-    let chart = Chart::scatter(&[0.0, f64::MAX], &[0.0, f64::MAX])
+    let chart = Charts::scatter(&[0.0, f64::MAX], &[0.0, f64::MAX])
         .theme(transparent_theme())
         .build();
     let r = layout::render_chart(&chart, 400, 300);
@@ -348,7 +348,7 @@ fn data_f64_max_scatter() {
 
 #[test]
 fn data_f64_min_positive() {
-    let chart = Chart::scatter(&[0.0, f64::MIN_POSITIVE], &[0.0, f64::MIN_POSITIVE])
+    let chart = Charts::scatter(&[0.0, f64::MIN_POSITIVE], &[0.0, f64::MIN_POSITIVE])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "f64_min_positive");
@@ -357,7 +357,7 @@ fn data_f64_min_positive() {
 #[test]
 fn data_subnormal_values() {
     let sub = 5.0e-324_f64; // smallest positive subnormal
-    let chart = Chart::line(&[sub, sub * 2.0, sub * 3.0])
+    let chart = Charts::line(&[sub, sub * 2.0, sub * 3.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "subnormal_line");
@@ -365,7 +365,7 @@ fn data_subnormal_values() {
 
 #[test]
 fn data_negative_zero() {
-    let chart = Chart::scatter(&[-0.0, 0.0, 1.0], &[-0.0, 0.0, 1.0])
+    let chart = Charts::scatter(&[-0.0, 0.0, 1.0], &[-0.0, 0.0, 1.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "neg_zero");
@@ -373,7 +373,7 @@ fn data_negative_zero() {
 
 #[test]
 fn data_mixed_nan_inf_finite() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.0, 2.0],
         &[1.0, f64::NAN, 3.0, f64::INFINITY, 5.0],
     )
@@ -384,7 +384,7 @@ fn data_mixed_nan_inf_finite() {
 
 #[test]
 fn data_all_identical_scatter() {
-    let chart = Chart::scatter(&[5.0, 5.0, 5.0, 5.0], &[5.0, 5.0, 5.0, 5.0])
+    let chart = Charts::scatter(&[5.0, 5.0, 5.0, 5.0], &[5.0, 5.0, 5.0, 5.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "all_identical_scatter");
@@ -392,7 +392,7 @@ fn data_all_identical_scatter() {
 
 #[test]
 fn data_all_identical_line() {
-    let chart = Chart::line(&[42.0, 42.0, 42.0, 42.0, 42.0])
+    let chart = Charts::line(&[42.0, 42.0, 42.0, 42.0, 42.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "all_identical_line");
@@ -400,7 +400,7 @@ fn data_all_identical_line() {
 
 #[test]
 fn data_single_point_scatter() {
-    let chart = Chart::scatter(&[7.0], &[3.0])
+    let chart = Charts::scatter(&[7.0], &[3.0])
         .theme(transparent_theme())
         .title("Single Point")
         .x_label("X")
@@ -411,13 +411,13 @@ fn data_single_point_scatter() {
 
 #[test]
 fn data_single_point_line() {
-    let chart = Chart::line(&[42.0]).theme(transparent_theme()).build();
+    let chart = Charts::line(&[42.0]).theme(transparent_theme()).build();
     render_transparent(&chart, "single_point_line");
 }
 
 #[test]
 fn data_two_points_line() {
-    let chart = Chart::line(&[0.0, 100.0])
+    let chart = Charts::line(&[0.0, 100.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "two_points_line");
@@ -425,7 +425,7 @@ fn data_two_points_line() {
 
 #[test]
 fn data_huge_range_diff() {
-    let chart = Chart::scatter(&[0.001, 1e100], &[0.001, 1e100])
+    let chart = Charts::scatter(&[0.001, 1e100], &[0.001, 1e100])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "huge_range_diff");
@@ -433,7 +433,7 @@ fn data_huge_range_diff() {
 
 #[test]
 fn data_negative_only_line() {
-    let chart = Chart::line(&[-100.0, -50.0, -75.0, -25.0])
+    let chart = Charts::line(&[-100.0, -50.0, -75.0, -25.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "negative_only_line");
@@ -445,7 +445,7 @@ fn data_negative_only_line() {
 
 #[test]
 fn line_smooth() {
-    let chart = Chart::line(&[0.0, 10.0, 5.0, 15.0, 8.0, 20.0])
+    let chart = Charts::line(&[0.0, 10.0, 5.0, 15.0, 8.0, 20.0])
         .theme(transparent_theme())
         .smooth()
         .build();
@@ -454,7 +454,7 @@ fn line_smooth() {
 
 #[test]
 fn line_step() {
-    let chart = Chart::line(&[0.0, 10.0, 5.0, 15.0, 8.0, 20.0])
+    let chart = Charts::line(&[0.0, 10.0, 5.0, 15.0, 8.0, 20.0])
         .theme(transparent_theme())
         .step()
         .build();
@@ -463,7 +463,7 @@ fn line_step() {
 
 #[test]
 fn line_filled() {
-    let chart = Chart::line(&[0.0, 10.0, 5.0, 15.0])
+    let chart = Charts::line(&[0.0, 10.0, 5.0, 15.0])
         .theme(transparent_theme())
         .filled()
         .build();
@@ -472,7 +472,7 @@ fn line_filled() {
 
 #[test]
 fn line_filled_with_points() {
-    let chart = Chart::line(&[0.0, 10.0, 5.0, 15.0])
+    let chart = Charts::line(&[0.0, 10.0, 5.0, 15.0])
         .theme(transparent_theme())
         .filled()
         .with_points()
@@ -482,7 +482,7 @@ fn line_filled_with_points() {
 
 #[test]
 fn line_smooth_with_points() {
-    let chart = Chart::line(&[0.0, 10.0, 5.0, 15.0, 8.0])
+    let chart = Charts::line(&[0.0, 10.0, 5.0, 15.0, 8.0])
         .theme(transparent_theme())
         .smooth()
         .with_points()
@@ -492,7 +492,7 @@ fn line_smooth_with_points() {
 
 #[test]
 fn line_custom_width() {
-    let chart = Chart::line(&[1.0, 5.0, 3.0, 7.0])
+    let chart = Charts::line(&[1.0, 5.0, 3.0, 7.0])
         .theme(transparent_theme())
         .line_width(5.0)
         .build();
@@ -501,7 +501,7 @@ fn line_custom_width() {
 
 #[test]
 fn line_xy_explicit() {
-    let chart = Chart::line_xy(&[0.0, 0.5, 1.0, 5.0, 10.0], &[0.0, 25.0, 10.0, 50.0, 30.0])
+    let chart = Charts::line_xy(&[0.0, 0.5, 1.0, 5.0, 10.0], &[0.0, 25.0, 10.0, 50.0, 30.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "line_xy_explicit");
@@ -509,7 +509,7 @@ fn line_xy_explicit() {
 
 #[test]
 fn line_multi_series() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
         .add_named_series("Series B", &[8.0, 2.0, 6.0, 1.0])
         .add_named_series("Series C", &[3.0, 5.0, 7.0, 4.0])
         .theme(transparent_theme())
@@ -519,7 +519,7 @@ fn line_multi_series() {
 
 #[test]
 fn line_smooth_then_step_last_wins() {
-    let chart = Chart::line(&[1.0, 5.0, 3.0, 7.0])
+    let chart = Charts::line(&[1.0, 5.0, 3.0, 7.0])
         .theme(transparent_theme())
         .smooth()
         .step() // last call wins
@@ -529,7 +529,7 @@ fn line_smooth_then_step_last_wins() {
 
 #[test]
 fn line_step_then_smooth_last_wins() {
-    let chart = Chart::line(&[1.0, 5.0, 3.0, 7.0])
+    let chart = Charts::line(&[1.0, 5.0, 3.0, 7.0])
         .theme(transparent_theme())
         .step()
         .smooth() // last call wins
@@ -551,7 +551,7 @@ fn scatter_all_markers_transparent() {
         Marker::Triangle,
     ];
     for (i, m) in markers.iter().enumerate() {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
             .theme(transparent_theme())
             .marker(*m)
             .build();
@@ -561,7 +561,7 @@ fn scatter_all_markers_transparent() {
 
 #[test]
 fn scatter_connected_transparent() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0], &[1.0, 4.0, 2.0, 5.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0], &[1.0, 4.0, 2.0, 5.0])
         .theme(transparent_theme())
         .connected()
         .build();
@@ -570,7 +570,7 @@ fn scatter_connected_transparent() {
 
 #[test]
 fn scatter_custom_size() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
         .theme(transparent_theme())
         .size(10.0)
         .build();
@@ -579,7 +579,7 @@ fn scatter_custom_size() {
 
 #[test]
 fn scatter_multi_series() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
         .add_named_series("Extra", &[3.0, 2.0, 1.0], &[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .connected()
@@ -589,7 +589,7 @@ fn scatter_multi_series() {
 
 #[test]
 fn scatter_trend_line() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.1, 3.9, 6.2, 7.8, 10.1])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.1, 3.9, 6.2, 7.8, 10.1])
         .theme(transparent_theme())
         .trend_line()
         .build();
@@ -602,7 +602,7 @@ fn scatter_trend_line() {
 
 #[test]
 fn bar_stacked_transparent() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
         &[10.0, 20.0, 15.0, 25.0],
     )
@@ -615,7 +615,7 @@ fn bar_stacked_transparent() {
 
 #[test]
 fn bar_horizontal_transparent() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Cat".into(), "Dog".into(), "Bird".into()],
         &[30.0, 50.0, 20.0],
     )
@@ -627,7 +627,7 @@ fn bar_horizontal_transparent() {
 
 #[test]
 fn bar_stacked_horizontal() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .add_named_series("S2", &[5.0, 15.0])
         .theme(transparent_theme())
         .stacked()
@@ -638,7 +638,7 @@ fn bar_stacked_horizontal() {
 
 #[test]
 fn bar_custom_corner_radius() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .theme(transparent_theme())
         .corner_radius(10.0)
         .build();
@@ -647,7 +647,7 @@ fn bar_custom_corner_radius() {
 
 #[test]
 fn bar_zero_corner_radius() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .theme(transparent_theme())
         .corner_radius(0.0)
         .build();
@@ -657,7 +657,7 @@ fn bar_zero_corner_radius() {
 #[test]
 fn bar_no_corner_radius_uses_theme() {
     // When corner_radius is not set (None), should use theme.series.bar_corner_radius
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "bar_theme_radius");
@@ -665,7 +665,7 @@ fn bar_no_corner_radius_uses_theme() {
 
 #[test]
 fn bar_custom_gap() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 20.0, 30.0],
     )
@@ -677,7 +677,7 @@ fn bar_custom_gap() {
 
 #[test]
 fn bar_max_gap() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .theme(transparent_theme())
         .gap(1.0) // should clamp to 0.9
         .build();
@@ -686,7 +686,7 @@ fn bar_max_gap() {
 
 #[test]
 fn bar_show_values() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .theme(transparent_theme())
         .show_values()
         .build();
@@ -695,7 +695,7 @@ fn bar_show_values() {
 
 #[test]
 fn bar_single_category() {
-    let chart = Chart::bar(vec!["Only".into()], &[42.0])
+    let chart = Charts::bar(vec!["Only".into()], &[42.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "bar_single");
@@ -705,7 +705,7 @@ fn bar_single_category() {
 fn bar_many_categories() {
     let labels: Vec<String> = (0..50).map(|i| format!("Cat{i}")).collect();
     let values: Vec<f64> = (0..50).map(|i| (i as f64) * 2.0).collect();
-    let chart = Chart::bar(labels, &values)
+    let chart = Charts::bar(labels, &values)
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "bar_many_cats");
@@ -713,7 +713,7 @@ fn bar_many_categories() {
 
 #[test]
 fn bar_series_labels() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .add_named_series("S2", &[5.0, 15.0])
         .series_labels(&["Revenue", "Costs"])
         .theme(transparent_theme())
@@ -727,7 +727,7 @@ fn bar_series_labels() {
 
 #[test]
 fn histogram_density_transparent() {
-    let chart = Chart::histogram(&[1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
+    let chart = Charts::histogram(&[1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
         .theme(transparent_theme())
         .density()
         .build();
@@ -736,7 +736,7 @@ fn histogram_density_transparent() {
 
 #[test]
 fn histogram_custom_bins() {
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
         .theme(transparent_theme())
         .bins(3)
         .build();
@@ -745,7 +745,7 @@ fn histogram_custom_bins() {
 
 #[test]
 fn histogram_single_bin() {
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .bins(1)
         .build();
@@ -754,7 +754,7 @@ fn histogram_single_bin() {
 
 #[test]
 fn histogram_many_bins() {
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
         .theme(transparent_theme())
         .bins(100) // more bins than data points
         .build();
@@ -763,13 +763,13 @@ fn histogram_many_bins() {
 
 #[test]
 fn histogram_single_value() {
-    let chart = Chart::histogram(&[42.0]).theme(transparent_theme()).build();
+    let chart = Charts::histogram(&[42.0]).theme(transparent_theme()).build();
     render_transparent(&chart, "histogram_single");
 }
 
 #[test]
 fn histogram_all_identical() {
-    let chart = Chart::histogram(&[5.0, 5.0, 5.0, 5.0, 5.0])
+    let chart = Charts::histogram(&[5.0, 5.0, 5.0, 5.0, 5.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "histogram_identical");
@@ -777,7 +777,7 @@ fn histogram_all_identical() {
 
 #[test]
 fn histogram_custom_opacity() {
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0, 4.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0, 4.0])
         .theme(transparent_theme())
         .opacity(0.3)
         .build();
@@ -786,7 +786,7 @@ fn histogram_custom_opacity() {
 
 #[test]
 fn histogram_multi_series() {
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
         .add_series(Series::from_values(vec![2.0, 3.0, 4.0, 5.0, 6.0]))
         .theme(transparent_theme())
         .build();
@@ -795,7 +795,7 @@ fn histogram_multi_series() {
 
 #[test]
 fn histogram_with_nan_in_data() {
-    let chart = Chart::histogram(&[1.0, f64::NAN, 3.0, f64::INFINITY, 5.0])
+    let chart = Charts::histogram(&[1.0, f64::NAN, 3.0, f64::INFINITY, 5.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "histogram_nan_data");
@@ -804,7 +804,7 @@ fn histogram_with_nan_in_data() {
 #[test]
 fn histogram_h_line_and_legend() {
     // Verify Phase 3 additions: h_line and no_legend work on Histogram
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
         .theme(transparent_theme())
         .h_line(3.0)
         .no_legend()
@@ -818,7 +818,7 @@ fn histogram_h_line_and_legend() {
 
 #[test]
 fn pie_donut_transparent() {
-    let chart = Chart::pie(
+    let chart = Charts::pie(
         vec!["A".into(), "B".into(), "C".into()],
         &[30.0, 50.0, 20.0],
     )
@@ -830,7 +830,7 @@ fn pie_donut_transparent() {
 
 #[test]
 fn pie_donut_extreme_ratio() {
-    let chart = Chart::pie(vec!["A".into(), "B".into()], &[50.0, 50.0])
+    let chart = Charts::pie(vec!["A".into(), "B".into()], &[50.0, 50.0])
         .theme(transparent_theme())
         .donut(0.85)
         .build();
@@ -840,7 +840,7 @@ fn pie_donut_extreme_ratio() {
 #[test]
 fn pie_donut_over_clamp() {
     // ratio > 0.85 should clamp to 0.85
-    let chart = Chart::pie(vec!["A".into()], &[100.0])
+    let chart = Charts::pie(vec!["A".into()], &[100.0])
         .theme(transparent_theme())
         .donut(2.0)
         .build();
@@ -849,7 +849,7 @@ fn pie_donut_over_clamp() {
 
 #[test]
 fn pie_start_angle() {
-    let chart = Chart::pie(vec!["A".into(), "B".into()], &[60.0, 40.0])
+    let chart = Charts::pie(vec!["A".into(), "B".into()], &[60.0, 40.0])
         .theme(transparent_theme())
         .start_angle_degrees(90.0)
         .build();
@@ -858,7 +858,7 @@ fn pie_start_angle() {
 
 #[test]
 fn pie_hide_percentages() {
-    let chart = Chart::pie(vec!["A".into(), "B".into()], &[70.0, 30.0])
+    let chart = Charts::pie(vec!["A".into(), "B".into()], &[70.0, 30.0])
         .theme(transparent_theme())
         .hide_percentages()
         .build();
@@ -867,7 +867,7 @@ fn pie_hide_percentages() {
 
 #[test]
 fn pie_single_slice() {
-    let chart = Chart::pie(vec!["Everything".into()], &[100.0])
+    let chart = Charts::pie(vec!["Everything".into()], &[100.0])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "pie_single_slice");
@@ -877,7 +877,7 @@ fn pie_single_slice() {
 fn pie_many_slices() {
     let labels: Vec<String> = (0..20).map(|i| format!("S{i}")).collect();
     let values: Vec<f64> = (1..=20).map(|i| i as f64).collect();
-    let chart = Chart::pie(labels, &values)
+    let chart = Charts::pie(labels, &values)
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "pie_20_slices");
@@ -885,7 +885,7 @@ fn pie_many_slices() {
 
 #[test]
 fn pie_one_dominant_slice() {
-    let chart = Chart::pie(
+    let chart = Charts::pie(
         vec!["Big".into(), "Tiny1".into(), "Tiny2".into()],
         &[999.0, 0.5, 0.5],
     )
@@ -896,7 +896,7 @@ fn pie_one_dominant_slice() {
 
 #[test]
 fn pie_with_nan_slice() {
-    let chart = Chart::pie(
+    let chart = Charts::pie(
         vec!["A".into(), "B".into(), "NaN".into()],
         &[50.0, 50.0, f64::NAN],
     )
@@ -911,7 +911,7 @@ fn pie_with_nan_slice() {
 
 #[test]
 fn boxplot_all_identical_data() {
-    let chart = Chart::boxplot(vec![("Same".to_string(), vec![5.0, 5.0, 5.0, 5.0, 5.0])])
+    let chart = Charts::boxplot(vec![("Same".to_string(), vec![5.0, 5.0, 5.0, 5.0, 5.0])])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "boxplot_identical");
@@ -919,7 +919,7 @@ fn boxplot_all_identical_data() {
 
 #[test]
 fn boxplot_single_value() {
-    let chart = Chart::boxplot(vec![("One".to_string(), vec![42.0])])
+    let chart = Charts::boxplot(vec![("One".to_string(), vec![42.0])])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "boxplot_single_val");
@@ -927,7 +927,7 @@ fn boxplot_single_value() {
 
 #[test]
 fn boxplot_with_outliers() {
-    let chart = Chart::boxplot(vec![(
+    let chart = Charts::boxplot(vec![(
         "With Outliers".to_string(),
         vec![1.0, 2.0, 3.0, 4.0, 5.0, 50.0, -20.0],
     )])
@@ -944,13 +944,13 @@ fn boxplot_many_groups() {
             (format!("G{i}"), data)
         })
         .collect();
-    let chart = Chart::boxplot(groups).theme(transparent_theme()).build();
+    let chart = Charts::boxplot(groups).theme(transparent_theme()).build();
     render_transparent(&chart, "boxplot_many_groups");
 }
 
 #[test]
 fn boxplot_nan_in_data() {
-    let chart = Chart::boxplot(vec![(
+    let chart = Charts::boxplot(vec![(
         "Mixed".to_string(),
         vec![1.0, f64::NAN, 3.0, f64::INFINITY, 5.0],
     )])
@@ -961,7 +961,7 @@ fn boxplot_nan_in_data() {
 
 #[test]
 fn boxplot_negative_data() {
-    let chart = Chart::boxplot(vec![(
+    let chart = Charts::boxplot(vec![(
         "Neg".to_string(),
         vec![-10.0, -5.0, -3.0, -1.0, 0.0],
     )])
@@ -976,7 +976,7 @@ fn boxplot_negative_data() {
 
 #[test]
 fn heatmap_single_cell() {
-    let chart = Chart::heatmap(vec![vec![42.0]])
+    let chart = Charts::heatmap(vec![vec![42.0]])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "heatmap_1x1");
@@ -984,7 +984,7 @@ fn heatmap_single_cell() {
 
 #[test]
 fn heatmap_single_row() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "heatmap_1xN");
@@ -992,7 +992,7 @@ fn heatmap_single_row() {
 
 #[test]
 fn heatmap_single_column() {
-    let chart = Chart::heatmap(vec![vec![1.0], vec![2.0], vec![3.0]])
+    let chart = Charts::heatmap(vec![vec![1.0], vec![2.0], vec![3.0]])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "heatmap_Nx1");
@@ -1000,7 +1000,7 @@ fn heatmap_single_column() {
 
 #[test]
 fn heatmap_with_nan() {
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, f64::NAN, 3.0],
         vec![f64::NAN, 5.0, f64::NAN],
     ])
@@ -1011,7 +1011,7 @@ fn heatmap_with_nan() {
 
 #[test]
 fn heatmap_negative_values() {
-    let chart = Chart::heatmap(vec![vec![-10.0, -5.0, 0.0], vec![5.0, 10.0, 15.0]])
+    let chart = Charts::heatmap(vec![vec![-10.0, -5.0, 0.0], vec![5.0, 10.0, 15.0]])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "heatmap_negative");
@@ -1019,7 +1019,7 @@ fn heatmap_negative_values() {
 
 #[test]
 fn heatmap_all_identical() {
-    let chart = Chart::heatmap(vec![vec![7.0, 7.0, 7.0], vec![7.0, 7.0, 7.0]])
+    let chart = Charts::heatmap(vec![vec![7.0, 7.0, 7.0], vec![7.0, 7.0, 7.0]])
         .theme(transparent_theme())
         .build();
     render_transparent(&chart, "heatmap_identical");
@@ -1027,7 +1027,7 @@ fn heatmap_all_identical() {
 
 #[test]
 fn heatmap_with_labels() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
         .row_labels(vec!["Row A".into(), "Row B".into()])
         .col_labels(vec!["Col 1".into(), "Col 2".into()])
         .theme(transparent_theme())
@@ -1037,7 +1037,7 @@ fn heatmap_with_labels() {
 
 #[test]
 fn heatmap_show_values() {
-    let chart = Chart::heatmap(vec![vec![1.23, 4.56], vec![7.89, 0.12]])
+    let chart = Charts::heatmap(vec![vec![1.23, 4.56], vec![7.89, 0.12]])
         .values(true)
         .theme(transparent_theme())
         .build();
@@ -1049,13 +1049,13 @@ fn heatmap_large_grid() {
     let grid: Vec<Vec<f64>> = (0..30)
         .map(|r| (0..30).map(|c| (r * 30 + c) as f64).collect())
         .collect();
-    let chart = Chart::heatmap(grid).theme(transparent_theme()).build();
+    let chart = Charts::heatmap(grid).theme(transparent_theme()).build();
     assert_render(&chart, 800, 800, "heatmap_30x30");
 }
 
 #[test]
 fn heatmap_long_labels_dynamic_margin() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0]])
         .row_labels(vec!["This Is A Very Long Row Label".into()])
         .col_labels(vec!["A".into(), "B".into()])
         .theme(transparent_theme())
@@ -1065,7 +1065,7 @@ fn heatmap_long_labels_dynamic_margin() {
 
 #[test]
 fn heatmap_custom_colors() {
-    let chart = Chart::heatmap(vec![vec![0.0, 50.0], vec![50.0, 100.0]])
+    let chart = Charts::heatmap(vec![vec![0.0, 50.0], vec![50.0, 100.0]])
         .colors(
             Color::from_rgba8(0, 0, 255, 255),
             Color::from_rgba8(255, 0, 0, 255),
@@ -1078,7 +1078,7 @@ fn heatmap_custom_colors() {
 
 #[test]
 fn heatmap_cell_styling() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
         .cell_radius(8.0)
         .cell_gap(5.0)
         .theme(transparent_theme())
@@ -1106,7 +1106,7 @@ fn heatmap_correlation_matrix() {
 
 #[test]
 fn ref_lines_horizontal() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0])
         .theme(transparent_theme())
         .h_line(15.0)
         .h_line(25.0)
@@ -1116,7 +1116,7 @@ fn ref_lines_horizontal() {
 
 #[test]
 fn ref_lines_vertical() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0], &[10.0, 20.0, 30.0, 40.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0], &[10.0, 20.0, 30.0, 40.0])
         .theme(transparent_theme())
         .v_line(2.5)
         .build();
@@ -1125,7 +1125,7 @@ fn ref_lines_vertical() {
 
 #[test]
 fn ref_line_at_data_bounds() {
-    let chart = Chart::line(&[0.0, 50.0, 100.0])
+    let chart = Charts::line(&[0.0, 50.0, 100.0])
         .theme(transparent_theme())
         .h_line(0.0)
         .h_line(100.0)
@@ -1135,7 +1135,7 @@ fn ref_line_at_data_bounds() {
 
 #[test]
 fn ref_line_outside_range() {
-    let chart = Chart::line(&[10.0, 20.0, 30.0])
+    let chart = Charts::line(&[10.0, 20.0, 30.0])
         .theme(transparent_theme())
         .h_line(1000.0)
         .build();
@@ -1144,7 +1144,7 @@ fn ref_line_outside_range() {
 
 #[test]
 fn ref_lines_styled() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .h_line_styled(2.0, Color::from_rgba8(255, 0, 0, 200))
         .v_line_styled(2.0, Color::from_rgba8(0, 255, 0, 200))
@@ -1158,7 +1158,7 @@ fn ref_lines_styled() {
 
 #[test]
 fn annotation_basic() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0])
         .theme(transparent_theme())
         .annotate(2.0, 20.0, "Peak")
         .build();
@@ -1167,7 +1167,7 @@ fn annotation_basic() {
 
 #[test]
 fn many_annotations() {
-    let mut builder = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5.0, 4.0, 3.0, 2.0, 1.0])
+    let mut builder = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5.0, 4.0, 3.0, 2.0, 1.0])
         .theme(transparent_theme());
     for i in 1..=5 {
         builder = builder.annotate(i as f64, (6 - i) as f64, format!("Pt{i}"));
@@ -1182,7 +1182,7 @@ fn many_annotations() {
 
 #[test]
 fn full_config_scatter() {
-    let chart = Chart::scatter(&[0.0, 5.0, 10.0], &[0.0, 25.0, 50.0])
+    let chart = Charts::scatter(&[0.0, 5.0, 10.0], &[0.0, 25.0, 50.0])
         .theme(transparent_theme())
         .title("Full Config")
         .x_label("Independent Var")
@@ -1199,7 +1199,7 @@ fn full_config_scatter() {
 
 #[test]
 fn custom_range_clipping() {
-    let chart = Chart::line(&[0.0, 50.0, 100.0, 150.0, 200.0])
+    let chart = Charts::line(&[0.0, 50.0, 100.0, 150.0, 200.0])
         .theme(transparent_theme())
         .y_range(20.0, 120.0)
         .build();
@@ -1208,7 +1208,7 @@ fn custom_range_clipping() {
 
 #[test]
 fn inverted_range() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .y_range(10.0, 0.0) // inverted
         .build();
@@ -1217,7 +1217,7 @@ fn inverted_range() {
 
 #[test]
 fn no_title_no_labels() {
-    let chart = Chart::line(&[1.0, 2.0, 3.0])
+    let chart = Charts::line(&[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .no_legend()
         .build();
@@ -1239,7 +1239,7 @@ fn all_themes_scatter() {
         ("colorblind", Theme::colorblind()),
     ];
     for (name, theme) in themes {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
             .theme(theme)
             .title(name)
             .build();
@@ -1259,7 +1259,7 @@ fn all_themes_transparent_bg() {
     ];
     for (i, mut theme) in themes.into_iter().enumerate() {
         theme.background = Color::from_rgba8(0, 0, 0, 0);
-        let chart = Chart::line(&[1.0, 5.0, 3.0, 7.0]).theme(theme).build();
+        let chart = Charts::line(&[1.0, 5.0, 3.0, 7.0]).theme(theme).build();
         render_transparent(&chart, &format!("theme_transparent_{i}"));
     }
 }
@@ -1270,7 +1270,7 @@ fn all_themes_transparent_bg() {
 
 #[test]
 fn unicode_labels_bar() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "日本語".into(),
             "한국어".into(),
@@ -1289,7 +1289,7 @@ fn unicode_labels_bar() {
 
 #[test]
 fn empty_string_labels() {
-    let chart = Chart::bar(vec!["".into(), "".into(), "".into()], &[1.0, 2.0, 3.0])
+    let chart = Charts::bar(vec!["".into(), "".into(), "".into()], &[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .title("")
         .x_label("")
@@ -1301,7 +1301,7 @@ fn empty_string_labels() {
 #[test]
 fn very_long_labels() {
     let long_label = "A".repeat(200);
-    let chart = Chart::bar(vec![long_label.clone(), "Short".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec![long_label.clone(), "Short".into()], &[10.0, 20.0])
         .theme(transparent_theme())
         .title(&long_label)
         .build();
@@ -1314,7 +1314,7 @@ fn very_long_labels() {
 
 #[test]
 fn zoom_scatter() {
-    let mut chart = Chart::scatter(&[0.0, 5.0, 10.0, 15.0, 20.0], &[0.0, 25.0, 10.0, 30.0, 5.0])
+    let mut chart = Charts::scatter(&[0.0, 5.0, 10.0, 15.0, 20.0], &[0.0, 25.0, 10.0, 30.0, 5.0])
         .theme(transparent_theme())
         .build();
 
@@ -1322,15 +1322,15 @@ fn zoom_scatter() {
     zoom.zoom_in();
     let (x_min, x_max) = zoom.x_range();
     let (y_min, y_max) = zoom.y_range();
-    chart.config_mut().x_range = Some((x_min, x_max));
-    chart.config_mut().y_range = Some((y_min, y_max));
+    chart.config_mut().unwrap().axes.x_range = Some((x_min, x_max));
+    chart.config_mut().unwrap().axes.y_range = Some((y_min, y_max));
 
     render_transparent(&chart, "zoom_scatter");
 }
 
 #[test]
 fn zoom_pan_left() {
-    let mut chart = Chart::line(&[0.0, 5.0, 10.0, 15.0, 20.0])
+    let mut chart = Charts::line(&[0.0, 5.0, 10.0, 15.0, 20.0])
         .theme(transparent_theme())
         .build();
 
@@ -1339,8 +1339,8 @@ fn zoom_pan_left() {
     zoom.pan_left();
     let (x_min, x_max) = zoom.x_range();
     let (y_min, y_max) = zoom.y_range();
-    chart.config_mut().x_range = Some((x_min, x_max));
-    chart.config_mut().y_range = Some((y_min, y_max));
+    chart.config_mut().unwrap().axes.x_range = Some((x_min, x_max));
+    chart.config_mut().unwrap().axes.y_range = Some((y_min, y_max));
 
     render_transparent(&chart, "zoom_pan_left");
 }
@@ -1376,7 +1376,7 @@ fn zoom_out_beyond_original() {
 
 #[test]
 fn rendered_chart_has_plot_area() {
-    let chart = Chart::scatter(&[1.0, 2.0], &[1.0, 2.0])
+    let chart = Charts::scatter(&[1.0, 2.0], &[1.0, 2.0])
         .theme(transparent_theme())
         .build();
     let r = render_transparent(&chart, "has_plot_area");
@@ -1385,7 +1385,7 @@ fn rendered_chart_has_plot_area() {
 
 #[test]
 fn rendered_chart_has_scales() {
-    let chart = Chart::scatter(&[1.0, 2.0], &[1.0, 2.0])
+    let chart = Charts::scatter(&[1.0, 2.0], &[1.0, 2.0])
         .theme(transparent_theme())
         .build();
     let r = render_transparent(&chart, "has_scales");
@@ -1397,7 +1397,7 @@ fn rendered_chart_has_scales() {
 
 #[test]
 fn rendered_pie_structure() {
-    let chart = Chart::pie(vec!["A".into()], &[1.0])
+    let chart = Charts::pie(vec!["A".into()], &[1.0])
         .theme(transparent_theme())
         .build();
     let r = render_transparent(&chart, "pie_structure");
@@ -1407,7 +1407,7 @@ fn rendered_pie_structure() {
 
 #[test]
 fn rendered_heatmap_has_plot_area() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
         .theme(transparent_theme())
         .build();
     let r = render_transparent(&chart, "heatmap_plot_area");
@@ -1455,7 +1455,7 @@ fn series_nan_extent() {
 
 #[test]
 fn chart_clone_and_render() {
-    let chart = Chart::line(&[1.0, 2.0, 3.0])
+    let chart = Charts::line(&[1.0, 2.0, 3.0])
         .theme(transparent_theme())
         .title("Clone Test")
         .build();
@@ -1489,41 +1489,41 @@ fn render_all_types_same_canvas() {
     let charts: Vec<(&str, Chart)> = vec![
         (
             "scatter",
-            Chart::scatter(&[1.0, 2.0], &[1.0, 2.0])
+            Charts::scatter(&[1.0, 2.0], &[1.0, 2.0])
                 .theme(transparent_theme())
                 .build(),
         ),
         (
             "line",
-            Chart::line(&[1.0, 2.0]).theme(transparent_theme()).build(),
+            Charts::line(&[1.0, 2.0]).theme(transparent_theme()).build(),
         ),
         (
             "bar",
-            Chart::bar(vec!["A".into()], &[1.0])
+            Charts::bar(vec!["A".into()], &[1.0])
                 .theme(transparent_theme())
                 .build(),
         ),
         (
             "hist",
-            Chart::histogram(&[1.0, 2.0])
+            Charts::histogram(&[1.0, 2.0])
                 .theme(transparent_theme())
                 .build(),
         ),
         (
             "pie",
-            Chart::pie(vec!["A".into()], &[1.0])
+            Charts::pie(vec!["A".into()], &[1.0])
                 .theme(transparent_theme())
                 .build(),
         ),
         (
             "heatmap",
-            Chart::heatmap(vec![vec![1.0]])
+            Charts::heatmap(vec![vec![1.0]])
                 .theme(transparent_theme())
                 .build(),
         ),
         (
             "boxplot",
-            Chart::boxplot(vec![("A".to_string(), vec![1.0, 2.0, 3.0])])
+            Charts::boxplot(vec![("A".to_string(), vec![1.0, 2.0, 3.0])])
                 .theme(transparent_theme())
                 .build(),
         ),
@@ -1539,7 +1539,7 @@ fn render_all_types_same_canvas() {
 
 #[test]
 fn bar_show_values_vertical() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 25.0, 15.0],
     )
@@ -1564,7 +1564,7 @@ fn bar_show_values_vertical() {
 
 #[test]
 fn bar_show_values_horizontal() {
-    let chart = Chart::bar(vec!["X".into(), "Y".into()], &[100.0, 200.0])
+    let chart = Charts::bar(vec!["X".into(), "Y".into()], &[100.0, 200.0])
         .theme(transparent_theme())
         .horizontal()
         .show_values()
@@ -1583,7 +1583,7 @@ fn bar_show_values_horizontal() {
 
 #[test]
 fn bar_show_values_stacked() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .add_named_series("S2", &[5.0, 15.0])
         .theme(transparent_theme())
         .stacked()
@@ -1604,7 +1604,7 @@ fn bar_show_values_stacked() {
 
 #[test]
 fn bar_show_values_negative() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[-10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[-10.0, 20.0])
         .theme(transparent_theme())
         .show_values()
         .build();
@@ -1624,14 +1624,14 @@ fn bar_show_values_negative() {
 fn colorblind_theme_renders() {
     let theme = Theme::colorblind();
     let charts: Vec<Chart> = vec![
-        Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
+        Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 2.0])
             .theme(theme.clone())
             .build(),
-        Chart::line(&[1.0, 5.0, 3.0]).theme(theme.clone()).build(),
-        Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+        Charts::line(&[1.0, 5.0, 3.0]).theme(theme.clone()).build(),
+        Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
             .theme(theme.clone())
             .build(),
-        Chart::pie(vec!["A".into(), "B".into()], &[60.0, 40.0])
+        Charts::pie(vec!["A".into(), "B".into()], &[60.0, 40.0])
             .theme(theme)
             .build(),
     ];

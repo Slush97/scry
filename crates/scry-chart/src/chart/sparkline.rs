@@ -6,6 +6,7 @@
 //! (bars above/below center).
 
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 use scry_engine::style::Color;
 
 /// The visual kind of sparkline.
@@ -27,7 +28,7 @@ pub enum SparklineKind {
 /// ```
 /// use scry_chart::chart::Chart;
 ///
-/// let chart = Chart::sparkline(&[3.0, 7.0, 4.0, 8.0, 2.0, 9.0, 5.0])
+/// let chart = Charts::sparkline(&[3.0, 7.0, 4.0, 8.0, 2.0, 9.0, 5.0])
 ///     .build();
 /// ```
 #[derive(Clone, Debug)]
@@ -92,7 +93,7 @@ impl Sparkline {
 
     /// Build into a Chart enum variant.
     pub fn build(self) -> Chart {
-        Chart::Sparkline(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -100,6 +101,15 @@ impl Sparkline {
         if self.values.is_empty() {
             return Err(crate::error::ChartError::EmptyData);
         }
-        Ok(Chart::Sparkline(self))
+        Ok(Box::new(self) as Chart)
     }
+}
+
+impl ChartSpec for Sparkline {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::sparkline::render_sparkline(self, w, h)
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

@@ -12,7 +12,7 @@
 //! ```ignore
 //! use scry_chart::prelude::*;
 //!
-//! let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+//! let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
 //!     .title("My Data")
 //!     .theme(Theme::dark())
 //!     .build();
@@ -35,7 +35,7 @@ pub mod annotation;
 pub mod axis;
 pub mod chart;
 pub mod chart3d;
-pub mod chart_trait;
+pub mod config;
 pub mod colormap;
 pub mod cursor;
 pub mod data;
@@ -51,6 +51,7 @@ pub mod pdf_export;
 pub mod legend;
 pub mod margin;
 pub mod scale;
+pub mod spec;
 pub mod streaming;
 pub mod subplot;
 pub mod svg_export;
@@ -67,10 +68,12 @@ pub mod prelude {
     pub use crate::axis::LabelRotation;
     pub use crate::chart::scatter::Marker;
     pub use crate::chart::{
-        BarChart, BoxPlot, BubbleChart, CandlestickChart, Chart, ContourChart, FunnelChart,
-        GaugeChart, Heatmap, Histogram, LineChart, LollipopChart, OhlcEntry, PieChart, RadarChart,
-        ReferenceLine, ScatterChart, Sparkline, SparklineKind, ViolinPlot, WaterfallChart,
+        BarChart, BoxPlot, BubbleChart, CandlestickChart, Chart, Charts, ChartConfig,
+        ContourChart, FunnelChart, GaugeChart, Heatmap, Histogram, LineChart, LollipopChart,
+        OhlcEntry, PieChart, RadarChart, ReferenceLine, ScatterChart, Sparkline, SparklineKind,
+        ViolinPlot, WaterfallChart,
     };
+    pub use crate::spec::ChartSpec;
     pub use crate::chart3d::camera::Camera3D;
     #[cfg(feature = "gpu")]
     pub use crate::chart3d::wgpu_backend::WgpuRasterizer3D;

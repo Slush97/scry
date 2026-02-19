@@ -2,7 +2,7 @@
 //!
 //! Run: cargo run -p scry-chart --example font_scaling_demo
 
-use scry_chart::chart::Chart;
+use scry_chart::chart::{Chart, Charts};
 use scry_chart::export;
 use scry_chart::theme::Theme;
 
@@ -39,7 +39,7 @@ fn main() {
 }
 
 fn bar_chart() -> Chart {
-    Chart::bar(
+    Charts::bar(
         vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
         &[120.0, 340.0, 280.0, 410.0],
     )
@@ -52,7 +52,7 @@ fn bar_chart() -> Chart {
 }
 
 fn line_chart() -> Chart {
-    Chart::line(&[10.0, 25.0, 18.0, 32.0, 45.0, 38.0, 52.0])
+    Charts::line(&[10.0, 25.0, 18.0, 32.0, 45.0, 38.0, 52.0])
         .title("Growth vs Target")
         .x_label("Month")
         .y_label("Revenue ($K)")
@@ -64,7 +64,7 @@ fn line_chart() -> Chart {
 }
 
 fn pie_chart() -> Chart {
-    Chart::pie(
+    Charts::pie(
         vec![
             "Product A".into(),
             "Product B".into(),

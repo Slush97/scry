@@ -18,13 +18,13 @@
 //! ```ignore
 //! use scry_chart::prelude::*;
 //!
-//! let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+//! let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
 //!     .title("Demo")
 //!     .build();
 //! scry_chart::pdf_export::save_pdf(&chart, 800, 500, "chart.pdf")?;
 //! ```
 
-use crate::chart::Chart;
+use crate::chart::{Chart, Charts};
 use crate::export::render_to_rgba;
 use crate::subplot::SubplotGrid;
 use pdf_writer::{Content, Finish, Name, Pdf, Ref, Rect};
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn render_line_to_pdf() {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
             .title("PDF Export Test")
             .build();
         let pdf_bytes = render_to_pdf(&chart, 400, 300).expect("PDF render should succeed");
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn render_bar_to_pdf() {
-        let chart = Chart::bar(
+        let chart = Charts::bar(
             vec!["A".into(), "B".into(), "C".into()],
             &[10.0, 25.0, 15.0],
         )
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn save_and_read_pdf() {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
             .title("File Save Test")
             .build();
         let tmp_path = std::env::temp_dir().join("scry_test_chart.pdf");

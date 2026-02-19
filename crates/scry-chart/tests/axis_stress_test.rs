@@ -3,7 +3,7 @@
 //! Run: cargo run -p scry-chart --example axis_stress_test
 //! Output: /tmp/axis_stress_test/*.png
 
-use scry_chart::chart::Chart;
+use scry_chart::chart::Charts;
 use scry_chart::export::save_png;
 use scry_chart::prelude::*;
 
@@ -16,7 +16,7 @@ fn main() {
     // ── GROUP 1: Y-label vs tick label collision edge cases ──
 
     // Case 1: Micro-range values → wide tick labels like "0.0020"
-    let chart = Chart::line(&[0.001, 0.0015, 0.0012, 0.0018, 0.0014])
+    let chart = Charts::line(&[0.001, 0.0015, 0.0012, 0.0018, 0.0014])
         .title("Micro Range (0.001–0.002)")
         .x_label("Sample")
         .y_label("PPM")
@@ -30,7 +30,7 @@ fn main() {
     }
 
     // Case 2: Large values → tick labels like "250K", "350K"
-    let chart = Chart::line(&[150000.0, 250000.0, 180000.0, 350000.0, 280000.0])
+    let chart = Charts::line(&[150000.0, 250000.0, 180000.0, 350000.0, 280000.0])
         .title("Large Values (150K–350K)")
         .x_label("Quarter")
         .y_label("Revenue")
@@ -44,7 +44,7 @@ fn main() {
     }
 
     // Case 3: Long Y-axis label "Revenue ($K)" — was the hardest collision
-    let chart = Chart::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
+    let chart = Charts::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
         .title("Revenue Analysis")
         .x_label("Month of Year")
         .y_label("Revenue ($K)")
@@ -60,7 +60,7 @@ fn main() {
     }
 
     // Case 4: Very long Y-label (worst case)
-    let chart = Chart::line(&[5.0, 10.0, 8.0, 15.0, 12.0])
+    let chart = Charts::line(&[5.0, 10.0, 8.0, 15.0, 12.0])
         .title("Extremely Long Axis Labels")
         .x_label("Time (Milliseconds)")
         .y_label("Temperature (°C)")
@@ -76,7 +76,7 @@ fn main() {
     // ── GROUP 2: Negative values and zero-crossing ──
 
     // Case 5: Negative bars (tick labels like "-5", "-8")
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
         &[10.0, -5.0, 15.0, -8.0],
     )
@@ -94,7 +94,7 @@ fn main() {
     // ── GROUP 3: Narrow range (many decimals) ──
 
     // Case 6: Range 100.1–100.5 → tick labels like "100.1", "100.3"
-    let chart = Chart::line(&[100.1, 100.3, 100.2, 100.5, 100.4])
+    let chart = Charts::line(&[100.1, 100.3, 100.2, 100.5, 100.4])
         .title("Narrow Range Pressure")
         .x_label("Index")
         .y_label("Pressure")
@@ -109,7 +109,7 @@ fn main() {
 
     // ── GROUP 4: Scatter with both axis labels ──
 
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         &[2.0, 4.0, 1.5, 8.0, 5.0, 7.5, 3.0, 9.0],
     )
@@ -136,7 +136,7 @@ fn main() {
             (sum - 3.0) * 2.0 + 10.0
         })
         .collect();
-    let chart = Chart::histogram(&hist_data)
+    let chart = Charts::histogram(&hist_data)
         .title("Distribution")
         .x_label("Value")
         .y_label("Count")
@@ -152,7 +152,7 @@ fn main() {
 
     // ── GROUP 6: Boxplot ──
 
-    let chart = Chart::boxplot(vec![
+    let chart = Charts::boxplot(vec![
         ("Low", vec![1.0, 2.0, 3.0, 4.0, 5.0, 2.5, 3.5]),
         ("Medium", vec![5.0, 6.0, 7.0, 8.0, 9.0, 6.5, 7.5]),
         ("High", vec![10.0, 12.0, 14.0, 16.0, 18.0, 13.0, 15.0]),
@@ -170,7 +170,7 @@ fn main() {
 
     // ── GROUP 7: Light theme (tests text on light background) ──
 
-    let chart = Chart::line(&[3.0, 7.0, 5.0, 12.0, 9.0, 15.0])
+    let chart = Charts::line(&[3.0, 7.0, 5.0, 12.0, 9.0, 15.0])
         .title("Light Theme Test")
         .x_label("Period")
         .y_label("Sales Volume")
@@ -183,7 +183,7 @@ fn main() {
 
     // ── GROUP 8: Edge case — no labels at all ──
 
-    let chart = Chart::line(&[1.0, 5.0, 3.0, 8.0, 6.0])
+    let chart = Charts::line(&[1.0, 5.0, 3.0, 8.0, 6.0])
         .theme(Theme::dark())
         .build();
     count += 1;
@@ -193,7 +193,7 @@ fn main() {
 
     // ── GROUP 9: Extreme values ──
 
-    let chart = Chart::line(&[0.0000001, 0.0000002, 0.00000015, 0.00000025])
+    let chart = Charts::line(&[0.0000001, 0.0000002, 0.00000015, 0.00000025])
         .title("Sub-Micro Values")
         .y_label("Concentration")
         .theme(Theme::dark())
@@ -203,7 +203,7 @@ fn main() {
     save_png(&chart, 800, 500, &name).unwrap();
     println!("✓ {name}");
 
-    let chart = Chart::line(&[1e9, 2e9, 1.5e9, 3e9, 2.5e9])
+    let chart = Charts::line(&[1e9, 2e9, 1.5e9, 3e9, 2.5e9])
         .title("Billions")
         .y_label("GDP")
         .theme(Theme::dark())

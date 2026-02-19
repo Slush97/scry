@@ -1,19 +1,20 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 1140
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 6 commands
-overlays: 12
-  [0] (91, 107) Center "-1.00"
-  [1] (210, 107) Center "0.00"
-  [2] (329, 107) Center "1.00"
-  [3] (91, 228) Center "0.50"
-  [4] (210, 228) Center "-0.50"
-  [5] (329, 228) Center "0.00"
-  [6] (26, 107) Right "0"
-  [7] (26, 228) Right "1"
-  [8] (91, 42) Center "0"
-  [9] (210, 42) Center "1"
-  [10] (329, 42) Center "2"
-  [11] (210, 16) Center "Diverging Map"
+canvas: 400x300, 57 commands
+overlays: 14
+  [0] (78, 107) Center "-1.00"
+  [1] (172, 107) Center "0.00"
+  [2] (266, 107) Center "1.00"
+  [3] (78, 228) Center "0.50"
+  [4] (172, 228) Center "-0.50"
+  [5] (266, 228) Center "0.00"
+  [6] (344, 50) Left "1.0"
+  [7] (344, 286) Left "-1.0"
+  [8] (26, 107) Right "0"
+  [9] (26, 228) Right "1"
+  [10] (78, 40) Center "0"
+  [11] (172, 40) Center "1"
+  [12] (266, 40) Center "2"
+  [13] (172, 16) Center "Diverging Map"

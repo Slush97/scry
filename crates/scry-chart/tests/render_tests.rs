@@ -6,7 +6,7 @@
 //! computation, tick generation, and data rendering without being fragile to
 //! sub-pixel rasterization differences across tiny-skia versions.
 
-use scry_chart::chart::{Chart, LineChart};
+use scry_chart::chart::{Charts, LineChart};
 use scry_chart::data::Series;
 use scry_chart::layout;
 use scry_chart::prelude::Marker;
@@ -51,7 +51,7 @@ fn summarize(rendered: &layout::RenderedChart) -> String {
 
 #[test]
 fn render_scatter_basic() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
         .title("Scatter Test")
         .x_label("X")
         .y_label("Y")
@@ -94,7 +94,7 @@ fn render_scatter_basic() {
 
 #[test]
 fn render_scatter_multi_series() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
         .add_series(
             Series::new("Extra", vec![1.5, 2.5, 3.5]),
             Series::new("Extra Y", vec![3.0, 5.0, 7.0]),
@@ -112,7 +112,7 @@ fn render_scatter_multi_series() {
 
 #[test]
 fn render_scatter_connected() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0], &[1.0, 3.0, 2.0, 4.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0], &[1.0, 3.0, 2.0, 4.0])
         .connected()
         .build();
 
@@ -127,7 +127,7 @@ fn render_scatter_connected() {
 
 #[test]
 fn render_line_basic() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
         .title("Line Test")
         .x_label("Time")
         .y_label("Value")
@@ -147,7 +147,7 @@ fn render_line_basic() {
 
 #[test]
 fn render_line_filled_with_points() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
         .filled()
         .with_points()
         .title("Filled Line")
@@ -177,7 +177,7 @@ fn render_line_multi_series() {
 
 #[test]
 fn render_bar_vertical() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "Mon".into(),
             "Tue".into(),
@@ -209,7 +209,7 @@ fn render_bar_vertical() {
 
 #[test]
 fn render_bar_grouped() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
         &[10.0, 15.0, 12.0, 18.0],
     )
@@ -225,7 +225,7 @@ fn render_bar_grouped() {
 
 #[test]
 fn render_bar_stacked() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 20.0, 15.0],
     )
@@ -243,7 +243,7 @@ fn render_histogram_basic() {
     let data: Vec<f64> = (0..100)
         .map(|i| (i as f64 * 0.1).sin() * 50.0 + 50.0)
         .collect();
-    let chart = Chart::histogram(&data)
+    let chart = Charts::histogram(&data)
         .title("Distribution")
         .x_label("Value")
         .y_label("Frequency")
@@ -262,7 +262,7 @@ fn render_histogram_basic() {
 #[test]
 fn render_histogram_density() {
     let data: Vec<f64> = (0..200).map(|i| (i as f64 / 200.0) * 100.0).collect();
-    let chart = Chart::histogram(&data).density().title("Density").build();
+    let chart = Charts::histogram(&data).density().title("Density").build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
@@ -270,7 +270,7 @@ fn render_histogram_density() {
 
 #[test]
 fn render_boxplot_basic() {
-    let chart = Chart::boxplot(vec![
+    let chart = Charts::boxplot(vec![
         (
             "Group A",
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
@@ -300,7 +300,7 @@ fn render_boxplot_basic() {
 
 #[test]
 fn render_boxplot_no_outliers() {
-    let chart = Chart::boxplot(vec![("X", vec![1.0, 2.0, 3.0, 4.0, 5.0])])
+    let chart = Charts::boxplot(vec![("X", vec![1.0, 2.0, 3.0, 4.0, 5.0])])
         .no_outliers()
         .build();
 
@@ -310,7 +310,7 @@ fn render_boxplot_no_outliers() {
 
 #[test]
 fn render_heatmap_basic() {
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, 2.0, 3.0],
         vec![4.0, 5.0, 6.0],
         vec![7.0, 8.0, 9.0],
@@ -333,7 +333,7 @@ fn render_heatmap_basic() {
 
 #[test]
 fn render_heatmap_no_values() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
         .values(false)
         .build();
 
@@ -349,7 +349,7 @@ fn render_heatmap_no_values() {
 
 #[test]
 fn render_with_reference_lines() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
         .h_line(4.0)
         .v_line(2.0)
         .title("With References")
@@ -362,7 +362,7 @@ fn render_with_reference_lines() {
 
 #[test]
 fn render_with_custom_axis_range() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
         .x_range(0.0, 10.0)
         .y_range(0.0, 20.0)
         .build();
@@ -377,7 +377,7 @@ fn render_with_custom_axis_range() {
 
 #[test]
 fn render_empty_scatter() {
-    let chart = Chart::scatter(&[], &[]).build();
+    let chart = Charts::scatter(&[], &[]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     // Should not panic, should produce a valid (empty) chart
     assert!(rendered.canvas.width() == 400);
@@ -387,7 +387,7 @@ fn render_empty_scatter() {
 
 #[test]
 fn render_empty_line() {
-    let chart = Chart::line(&[]).build();
+    let chart = Charts::line(&[]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     assert!(rendered.canvas.width() == 400);
     insta::assert_snapshot!(summarize(&rendered));
@@ -395,28 +395,28 @@ fn render_empty_line() {
 
 #[test]
 fn render_empty_bar() {
-    let chart = Chart::bar(vec![], &[]).build();
+    let chart = Charts::bar(vec![], &[]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_empty_histogram() {
-    let chart = Chart::histogram(&[]).build();
+    let chart = Charts::histogram(&[]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_empty_heatmap() {
-    let chart = Chart::heatmap(vec![]).build();
+    let chart = Charts::heatmap(vec![]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_single_point_scatter() {
-    let chart = Chart::scatter(&[5.0], &[5.0]).build();
+    let chart = Charts::scatter(&[5.0], &[5.0]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     // Single point should render without panic
     assert!(rendered.canvas.commands().len() >= 1);
@@ -425,14 +425,14 @@ fn render_single_point_scatter() {
 
 #[test]
 fn render_single_value_line() {
-    let chart = Chart::line(&[42.0]).build();
+    let chart = Charts::line(&[42.0]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
 }
 
 #[test]
 fn render_single_bar() {
-    let chart = Chart::bar(vec!["Only".into()], &[100.0]).build();
+    let chart = Charts::bar(vec!["Only".into()], &[100.0]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -441,7 +441,7 @@ fn render_single_bar() {
 fn render_tiny_canvas() {
     // Minimum viable size (widget guard is 4×4 cells, but layout should
     // handle small pixel sizes gracefully)
-    let chart = Chart::line(&[1.0, 2.0, 3.0]).build();
+    let chart = Charts::line(&[1.0, 2.0, 3.0]).build();
     let rendered = layout::render_chart(&chart, 40, 30);
     // Should not panic even at tiny sizes
     insta::assert_snapshot!(summarize(&rendered));
@@ -449,7 +449,7 @@ fn render_tiny_canvas() {
 
 #[test]
 fn render_large_canvas() {
-    let chart = Chart::line(&[1.0, 2.0, 3.0]).build();
+    let chart = Charts::line(&[1.0, 2.0, 3.0]).build();
     let rendered = layout::render_chart(&chart, 2000, 1200);
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -457,7 +457,7 @@ fn render_large_canvas() {
 #[test]
 fn render_mismatched_xy_scatter() {
     // X has 5 values, Y has 3 — should truncate to min without panic
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[10.0, 20.0, 30.0]).build();
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[10.0, 20.0, 30.0]).build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     // Should render 3 points (truncated to shorter series)
@@ -470,7 +470,7 @@ fn render_mismatched_xy_scatter() {
 
 #[test]
 fn render_light_theme() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
         .theme(Theme::light())
         .title("Light Theme")
         .build();
@@ -481,7 +481,7 @@ fn render_light_theme() {
 
 #[test]
 fn render_pastel_theme() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
         .theme(Theme::pastel())
         .title("Pastel Theme")
         .build();
@@ -505,7 +505,7 @@ fn render_scatter_markers() {
     ];
 
     for marker in markers {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 4.0, 9.0])
             .marker(marker)
             .build();
 
@@ -524,7 +524,7 @@ fn render_scatter_markers() {
 
 #[test]
 fn render_bar_horizontal() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Alpha".into(), "Beta".into(), "Gamma".into()],
         &[30.0, 50.0, 20.0],
     )
@@ -553,7 +553,7 @@ fn render_bar_horizontal() {
 
 #[test]
 fn render_bar_horizontal_grouped() {
-    let chart = Chart::bar(vec!["Q1".into(), "Q2".into()], &[10.0, 15.0])
+    let chart = Charts::bar(vec!["Q1".into(), "Q2".into()], &[10.0, 15.0])
         .add_series(Series::new("Product B", vec![8.0, 12.0]))
         .horizontal()
         .title("Horizontal Grouped")
@@ -567,7 +567,7 @@ fn render_bar_horizontal_grouped() {
 
 #[test]
 fn render_bar_horizontal_stacked() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .add_series(Series::new("Layer 2", vec![5.0, 8.0]))
         .stacked()
         .horizontal()
@@ -587,7 +587,7 @@ fn render_histogram_multi_series() {
         .map(|i| (i as f64 * 0.1).cos() * 25.0 + 60.0)
         .collect();
 
-    let chart = Chart::histogram(&data1)
+    let chart = Charts::histogram(&data1)
         .add_series(Series::new("Series B", data2))
         .bins(12)
         .title("Multi-Histogram")
@@ -639,7 +639,7 @@ fn render_line_legend_text_rendered() {
 #[test]
 fn render_scatter_with_nan() {
     // Should handle NaN gracefully without panicking
-    let chart = Chart::scatter(&[1.0, f64::NAN, 3.0, 4.0], &[2.0, 5.0, f64::NAN, 8.0])
+    let chart = Charts::scatter(&[1.0, f64::NAN, 3.0, 4.0], &[2.0, 5.0, f64::NAN, 8.0])
         .title("NaN Data")
         .build();
 
@@ -653,7 +653,7 @@ fn render_scatter_with_nan() {
 
 #[test]
 fn render_line_with_infinity() {
-    let chart = Chart::line(&[1.0, f64::INFINITY, 3.0, 4.0])
+    let chart = Charts::line(&[1.0, f64::INFINITY, 3.0, 4.0])
         .title("Infinity Data")
         .build();
 
@@ -664,7 +664,7 @@ fn render_line_with_infinity() {
 
 #[test]
 fn render_histogram_with_nan() {
-    let chart = Chart::histogram(&[1.0, 2.0, f64::NAN, 4.0, 5.0, f64::INFINITY])
+    let chart = Charts::histogram(&[1.0, 2.0, f64::NAN, 4.0, 5.0, f64::INFINITY])
         .bins(5)
         .build();
 
@@ -679,7 +679,7 @@ fn render_histogram_with_nan() {
 
 #[test]
 fn render_scatter_with_annotation() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0], &[10.0, 20.0, 15.0, 25.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0], &[10.0, 20.0, 15.0, 25.0])
         .annotate(3.0, 15.0, "Peak")
         .build();
 
@@ -692,7 +692,7 @@ fn render_scatter_with_annotation() {
 
 #[test]
 fn render_scatter_with_trend_line() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 5.0, 4.5, 6.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 5.0, 4.5, 6.0])
         .trend_line()
         .build();
 
@@ -707,7 +707,7 @@ fn render_scatter_with_trend_line() {
 
 #[test]
 fn render_line_with_annotation() {
-    let chart = Chart::line(&[10.0, 20.0, 30.0, 25.0, 35.0])
+    let chart = Charts::line(&[10.0, 20.0, 30.0, 25.0, 35.0])
         .annotate(2.0, 30.0, "Max")
         .build();
 
@@ -730,7 +730,7 @@ use scry_engine::scene::style::FillStyle;
 
 #[test]
 fn line_chart_uses_polyline() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
         .theme(Theme::dark())
         .build();
 
@@ -748,7 +748,7 @@ fn line_chart_uses_polyline() {
 
 #[test]
 fn filled_line_uses_gradient() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
         .filled()
         .theme(Theme::dark())
         .build();
@@ -766,7 +766,7 @@ fn filled_line_uses_gradient() {
 
 #[test]
 fn grid_lines_use_dash_pattern() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
         .theme(Theme::dark())
         .build();
 
@@ -781,7 +781,7 @@ fn grid_lines_use_dash_pattern() {
 
 #[test]
 fn bar_chart_has_stroke() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 25.0, 15.0],
     )
@@ -822,7 +822,7 @@ fn bar_chart_has_stroke() {
 
 #[test]
 fn histogram_bins_flush_on_axis() {
-    let chart = Chart::histogram(&[1.0, 2.0, 2.5, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 2.5, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0])
         .bins(5)
         .theme(Theme::dark())
         .build();
@@ -840,7 +840,7 @@ fn histogram_bins_flush_on_axis() {
 
 #[test]
 fn scatter_markers_have_stroke() {
-    let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
         .theme(Theme::dark())
         .build();
 
@@ -864,7 +864,7 @@ fn all_themes_produce_output() {
         ("light", Theme::light()),
         ("pastel", Theme::pastel()),
     ] {
-        let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0]).theme(theme).build();
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0]).theme(theme).build();
 
         let rendered = layout::render_chart(&chart, 400, 300);
         assert!(
@@ -881,7 +881,7 @@ fn all_themes_produce_output() {
 #[test]
 fn full_feature_chart() {
     // Exercise every builder option in a single chart
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         &[2.0, 4.0, 1.0, 8.0, 5.0, 3.0, 7.0, 6.0],
     )
@@ -957,7 +957,7 @@ fn full_feature_chart() {
 
 #[test]
 fn render_line_diagonal_ticks() {
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0])
         .title("Diagonal Ticks")
         .x_ticks_diagonal()
         .build();
@@ -988,7 +988,7 @@ fn render_line_diagonal_ticks() {
 
 #[test]
 fn render_bar_vertical_ticks() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "Alpha".into(),
             "Beta".into(),
@@ -1032,7 +1032,7 @@ fn render_boxplot_per_series_color() {
     )
     .style(SeriesStyle::new().color(red));
 
-    let chart = Chart::boxplot(vec![("Default", vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])])
+    let chart = Charts::boxplot(vec![("Default", vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])])
         .title("Styled Boxplot")
         .build();
 
@@ -1046,7 +1046,7 @@ fn render_line_custom_gradient() {
     let red = scry_engine::style::Color::from_rgba8(255, 0, 0, 255);
     let blue = scry_engine::style::Color::from_rgba8(0, 0, 255, 255);
 
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
         .filled()
         .title("Custom Gradient Fill")
         .build();
@@ -1087,7 +1087,7 @@ fn render_bar_with_fill_patterns() {
     let s2 = Series::new("Hatched", vec![8.0, 12.0, 18.0])
         .style(SeriesStyle::new().fill_pattern(FillPattern::Hatched));
 
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 20.0, 15.0],
     )
@@ -1113,7 +1113,7 @@ fn render_bar_with_fill_patterns() {
 
 #[test]
 fn render_heatmap_viridis() {
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, 2.0, 3.0],
         vec![4.0, 5.0, 6.0],
         vec![7.0, 8.0, 9.0],
@@ -1134,7 +1134,7 @@ fn render_heatmap_viridis() {
 
 #[test]
 fn render_heatmap_diverging() {
-    let chart = Chart::heatmap(vec![vec![-1.0, 0.0, 1.0], vec![0.5, -0.5, 0.0]])
+    let chart = Charts::heatmap(vec![vec![-1.0, 0.0, 1.0], vec![0.5, -0.5, 0.0]])
         .colormap(scry_chart::colormap::RdBu)
         .range(-1.0, 1.0)
         .title("Diverging Map")
@@ -1151,7 +1151,7 @@ fn render_heatmap_diverging() {
 
 #[test]
 fn render_waterfall_basic() {
-    let chart = Chart::waterfall(
+    let chart = Charts::waterfall(
         vec!["Revenue".into(), "COGS".into(), "OpEx".into(), "Tax".into()],
         &[500.0, -200.0, -150.0, -50.0],
     )
@@ -1170,7 +1170,7 @@ fn render_waterfall_basic() {
 
 #[test]
 fn render_waterfall_no_total() {
-    let chart = Chart::waterfall(
+    let chart = Charts::waterfall(
         vec!["A".into(), "B".into(), "C".into()],
         &[100.0, -30.0, 50.0],
     )
@@ -1184,7 +1184,7 @@ fn render_waterfall_no_total() {
 
 #[test]
 fn render_empty_waterfall() {
-    let chart = Chart::waterfall(vec![], &[]).build();
+    let chart = Charts::waterfall(vec![], &[]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     assert!(rendered.canvas.commands().len() >= 1); // at least background
     insta::assert_snapshot!(summarize(&rendered));
@@ -1196,7 +1196,7 @@ fn render_empty_waterfall() {
 
 #[test]
 fn render_funnel_basic() {
-    let chart = Chart::funnel(
+    let chart = Charts::funnel(
         vec![
             "Visitors".into(),
             "Signups".into(),
@@ -1219,7 +1219,7 @@ fn render_funnel_basic() {
 
 #[test]
 fn render_empty_funnel() {
-    let chart = Chart::funnel(vec![], &[]).build();
+    let chart = Charts::funnel(vec![], &[]).build();
     let rendered = layout::render_chart(&chart, 400, 300);
     // Empty funnel: just background, no rects
     insta::assert_snapshot!(summarize(&rendered));
@@ -1231,7 +1231,7 @@ fn render_empty_funnel() {
 
 #[test]
 fn render_gauge_basic() {
-    let chart = Chart::gauge(75.0)
+    let chart = Charts::gauge(75.0)
         .title("CPU Usage")
         .threshold(
             60.0,
@@ -1256,7 +1256,7 @@ fn render_gauge_basic() {
 
 #[test]
 fn render_gauge_custom_range() {
-    let chart = Chart::gauge(150.0)
+    let chart = Charts::gauge(150.0)
         .range(0.0, 200.0)
         .label("150 rpm")
         .build();
@@ -1274,7 +1274,7 @@ fn render_gauge_custom_range() {
 
 #[test]
 fn render_lollipop_basic() {
-    let chart = Chart::lollipop(
+    let chart = Charts::lollipop(
         vec![
             "Mon".into(),
             "Tue".into(),
@@ -1299,7 +1299,7 @@ fn render_lollipop_basic() {
 
 #[test]
 fn render_lollipop_horizontal() {
-    let chart = Chart::lollipop(
+    let chart = Charts::lollipop(
         vec!["A".into(), "B".into(), "C".into()],
         &[30.0, 50.0, 20.0],
     )
@@ -1313,7 +1313,7 @@ fn render_lollipop_horizontal() {
 
 #[test]
 fn render_lollipop_single_value() {
-    let chart = Chart::lollipop(vec!["Only".into()], &[42.0]).build();
+    let chart = Charts::lollipop(vec!["Only".into()], &[42.0]).build();
 
     let rendered = layout::render_chart(&chart, 300, 200);
     assert!(rendered.canvas.commands().len() > 2);
@@ -1333,19 +1333,19 @@ fn render_subplot_basic() {
         .set(
             0,
             0,
-            Chart::line(&[1.0, 4.0, 2.0, 8.0]).title("Line").build(),
+            Charts::line(&[1.0, 4.0, 2.0, 8.0]).title("Line").build(),
         )
         .set(
             0,
             1,
-            Chart::scatter(&[1.0, 2.0, 3.0], &[3.0, 1.0, 4.0])
+            Charts::scatter(&[1.0, 2.0, 3.0], &[3.0, 1.0, 4.0])
                 .title("Scatter")
                 .build(),
         )
         .set(
             1,
             0,
-            Chart::bar(
+            Charts::bar(
                 vec!["A".into(), "B".into(), "C".into()],
                 &[10.0, 20.0, 15.0],
             )
@@ -1355,7 +1355,7 @@ fn render_subplot_basic() {
         .set(
             1,
             1,
-            Chart::histogram(&[1.0, 2.0, 2.5, 3.0, 3.5, 4.0])
+            Charts::histogram(&[1.0, 2.0, 2.5, 3.0, 3.5, 4.0])
                 .title("Hist")
                 .build(),
         );
@@ -1379,7 +1379,7 @@ fn render_subplot_shared_x() {
         .set(
             0,
             0,
-            Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+            Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
                 .title("Top")
                 .x_label("Time")
                 .build(),
@@ -1387,7 +1387,7 @@ fn render_subplot_shared_x() {
         .set(
             1,
             0,
-            Chart::line(&[8.0, 5.0, 3.0, 6.0, 2.0])
+            Charts::line(&[8.0, 5.0, 3.0, 6.0, 2.0])
                 .title("Bottom")
                 .x_label("Time")
                 .build(),

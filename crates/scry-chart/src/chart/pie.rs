@@ -5,6 +5,7 @@ use crate::chart::config_builder::{
     chart_config_core, chart_config_margin, chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 
 /// A pie or donut chart — proportional data shown as arc segments.
 #[derive(Clone, Debug)]
@@ -75,6 +76,15 @@ impl PieChart {
 
     /// Build into a Chart enum variant.
     pub fn build(self) -> Chart {
-        Chart::Pie(self)
+        Box::new(self) as Chart
     }
+}
+
+impl ChartSpec for PieChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::pie::render_pie(self, w, h)
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

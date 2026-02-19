@@ -9,6 +9,7 @@ use crate::chart::config_builder::{
     chart_config_legend, chart_config_locale, chart_config_tick_rotation,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 
 /// A violin plot — one or more groups rendered as mirrored KDE curves.
 ///
@@ -17,7 +18,7 @@ use crate::chart::{Chart, ChartConfig};
 /// ```
 /// use scry_chart::chart::Chart;
 ///
-/// let chart = Chart::violin(vec![
+/// let chart = Charts::violin(vec![
 ///     ("Control", vec![2.0, 3.1, 2.8, 3.5, 2.9]),
 ///     ("Treatment", vec![4.0, 4.5, 3.9, 5.1, 4.2]),
 /// ])
@@ -81,9 +82,9 @@ impl ViolinPlot {
         self
     }
 
-    /// Build into a Chart enum variant.
+    /// Build into a Chart.
     pub fn build(self) -> Chart {
-        Chart::Violin(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -94,6 +95,26 @@ impl ViolinPlot {
         if self.groups.iter().all(|(_, v)| v.is_empty()) {
             return Err(crate::error::ChartError::EmptyData);
         }
-        Ok(Chart::Violin(self))
+        Ok(self.build())
     }
+}
+
+impl ChartSpec for ViolinPlot {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::violin::render_violin(self, w, h)
+    }
+    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+        if let Some((x0, x1, y0, y1)) = vp {
+            let mut c = self.clone();
+            c.config.axes.x_range = Some((x0, x1));
+            c.config.axes.y_range = Some((y0, y1));
+            c.render(w, h)
+        } else {
+            self.render(w, h)
+        }
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn data_extent(&self) -> Option<(f64, f64, f64, f64)> { None }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

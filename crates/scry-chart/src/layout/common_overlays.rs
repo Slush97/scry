@@ -32,13 +32,13 @@ impl RenderContext {
         // Extra user margins for positioning
         let extra_top = config.margin.as_ref().map_or(0.0, |m| m.top);
 
-        let title_h = if config.title.is_some() {
+        let title_h = if config.titles.title.is_some() {
             proportional_title_height(h)
         } else {
             0.0
         };
 
-        if let Some(ref title) = config.title {
+        if let Some(ref title) = config.titles.title {
             self.overlays.push(TextOverlay {
                 x_px: px + pw / 2.0,
                 y_px: margin + extra_top + 4.0,
@@ -52,7 +52,7 @@ impl RenderContext {
         }
 
         // Subtitle: positioned below the title, smaller and not bold.
-        if let Some(ref subtitle) = config.subtitle {
+        if let Some(ref subtitle) = config.titles.subtitle {
             let sub_y = margin + extra_top + title_h + 2.0;
             self.overlays.push(TextOverlay {
                 x_px: px + pw / 2.0,
@@ -66,8 +66,8 @@ impl RenderContext {
             });
         }
 
-        if let Some(ref label) = config.x_label {
-            let x_tick_h = proportional_x_tick_height(h, config.x_tick_rotation);
+        if let Some(ref label) = config.titles.x_label {
+            let x_tick_h = proportional_x_tick_height(h, config.ticks.x_tick_rotation);
             let x_label_h = proportional_x_label_height(h);
             self.overlays.push(TextOverlay {
                 x_px: px + pw / 2.0,
@@ -81,7 +81,7 @@ impl RenderContext {
             });
         }
 
-        if let Some(ref label) = config.y_label {
+        if let Some(ref label) = config.titles.y_label {
             // Y-axis label is rotated 90° so it reads vertically.
             let y_label_w =
                 estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
@@ -98,7 +98,7 @@ impl RenderContext {
         }
 
         // Secondary Y-axis label (right side, rotated -90°).
-        if let Some(ref label) = config.secondary_y_label {
+        if let Some(ref label) = config.secondary.label {
             let sec_label_w =
                 estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
             self.overlays.push(TextOverlay {
@@ -114,7 +114,7 @@ impl RenderContext {
         }
 
         // Footer: small text at bottom center.
-        if let Some(ref footer) = config.footer {
+        if let Some(ref footer) = config.titles.footer {
             let extra_bottom = config.margin.as_ref().map_or(0.0, |m| m.bottom);
             self.overlays.push(TextOverlay {
                 x_px: px + pw / 2.0,
@@ -188,11 +188,11 @@ impl RenderContext {
         let gap = 4.0_f32;
 
         // --- Determine rotation and stagger strategy ---
-        let user_set_rotation = config.x_tick_rotation != crate::axis::LabelRotation::Horizontal;
+        let user_set_rotation = config.ticks.x_tick_rotation != crate::axis::LabelRotation::Horizontal;
 
         let (rot_deg, stagger) = if user_set_rotation {
             // User explicitly chose a rotation — respect it, no stagger.
-            (config.x_tick_rotation.degrees(), false)
+            (config.ticks.x_tick_rotation.degrees(), false)
         } else if label_w + gap <= band {
             // Labels fit horizontally — no changes needed.
             (0.0, false)
@@ -283,7 +283,7 @@ impl RenderContext {
         let w = self.width();
         let h = self.height();
         let ann_fs = scaled_font_size(config.theme.tick_style.font_size, w, h);
-        for ann in &config.annotations {
+        for ann in &config.overlays.annotations {
             let px = x_scale.to_pixel(ann.x) as f32;
             let py = y_scale.to_pixel(ann.y) as f32;
             let (dx, dy) = ann.style.offset;

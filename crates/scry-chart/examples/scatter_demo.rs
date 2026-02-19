@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let y2_data: Vec<f64> = x_data.iter().map(|&x| x.cos() * 0.8).collect();
 
-    let chart = Chart::scatter(&x_data, &y_data)
+    let chart = Charts::scatter(&x_data, &y_data)
         .title("sin(x) vs cos(x)")
         .x_label("x")
         .y_label("amplitude")

@@ -332,11 +332,11 @@ impl StreamingChart {
         }
 
         // Set X range to the visible window
-        line.config.x_range = Some((x_min, x_max));
+        line.config.axes.x_range = Some((x_min, x_max));
 
         // Set Y range
         if let Some((y_min, y_max)) = self.y_range {
-            line.config.y_range = Some((y_min, y_max));
+            line.config.axes.y_range = Some((y_min, y_max));
         }
 
         Some(line.build())
@@ -463,22 +463,19 @@ mod tests {
 
         // The snapshot should have the last 100 points (100..200)
         let snap = chart.snapshot().unwrap();
-        if let Chart::Line(line) = snap {
-            let xs = line.x_values.unwrap();
-            assert_eq!(xs.len(), 100);
-            assert!(
-                (xs[0] - 100.0).abs() < 1e-9,
-                "first x should be 100, got {}",
-                xs[0]
-            );
-            assert!(
-                (xs[99] - 199.0).abs() < 1e-9,
-                "last x should be 199, got {}",
-                xs[99]
-            );
-        } else {
-            panic!("expected Line chart");
-        }
+        let cfg = snap.config().expect("snapshot should have config");
+        // X range is set to the visible window
+        let (x_min, x_max) = cfg.axes.x_range.expect("x_range should be set");
+        assert!(
+            (x_min - 100.0).abs() < 1e-9,
+            "x_min should be 100, got {}",
+            x_min
+        );
+        assert!(
+            (x_max - 199.0).abs() < 1e-9,
+            "x_max should be 199, got {}",
+            x_max
+        );
     }
 
     // Test 6: StreamingChart auto-scale Y — push varying values,
@@ -491,18 +488,13 @@ mod tests {
             chart.push(i as f64, y);
         }
         let snap = chart.snapshot().unwrap();
-        if let Chart::Line(line) = snap {
-            // No y_range set = auto-scale
-            assert!(line.config.y_range.is_none());
-            // The series should contain both -10 and 42
-            let vals = line.series[0].values();
-            let min = vals.iter().copied().reduce(f64::min).unwrap();
-            let max = vals.iter().copied().reduce(f64::max).unwrap();
-            assert!((min - (-10.0)).abs() < 1e-9);
-            assert!((max - 42.0).abs() < 1e-9);
-        } else {
-            panic!("expected Line chart");
-        }
+        let cfg = snap.config().expect("snapshot should have config");
+        // No y_range set = auto-scale
+        assert!(cfg.axes.y_range.is_none());
+        // Verify data extent covers the expected range
+        let extent = snap.data_extent().expect("should have data extent");
+        assert!((extent.2 - (-10.0)).abs() < 1e-9, "y_min should be -10");
+        assert!((extent.3 - 42.0).abs() < 1e-9, "y_max should be 42");
     }
 
     // Test 7: StreamingChart fixed Y range — set y_range, verify it's respected
@@ -512,11 +504,8 @@ mod tests {
         chart.push(1.0, 50.0);
 
         let snap = chart.snapshot().unwrap();
-        if let Chart::Line(line) = snap {
-            assert_eq!(line.config.y_range, Some((0.0, 100.0)));
-        } else {
-            panic!("expected Line chart");
-        }
+        let cfg = snap.config().expect("snapshot should have config");
+        assert_eq!(cfg.axes.y_range, Some((0.0, 100.0)));
     }
 
     // Test 8: Multi-series — push to 3 series, verify all render
@@ -539,15 +528,16 @@ mod tests {
         assert_eq!(chart.points_in_series(2), 10);
         assert_eq!(chart.total_points(), 30);
 
+        // Verify snapshot is produced and renders without panic
         let snap = chart.snapshot().unwrap();
-        if let Chart::Line(line) = snap {
-            assert_eq!(line.series.len(), 3);
-            assert_eq!(line.series[0].label(), "CPU");
-            assert_eq!(line.series[1].label(), "Mem");
-            assert_eq!(line.series[2].label(), "Disk");
-        } else {
-            panic!("expected Line chart");
-        }
+        // data_extent reflects all 3 series (y_max = 9*3 = 27 for series 2)
+        let (_, _, _y_min, y_max) = snap.data_extent().expect("extent should be Some");
+        assert!(y_max >= 27.0 - 1e-6,
+            "y_max {y_max} should reflect 3rd series (max = 27)");
+        // Render must not panic and must produce a correctly-sized canvas
+        let rendered = snap.render(400, 300);
+        assert_eq!(rendered.canvas.width(), 400, "canvas width should be 400");
+        assert_eq!(rendered.canvas.height(), 300, "canvas height should be 300");
     }
 
     // Test 9: push_now — verify timestamp is reasonable (within last second)

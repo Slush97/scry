@@ -5,6 +5,7 @@ use crate::chart::config_builder::{
     chart_config_core, chart_config_margin, chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 
 /// A radar (spider) chart — multi-axis polygon comparison.
 ///
@@ -78,11 +79,20 @@ impl RadarChart {
         if self.axes.is_empty() || self.series.is_empty() {
             return Err(crate::error::ChartError::EmptyData);
         }
-        Ok(self.build())
+        Ok(Box::new(self) as Chart)
     }
 
     /// Build into a Chart enum variant.
     pub fn build(self) -> Chart {
-        Chart::Radar(self)
+        Box::new(self) as Chart
     }
+}
+
+impl ChartSpec for RadarChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::radar::render_radar(self, w, h)
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

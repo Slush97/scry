@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run -p scry-chart --example render_png
 
-use scry_chart::chart::Chart;
+use scry_chart::chart::{Chart, Charts};
 use scry_chart::export;
 use scry_chart::theme::Theme;
 
@@ -32,7 +32,7 @@ fn main() {
 }
 
 fn scatter_chart() -> Chart {
-    Chart::scatter(
+    Charts::scatter(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         &[2.1, 3.5, 2.8, 5.2, 4.1, 6.3, 5.5, 7.0],
     )
@@ -44,7 +44,7 @@ fn scatter_chart() -> Chart {
 }
 
 fn line_chart() -> Chart {
-    Chart::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 38.0, 50.0])
+    Charts::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 38.0, 50.0])
         .title("Line: Monthly Revenue")
         .x_label("Month")
         .y_label("Revenue ($K)")
@@ -56,7 +56,7 @@ fn line_chart() -> Chart {
 }
 
 fn bar_chart() -> Chart {
-    Chart::bar(
+    Charts::bar(
         vec![
             "Mon".into(),
             "Tue".into(),
@@ -82,7 +82,7 @@ fn histogram_chart() -> Chart {
         })
         .collect();
 
-    Chart::histogram(&data)
+    Charts::histogram(&data)
         .title("Histogram: Signal Distribution")
         .x_label("Amplitude")
         .y_label("Frequency")
@@ -92,7 +92,7 @@ fn histogram_chart() -> Chart {
 }
 
 fn line_ocean_chart() -> Chart {
-    Chart::line(&[5.0, 12.0, 8.0, 20.0, 15.0, 25.0, 22.0, 30.0])
+    Charts::line(&[5.0, 12.0, 8.0, 20.0, 15.0, 25.0, 22.0, 30.0])
         .title("Ocean Theme Demo")
         .x_label("Sample")
         .y_label("Value")
@@ -103,7 +103,7 @@ fn line_ocean_chart() -> Chart {
 }
 
 fn line_forest_chart() -> Chart {
-    Chart::line(&[3.0, 8.0, 5.0, 15.0, 12.0, 18.0, 14.0, 22.0])
+    Charts::line(&[3.0, 8.0, 5.0, 15.0, 12.0, 18.0, 14.0, 22.0])
         .title("Forest Theme Demo")
         .x_label("Sample")
         .y_label("Value")

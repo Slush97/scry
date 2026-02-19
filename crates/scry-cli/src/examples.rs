@@ -4,7 +4,7 @@
 //! Each function returns a fully-configured `Chart` with realistic sample data
 //! so users can see a pixel-perfect chart without writing any JSON.
 
-use scry_chart::chart::{Chart, OhlcEntry};
+use scry_chart::chart::{Chart, Charts, OhlcEntry};
 use scry_chart::theme::Theme;
 
 use crate::spec::ChartType;
@@ -63,7 +63,7 @@ fn example_line(theme: Theme) -> Chart {
     let revenue = vec![
         12.4, 15.8, 14.2, 18.9, 22.5, 25.1, 23.8, 28.4, 31.2, 29.6, 34.8, 38.1,
     ];
-    Chart::line_xy(&months, &revenue)
+    Charts::line_xy(&months, &revenue)
         .title("Monthly Revenue ($K)")
         .x_label("Month")
         .y_label("Revenue")
@@ -86,7 +86,7 @@ fn example_scatter(theme: Theme) -> Chart {
             xi * 1.5 + 10.0 + noise
         })
         .collect();
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("Performance vs. Load")
         .x_label("Load (req/s)")
         .y_label("Latency (ms)")
@@ -98,7 +98,7 @@ fn example_scatter(theme: Theme) -> Chart {
 fn example_bar(theme: Theme) -> Chart {
     let labels = vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()];
     let values = [142.0, 218.0, 195.0, 267.0];
-    Chart::bar(labels, &values)
+    Charts::bar(labels, &values)
         .title("Quarterly Revenue ($K)")
         .x_label("Quarter")
         .y_label("Revenue")
@@ -119,7 +119,7 @@ fn example_histogram(theme: Theme) -> Chart {
             + 3.0 * (t * 2.91).cos();
         values.push(v);
     }
-    Chart::histogram(&values)
+    Charts::histogram(&values)
         .title("Response Time Distribution")
         .x_label("Latency (ms)")
         .y_label("Frequency")
@@ -148,7 +148,7 @@ fn example_boxplot(theme: Theme) -> Chart {
         })
         .collect();
 
-    Chart::boxplot(vec![
+    Charts::boxplot(vec![
         ("Economy", economy),
         ("Standard", standard),
         ("Premium", premium),
@@ -174,7 +174,7 @@ fn example_heatmap(theme: Theme) -> Chart {
         }
         grid.push(cells);
     }
-    Chart::heatmap(grid)
+    Charts::heatmap(grid)
         .title("Server Load Heatmap")
         .theme(theme)
         .build()
@@ -189,14 +189,14 @@ fn example_pie(theme: Theme) -> Chart {
         "Other".into(),
     ];
     let values = [35.0, 25.0, 20.0, 12.0, 8.0];
-    Chart::pie(labels, &values)
+    Charts::pie(labels, &values)
         .title("Language Usage Share")
         .theme(theme)
         .build()
 }
 
 fn example_radar(theme: Theme) -> Chart {
-    Chart::radar(vec!["Speed", "Power", "Defense", "Magic", "HP", "Stamina"])
+    Charts::radar(vec!["Speed", "Power", "Defense", "Magic", "HP", "Stamina"])
         .add_series("Warrior", &[8.0, 9.0, 7.0, 2.0, 8.0, 6.0])
         .add_series("Mage", &[3.0, 4.0, 3.0, 10.0, 5.0, 4.0])
         .add_series("Rogue", &[9.0, 5.0, 4.0, 5.0, 4.0, 9.0])
@@ -229,7 +229,7 @@ fn example_candlestick(theme: Theme) -> Chart {
         OhlcEntry::new(19.0, 122.0, 124.0, 118.0, 119.0),
         OhlcEntry::new(20.0, 119.0, 123.0, 117.0, 122.0),
     ];
-    Chart::candlestick(data)
+    Charts::candlestick(data)
         .title("ACME Corp (20-Day)")
         .x_label("Day")
         .y_label("Price ($)")
@@ -242,7 +242,7 @@ fn example_bubble(theme: Theme) -> Chart {
     let x = [2.0, 5.0, 8.0, 12.0, 18.0, 25.0, 35.0, 45.0]; // GDP per capita ($K)
     let y = [55.0, 62.0, 68.0, 72.0, 75.0, 78.0, 80.0, 82.0]; // Life expectancy
     let sizes = [200.0, 50.0, 120.0, 80.0, 30.0, 15.0, 60.0, 10.0]; // Population (M)
-    Chart::bubble(&x, &y, &sizes)
+    Charts::bubble(&x, &y, &sizes)
         .title("GDP vs Life Expectancy")
         .x_label("GDP per Capita ($K)")
         .y_label("Life Expectancy (yrs)")
@@ -271,7 +271,7 @@ fn example_violin(theme: Theme) -> Chart {
         })
         .collect();
 
-    Chart::violin(vec![
+    Charts::violin(vec![
         ("US-East", us_east),
         ("EU-West", eu_west),
         ("AP-South", ap_south),
@@ -291,7 +291,7 @@ fn example_sparkline() -> Chart {
             40.0 + 25.0 * (t * 0.3).sin() + 15.0 * (t * 0.7).cos() + 8.0 * (t * 1.1).sin()
         })
         .collect();
-    Chart::sparkline(&values).filled().build()
+    Charts::sparkline(&values).filled().build()
 }
 
 fn example_waterfall(theme: Theme) -> Chart {
@@ -304,7 +304,7 @@ fn example_waterfall(theme: Theme) -> Chart {
         "Tax".into(),
     ];
     let values = [500.0, -200.0, -50.0, -80.0, -45.0, -30.0];
-    Chart::waterfall(labels, &values)
+    Charts::waterfall(labels, &values)
         .title("P&L Waterfall ($K)")
         .x_label("Category")
         .y_label("Amount ($K)")
@@ -322,7 +322,7 @@ fn example_funnel(theme: Theme) -> Chart {
         "Paid".into(),
     ];
     let values = [50000.0, 12000.0, 5000.0, 2000.0, 800.0];
-    Chart::funnel(labels, &values)
+    Charts::funnel(labels, &values)
         .title("Marketing Funnel")
         .theme(theme)
         .build()
@@ -331,7 +331,7 @@ fn example_funnel(theme: Theme) -> Chart {
 fn example_gauge(theme: Theme) -> Chart {
     use scry_engine::style::Color;
 
-    Chart::gauge(73.0)
+    Charts::gauge(73.0)
         .range(0.0, 100.0)
         .label("73%")
         .threshold(40.0, Color::from_rgba8(40, 180, 99, 255)) // green
@@ -352,7 +352,7 @@ fn example_lollipop(theme: Theme) -> Chart {
         "JS".into(),
     ];
     let values = [95.0, 82.0, 78.0, 70.0, 65.0, 60.0];
-    Chart::lollipop(labels, &values)
+    Charts::lollipop(labels, &values)
         .title("Developer Satisfaction (%)")
         .x_label("Language")
         .y_label("Score")

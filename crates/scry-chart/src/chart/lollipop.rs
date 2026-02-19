@@ -10,6 +10,7 @@ use crate::chart::config_builder::{
     chart_config_subtitle_footer, chart_config_tick_rotation, chart_config_tick_steps,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 
 /// A lollipop chart — thin stems topped with circular markers.
 ///
@@ -18,7 +19,7 @@ use crate::chart::{Chart, ChartConfig};
 /// ```
 /// use scry_chart::chart::Chart;
 ///
-/// let chart = Chart::lollipop(
+/// let chart = Charts::lollipop(
 ///     vec!["Mon".into(), "Tue".into(), "Wed".into(), "Thu".into(), "Fri".into()],
 ///     &[12.0, 19.0, 8.0, 15.0, 22.0],
 /// )
@@ -97,7 +98,7 @@ impl LollipopChart {
 
     /// Build into a Chart enum variant.
     pub fn build(self) -> Chart {
-        Chart::Lollipop(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -110,6 +111,25 @@ impl LollipopChart {
                 format!("labels ({}) and values ({}) have different lengths", self.labels.len(), self.values.len()),
             ));
         }
-        Ok(Chart::Lollipop(self))
+        Ok(Box::new(self) as Chart)
     }
+}
+
+impl ChartSpec for LollipopChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::lollipop::render_lollipop(self, w, h)
+    }
+    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+        if let Some((x0, x1, y0, y1)) = vp {
+            let mut c = self.clone();
+            c.config.axes.x_range = Some((x0, x1));
+            c.config.axes.y_range = Some((y0, y1));
+            c.render(w, h)
+        } else {
+            self.render(w, h)
+        }
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

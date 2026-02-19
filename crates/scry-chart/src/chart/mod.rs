@@ -2,8 +2,7 @@
 //! Chart type definitions and builders.
 //!
 //! Each chart type has a builder struct for fluent configuration.
-
-use crate::chart_trait::ChartType;
+//! [`Chart`] is a type alias for `Box<dyn ChartSpec>`.
 
 pub(crate) mod bar;
 pub(crate) mod boxplot;
@@ -11,7 +10,6 @@ pub(crate) mod bubble;
 pub(crate) mod candlestick;
 pub(crate) mod config_builder;
 pub(crate) mod contour;
-pub mod extent;
 pub(crate) mod funnel;
 pub(crate) mod gauge;
 pub(crate) mod heatmap;
@@ -43,69 +41,40 @@ pub use sparkline::{Sparkline, SparklineKind};
 pub use violin::ViolinPlot;
 pub use waterfall::WaterfallChart;
 
-use std::sync::Arc;
-
-use crate::annotation::Annotation;
-use crate::axis::LabelRotation;
-use crate::data::Series;
-use crate::formatter::{LocaleConfig, TickFormatter};
+use crate::config::{
+    AxisRangeConfig, DataLabelConfig, ExportConfig, OverlayConfig, SecondaryAxisConfig, TickConfig,
+    TitleConfig,
+};
 use crate::legend::LegendConfig;
 use crate::margin::Margin;
+use crate::spec::ChartSpec;
 use crate::theme::Theme;
 use scry_engine::style::Color;
 
 // ---------------------------------------------------------------------------
-// Chart enum
+// Chart type alias
 // ---------------------------------------------------------------------------
 
 /// A fully-configured chart ready for rendering.
-#[derive(Clone, Debug)]
-#[must_use]
-#[non_exhaustive]
-pub enum Chart {
-    /// Scatter plot.
-    Scatter(ScatterChart),
-    /// Line chart.
-    Line(LineChart),
-    /// Bar chart.
-    Bar(BarChart),
-    /// Histogram.
-    Histogram(Histogram),
-    /// Box plot.
-    BoxPlot(BoxPlot),
-    /// Heatmap.
-    Heatmap(Heatmap),
-    /// Pie / donut chart.
-    Pie(PieChart),
-    /// Candlestick / OHLC chart.
-    Candlestick(CandlestickChart),
-    /// Radar / spider chart.
-    Radar(RadarChart),
-    /// Bubble chart (scatter + size dimension).
-    Bubble(BubbleChart),
-    /// Violin plot (mirrored KDE curves).
-    Violin(ViolinPlot),
-    /// Sparkline (minimal inline chart, no chrome).
-    Sparkline(Sparkline),
-    /// Waterfall chart (financial P&L — running cumulative bars).
-    Waterfall(WaterfallChart),
-    /// Funnel chart (conversion pipeline).
-    Funnel(FunnelChart),
-    /// Gauge chart (KPI speedometer arc).
-    Gauge(GaugeChart),
-    /// Lollipop chart (dot plot — thin stem + circle marker).
-    Lollipop(LollipopChart),
-    /// Contour chart (iso-level lines from 2D scalar field).
-    Contour(ContourChart),
-    /// User-defined custom chart via [`ChartType`] trait.
-    Custom(Box<dyn ChartType>),
-}
+///
+/// This is a type alias for `Box<dyn ChartSpec>`. All built-in chart types
+/// implement [`ChartSpec`] and their `build()` methods return a `Chart`.
+pub type Chart = Box<dyn ChartSpec>;
 
-impl Chart {
-    // --- One-liner constructors ---
+// ---------------------------------------------------------------------------
+// Convenience constructors
+// ---------------------------------------------------------------------------
 
+/// Namespace for one-liner chart constructors.
+///
+/// Each method returns a chart builder (e.g. `LineChart`, `ScatterChart`).
+/// Call `.build()` on the builder to get a `Chart`.
+pub struct Charts;
+
+impl Charts {
     /// Create a scatter chart from x and y data.
     pub fn scatter(x: &[f64], y: &[f64]) -> ScatterChart {
+        use crate::data::Series;
         ScatterChart::new(
             Series::from_values(x.to_vec()),
             Series::from_values(y.to_vec()),
@@ -114,23 +83,25 @@ impl Chart {
 
     /// Create a line chart from y values (x = 0, 1, 2, …).
     pub fn line(y: &[f64]) -> LineChart {
+        use crate::data::Series;
         LineChart::new(vec![Series::from_values(y.to_vec())])
     }
 
     /// Create a line chart from explicit x and y values.
-    ///
-    /// Unlike [`line()`](Self::line), this allows non-uniform x spacing.
     pub fn line_xy(x: &[f64], y: &[f64]) -> LineChart {
+        use crate::data::Series;
         LineChart::new(vec![Series::from_values(y.to_vec())]).x_values(x.to_vec())
     }
 
     /// Create a bar chart from labels and values.
     pub fn bar(labels: Vec<String>, values: &[f64]) -> BarChart {
+        use crate::data::Series;
         BarChart::new(labels, vec![Series::from_values(values.to_vec())])
     }
 
     /// Create a histogram from raw data.
     pub fn histogram(values: &[f64]) -> Histogram {
+        use crate::data::Series;
         Histogram::new(Series::from_values(values.to_vec()))
     }
 
@@ -161,6 +132,7 @@ impl Chart {
 
     /// Create a bubble chart from x, y, and size data.
     pub fn bubble(x: &[f64], y: &[f64], sizes: &[f64]) -> BubbleChart {
+        use crate::data::Series;
         BubbleChart::new(
             Series::from_values(x.to_vec()),
             Series::from_values(y.to_vec()),
@@ -205,156 +177,62 @@ impl Chart {
 
     /// Create an area chart (filled + smooth line chart).
     pub fn area(y: &[f64]) -> LineChart {
-        LineChart::new(vec![Series::from_values(y.to_vec())]).filled().smooth()
-    }
-
-    /// Create a chart from a custom [`ChartType`] implementation.
-    ///
-    /// This enables third-party chart types without modifying the core enum.
-    pub fn custom(ct: impl ChartType + 'static) -> Chart {
-        Chart::Custom(Box::new(ct))
-    }
-
-    /// Get a mutable reference to the chart's shared configuration.
-    ///
-    /// Useful for injecting zoom viewport ranges before rendering.
-    pub fn config_mut(&mut self) -> &mut ChartConfig {
-        match self {
-            Self::Scatter(c) => &mut c.config,
-            Self::Line(c) => &mut c.config,
-            Self::Bar(c) => &mut c.config,
-            Self::Histogram(c) => &mut c.config,
-            Self::BoxPlot(c) => &mut c.config,
-            Self::Heatmap(c) => &mut c.config,
-            Self::Pie(c) => &mut c.config,
-            Self::Candlestick(c) => &mut c.config,
-            Self::Radar(c) => &mut c.config,
-            Self::Bubble(c) => &mut c.config,
-            Self::Violin(c) => &mut c.config,
-            Self::Sparkline(c) => &mut c.config,
-            Self::Waterfall(c) => &mut c.config,
-            Self::Funnel(c) => &mut c.config,
-            Self::Gauge(c) => &mut c.config,
-            Self::Lollipop(c) => &mut c.config,
-            Self::Contour(c) => &mut c.config,
-            Self::Custom(_) => panic!("Custom charts do not have a ChartConfig"),
-        }
+        use crate::data::Series;
+        LineChart::new(vec![Series::from_values(y.to_vec())])
+            .filled()
+            .smooth()
     }
 }
 
 // ---------------------------------------------------------------------------
-// Common chart config
+// Common chart config (decomposed into sub-structs)
 // ---------------------------------------------------------------------------
 
 /// Configuration shared across all chart types.
+///
+/// Fields are organized into sub-structs by concern. For backward
+/// compatibility, the top-level convenience accessors remain available.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[allow(clippy::struct_excessive_bools)]
 #[non_exhaustive]
 pub struct ChartConfig {
-    /// Chart title.
-    pub title: Option<String>,
-    /// Chart subtitle (rendered below the title in smaller text).
-    pub subtitle: Option<String>,
-    /// Chart footer (rendered at the bottom edge).
-    pub footer: Option<String>,
-    /// X-axis label.
-    pub x_label: Option<String>,
-    /// Y-axis label.
-    pub y_label: Option<String>,
+    /// Title, subtitle, footer, and axis label text.
+    pub titles: TitleConfig,
     /// Visual theme.
     pub theme: Theme,
     /// Whether to display the legend.
     pub show_legend: bool,
     /// Legend configuration (position, title, orientation, etc.).
     pub legend: LegendConfig,
-    /// Manual x-axis domain override (min, max).
-    pub x_range: Option<(f64, f64)>,
-    /// Manual y-axis domain override (min, max).
-    pub y_range: Option<(f64, f64)>,
-    /// Horizontal reference lines.
-    pub h_lines: Vec<ReferenceLine>,
-    /// Vertical reference lines.
-    pub v_lines: Vec<ReferenceLine>,
-    /// Data-coordinate annotations.
-    pub annotations: Vec<Annotation>,
-    /// Whether to show a trend line (linear regression).
-    pub show_trend: bool,
-    /// Rotation for X-axis tick labels.
-    pub x_tick_rotation: LabelRotation,
-    /// Custom tick formatter for the X axis.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub x_tick_formatter: Option<Arc<dyn TickFormatter>>,
-    /// Custom tick formatter for the Y axis.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub y_tick_formatter: Option<Arc<dyn TickFormatter>>,
-    /// Fixed tick step for the X axis (overrides adaptive generation).
-    pub x_tick_step: Option<f64>,
-    /// Fixed tick step for the Y axis (overrides adaptive generation).
-    pub y_tick_step: Option<f64>,
-    /// Locale configuration for number formatting.
-    /// When set, the layout engine wraps the default formatter
-    /// with locale-aware post-processing.
-    pub locale: Option<LocaleConfig>,
+    /// Axis range overrides and axis direction.
+    pub axes: AxisRangeConfig,
+    /// Tick label formatting and stepping.
+    pub ticks: TickConfig,
+    /// Reference lines, annotations, and trend line.
+    pub overlays: OverlayConfig,
+    /// Secondary (dual) Y-axis.
+    pub secondary: SecondaryAxisConfig,
+    /// Export settings (DPI).
+    pub export: ExportConfig,
+    /// Data value labels on bars, points, etc.
+    pub data_labels: DataLabelConfig,
     /// Extra margins / padding around the plot area (pixels).
     pub margin: Option<Margin>,
-    /// Whether to invert (reverse) the X axis.
-    pub x_inverted: bool,
-    /// Whether to invert (reverse) the Y axis.
-    pub y_inverted: bool,
-    /// Secondary Y-axis label (rendered on the right side).
-    pub secondary_y_label: Option<String>,
-    /// Manual secondary Y-axis domain override.
-    pub secondary_y_range: Option<(f64, f64)>,
-    /// Custom tick formatter for the secondary Y axis.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub secondary_y_formatter: Option<Arc<dyn TickFormatter>>,
-    /// Series indices to plot against the secondary Y axis.
-    pub secondary_series_indices: Vec<usize>,
-    /// Export DPI (dots per inch). Default: 144.
-    ///
-    /// The export functions scale the output pixel dimensions by `dpi / 144`.
-    /// Set to 288 for 2× (Retina) resolution, 72 for lower-res, etc.
-    pub dpi: u32,
-    /// Whether to show data value labels on bars, points, etc.
-    pub show_data_labels: bool,
-    /// Custom formatter for data value labels.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub data_label_formatter: Option<Arc<dyn TickFormatter>>,
 }
 
 impl Clone for ChartConfig {
     fn clone(&self) -> Self {
         Self {
-            title: self.title.clone(),
-            subtitle: self.subtitle.clone(),
-            footer: self.footer.clone(),
-            x_label: self.x_label.clone(),
-            y_label: self.y_label.clone(),
+            titles: self.titles.clone(),
             theme: self.theme.clone(),
             show_legend: self.show_legend,
             legend: self.legend.clone(),
-            x_range: self.x_range,
-            y_range: self.y_range,
-            h_lines: self.h_lines.clone(),
-            v_lines: self.v_lines.clone(),
-            annotations: self.annotations.clone(),
-            show_trend: self.show_trend,
-            x_tick_rotation: self.x_tick_rotation,
-            x_tick_formatter: self.x_tick_formatter.clone(),
-            y_tick_formatter: self.y_tick_formatter.clone(),
-            x_tick_step: self.x_tick_step,
-            y_tick_step: self.y_tick_step,
-            locale: self.locale.clone(),
+            axes: self.axes.clone(),
+            ticks: self.ticks.clone(),
+            overlays: self.overlays.clone(),
+            secondary: self.secondary.clone(),
+            export: self.export.clone(),
+            data_labels: self.data_labels.clone(),
             margin: self.margin.clone(),
-            x_inverted: self.x_inverted,
-            y_inverted: self.y_inverted,
-            secondary_y_label: self.secondary_y_label.clone(),
-            secondary_y_range: self.secondary_y_range,
-            secondary_y_formatter: self.secondary_y_formatter.clone(),
-            secondary_series_indices: self.secondary_series_indices.clone(),
-            dpi: self.dpi,
-            show_data_labels: self.show_data_labels,
-            data_label_formatter: self.data_label_formatter.clone(),
         }
     }
 }
@@ -362,29 +240,35 @@ impl Clone for ChartConfig {
 impl std::fmt::Debug for ChartConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChartConfig")
-            .field("title", &self.title)
-            .field("subtitle", &self.subtitle)
-            .field("footer", &self.footer)
+            .field("titles", &self.titles)
             .field("theme", &"..")
             .field("show_legend", &self.show_legend)
-            .field("x_tick_rotation", &self.x_tick_rotation)
-            .field(
-                "x_tick_formatter",
-                &self.x_tick_formatter.as_ref().map(|_| ".."),
-            )
-            .field(
-                "y_tick_formatter",
-                &self.y_tick_formatter.as_ref().map(|_| ".."),
-            )
-            .field("x_tick_step", &self.x_tick_step)
-            .field("y_tick_step", &self.y_tick_step)
-            .field("locale", &self.locale)
+            .field("axes", &self.axes)
+            .field("ticks", &self.ticks)
+            .field("overlays", &self.overlays)
+            .field("secondary", &self.secondary)
+            .field("export", &self.export)
+            .field("data_labels", &self.data_labels)
             .field("margin", &self.margin)
-            .field("x_inverted", &self.x_inverted)
-            .field("y_inverted", &self.y_inverted)
-            .field("secondary_y_label", &self.secondary_y_label)
-            .field("dpi", &self.dpi)
             .finish()
+    }
+}
+
+impl Default for ChartConfig {
+    fn default() -> Self {
+        Self {
+            titles: TitleConfig::default(),
+            theme: Theme::default(),
+            show_legend: true,
+            legend: LegendConfig::default(),
+            axes: AxisRangeConfig::default(),
+            ticks: TickConfig::default(),
+            overlays: OverlayConfig::default(),
+            secondary: SecondaryAxisConfig::default(),
+            export: ExportConfig::default(),
+            data_labels: DataLabelConfig::default(),
+            margin: None,
+        }
     }
 }
 
@@ -428,42 +312,5 @@ impl ReferenceLine {
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
-    }
-}
-
-impl Default for ChartConfig {
-    fn default() -> Self {
-        Self {
-            title: None,
-            subtitle: None,
-            footer: None,
-            x_label: None,
-            y_label: None,
-            theme: Theme::default(),
-            show_legend: true,
-            legend: LegendConfig::default(),
-            x_range: None,
-            y_range: None,
-            h_lines: Vec::new(),
-            v_lines: Vec::new(),
-            annotations: Vec::new(),
-            show_trend: false,
-            x_tick_rotation: LabelRotation::Horizontal,
-            x_tick_formatter: None,
-            y_tick_formatter: None,
-            x_tick_step: None,
-            y_tick_step: None,
-            locale: None,
-            margin: None,
-            x_inverted: false,
-            y_inverted: false,
-            secondary_y_label: None,
-            secondary_y_range: None,
-            secondary_y_formatter: None,
-            secondary_series_indices: Vec::new(),
-            dpi: 144,
-            show_data_labels: false,
-            data_label_formatter: None,
-        }
     }
 }

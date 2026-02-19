@@ -12,7 +12,7 @@
 //!
 //! Run: cargo test -p scry-chart --test axis_diagnostic -- --nocapture
 
-use scry_chart::chart::Chart;
+use scry_chart::chart::{Chart, Charts};
 use scry_chart::layout::{self, RenderedChart, TextAlign, TextOverlay};
 use scry_chart::theme::Theme;
 
@@ -396,7 +396,7 @@ fn test_matrix() -> Vec<(
     // 1. Normal range line chart
     charts.push((
         "line_normal".to_string(),
-        Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
+        Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0])
             .title("Normal Line")
             .x_label("Time")
             .y_label("Value")
@@ -410,7 +410,7 @@ fn test_matrix() -> Vec<(
     // 2. Micro-range values (wide tick labels like "0.0020")
     charts.push((
         "line_micro_range".to_string(),
-        Chart::line(&[0.001, 0.0015, 0.0012, 0.0018, 0.0014])
+        Charts::line(&[0.001, 0.0015, 0.0012, 0.0018, 0.0014])
             .title("Micro Range")
             .x_label("Sample")
             .y_label("PPM")
@@ -424,7 +424,7 @@ fn test_matrix() -> Vec<(
     // 3. Large values (tick labels like "350K")
     charts.push((
         "line_large_values".to_string(),
-        Chart::line(&[150000.0, 250000.0, 180000.0, 350000.0, 280000.0])
+        Charts::line(&[150000.0, 250000.0, 180000.0, 350000.0, 280000.0])
             .title("Large Values")
             .x_label("Quarter")
             .y_label("Revenue")
@@ -438,7 +438,7 @@ fn test_matrix() -> Vec<(
     // 4. Negative values
     charts.push((
         "bar_negative".to_string(),
-        Chart::bar(
+        Charts::bar(
             vec!["A".into(), "B".into(), "C".into(), "D".into()],
             &[10.0, -5.0, 15.0, -8.0],
         )
@@ -454,7 +454,7 @@ fn test_matrix() -> Vec<(
     // 5. Scatter with annotations
     charts.push((
         "scatter_basic".to_string(),
-        Chart::scatter(
+        Charts::scatter(
             &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
             &[2.0, 4.0, 1.5, 8.0, 5.0, 7.5, 3.0, 9.0],
         )
@@ -471,7 +471,7 @@ fn test_matrix() -> Vec<(
     // 6. Line chart with long axis label
     charts.push((
         "line_long_labels".to_string(),
-        Chart::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
+        Charts::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
             .title("Revenue Analysis")
             .x_label("Month of Year")
             .y_label("Revenue ($K)")
@@ -496,7 +496,7 @@ fn test_matrix() -> Vec<(
         .collect();
     charts.push((
         "histogram".to_string(),
-        Chart::histogram(&hist_data)
+        Charts::histogram(&hist_data)
             .title("Histogram")
             .x_label("Value")
             .y_label("Count")
@@ -511,7 +511,7 @@ fn test_matrix() -> Vec<(
     // 8. Very narrow range (forces many decimal places)
     charts.push((
         "line_narrow_range".to_string(),
-        Chart::line(&[100.1, 100.3, 100.2, 100.5, 100.4])
+        Charts::line(&[100.1, 100.3, 100.2, 100.5, 100.4])
             .title("Narrow Range")
             .x_label("Index")
             .y_label("Pressure")
@@ -525,7 +525,7 @@ fn test_matrix() -> Vec<(
     // 9. Rotated tick labels (diagonal 45°) — tests rotated X-tick positioning
     charts.push((
         "line_diagonal_ticks".to_string(),
-        Chart::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
+        Charts::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
             .title("Diagonal Ticks")
             .x_label("Category")
             .y_label("Amount")
@@ -542,7 +542,7 @@ fn test_matrix() -> Vec<(
     let many_pts: Vec<f64> = (0..11).map(|i| (i as f64) * 10.0 + 5.0).collect();
     charts.push((
         "line_11_points".to_string(),
-        Chart::line(&many_pts)
+        Charts::line(&many_pts)
             .title("11 Points")
             .x_label("Seq")
             .y_label("Val")

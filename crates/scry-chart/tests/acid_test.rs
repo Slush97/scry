@@ -8,7 +8,7 @@
 //!   - Reasonable command/overlay counts
 //!   - No NaN in pixel coordinates of text overlays
 
-use scry_chart::chart::{Chart, LineChart};
+use scry_chart::chart::{Chart, Charts, LineChart};
 use scry_chart::data::Series;
 use scry_chart::layout;
 use scry_chart::prelude::*;
@@ -52,7 +52,7 @@ fn assert_has_commands(rendered: &layout::RenderedChart, label: &str) {
 
 #[test]
 fn cat1_all_nan_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[f64::NAN, f64::NAN, f64::NAN],
         &[f64::NAN, f64::NAN, f64::NAN],
     )
@@ -65,7 +65,7 @@ fn cat1_all_nan_scatter() {
 
 #[test]
 fn cat1_all_nan_line() {
-    let chart = Chart::line(&[f64::NAN, f64::NAN, f64::NAN])
+    let chart = Charts::line(&[f64::NAN, f64::NAN, f64::NAN])
         .title("All NaN Line")
         .build();
 
@@ -75,7 +75,7 @@ fn cat1_all_nan_line() {
 
 #[test]
 fn cat1_all_nan_histogram() {
-    let chart = Chart::histogram(&[f64::NAN, f64::NAN, f64::NAN])
+    let chart = Charts::histogram(&[f64::NAN, f64::NAN, f64::NAN])
         .title("All NaN Histogram")
         .build();
 
@@ -85,7 +85,7 @@ fn cat1_all_nan_histogram() {
 
 #[test]
 fn cat1_all_nan_boxplot() {
-    let chart = Chart::boxplot(vec![("NaN Group", vec![f64::NAN, f64::NAN])])
+    let chart = Charts::boxplot(vec![("NaN Group", vec![f64::NAN, f64::NAN])])
         .title("All NaN Boxplot")
         .build();
 
@@ -95,7 +95,7 @@ fn cat1_all_nan_boxplot() {
 
 #[test]
 fn cat1_all_nan_heatmap() {
-    let chart = Chart::heatmap(vec![vec![f64::NAN, f64::NAN], vec![f64::NAN, f64::NAN]])
+    let chart = Charts::heatmap(vec![vec![f64::NAN, f64::NAN], vec![f64::NAN, f64::NAN]])
         .title("All NaN Heatmap")
         .build();
 
@@ -105,7 +105,7 @@ fn cat1_all_nan_heatmap() {
 
 #[test]
 fn cat1_mixed_nan_inf_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, f64::NAN, 3.0, f64::INFINITY, 5.0, f64::NEG_INFINITY],
         &[f64::NEG_INFINITY, 2.0, f64::NAN, 4.0, f64::INFINITY, 6.0],
     )
@@ -122,7 +122,7 @@ fn cat1_mixed_nan_inf_scatter() {
 #[test]
 fn cat1_identical_values() {
     // All-identical data: extent is (5.0, 5.0), scale span is zero
-    let chart = Chart::scatter(&[5.0, 5.0, 5.0, 5.0, 5.0], &[5.0, 5.0, 5.0, 5.0, 5.0])
+    let chart = Charts::scatter(&[5.0, 5.0, 5.0, 5.0, 5.0], &[5.0, 5.0, 5.0, 5.0, 5.0])
         .title("Identical Values")
         .build();
 
@@ -134,7 +134,7 @@ fn cat1_identical_values() {
 #[test]
 fn cat1_identical_line() {
     let data = vec![42.0; 100];
-    let chart = Chart::line(&data)
+    let chart = Charts::line(&data)
         .title("Flat Line")
         .filled()
         .with_points()
@@ -148,7 +148,7 @@ fn cat1_identical_line() {
 #[test]
 fn cat1_identical_histogram() {
     let data = vec![7.0; 200];
-    let chart = Chart::histogram(&data)
+    let chart = Charts::histogram(&data)
         .bins(10)
         .title("Delta Distribution")
         .build();
@@ -159,7 +159,7 @@ fn cat1_identical_histogram() {
 
 #[test]
 fn cat1_identical_bar() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[10.0, 10.0, 10.0],
     )
@@ -177,7 +177,7 @@ fn cat1_identical_bar() {
 
 #[test]
 fn cat2_extreme_range_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1e-12, 1e-6, 1.0, 1e6, 1e12],
         &[1e-12, 1e-6, 1.0, 1e6, 1e12],
     )
@@ -192,7 +192,7 @@ fn cat2_extreme_range_scatter() {
 #[test]
 fn cat2_very_small_range() {
     // Values differ by ~1e-10
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0000000001, 1.0000000002, 1.0000000003],
         &[2.0000000001, 2.0000000002, 2.0000000003],
     )
@@ -205,7 +205,7 @@ fn cat2_very_small_range() {
 
 #[test]
 fn cat2_all_negative_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[-100.0, -50.0, -10.0, -5.0, -1.0],
         &[-200.0, -100.0, -50.0, -10.0, -1.0],
     )
@@ -318,7 +318,7 @@ fn cat2_linear_scale_degenerate() {
 
 #[test]
 fn cat3_tiny_canvas() {
-    let chart = Chart::line(&[1.0, 2.0, 3.0])
+    let chart = Charts::line(&[1.0, 2.0, 3.0])
         .title("Tiny")
         .x_label("X")
         .y_label("Y")
@@ -331,14 +331,14 @@ fn cat3_tiny_canvas() {
 
 #[test]
 fn cat3_1x1_canvas() {
-    let chart = Chart::scatter(&[1.0], &[1.0]).build();
+    let chart = Charts::scatter(&[1.0], &[1.0]).build();
     let r = layout::render_chart(&chart, 1, 1);
     assert_sane(&r, 1, 1, "1x1_canvas");
 }
 
 #[test]
 fn cat3_very_wide_canvas() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
         .title("Wide")
         .build();
 
@@ -349,7 +349,7 @@ fn cat3_very_wide_canvas() {
 
 #[test]
 fn cat3_very_tall_canvas() {
-    let chart = Chart::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
+    let chart = Charts::histogram(&[1.0, 2.0, 3.0, 4.0, 5.0])
         .title("Tall")
         .build();
 
@@ -361,15 +361,15 @@ fn cat3_very_tall_canvas() {
 #[test]
 fn cat3_all_chart_types_tiny() {
     let charts: Vec<(&str, Chart)> = vec![
-        ("scatter", Chart::scatter(&[1.0], &[1.0]).build()),
-        ("line", Chart::line(&[1.0, 2.0]).build()),
-        ("bar", Chart::bar(vec!["A".into()], &[5.0]).build()),
-        ("hist", Chart::histogram(&[1.0, 2.0, 3.0]).build()),
+        ("scatter", Charts::scatter(&[1.0], &[1.0]).build()),
+        ("line", Charts::line(&[1.0, 2.0]).build()),
+        ("bar", Charts::bar(vec!["A".into()], &[5.0]).build()),
+        ("hist", Charts::histogram(&[1.0, 2.0, 3.0]).build()),
         (
             "box",
-            Chart::boxplot(vec![("G", vec![1.0, 2.0, 3.0])]).build(),
+            Charts::boxplot(vec![("G", vec![1.0, 2.0, 3.0])]).build(),
         ),
-        ("heat", Chart::heatmap(vec![vec![1.0]]).build()),
+        ("heat", Charts::heatmap(vec![vec![1.0]]).build()),
     ];
 
     for (name, chart) in &charts {
@@ -384,7 +384,7 @@ fn cat3_all_chart_types_tiny() {
 
 #[test]
 fn cat4_negative_bar_values() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[-10.0, -20.0, -5.0],
     )
@@ -399,7 +399,7 @@ fn cat4_negative_bar_values() {
 
 #[test]
 fn cat4_mixed_sign_bars() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "Profit".into(),
             "Loss".into(),
@@ -418,7 +418,7 @@ fn cat4_mixed_sign_bars() {
 
 #[test]
 fn cat4_negative_stacked_bars() {
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[-10.0, 10.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[-10.0, 10.0])
         .add_series(Series::new("Layer2", vec![5.0, -5.0]))
         .stacked()
         .title("Negative Stacked")
@@ -430,7 +430,7 @@ fn cat4_negative_stacked_bars() {
 
 #[test]
 fn cat4_negative_horizontal_bars() {
-    let chart = Chart::bar(vec!["X".into(), "Y".into()], &[-50.0, -25.0])
+    let chart = Charts::bar(vec!["X".into(), "Y".into()], &[-50.0, -25.0])
         .horizontal()
         .title("Negative Horizontal")
         .build();
@@ -442,7 +442,7 @@ fn cat4_negative_horizontal_bars() {
 #[test]
 fn cat4_all_negative_histogram() {
     let data: Vec<f64> = (-100..0).map(|i| i as f64).collect();
-    let chart = Chart::histogram(&data)
+    let chart = Charts::histogram(&data)
         .bins(10)
         .title("All Negative Histogram")
         .build();
@@ -454,7 +454,7 @@ fn cat4_all_negative_histogram() {
 
 #[test]
 fn cat4_zero_crossing_line() {
-    let chart = Chart::line(&[-5.0, -2.0, 0.0, 3.0, 7.0, -1.0, 4.0])
+    let chart = Charts::line(&[-5.0, -2.0, 0.0, 3.0, 7.0, -1.0, 4.0])
         .title("Zero Crossing")
         .filled()
         .h_line(0.0)
@@ -471,7 +471,7 @@ fn cat4_zero_crossing_line() {
 
 #[test]
 fn cat5_everything_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
         &[2.0, 4.0, 1.0, 8.0, 5.0, 3.0, 7.0, 6.0, 9.0, 10.0],
     )
@@ -547,7 +547,7 @@ fn cat5_all_markers_connected() {
     ];
 
     for marker in markers {
-        let chart = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 5.0, 3.0])
+        let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 5.0, 3.0])
             .marker(marker)
             .connected()
             .trend_line()
@@ -584,7 +584,7 @@ fn cat5_eight_series_line() {
 #[test]
 fn cat5_mismatched_series_lengths_bar() {
     // Series with different lengths — should truncate gracefully
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
         &[10.0, 20.0, 30.0, 40.0, 50.0],
     )
@@ -600,7 +600,7 @@ fn cat5_mismatched_series_lengths_bar() {
 
 #[test]
 fn cat5_stacked_horizontal_with_refs() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Reg1".into(), "Reg2".into(), "Reg3".into()],
         &[30.0, 50.0, 20.0],
     )
@@ -631,37 +631,37 @@ fn cat5_all_themes_all_chart_types() {
         let charts: Vec<(&str, Chart)> = vec![
             (
                 "scatter",
-                Chart::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
+                Charts::scatter(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0])
                     .theme(theme.clone())
                     .build(),
             ),
             (
                 "line",
-                Chart::line(&[1.0, 4.0, 2.0, 8.0])
+                Charts::line(&[1.0, 4.0, 2.0, 8.0])
                     .theme(theme.clone())
                     .build(),
             ),
             (
                 "bar",
-                Chart::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
+                Charts::bar(vec!["A".into(), "B".into()], &[10.0, 20.0])
                     .theme(theme.clone())
                     .build(),
             ),
             (
                 "hist",
-                Chart::histogram(&[1.0, 2.0, 3.0, 2.0, 1.0])
+                Charts::histogram(&[1.0, 2.0, 3.0, 2.0, 1.0])
                     .theme(theme.clone())
                     .build(),
             ),
             (
                 "box",
-                Chart::boxplot(vec![("G", vec![1.0, 2.0, 3.0, 4.0, 5.0])])
+                Charts::boxplot(vec![("G", vec![1.0, 2.0, 3.0, 4.0, 5.0])])
                     .theme(theme.clone())
                     .build(),
             ),
             (
                 "heat",
-                Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+                Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
                     .theme(theme.clone())
                     .build(),
             ),
@@ -687,7 +687,7 @@ fn cat6_10k_scatter() {
         .map(|i| (i as f64 * 0.01).sin() * 50.0 + (i as f64 * 0.007).cos() * 30.0)
         .collect();
 
-    let chart = Chart::scatter(&x, &y).title("10K Scatter").build();
+    let chart = Charts::scatter(&x, &y).title("10K Scatter").build();
 
     let r = layout::render_chart(&chart, 800, 600);
     assert_sane(&r, 800, 600, "10k_scatter");
@@ -704,7 +704,7 @@ fn cat6_10k_line() {
         .map(|i| (i as f64 * 0.01).sin() * 100.0)
         .collect();
 
-    let chart = Chart::line(&values).title("10K Line").build();
+    let chart = Charts::line(&values).title("10K Line").build();
 
     let r = layout::render_chart(&chart, 1200, 400);
     assert_sane(&r, 1200, 400, "10k_line");
@@ -722,7 +722,7 @@ fn cat6_50k_histogram() {
         })
         .collect();
 
-    let chart = Chart::histogram(&values)
+    let chart = Charts::histogram(&values)
         .bins(50)
         .title("50K Histogram")
         .density()
@@ -748,7 +748,7 @@ fn cat6_large_heatmap() {
         })
         .collect();
 
-    let chart = Chart::heatmap(data)
+    let chart = Charts::heatmap(data)
         .title("50x50 Heatmap")
         .values(false) // would be illegible with values
         .build();
@@ -773,7 +773,7 @@ fn cat6_many_boxplot_groups() {
         })
         .collect();
 
-    let chart = Chart::boxplot(groups).title("20 Boxplot Groups").build();
+    let chart = Charts::boxplot(groups).title("20 Boxplot Groups").build();
 
     let r = layout::render_chart(&chart, 1200, 400);
     assert_sane(&r, 1200, 400, "many_boxplot_groups");
@@ -786,7 +786,7 @@ fn cat6_many_boxplot_groups() {
 
 #[test]
 fn cat7_empty_labels_bar() {
-    let chart = Chart::bar(vec!["".into(), "".into(), "".into()], &[10.0, 20.0, 30.0])
+    let chart = Charts::bar(vec!["".into(), "".into(), "".into()], &[10.0, 20.0, 30.0])
         .title("Empty Labels")
         .build();
 
@@ -797,7 +797,7 @@ fn cat7_empty_labels_bar() {
 
 #[test]
 fn cat7_unicode_labels() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "日本語".into(),
             "中文".into(),
@@ -818,7 +818,7 @@ fn cat7_unicode_labels() {
 
 #[test]
 fn cat7_very_long_labels() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec![
             "This is an extraordinarily long category label that should not crash".into(),
             "Another very long label for testing overflow handling in the renderer".into(),
@@ -836,7 +836,7 @@ fn cat7_very_long_labels() {
 
 #[test]
 fn cat7_1x1_heatmap() {
-    let chart = Chart::heatmap(vec![vec![42.0]])
+    let chart = Charts::heatmap(vec![vec![42.0]])
         .title("1x1 Heatmap")
         .row_labels(vec!["Only Row".into()])
         .col_labels(vec!["Only Col".into()])
@@ -850,7 +850,7 @@ fn cat7_1x1_heatmap() {
 #[test]
 fn cat7_heatmap_jagged_rows() {
     // Rows of different lengths — a real-world mistake
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, 2.0, 3.0],
         vec![4.0, 5.0],           // short row
         vec![6.0, 7.0, 8.0, 9.0], // long row
@@ -864,7 +864,7 @@ fn cat7_heatmap_jagged_rows() {
 
 #[test]
 fn cat7_zero_value_bar() {
-    let chart = Chart::bar(vec!["A".into(), "B".into(), "C".into()], &[0.0, 0.0, 0.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into(), "C".into()], &[0.0, 0.0, 0.0])
         .title("All Zero Bars")
         .build();
 
@@ -874,7 +874,7 @@ fn cat7_zero_value_bar() {
 
 #[test]
 fn cat7_single_bin_histogram() {
-    let chart = Chart::histogram(&[5.0, 5.1, 5.2, 5.3])
+    let chart = Charts::histogram(&[5.0, 5.1, 5.2, 5.3])
         .bins(1)
         .title("Single Bin")
         .build();
@@ -886,7 +886,7 @@ fn cat7_single_bin_histogram() {
 #[test]
 fn cat7_many_bins_histogram() {
     let data: Vec<f64> = (0..100).map(|i| i as f64).collect();
-    let chart = Chart::histogram(&data)
+    let chart = Charts::histogram(&data)
         .bins(100) // bin count == data count
         .title("100 Bins")
         .build();
@@ -898,7 +898,7 @@ fn cat7_many_bins_histogram() {
 
 #[test]
 fn cat7_boxplot_single_value_group() {
-    let chart = Chart::boxplot(vec![
+    let chart = Charts::boxplot(vec![
         ("One", vec![5.0]),
         ("Two", vec![3.0, 7.0]),
         (
@@ -916,7 +916,7 @@ fn cat7_boxplot_single_value_group() {
 
 #[test]
 fn cat7_heatmap_negative_values() {
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![-1.0, -0.5, 0.0],
         vec![0.5, 1.0, -0.8],
         vec![-0.3, 0.7, -1.0],
@@ -933,7 +933,7 @@ fn cat7_heatmap_negative_values() {
 #[test]
 fn cat7_boxplot_notched_flag() {
     // Tests that notched rendering produces polygon commands (was previously a no-op)
-    let chart = Chart::boxplot(vec![
+    let chart = Charts::boxplot(vec![
         ("A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
         (
             "B",
@@ -949,7 +949,7 @@ fn cat7_boxplot_notched_flag() {
     assert_has_commands(&r, "boxplot_notched");
 
     // Verify non-notched also works for comparison
-    let chart2 = Chart::boxplot(vec![
+    let chart2 = Charts::boxplot(vec![
         ("A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
         (
             "B",
@@ -970,7 +970,7 @@ fn cat7_histogram_density_nan_in_data() {
     let mut data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
     data.extend_from_slice(&[f64::NAN; 95]); // 95% NaN
 
-    let chart = Chart::histogram(&data)
+    let chart = Charts::histogram(&data)
         .density()
         .bins(5)
         .title("Density with NaN")
@@ -987,7 +987,7 @@ fn cat7_histogram_density_nan_in_data() {
 #[test]
 fn cat8_negative_bars_produce_rects() {
     // After Phase 2: negative-value bars must produce draw commands, not be silently skipped
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[-10.0, -20.0, -5.0],
     )
@@ -1007,7 +1007,7 @@ fn cat8_negative_bars_produce_rects() {
 #[test]
 fn cat8_mixed_bars_both_directions() {
     // Mixed positive/negative bars should render in both directions from baseline
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["Up".into(), "Down".into(), "Up2".into()],
         &[50.0, -30.0, 20.0],
     )
@@ -1027,7 +1027,7 @@ fn cat8_mixed_bars_both_directions() {
 #[test]
 fn cat8_scatter_nan_filtered_not_drawn() {
     // After Phase 1: NaN data points should be filtered out, not drawn at garbage coords
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, f64::NAN, 3.0, f64::NAN, 5.0],
         &[2.0, 4.0, f64::NAN, 6.0, 8.0],
     )
@@ -1039,7 +1039,7 @@ fn cat8_scatter_nan_filtered_not_drawn() {
 
     // Only finite-finite pairs (1,2) and (5,8) should produce markers => 2 markers
     // Compare to all-finite version with 5 markers
-    let chart_all_finite = Chart::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0])
+    let chart_all_finite = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0])
         .title("All Finite Scatter")
         .build();
 
@@ -1056,7 +1056,7 @@ fn cat8_scatter_nan_filtered_not_drawn() {
 #[test]
 fn cat8_heatmap_nan_cells_skipped() {
     // After Phase 4: NaN cells should produce no rect or overlay
-    let chart = Chart::heatmap(vec![
+    let chart = Charts::heatmap(vec![
         vec![1.0, f64::NAN, 3.0],
         vec![f64::NAN, 5.0, f64::NAN],
         vec![7.0, 8.0, 9.0],
@@ -1068,7 +1068,7 @@ fn cat8_heatmap_nan_cells_skipped() {
     assert_sane(&r_nan, 400, 400, "nan_cells_heatmap");
 
     // Full heatmap for comparison
-    let chart_full = Chart::heatmap(vec![
+    let chart_full = Charts::heatmap(vec![
         vec![1.0, 2.0, 3.0],
         vec![4.0, 5.0, 6.0],
         vec![7.0, 8.0, 9.0],
@@ -1089,11 +1089,11 @@ fn cat8_heatmap_nan_cells_skipped() {
 #[test]
 fn cat8_annotation_background_width_scales() {
     // After Phase 5: annotation background width should scale with text length
-    let chart_short = Chart::scatter(&[5.0], &[5.0])
+    let chart_short = Charts::scatter(&[5.0], &[5.0])
         .annotate(5.0, 5.0, "Hi")
         .build();
 
-    let chart_long = Chart::scatter(&[5.0], &[5.0])
+    let chart_long = Charts::scatter(&[5.0], &[5.0])
         .annotate(5.0, 5.0, "This is a very long annotation text for testing")
         .build();
 
@@ -1110,7 +1110,7 @@ fn cat8_annotation_background_width_scales() {
 #[test]
 fn cat8_horizontal_negative_bars_visible() {
     // After Phase 2: horizontal negative bars should extend left from baseline
-    let chart = Chart::bar(vec!["A".into(), "B".into()], &[-50.0, -25.0])
+    let chart = Charts::bar(vec!["A".into(), "B".into()], &[-50.0, -25.0])
         .horizontal()
         .title("Horizontal Negative Bars")
         .build();

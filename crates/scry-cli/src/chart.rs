@@ -314,7 +314,7 @@ fn cmd_render(
 
     // Inject DPI into chart config
     if dpi != 144 {
-        chart.config_mut().dpi = dpi;
+        if let Some(cfg) = chart.config_mut() { cfg.export.dpi = dpi; }
     }
 
     // Render to PNG
@@ -360,7 +360,7 @@ fn cmd_example(
     for (i, ct) in types.iter().enumerate() {
         let mut chart = examples::build_example(*ct, theme.clone());
         if dpi != 144 {
-            chart.config_mut().dpi = dpi;
+            if let Some(cfg) = chart.config_mut() { cfg.export.dpi = dpi; }
         }
         let png_data = scry_chart::export::render_to_png(&chart, width, height)?;
 
@@ -596,7 +596,7 @@ fn cmd_plot(
 
     // Inject DPI
     if dpi != 144 {
-        chart.config_mut().dpi = dpi;
+        if let Some(cfg) = chart.config_mut() { cfg.export.dpi = dpi; }
     }
 
     // Render to PNG

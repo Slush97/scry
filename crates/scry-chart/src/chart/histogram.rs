@@ -9,6 +9,7 @@ use crate::chart::config_builder::{
 };
 use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
+use crate::spec::ChartSpec;
 
 /// A histogram — distribution of values shown as binned bars.
 #[derive(Clone, Debug)]
@@ -100,9 +101,9 @@ impl Histogram {
         Ok(self.build())
     }
 
-    /// Build into a Chart enum variant.
+    /// Build into a Chart.
     pub fn build(self) -> Chart {
-        Chart::Histogram(self)
+        Box::new(self) as Chart
     }
 
     /// Auto-select number of bins using Sturges' rule.
@@ -111,4 +112,30 @@ impl Histogram {
         let bins = (1.0 + (n as f64).log2()).ceil() as usize;
         bins.max(5).min(50)
     }
+}
+
+impl ChartSpec for Histogram {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::histogram::render_histogram(self, w, h)
+    }
+    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+        if let Some((x0, x1, y0, y1)) = vp {
+            let mut c = self.clone();
+            c.config.axes.x_range = Some((x0, x1));
+            c.config.axes.y_range = Some((y0, y1));
+            c.render(w, h)
+        } else {
+            self.render(w, h)
+        }
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn data_extent(&self) -> Option<(f64, f64, f64, f64)> {
+        let vals = self.data.values();
+        if vals.is_empty() { return None; }
+        let x_min = vals.iter().copied().fold(f64::INFINITY, f64::min);
+        let x_max = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        Some((x_min, x_max, 0.0, vals.len() as f64))
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

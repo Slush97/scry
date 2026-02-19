@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run -p scry-chart --example tier2_charts
 
-use scry_chart::chart::Chart;
+use scry_chart::chart::{Chart, Charts};
 use scry_chart::export;
 use scry_chart::theme::Theme;
 use scry_engine::style::Color;
@@ -31,7 +31,7 @@ fn main() {
 }
 
 fn waterfall_chart() -> Chart {
-    Chart::waterfall(
+    Charts::waterfall(
         vec![
             "Revenue".into(),
             "COGS".into(),
@@ -50,7 +50,7 @@ fn waterfall_chart() -> Chart {
 }
 
 fn funnel_chart() -> Chart {
-    Chart::funnel(
+    Charts::funnel(
         vec![
             "Website Visitors".into(),
             "Sign-ups".into(),
@@ -66,7 +66,7 @@ fn funnel_chart() -> Chart {
 }
 
 fn gauge_chart() -> Chart {
-    Chart::gauge(73.0)
+    Charts::gauge(73.0)
         .range(0.0, 100.0)
         .threshold(40.0, Color::from_rgba8(46, 204, 113, 255)) // green
         .threshold(70.0, Color::from_rgba8(241, 196, 15, 255)) // yellow
@@ -79,7 +79,7 @@ fn gauge_chart() -> Chart {
 }
 
 fn lollipop_chart() -> Chart {
-    Chart::lollipop(
+    Charts::lollipop(
         vec![
             "Rust".into(),
             "Python".into(),

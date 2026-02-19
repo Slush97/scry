@@ -7,6 +7,7 @@ use crate::chart::config_builder::{
     chart_config_core, chart_config_margin, chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 use crate::colormap::Colormap;
 use scry_engine::style::Color;
 use std::sync::Arc;
@@ -79,7 +80,7 @@ impl ContourChart {
 
     /// Build as a [`Chart`].
     pub fn build(self) -> Chart {
-        Chart::Contour(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -94,7 +95,7 @@ impl ContourChart {
         if self.data.iter().any(|r| r.len() != cols) {
             return Err(crate::error::ChartError::JaggedGrid);
         }
-        Ok(Chart::Contour(self))
+        Ok(Box::new(self) as Chart)
     }
 
     /// Get the (min, max) of all finite values in the grid.
@@ -122,13 +123,32 @@ impl ContourChart {
     chart_config_margin!();
 }
 
+impl ChartSpec for ContourChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::contour::render_contour(self, w, h)
+    }
+    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+        if let Some((x0, x1, y0, y1)) = vp {
+            let mut c = self.clone();
+            c.config.axes.x_range = Some((x0, x1));
+            c.config.axes.y_range = Some((y0, y1));
+            c.render(w, h)
+        } else {
+            self.render(w, h)
+        }
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn contour_basic_build() {
-        let chart = ContourChart::new(vec![
+        let _chart = ContourChart::new(vec![
             vec![1.0, 2.0, 3.0],
             vec![4.0, 5.0, 6.0],
             vec![7.0, 8.0, 9.0],
@@ -137,7 +157,6 @@ mod tests {
         .filled()
         .title("Contour Test")
         .build();
-        assert!(matches!(chart, Chart::Contour(_)));
     }
 
     #[test]

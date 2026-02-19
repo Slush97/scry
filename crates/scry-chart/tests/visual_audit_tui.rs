@@ -322,7 +322,7 @@ fn build_chart(idx: usize) -> Chart {
             let y: Vec<f64> = (0..30)
                 .map(|i| (i as f64 * 0.3).sin() * 5.0 + 10.0)
                 .collect();
-            Chart::line(&y)
+            Charts::line(&y)
                 .title("Basic Line Chart")
                 .x_label("Sample Index")
                 .y_label("Value")
@@ -333,7 +333,7 @@ fn build_chart(idx: usize) -> Chart {
             let y1: Vec<f64> = x.iter().map(|&v| v.sin() * 3.0).collect();
             let y2: Vec<f64> = x.iter().map(|&v| v.cos() * 3.0).collect();
             let y3: Vec<f64> = x.iter().map(|&v| (v * 1.5).sin() * 2.0 + 1.0).collect();
-            Chart::line(&y1)
+            Charts::line(&y1)
                 .title("Multi-Series Line")
                 .x_label("Time")
                 .y_label("Amplitude")
@@ -349,7 +349,7 @@ fn build_chart(idx: usize) -> Chart {
                     (x * 0.5).sin() * 4.0 + (x * 0.2).cos() * 2.0
                 })
                 .collect();
-            Chart::line(&y)
+            Charts::line(&y)
                 .title("Smooth Line (Catmull-Rom Spline)")
                 .x_label("X")
                 .y_label("Y")
@@ -358,7 +358,7 @@ fn build_chart(idx: usize) -> Chart {
                 .theme(Theme::pastel())
                 .build()
         }
-        3 => Chart::line(&[2.0, 2.0, 5.0, 5.0, 3.0, 8.0, 8.0, 4.0, 4.0, 6.0])
+        3 => Charts::line(&[2.0, 2.0, 5.0, 5.0, 3.0, 8.0, 8.0, 4.0, 4.0, 6.0])
             .title("Step Line (Stairstep)")
             .x_label("Stage")
             .y_label("Level")
@@ -370,7 +370,7 @@ fn build_chart(idx: usize) -> Chart {
             let y: Vec<f64> = (0..40)
                 .map(|i| (i as f64 * 0.2).sin().abs() * 6.0 + 2.0)
                 .collect();
-            Chart::line(&y)
+            Charts::line(&y)
                 .title("Filled Area Chart")
                 .x_label("Time")
                 .y_label("Load")
@@ -387,7 +387,7 @@ fn build_chart(idx: usize) -> Chart {
                 .iter()
                 .map(|&v| 3.0 + v * 0.4 + (v * 0.3).cos() * 1.5)
                 .collect();
-            Chart::line(&rev)
+            Charts::line(&rev)
                 .title("Revenue vs Costs — Full Features")
                 .x_label("Month")
                 .y_label("$M")
@@ -403,7 +403,7 @@ fn build_chart(idx: usize) -> Chart {
                 .theme(Theme::dark())
                 .build()
         }
-        6 => Chart::line_xy(
+        6 => Charts::line_xy(
             &[0.0, 1.0, 1.5, 4.0, 4.5, 7.0, 10.0],
             &[1.0, 3.0, 2.0, 8.0, 5.0, 9.0, 4.0],
         )
@@ -414,19 +414,19 @@ fn build_chart(idx: usize) -> Chart {
         .build(),
 
         // ── Section 2: Bar Charts ───────────────────────────────────
-        7 => Chart::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
+        7 => Charts::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
             .title("Vertical Bar Chart")
             .x_label("Category")
             .y_label("Score")
             .build(),
-        8 => Chart::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
+        8 => Charts::bar(labels5(), &[40.0, 70.0, 55.0, 90.0, 35.0])
             .title("Horizontal Bar Chart")
             .x_label("Category")
             .y_label("Score")
             .horizontal()
             .theme(Theme::forest())
             .build(),
-        9 => Chart::bar(
+        9 => Charts::bar(
             vec!["Rust".into(), "Go".into(), "Python".into(), "C++".into()],
             &[95.0, 78.0, 42.0, 90.0],
         )
@@ -437,7 +437,7 @@ fn build_chart(idx: usize) -> Chart {
         .y_range(0.0, 100.0)
         .h_line(75.0)
         .build(),
-        10 => Chart::bar(labels4(), &[100.0, 120.0, 90.0, 150.0])
+        10 => Charts::bar(labels4(), &[100.0, 120.0, 90.0, 150.0])
             .title("Quarterly Revenue — Stacked")
             .y_label("$K")
             .add_named_series("Services", &[60.0, 80.0, 70.0, 100.0])
@@ -445,7 +445,7 @@ fn build_chart(idx: usize) -> Chart {
             .stacked()
             .theme(Theme::pastel())
             .build(),
-        11 => Chart::bar(
+        11 => Charts::bar(
             vec![
                 "Jan".into(),
                 "Feb".into(),
@@ -460,7 +460,7 @@ fn build_chart(idx: usize) -> Chart {
         .y_label("$K")
         .h_line_styled(0.0, Color::from_rgba8(255, 255, 0, 200))
         .build(),
-        12 => Chart::bar(labels4(), &[42.0, 67.0, 31.0, 89.0])
+        12 => Charts::bar(labels4(), &[42.0, 67.0, 31.0, 89.0])
             .title("Sales — Value Labels + Rounded")
             .y_label("Units")
             .show_values()
@@ -468,7 +468,7 @@ fn build_chart(idx: usize) -> Chart {
             .gap(0.35)
             .theme(Theme::ocean())
             .build(),
-        13 => Chart::bar(labels5(), &[180.0, 210.0, 95.0, 150.0, 120.0])
+        13 => Charts::bar(labels5(), &[180.0, 210.0, 95.0, 150.0, 120.0])
             .title("Team Hours — Stacked Horizontal")
             .x_label("Hours")
             .add_named_series("Q2", &[200.0, 190.0, 110.0, 180.0, 140.0])
@@ -492,7 +492,7 @@ fn build_chart(idx: usize) -> Chart {
             ];
             let names = ["CIRCLE", "SQUARE", "DIAMOND", "CROSS", "TRIANGLE"];
             let mi = idx - 14;
-            Chart::scatter(&sx, &sy)
+            Charts::scatter(&sx, &sy)
                 .title(&format!("Scatter — Marker: {}", names[mi]))
                 .x_label("X")
                 .y_label("Y")
@@ -501,7 +501,7 @@ fn build_chart(idx: usize) -> Chart {
         }
         19 => {
             let (sx, sy) = scatter_data();
-            Chart::scatter(&sx, &sy)
+            Charts::scatter(&sx, &sy)
                 .title("Scatter — Connected Points")
                 .x_label("X")
                 .y_label("Y")
@@ -512,7 +512,7 @@ fn build_chart(idx: usize) -> Chart {
         20 => {
             let (sx, sy) = scatter_data();
             let s2y: Vec<f64> = sx.iter().map(|&v| v.ln().max(0.0) * 4.0).collect();
-            Chart::scatter(&sx, &sy)
+            Charts::scatter(&sx, &sy)
                 .title("Scatter — Multi-Series + Trend Line")
                 .x_label("X")
                 .y_label("Y")
@@ -523,7 +523,7 @@ fn build_chart(idx: usize) -> Chart {
         }
         21 => {
             let (sx, sy) = scatter_data();
-            Chart::scatter(&sx[..15], &sy[..15])
+            Charts::scatter(&sx[..15], &sy[..15])
                 .title("Scatter — Large Markers (size=8)")
                 .x_label("X")
                 .y_label("Y")
@@ -534,13 +534,13 @@ fn build_chart(idx: usize) -> Chart {
         }
 
         // ── Section 4: Histograms ───────────────────────────────────
-        22 => Chart::histogram(&pseudo_normal(400, 50.0, 10.0, 42))
+        22 => Charts::histogram(&pseudo_normal(400, 50.0, 10.0, 42))
             .title("Histogram — Frequency Distribution")
             .x_label("Value")
             .y_label("Count")
             .bins(20)
             .build(),
-        23 => Chart::histogram(&pseudo_normal(400, 50.0, 10.0, 42))
+        23 => Charts::histogram(&pseudo_normal(400, 50.0, 10.0, 42))
             .title("Histogram — Density Normalized")
             .x_label("Value")
             .y_label("Density")
@@ -553,7 +553,7 @@ fn build_chart(idx: usize) -> Chart {
         24 => {
             let d1 = pseudo_normal(400, 50.0, 10.0, 42);
             let d2 = pseudo_normal(300, 60.0, 8.0, 99);
-            Chart::histogram(&d1)
+            Charts::histogram(&d1)
                 .title("Histogram — Overlaid Distributions")
                 .x_label("Value")
                 .y_label("Count")
@@ -564,7 +564,7 @@ fn build_chart(idx: usize) -> Chart {
                 .v_line_styled(60.0, Color::from_rgba8(100, 100, 255, 200))
                 .build()
         }
-        25 => Chart::histogram(&pseudo_normal(400, 50.0, 10.0, 42))
+        25 => Charts::histogram(&pseudo_normal(400, 50.0, 10.0, 42))
             .title("Histogram — 8 Bins (Coarse)")
             .x_label("Value")
             .y_label("Count")
@@ -573,7 +573,7 @@ fn build_chart(idx: usize) -> Chart {
             .build(),
 
         // ── Section 5: Box Plots ────────────────────────────────────
-        26 => Chart::boxplot(vec![
+        26 => Charts::boxplot(vec![
             ("Control", pseudo_normal(80, 10.0, 2.0, 300)),
             ("Drug A", pseudo_normal(80, 14.0, 3.0, 400)),
             ("Drug B", pseudo_normal(80, 12.0, 1.5, 500)),
@@ -584,7 +584,7 @@ fn build_chart(idx: usize) -> Chart {
         .y_label("Response Score")
         .h_line(12.0)
         .build(),
-        27 => Chart::boxplot(vec![
+        27 => Charts::boxplot(vec![
             ("Mon", pseudo_normal(60, 22.0, 3.0, 10)),
             ("Tue", pseudo_normal(60, 20.0, 2.5, 20)),
             ("Wed", pseudo_normal(60, 25.0, 4.0, 30)),
@@ -597,7 +597,7 @@ fn build_chart(idx: usize) -> Chart {
         .notched()
         .theme(Theme::ocean())
         .build(),
-        28 => Chart::boxplot(vec![
+        28 => Charts::boxplot(vec![
             ("n=5", vec![2.0, 4.0, 5.0, 6.0, 8.0]),
             ("n=20", pseudo_normal(20, 6.0, 2.0, 100)),
             ("n=100", pseudo_normal(100, 5.0, 3.0, 200)),
@@ -610,7 +610,7 @@ fn build_chart(idx: usize) -> Chart {
         .build(),
 
         // ── Section 6: Heatmaps ─────────────────────────────────────
-        29 => Chart::heatmap(vec![
+        29 => Charts::heatmap(vec![
             vec![1.0, 3.0, 5.0, 7.0, 9.0],
             vec![2.0, 4.0, 6.0, 8.0, 10.0],
             vec![3.0, 6.0, 9.0, 12.0, 15.0],
@@ -640,7 +640,7 @@ fn build_chart(idx: usize) -> Chart {
             .cell_radius(4.0)
             .build()
         }
-        31 => Chart::heatmap(vec![
+        31 => Charts::heatmap(vec![
             vec![2.0, 15.0, 30.0, 25.0, 40.0, 20.0, 5.0],
             vec![3.0, 18.0, 35.0, 28.0, 45.0, 22.0, 4.0],
             vec![1.0, 12.0, 28.0, 22.0, 38.0, 18.0, 6.0],
@@ -675,7 +675,7 @@ fn build_chart(idx: usize) -> Chart {
         .build(),
         32 => {
             let nan = f64::NAN;
-            Chart::heatmap(vec![
+            Charts::heatmap(vec![
                 vec![1.0, nan, 3.0, 4.0],
                 vec![nan, 7.0, 8.0, nan],
                 vec![11.0, 12.0, nan, 14.0],
@@ -689,19 +689,19 @@ fn build_chart(idx: usize) -> Chart {
         }
 
         // ── Section 7: Pie/Donut ────────────────────────────────────
-        33 => Chart::pie(pie_labels(), &[45.0, 35.0, 15.0, 5.0])
+        33 => Charts::pie(pie_labels(), &[45.0, 35.0, 15.0, 5.0])
             .title("Traffic Sources — Pie")
             .build(),
-        34 => Chart::pie(pie_labels(), &[45.0, 35.0, 15.0, 5.0])
+        34 => Charts::pie(pie_labels(), &[45.0, 35.0, 15.0, 5.0])
             .title("Traffic Sources — Donut")
             .donut(0.5)
             .build(),
-        35 => Chart::pie(pie_labels(), &[45.0, 35.0, 15.0, 5.0])
+        35 => Charts::pie(pie_labels(), &[45.0, 35.0, 15.0, 5.0])
             .title("Traffic Sources — Thin Donut (0.7)")
             .donut(0.7)
             .theme(Theme::pastel())
             .build(),
-        36 => Chart::pie(
+        36 => Charts::pie(
             vec![
                 "A".into(),
                 "B".into(),
@@ -719,19 +719,19 @@ fn build_chart(idx: usize) -> Chart {
         .build(),
 
         // ── Section 8: Edge Cases ───────────────────────────────────
-        37 => Chart::scatter(&[42.0], &[99.0])
+        37 => Charts::scatter(&[42.0], &[99.0])
             .title("Single Data Point")
             .x_label("X")
             .y_label("Y")
             .marker(Marker::Circle)
             .annotate(42.0, 99.0, "Only point")
             .build(),
-        38 => Chart::line(&[f64::NAN, f64::NAN, f64::NAN])
+        38 => Charts::line(&[f64::NAN, f64::NAN, f64::NAN])
             .title("All-NaN Data (Should Render Empty)")
             .build(),
         39 => {
             let tiny: Vec<f64> = (0..15).map(|i| 1.000 + i as f64 * 0.001).collect();
-            Chart::line(&tiny)
+            Charts::line(&tiny)
                 .title("Tiny Range: 1.000 → 1.014")
                 .x_label("Sample")
                 .y_label("Voltage (V)")
@@ -741,14 +741,14 @@ fn build_chart(idx: usize) -> Chart {
         }
         40 => {
             let huge: Vec<f64> = (0..20).map(|i| (i as f64 * 0.3).exp() * 100.0).collect();
-            Chart::line(&huge)
+            Charts::line(&huge)
                 .title("Exponential Growth → 28K+")
                 .x_label("Day")
                 .y_label("Users")
                 .filled()
                 .build()
         }
-        41 => Chart::scatter(
+        41 => Charts::scatter(
             &[1.0, 2.0, f64::NAN, 4.0, 5.0, f64::INFINITY, 7.0, 8.0],
             &[2.0, f64::NAN, 3.0, 5.0, f64::INFINITY, 4.0, 7.0, 6.0],
         )
@@ -759,18 +759,18 @@ fn build_chart(idx: usize) -> Chart {
         42 => {
             let labels: Vec<String> = (1..=15).map(|i| format!("Cat{i}")).collect();
             let vals: Vec<f64> = (1..=15).map(|i| (i as f64 * 7.0 % 23.0) + 5.0).collect();
-            Chart::bar(labels, &vals)
+            Charts::bar(labels, &vals)
                 .title("15 Categories — Label Crowding Test")
                 .y_label("Value")
                 .build()
         }
-        43 => Chart::line(&[5.0, 5.0, 5.0, 5.0, 5.0])
+        43 => Charts::line(&[5.0, 5.0, 5.0, 5.0, 5.0])
             .title("All Identical Values (y=5)")
             .x_label("X")
             .y_label("Y")
             .with_points()
             .build(),
-        44 => Chart::bar(labels5(), &[-15.0, -30.0, -22.0, -8.0, -45.0])
+        44 => Charts::bar(labels5(), &[-15.0, -30.0, -22.0, -8.0, -45.0])
             .title("All-Negative Bars")
             .y_label("P&L ($K)")
             .h_line_styled(0.0, Color::from_rgba8(255, 255, 0, 200))
@@ -780,7 +780,7 @@ fn build_chart(idx: usize) -> Chart {
         45 => {
             let ax = linspace(0.0, 10.0, 30);
             let ay: Vec<f64> = ax.iter().map(|&v| v.sin() * 4.0 + 5.0).collect();
-            Chart::scatter(&ax, &ay)
+            Charts::scatter(&ax, &ay)
                 .title("Annotations + Reference Lines")
                 .x_label("X")
                 .y_label("Y")
@@ -804,7 +804,7 @@ fn build_chart(idx: usize) -> Chart {
             ];
             let names = ["DARK", "LIGHT", "PASTEL", "OCEAN", "FOREST"];
             let ti = idx - 46;
-            Chart::scatter(&sx[..20], &sy[..20])
+            Charts::scatter(&sx[..20], &sy[..20])
                 .title(&format!("Theme: {}", names[ti]))
                 .x_label("X")
                 .y_label("Y")
@@ -822,7 +822,7 @@ fn build_chart(idx: usize) -> Chart {
                     2.0 * x + 5.0 + ((x as u64 * 2654435761 % 100) as f64 / 100.0 - 0.5) * 10.0
                 })
                 .collect();
-            Chart::scatter(&tx, &ty)
+            Charts::scatter(&tx, &ty)
                 .title("Scatter + Linear Regression Trend")
                 .x_label("X")
                 .y_label("Y")

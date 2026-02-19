@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Build charts ---
 
     // Line chart with fill + reference line
-    let line_chart = Chart::line(&[2.0, 5.0, 3.0, 8.0, 4.0, 7.0, 6.0, 9.0])
+    let line_chart = Charts::line(&[2.0, 5.0, 3.0, 8.0, 4.0, 7.0, 6.0, 9.0])
         .title("Revenue (M$)")
         .x_label("Quarter")
         .filled()
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     // Bar chart with pastel theme
-    let bar_chart = Chart::bar(
+    let bar_chart = Charts::bar(
         vec![
             "Rust".into(),
             "Python".into(),
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (x * 2.7).sin() * 3.0 + 5.0 + (x * 0.3).cos()
         })
         .collect();
-    let hist_chart = Chart::histogram(&hist_data)
+    let hist_chart = Charts::histogram(&hist_data)
         .title("Distribution")
         .x_label("Value")
         .y_label("Count")
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|&x| x.sqrt() * 2.0 + (x * 0.8).sin())
         .collect();
-    let scatter_chart = Chart::scatter(&sx, &sy)
+    let scatter_chart = Charts::scatter(&sx, &sy)
         .title("Growth Curve")
         .x_label("Time")
         .y_label("Value")

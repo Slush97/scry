@@ -162,7 +162,7 @@ fn build_scatter_basic() -> Chart {
     let x = linspace(0.0, 10.0, 50);
     let y = noisy_sin(&x, 1.0, 3.0, 42);
 
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("Basic Scatter — sin(x) + noise")
         .x_label("Time (s)")
         .y_label("Amplitude")
@@ -178,7 +178,7 @@ fn build_scatter_advanced() -> (Chart, Chart) {
     let _y2 = noisy_sin(&x, 1.5, 1.5, 2);
     let y3: Vec<f64> = x.iter().map(|&v| v.sqrt() * 1.2).collect();
 
-    let scatter = Chart::scatter(&x, &y1)
+    let scatter = Charts::scatter(&x, &y1)
         .title("Marker Shapes")
         .x_label("x")
         .y_label("y")
@@ -194,7 +194,7 @@ fn build_scatter_advanced() -> (Chart, Chart) {
     let y_circle: Vec<f64> = x2.iter().map(|&v| v.sin() * 2.0 + 4.0).collect();
     let y_square: Vec<f64> = x2.iter().map(|&v| v.cos() * 1.5 + 1.0).collect();
 
-    let scatter2 = Chart::scatter(&x2, &y_circle)
+    let scatter2 = Charts::scatter(&x2, &y_circle)
         .title("Multi-Series + Connected")
         .add_series(Series::new("cos", x2.clone()), Series::new("", y_square))
         .connected()
@@ -214,7 +214,7 @@ fn build_line_chart() -> Chart {
     let costs: Vec<f64> = x.iter().map(|&v| 2.0 + v * 0.4 + (v * 0.3).cos()).collect();
     let profit: Vec<f64> = revenue.iter().zip(&costs).map(|(r, c)| r - c).collect();
 
-    Chart::line(&revenue)
+    Charts::line(&revenue)
         .title("Revenue vs Costs — Filled Area + Points")
         .x_label("Month")
         .y_label("$M")
@@ -240,7 +240,7 @@ fn build_bar_charts() -> (Chart, Chart) {
     let ergonomics = vec![80.0, 95.0, 70.0, 35.0, 88.0];
 
     // Grouped bars
-    let grouped = Chart::bar(labels.clone(), &perf)
+    let grouped = Charts::bar(labels.clone(), &perf)
         .title("Grouped — Language Comparison")
         .y_label("Score")
         .add_series(Series::new("Safety", safety.clone()))
@@ -251,7 +251,7 @@ fn build_bar_charts() -> (Chart, Chart) {
         .build();
 
     // Stacked bars
-    let stacked = Chart::bar(labels, &perf)
+    let stacked = Charts::bar(labels, &perf)
         .title("Stacked — Total Scores")
         .y_label("Combined Score")
         .add_series(Series::new("Safety", safety))
@@ -271,7 +271,7 @@ fn build_histogram() -> (Chart, Chart) {
     let mean2 = data2.iter().sum::<f64>() / data2.len() as f64;
 
     // Count histogram
-    let hist1 = Chart::histogram(&data1)
+    let hist1 = Charts::histogram(&data1)
         .title("Frequency — Normal Distribution")
         .x_label("Value")
         .y_label("Count")
@@ -281,7 +281,7 @@ fn build_histogram() -> (Chart, Chart) {
         .build();
 
     // Density histogram with overlay
-    let hist2 = Chart::histogram(&data2)
+    let hist2 = Charts::histogram(&data2)
         .title("Density — Normalized")
         .x_label("Value")
         .y_label("Density")
@@ -301,7 +301,7 @@ fn build_boxplot() -> Chart {
     let treatment_b = random_normal(50, 12.0, 1.5, 500);
     let treatment_c = random_normal(50, 16.0, 4.0, 600);
 
-    Chart::boxplot(vec![
+    Charts::boxplot(vec![
         ("Control", control),
         ("Drug A", treatment_a),
         ("Drug B", treatment_b),
@@ -344,12 +344,12 @@ fn build_pie() -> (Chart, Chart) {
         .collect();
     let values = vec![35.0, 25.0, 15.0, 12.0, 8.0, 5.0];
 
-    let pie = Chart::pie(labels.clone(), &values)
+    let pie = Charts::pie(labels.clone(), &values)
         .title("Language Popularity — Pie")
         .theme(Theme::dark())
         .build();
 
-    let donut = Chart::pie(labels, &values)
+    let donut = Charts::pie(labels, &values)
         .title("Language Popularity — Donut")
         .donut(0.5)
         .theme(Theme::pastel())
@@ -359,7 +359,7 @@ fn build_pie() -> (Chart, Chart) {
 }
 
 fn build_radar() -> Chart {
-    Chart::radar(vec![
+    Charts::radar(vec![
         "Speed", "Power", "Defense", "Magic", "Stamina", "Luck",
     ])
     .add_series("Warrior", &[9.0, 8.0, 7.0, 2.0, 8.0, 4.0])
@@ -384,7 +384,7 @@ fn build_candlestick() -> Chart {
         OhlcEntry::new(10.0, 132.0, 138.0, 128.0, 130.0),
     ];
 
-    Chart::candlestick(data)
+    Charts::candlestick(data)
         .title("AAPL — Daily Candlestick")
         .x_label("Trading Day")
         .y_label("Price ($)")
@@ -394,7 +394,7 @@ fn build_candlestick() -> Chart {
 
 fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
     let x = linspace(0.0, 6.0, 30);
-    let line = Chart::line(&noisy_sin(&x, 1.2, 4.0, 10))
+    let line = Charts::line(&noisy_sin(&x, 1.2, 4.0, 10))
         .title("Signal")
         .x_values(x)
         .filled()
@@ -406,18 +406,18 @@ fn build_dashboard() -> (Chart, Chart, Chart, Chart) {
         .into_iter()
         .map(String::from)
         .collect();
-    let bar = Chart::bar(bar_labels, &[42.0, 58.0, 35.0, 71.0])
+    let bar = Charts::bar(bar_labels, &[42.0, 58.0, 35.0, 71.0])
         .title("Quarterly")
         .theme(Theme::pastel())
         .build();
 
-    let hist = Chart::histogram(&random_normal(200, 0.0, 1.0, 77))
+    let hist = Charts::histogram(&random_normal(200, 0.0, 1.0, 77))
         .title("Noise")
         .bins(15)
         .theme(Theme::dark())
         .build();
 
-    let hm = Chart::heatmap(vec![
+    let hm = Charts::heatmap(vec![
         vec![1.0, 0.8, -0.3, 0.5],
         vec![0.8, 1.0, 0.1, -0.2],
         vec![-0.3, 0.1, 1.0, 0.6],
@@ -438,7 +438,7 @@ fn build_formatters() -> (Chart, Chart, Chart, Chart) {
         .iter()
         .map(|&v| 1200.0 + v * 800.0 + (v * 2.0).sin() * 400.0)
         .collect();
-    let locale_chart = Chart::line(&revenue)
+    let locale_chart = Charts::line(&revenue)
         .title("European Locale — Revenue (€)")
         .x_label("Quarter")
         .y_label("Revenue")
@@ -450,7 +450,7 @@ fn build_formatters() -> (Chart, Chart, Chart, Chart) {
     // Panel 2: Engineering notation
     let x2 = linspace(0.0, 6.0, 25);
     let power: Vec<f64> = x2.iter().map(|&v| 10_f64.powf(v * 1.5)).collect();
-    let eng_chart = Chart::line(&power)
+    let eng_chart = Charts::line(&power)
         .title("Engineering — Power Levels")
         .x_label("Stage")
         .y_label("Watts")
@@ -462,7 +462,7 @@ fn build_formatters() -> (Chart, Chart, Chart, Chart) {
     // Panel 3: Binary SI (file sizes)
     let x3 = linspace(0.0, 10.0, 20);
     let sizes: Vec<f64> = x3.iter().map(|&v| 1024.0_f64.powf(1.0 + v * 0.3)).collect();
-    let binary_chart = Chart::line(&sizes)
+    let binary_chart = Charts::line(&sizes)
         .title("Binary SI — File Sizes")
         .x_label("Build #")
         .y_label("Size")
@@ -480,7 +480,7 @@ fn build_formatters() -> (Chart, Chart, Chart, Chart) {
     let values = vec![
         42_000.0, -15_000.0, 78_000.0, -8_000.0, 120_000.0, -32_000.0,
     ];
-    let acct_chart = Chart::bar(labels, &values)
+    let acct_chart = Charts::bar(labels, &values)
         .title("Accounting — P&L")
         .y_label("USD")
         .y_formatter(CurrencyFormatter {

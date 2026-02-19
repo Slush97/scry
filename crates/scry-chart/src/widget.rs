@@ -25,7 +25,7 @@ use crate::layout::{self, TextAlign, TextOverlay};
 /// ```ignore
 /// use scry_chart::prelude::*;
 ///
-/// let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+/// let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
 ///     .title("My Data")
 ///     .build();
 ///

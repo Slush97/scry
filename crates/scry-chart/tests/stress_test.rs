@@ -866,9 +866,9 @@ fn panel_animation_orchestrator(mut canvas: PixelCanvas, wf: f32, hf: f32, t: f3
 
 fn build_live_lines(data_a: &[f64], data_b: &[f64]) -> Chart {
     if data_a.len() < 2 {
-        return Chart::line(&[0.0, 1.0]).title("Initializing...").build();
+        return Charts::line(&[0.0, 1.0]).title("Initializing...").build();
     }
-    Chart::line(data_a)
+    Charts::line(data_a)
         .title("⑤ Mission Control Telemetry")
         .x_label("Time")
         .y_label("Signal")
@@ -898,7 +898,7 @@ fn build_scatter_matrix(t: f32) -> Chart {
         })
         .collect();
 
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("⑥ Particle Taxonomy")
         .x_label("x")
         .y_label("y")
@@ -917,7 +917,7 @@ fn build_stat_theater(stacked: bool, _t: f32) -> Chart {
     let vals1 = vec![42.0, 67.0, 53.0, 78.0, 35.0];
     let vals2 = vec![38.0, 45.0, 62.0, 51.0, 70.0];
 
-    let mut builder = Chart::bar(labels, &vals1)
+    let mut builder = Charts::bar(labels, &vals1)
         .title("⑦ Statistical Theater")
         .y_label("Value")
         .add_series(Series::new("Series B", vals2))
@@ -940,7 +940,7 @@ fn build_thermal_pie(donut: bool, t: f32) -> Chart {
         .collect();
     let vals = vec![65.0, 12.0, 9.0, 8.0, 6.0];
 
-    let mut builder = Chart::pie(labels, &vals)
+    let mut builder = Charts::pie(labels, &vals)
         .title("⑧ Propulsion Display")
         .start_angle_degrees(t * 15.0);
 
@@ -956,7 +956,7 @@ fn build_theme_gallery() -> Chart {
         .map(|i| 3.0 + (i as f64 * 0.5).sin() * 2.0 + (i as f64 * 0.2).cos())
         .collect();
 
-    Chart::line(&data)
+    Charts::line(&data)
         .title("⑨ Theme: Ocean")
         .filled()
         .with_points()
@@ -973,7 +973,7 @@ fn build_interactive(_t: f32) -> Chart {
         .map(|i| 50.0 + 30.0 * ((hash_u64(i as u64 * 79 + 3) % 1000) as f64 / 1000.0 - 0.5))
         .collect();
 
-    Chart::scatter(&x, &y)
+    Charts::scatter(&x, &y)
         .title("⑩ Tactical Display")
         .x_label("Bearing")
         .y_label("Range")

@@ -1,9 +1,8 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 605
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 43 commands
+canvas: 400x300, 45 commands
 overlays: 13
   [0] (36, 280) Center "0"
   [1] (114, 280) Center "20"
@@ -15,6 +14,6 @@ overlays: 13
   [7] (29, 192) Right "10"
   [8] (29, 111) Right "20"
   [9] (29, 30) Right "30"
-  [10] (316, 46) Left "Series 1"
-  [11] (316, 60) Left "Series B"
+  [10] (308, 59) Left "Series 1"
+  [11] (308, 79) Left "Series B"
   [12] (212, 16) Center "Multi-Histogram"

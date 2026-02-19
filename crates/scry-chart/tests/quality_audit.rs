@@ -3,7 +3,7 @@
 //! These tests programmatically verify contrast, scaling, layout, and
 //! regression properties across chart types and themes.
 
-use scry_chart::chart::Chart;
+use scry_chart::chart::Charts;
 use scry_chart::layout;
 use scry_chart::theme::{contrast_text_color, Theme};
 use scry_engine::style::Color;
@@ -60,7 +60,7 @@ fn all_themes() -> Vec<(&'static str, Theme)> {
 fn contrast_ratio_across_themes() {
     for (theme_name, theme) in all_themes() {
         // --- Pie chart ---
-        let pie = Chart::pie(
+        let pie = Charts::pie(
             vec!["A".into(), "B".into(), "C".into(), "D".into()],
             &[30.0, 25.0, 20.0, 25.0],
         )
@@ -83,7 +83,7 @@ fn contrast_ratio_across_themes() {
         }
 
         // --- Heatmap ---
-        let heatmap = Chart::heatmap(vec![
+        let heatmap = Charts::heatmap(vec![
             vec![1.0, 5.0, 9.0],
             vec![3.0, 6.0, 2.0],
             vec![7.0, 4.0, 8.0],
@@ -108,7 +108,7 @@ fn contrast_ratio_across_themes() {
         }
 
         // --- Funnel ---
-        let funnel = Chart::funnel(
+        let funnel = Charts::funnel(
             vec![
                 "Visitors".into(),
                 "Signups".into(),
@@ -154,7 +154,7 @@ fn contrast_ratio_across_themes() {
 fn font_scaling_consistency() {
     let sizes: [(u32, u32); 3] = [(40, 30), (400, 300), (2000, 1200)];
 
-    let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+    let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
         .title("Scaling Test")
         .x_label("X Axis")
         .y_label("Y Axis")
@@ -238,7 +238,7 @@ fn label_non_overlap_bar_20_categories() {
         .collect();
     let values: Vec<f64> = (0..20).map(|i| (i as f64 + 1.0) * 5.0).collect();
 
-    let chart = Chart::bar(labels, &values)
+    let chart = Charts::bar(labels, &values)
         .title("20 Categories")
         .theme(Theme::dark())
         .build();
@@ -278,7 +278,7 @@ fn label_non_overlap_bar_20_categories() {
 
     // On a wider canvas, all 20 labels should be visible (possibly rotated/staggered).
     let wide_rendered = layout::render_chart(
-        &Chart::bar(
+        &Charts::bar(
             (0..20).map(|i| format!("Cat_{i:02}")).collect(),
             &(0..20).map(|i| (i as f64 + 1.0) * 5.0).collect::<Vec<_>>(),
         )
@@ -305,7 +305,7 @@ fn label_non_overlap_bar_20_categories() {
 
 #[test]
 fn heatmap_subtitle_present() {
-    let chart = Chart::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+    let chart = Charts::heatmap(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
         .subtitle("Sub")
         .title("HM")
         .build();
@@ -332,7 +332,7 @@ fn heatmap_subtitle_present() {
 #[test]
 fn proportional_offsets_gauge_radar() {
     // --- Gauge ---
-    let gauge = Chart::gauge(75.0).title("Gauge").label("75%").build();
+    let gauge = Charts::gauge(75.0).title("Gauge").label("75%").build();
 
     let small = layout::render_chart(&gauge, 100, 75);
     let large = layout::render_chart(&gauge, 2000, 1200);
@@ -353,7 +353,7 @@ fn proportional_offsets_gauge_radar() {
     }
 
     // --- Radar ---
-    let radar = Chart::radar(vec!["A", "B", "C", "D", "E"])
+    let radar = Charts::radar(vec!["A", "B", "C", "D", "E"])
         .add_series("S1", &[8.0, 6.0, 7.0, 5.0, 9.0])
         .title("Radar")
         .build();

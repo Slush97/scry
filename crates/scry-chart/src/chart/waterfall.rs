@@ -10,6 +10,7 @@ use crate::chart::config_builder::{
     chart_config_subtitle_footer, chart_config_tick_rotation, chart_config_tick_steps,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 use scry_engine::style::Color;
 
 /// A waterfall chart — sequential bars showing running cumulative totals.
@@ -22,7 +23,7 @@ use scry_engine::style::Color;
 /// ```
 /// use scry_chart::chart::Chart;
 ///
-/// let chart = Chart::waterfall(
+/// let chart = Charts::waterfall(
 ///     vec!["Revenue".into(), "COGS".into(), "OpEx".into(), "Tax".into()],
 ///     &[500.0, -200.0, -150.0, -50.0],
 /// )
@@ -119,7 +120,7 @@ impl WaterfallChart {
 
     /// Build into a Chart enum variant.
     pub fn build(self) -> Chart {
-        Chart::Waterfall(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -132,6 +133,25 @@ impl WaterfallChart {
                 format!("labels ({}) and values ({}) have different lengths", self.labels.len(), self.values.len()),
             ));
         }
-        Ok(Chart::Waterfall(self))
+        Ok(Box::new(self) as Chart)
     }
+}
+
+impl ChartSpec for WaterfallChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::waterfall::render_waterfall(self, w, h)
+    }
+    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+        if let Some((x0, x1, y0, y1)) = vp {
+            let mut c = self.clone();
+            c.config.axes.x_range = Some((x0, x1));
+            c.config.axes.y_range = Some((y0, y1));
+            c.render(w, h)
+        } else {
+            self.render(w, h)
+        }
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

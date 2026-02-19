@@ -9,6 +9,7 @@ use crate::chart::config_builder::{
     chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
+use crate::spec::ChartSpec;
 
 /// A funnel chart — conversion pipeline with stages of decreasing width.
 ///
@@ -17,7 +18,7 @@ use crate::chart::{Chart, ChartConfig};
 /// ```
 /// use scry_chart::chart::Chart;
 ///
-/// let chart = Chart::funnel(
+/// let chart = Charts::funnel(
 ///     vec!["Visitors".into(), "Signups".into(), "Trials".into(), "Paid".into()],
 ///     &[10000.0, 5000.0, 2000.0, 800.0],
 /// )
@@ -79,9 +80,9 @@ impl FunnelChart {
         self
     }
 
-    /// Build into a Chart enum variant.
+    /// Build into a Chart.
     pub fn build(self) -> Chart {
-        Chart::Funnel(self)
+        Box::new(self) as Chart
     }
 
     /// Build with validation.
@@ -94,6 +95,15 @@ impl FunnelChart {
                 format!("labels ({}) and values ({}) have different lengths", self.labels.len(), self.values.len()),
             ));
         }
-        Ok(Chart::Funnel(self))
+        Ok(self.build())
     }
+}
+
+impl ChartSpec for FunnelChart {
+    fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
+        crate::layout::funnel::render_funnel(self, w, h)
+    }
+    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
 }

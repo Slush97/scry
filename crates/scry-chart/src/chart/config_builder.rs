@@ -12,7 +12,7 @@ macro_rules! chart_config_core {
     () => {
         /// Set the chart title.
         pub fn title(mut self, title: impl Into<String>) -> Self {
-            self.config.title = Some(title.into());
+            self.config.titles.title = Some(title.into());
             self
         }
 
@@ -27,7 +27,7 @@ macro_rules! chart_config_core {
         /// Default is 144. Higher values produce larger images:
         /// 288 DPI = 2× resolution (Retina), 72 DPI = 0.5× resolution.
         pub fn dpi(mut self, dpi: u32) -> Self {
-            self.config.dpi = dpi.max(36); // floor at 36 to avoid degenerate sizes
+            self.config.export.dpi = dpi.max(36); // floor at 36 to avoid degenerate sizes
             self
         }
     };
@@ -38,13 +38,13 @@ macro_rules! chart_config_axis_labels {
     () => {
         /// Set the x-axis label.
         pub fn x_label(mut self, label: impl Into<String>) -> Self {
-            self.config.x_label = Some(label.into());
+            self.config.titles.x_label = Some(label.into());
             self
         }
 
         /// Set the y-axis label.
         pub fn y_label(mut self, label: impl Into<String>) -> Self {
-            self.config.y_label = Some(label.into());
+            self.config.titles.y_label = Some(label.into());
             self
         }
     };
@@ -55,14 +55,14 @@ macro_rules! chart_config_ranges {
     (x) => {
         /// Override the x-axis range.
         pub fn x_range(mut self, min: f64, max: f64) -> Self {
-            self.config.x_range = Some((min, max));
+            self.config.axes.x_range = Some((min, max));
             self
         }
     };
     (y) => {
         /// Override the y-axis range.
         pub fn y_range(mut self, min: f64, max: f64) -> Self {
-            self.config.y_range = Some((min, max));
+            self.config.axes.y_range = Some((min, max));
             self
         }
     };
@@ -78,6 +78,7 @@ macro_rules! chart_config_h_lines {
         /// Add a horizontal reference line.
         pub fn h_line(mut self, value: f64) -> Self {
             self.config
+                .overlays
                 .h_lines
                 .push($crate::chart::ReferenceLine::new(value));
             self
@@ -86,6 +87,7 @@ macro_rules! chart_config_h_lines {
         /// Add a horizontal reference line with color.
         pub fn h_line_styled(mut self, value: f64, color: scry_engine::style::Color) -> Self {
             self.config
+                .overlays
                 .h_lines
                 .push($crate::chart::ReferenceLine::new(value).color(color));
             self
@@ -99,6 +101,7 @@ macro_rules! chart_config_v_lines {
         /// Add a vertical reference line.
         pub fn v_line(mut self, value: f64) -> Self {
             self.config
+                .overlays
                 .v_lines
                 .push($crate::chart::ReferenceLine::new(value));
             self
@@ -107,6 +110,7 @@ macro_rules! chart_config_v_lines {
         /// Add a vertical reference line with color.
         pub fn v_line_styled(mut self, value: f64, color: scry_engine::style::Color) -> Self {
             self.config
+                .overlays
                 .v_lines
                 .push($crate::chart::ReferenceLine::new(value).color(color));
             self
@@ -213,6 +217,7 @@ macro_rules! chart_config_annotations {
         /// Add an annotation at the given data coordinates.
         pub fn annotate(mut self, x: f64, y: f64, text: impl Into<String>) -> Self {
             self.config
+                .overlays
                 .annotations
                 .push($crate::annotation::Annotation::new(x, y, text));
             self
@@ -220,7 +225,7 @@ macro_rules! chart_config_annotations {
 
         /// Show a linear regression trend line.
         pub fn trend_line(mut self) -> Self {
-            self.config.show_trend = true;
+            self.config.overlays.show_trend = true;
             self
         }
     };
@@ -231,25 +236,25 @@ macro_rules! chart_config_tick_rotation {
     () => {
         /// Rotate X-axis tick labels to 45° (diagonal) to reduce overlap.
         pub fn x_ticks_diagonal(mut self) -> Self {
-            self.config.x_tick_rotation = $crate::axis::LabelRotation::Diagonal;
+            self.config.ticks.x_tick_rotation = $crate::axis::LabelRotation::Diagonal;
             self
         }
 
         /// Rotate X-axis tick labels to 90° (vertical) for maximum density.
         pub fn x_ticks_vertical(mut self) -> Self {
-            self.config.x_tick_rotation = $crate::axis::LabelRotation::Vertical;
+            self.config.ticks.x_tick_rotation = $crate::axis::LabelRotation::Vertical;
             self
         }
 
         /// Set X-axis tick label rotation explicitly.
         pub fn x_tick_rotation(mut self, rotation: $crate::axis::LabelRotation) -> Self {
-            self.config.x_tick_rotation = rotation;
+            self.config.ticks.x_tick_rotation = rotation;
             self
         }
 
         /// Set X-axis tick label rotation to a custom angle in degrees (0–90).
         pub fn x_tick_angle(mut self, degrees: f32) -> Self {
-            self.config.x_tick_rotation = $crate::axis::LabelRotation::Angle(degrees);
+            self.config.ticks.x_tick_rotation = $crate::axis::LabelRotation::Angle(degrees);
             self
         }
     };
@@ -259,22 +264,14 @@ macro_rules! chart_config_tick_rotation {
 macro_rules! chart_config_formatters {
     () => {
         /// Set a custom tick formatter for the X axis.
-        ///
-        /// # Example
-        /// ```ignore
-        /// use scry_chart::formatter::CurrencyFormatter;
-        /// Chart::line(&data)
-        ///     .x_formatter(CurrencyFormatter::default())
-        ///     .build()
-        /// ```
         pub fn x_formatter(mut self, fmt: impl $crate::formatter::TickFormatter + 'static) -> Self {
-            self.config.x_tick_formatter = Some(std::sync::Arc::new(fmt));
+            self.config.ticks.x_tick_formatter = Some(std::sync::Arc::new(fmt));
             self
         }
 
         /// Set a custom tick formatter for the Y axis.
         pub fn y_formatter(mut self, fmt: impl $crate::formatter::TickFormatter + 'static) -> Self {
-            self.config.y_tick_formatter = Some(std::sync::Arc::new(fmt));
+            self.config.ticks.y_tick_formatter = Some(std::sync::Arc::new(fmt));
             self
         }
     };
@@ -284,17 +281,14 @@ macro_rules! chart_config_formatters {
 macro_rules! chart_config_tick_steps {
     () => {
         /// Set a fixed tick step for the X axis.
-        ///
-        /// Ticks will be placed at multiples of this value within the X domain,
-        /// overriding adaptive tick generation.
         pub fn x_tick_step(mut self, step: f64) -> Self {
-            self.config.x_tick_step = Some(step);
+            self.config.ticks.x_tick_step = Some(step);
             self
         }
 
         /// Set a fixed tick step for the Y axis.
         pub fn y_tick_step(mut self, step: f64) -> Self {
-            self.config.y_tick_step = Some(step);
+            self.config.ticks.y_tick_step = Some(step);
             self
         }
     };
@@ -304,25 +298,20 @@ macro_rules! chart_config_tick_steps {
 macro_rules! chart_config_locale {
     () => {
         /// Set locale for number formatting (decimal/thousands separators).
-        ///
-        /// This wraps the axis formatters so all numeric labels respect
-        /// the given locale. Explicit per-axis formatters set via
-        /// `x_formatter` / `y_formatter` still work — the locale
-        /// wrapping applies to the default auto-formatters.
         pub fn locale(mut self, locale: $crate::formatter::LocaleConfig) -> Self {
-            self.config.locale = Some(locale);
+            self.config.ticks.locale = Some(locale);
             self
         }
 
         /// Set European locale (comma decimal, period grouping).
         pub fn european_locale(mut self) -> Self {
-            self.config.locale = Some($crate::formatter::LocaleConfig::european());
+            self.config.ticks.locale = Some($crate::formatter::LocaleConfig::european());
             self
         }
 
         /// Set Swiss locale (period decimal, apostrophe grouping).
         pub fn swiss_locale(mut self) -> Self {
-            self.config.locale = Some($crate::formatter::LocaleConfig::swiss());
+            self.config.ticks.locale = Some($crate::formatter::LocaleConfig::swiss());
             self
         }
     };
@@ -333,13 +322,13 @@ macro_rules! chart_config_subtitle_footer {
     () => {
         /// Set a subtitle, rendered below the title in smaller text.
         pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
-            self.config.subtitle = Some(subtitle.into());
+            self.config.titles.subtitle = Some(subtitle.into());
             self
         }
 
         /// Set a footer, rendered at the bottom edge of the chart.
         pub fn footer(mut self, footer: impl Into<String>) -> Self {
-            self.config.footer = Some(footer.into());
+            self.config.titles.footer = Some(footer.into());
             self
         }
     };
@@ -349,8 +338,6 @@ macro_rules! chart_config_subtitle_footer {
 macro_rules! chart_config_margin {
     () => {
         /// Set custom margins (top, right, bottom, left) in pixels.
-        ///
-        /// These are additive — applied on top of the automatic margins.
         pub fn margin(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
             self.config.margin = Some($crate::margin::Margin::new(top, right, bottom, left));
             self
@@ -369,13 +356,13 @@ macro_rules! chart_config_invert {
     () => {
         /// Reverse the X axis (high values on the left).
         pub fn x_inverted(mut self) -> Self {
-            self.config.x_inverted = true;
+            self.config.axes.x_inverted = true;
             self
         }
 
         /// Reverse the Y axis (high values at the bottom).
         pub fn y_inverted(mut self) -> Self {
-            self.config.y_inverted = true;
+            self.config.axes.y_inverted = true;
             self
         }
     };
@@ -386,13 +373,13 @@ macro_rules! chart_config_secondary_y {
     () => {
         /// Set the label for the secondary (right) Y-axis.
         pub fn secondary_y_label(mut self, label: impl Into<String>) -> Self {
-            self.config.secondary_y_label = Some(label.into());
+            self.config.secondary.label = Some(label.into());
             self
         }
 
         /// Override the secondary Y-axis range.
         pub fn secondary_y_range(mut self, min: f64, max: f64) -> Self {
-            self.config.secondary_y_range = Some((min, max));
+            self.config.secondary.range = Some((min, max));
             self
         }
 
@@ -401,47 +388,26 @@ macro_rules! chart_config_secondary_y {
             mut self,
             f: impl $crate::formatter::TickFormatter + 'static,
         ) -> Self {
-            self.config.secondary_y_formatter = Some(
+            self.config.secondary.formatter = Some(
                 std::sync::Arc::new(f) as std::sync::Arc<dyn $crate::formatter::TickFormatter>
             );
             self
         }
 
         /// Assign one or more series indices to the secondary (right) Y-axis.
-        ///
-        /// All series whose 0-based index appears in `indices` will be
-        /// rendered against the secondary Y scale instead of the primary.
-        ///
-        /// # Example
-        /// ```ignore
-        /// // 2 series: first on left axis, second on right axis
-        /// Chart::line_multi(series_data)
-        ///     .secondary_y_label("Humidity (%)")
-        ///     .secondary_y_range(30.0, 90.0)
-        ///     .secondary_axis(&[1])
-        ///     .build()
-        /// ```
         pub fn secondary_axis(mut self, indices: &[usize]) -> Self {
-            self.config.secondary_series_indices = indices.to_vec();
+            self.config.secondary.series_indices = indices.to_vec();
             self
         }
     };
 }
 
 /// Generate semantic zoom formatter methods for X and Y axes.
-///
-/// Installs a [`SemanticZoomFormatter`](crate::formatter::SemanticZoomFormatter)
-/// that automatically adapts tick label formatting to the current zoom level:
-/// compact SI labels at overview, adaptive at standard zoom, fixed-decimal
-/// when zoomed in, and scientific notation at microscope level.
 macro_rules! chart_config_semantic_zoom {
     () => {
         /// Enable semantic zoom formatting for the X axis.
-        ///
-        /// Tick labels adapt to the zoom level — compact at overview,
-        /// detailed when zoomed in.
         pub fn semantic_zoom_x(mut self) -> Self {
-            self.config.x_tick_formatter = Some(std::sync::Arc::new(
+            self.config.ticks.x_tick_formatter = Some(std::sync::Arc::new(
                 $crate::formatter::SemanticZoomFormatter::default(),
             ));
             self
@@ -449,30 +415,9 @@ macro_rules! chart_config_semantic_zoom {
 
         /// Enable semantic zoom formatting for the Y axis.
         pub fn semantic_zoom_y(mut self) -> Self {
-            self.config.y_tick_formatter = Some(std::sync::Arc::new(
+            self.config.ticks.y_tick_formatter = Some(std::sync::Arc::new(
                 $crate::formatter::SemanticZoomFormatter::default(),
             ));
-            self
-        }
-    };
-}
-
-/// Generate data label builder methods.
-macro_rules! chart_config_data_labels {
-    () => {
-        /// Show data value labels on bars, points, or markers.
-        ///
-        /// The default formatter uses the auto-format (2 sig digits). Use
-        /// [`values_fmt`](#method.values_fmt) for custom formatting.
-        pub fn show_values(mut self) -> Self {
-            self.config.show_data_labels = true;
-            self
-        }
-
-        /// Show data value labels with a custom formatter.
-        pub fn values_fmt(mut self, fmt: impl $crate::formatter::TickFormatter + 'static) -> Self {
-            self.config.show_data_labels = true;
-            self.config.data_label_formatter = Some(std::sync::Arc::new(fmt));
             self
         }
     };
@@ -482,8 +427,6 @@ macro_rules! chart_config_data_labels {
 pub(crate) use chart_config_annotations;
 pub(crate) use chart_config_axis_labels;
 pub(crate) use chart_config_core;
-#[allow(unused_imports)]
-pub(crate) use chart_config_data_labels;
 pub(crate) use chart_config_formatters;
 pub(crate) use chart_config_grid;
 pub(crate) use chart_config_h_lines;
@@ -498,4 +441,3 @@ pub(crate) use chart_config_subtitle_footer;
 pub(crate) use chart_config_tick_rotation;
 pub(crate) use chart_config_tick_steps;
 pub(crate) use chart_config_v_lines;
-

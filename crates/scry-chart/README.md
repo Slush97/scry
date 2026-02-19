@@ -10,7 +10,7 @@ Unlike text-based charting widgets, `scry-chart` renders true vector graphics us
 use scry-chart::prelude::*;
 
 // Three lines of code to a production-quality chart:
-let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 9.0])
+let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 9.0])
     .title("Revenue")
     .build();
 
@@ -22,21 +22,21 @@ let widget = ChartWidget::new(&chart);
 
 | Type | Constructor | Description |
 |------|------------|-------------|
-| **Line** | `Chart::line(y)` | Continuous lines with optional fill, smooth curves, step lines |
-| **Line XY** | `Chart::line_xy(x, y)` | Lines with explicit (non-uniform) x values |
-| **Scatter** | `Chart::scatter(x, y)` | Individual data points with configurable markers |
-| **Bar** | `Chart::bar(labels, values)` | Vertical bars with gradient fills |
-| **Histogram** | `Chart::histogram(values, bins)` | Distribution visualization |
-| **Box Plot** | `Chart::boxplot(groups)` | Statistical distribution summary |
-| **Heatmap** | `Chart::heatmap(matrix)` | 2D intensity grid with color mapping |
-| **Pie** | `Chart::pie(labels, values)` | Proportional slices with labels |
-| **Radar** | `Chart::radar(axes)` | Spider/radar chart for multi-axis comparison |
-| **Candlestick** | `Chart::candlestick(ohlc)` | OHLC financial chart with bullish/bearish coloring |
+| **Line** | `Charts::line(y)` | Continuous lines with optional fill, smooth curves, step lines |
+| **Line XY** | `Charts::line_xy(x, y)` | Lines with explicit (non-uniform) x values |
+| **Scatter** | `Charts::scatter(x, y)` | Individual data points with configurable markers |
+| **Bar** | `Charts::bar(labels, values)` | Vertical bars with gradient fills |
+| **Histogram** | `Charts::histogram(values, bins)` | Distribution visualization |
+| **Box Plot** | `Charts::boxplot(groups)` | Statistical distribution summary |
+| **Heatmap** | `Charts::heatmap(matrix)` | 2D intensity grid with color mapping |
+| **Pie** | `Charts::pie(labels, values)` | Proportional slices with labels |
+| **Radar** | `Charts::radar(axes)` | Spider/radar chart for multi-axis comparison |
+| **Candlestick** | `Charts::candlestick(ohlc)` | OHLC financial chart with bullish/bearish coloring |
 
 ## Line Chart Options
 
 ```rust
-Chart::line(&data)
+Charts::line(&data)
     .smooth()           // Catmull-Rom spline interpolation
     .step()             // Stairstep line rendering
     .filled()           // Gradient fill under curve
@@ -51,7 +51,7 @@ Chart::line(&data)
 ## Scatter Plot Options
 
 ```rust
-Chart::scatter(x_data, y_data)
+Charts::scatter(x_data, y_data)
     .size(6.0)                    // Marker radius
     .marker(Marker::Diamond)     // Circle, Square, Diamond, Cross, Triangle
     .connected()                  // Connect points with lines
@@ -80,7 +80,7 @@ state.handle_mouse(event, widget_area);
 ```rust
 use scry-chart::theme::Theme;
 
-let chart = Chart::line(&data)
+let chart = Charts::line(&data)
     .theme(Theme::dark())          // Built-in themes
     .h_line(50.0)                  // Horizontal reference line
     .v_line(3.0)                   // Vertical reference line
@@ -91,7 +91,7 @@ let chart = Chart::line(&data)
 ## Multi-Series Charts
 
 ```rust
-let chart = Chart::line(&revenue)
+let chart = Charts::line(&revenue)
     .add_series(Series::new("Expenses", expenses))
     .add_series(Series::new("Profit", profit))
     .title("Financial Overview")
@@ -103,7 +103,7 @@ let chart = Chart::line(&revenue)
 ```rust
 use scry-chart::formatter::*;
 
-Chart::line(&data)
+Charts::line(&data)
     .y_formatter(CurrencyFormatter::usd())    // $1,234.56
     .x_formatter(SiFormatter::default())      // 1.5K, 2.3M
     .european_locale()                         // 1.234,56

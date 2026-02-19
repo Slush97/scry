@@ -154,8 +154,8 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
     let tick_fs = super::scaled_font_size(theme.tick_style.font_size, w, h);
 
     // Classify series into primary (left Y) and secondary (right Y)
-    let sec_indices = &lc.config.secondary_series_indices;
-    let has_secondary = !sec_indices.is_empty() && config.secondary_y_range.is_some();
+    let sec_indices = &lc.config.secondary.series_indices;
+    let has_secondary = !sec_indices.is_empty() && config.secondary.range.is_some();
 
     // Pre-compute Y extent for primary series only
     let (y_lo, y_hi) = if lc.stacked {
@@ -211,9 +211,11 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
     let x_extent = resolve_x_extent(config, data_x_extent);
 
     let x_exact = config
+        .axes
         .x_range
         .is_some_and(|(a, b)| a.is_finite() && b.is_finite());
     let y_exact = config
+        .axes
         .y_range
         .is_some_and(|(a, b)| a.is_finite() && b.is_finite());
     let x_scale = if x_exact {
@@ -232,7 +234,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
 
     // Build secondary Y scale if configured
     let secondary_y_scale = if has_secondary {
-        let (sy_lo, sy_hi) = config.secondary_y_range.unwrap();
+        let (sy_lo, sy_hi) = config.secondary.range.unwrap();
         let sy_scale = LinearScale::nice((sy_lo, sy_hi), ((py + ph) as f64, py as f64));
 
         // Draw secondary (right) Y axis ticks
@@ -547,7 +549,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
     }
 
     // Annotations
-    if !config.annotations.is_empty() {
+    if !config.overlays.annotations.is_empty() {
         ctx.draw_annotations(config, &x_scale, &y_scale);
     }
 

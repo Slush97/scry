@@ -21,27 +21,7 @@ const BASE_DPI: u32 = 144;
 
 /// Extract the DPI from a chart's config.
 fn chart_dpi(chart: &Chart) -> u32 {
-    // We need a non-mutable way to get dpi; peek via match.
-    match chart {
-        Chart::Scatter(c) => c.config.dpi,
-        Chart::Line(c) => c.config.dpi,
-        Chart::Bar(c) => c.config.dpi,
-        Chart::Histogram(c) => c.config.dpi,
-        Chart::BoxPlot(c) => c.config.dpi,
-        Chart::Heatmap(c) => c.config.dpi,
-        Chart::Pie(c) => c.config.dpi,
-        Chart::Candlestick(c) => c.config.dpi,
-        Chart::Radar(c) => c.config.dpi,
-        Chart::Bubble(c) => c.config.dpi,
-        Chart::Violin(c) => c.config.dpi,
-        Chart::Sparkline(c) => c.config.dpi,
-        Chart::Waterfall(c) => c.config.dpi,
-        Chart::Funnel(c) => c.config.dpi,
-        Chart::Gauge(c) => c.config.dpi,
-        Chart::Lollipop(c) => c.config.dpi,
-        Chart::Contour(c) => c.config.dpi,
-        Chart::Custom(_) => BASE_DPI,
-    }
+    chart.dpi()
 }
 
 /// Scale pixel dimensions by the chart's DPI relative to the base DPI (144).
@@ -74,7 +54,7 @@ fn dpi_scale(width: u32, height: u32, dpi: u32) -> (u32, u32) {
 /// # Example
 ///
 /// ```ignore
-/// let chart = Chart::line(&[1.0, 4.0, 2.0, 8.0]).title("Demo").build();
+/// let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0]).title("Demo").build();
 /// let png_bytes = scry_chart::export::render_to_png(&chart, 800, 500)?;
 /// std::fs::write("chart.png", png_bytes)?;
 /// ```
@@ -428,8 +408,6 @@ fn render_subplot_to_rgba_raw(
     let mut local_cells: Vec<Option<Chart>> = grid.cells.clone();
 
     if share_x || share_y {
-        use crate::chart::extent::data_extent;
-
         // Compute global extent across all populated cells
         let mut gx_min = f64::INFINITY;
         let mut gx_max = f64::NEG_INFINITY;
@@ -437,7 +415,7 @@ fn render_subplot_to_rgba_raw(
         let mut gy_max = f64::NEG_INFINITY;
 
         for cell in local_cells.iter().flatten() {
-            if let Some((xn, xx, yn, yx)) = data_extent(cell) {
+            if let Some((xn, xx, yn, yx)) = cell.data_extent() {
                 if xn < gx_min {
                     gx_min = xn;
                 }
@@ -461,23 +439,24 @@ fn render_subplot_to_rgba_raw(
             if let Some(chart) = cell_opt {
                 let row = i / cols as usize;
                 let col = i % cols as usize;
-                let cfg: &mut crate::chart::ChartConfig = chart.config_mut();
 
-                if share_x && gx_min.is_finite() && gx_max.is_finite() {
-                    cfg.x_range = Some((gx_min, gx_max));
-                    // Only bottom row shows X labels
-                    if row + 1 < rows as usize {
-                        cfg.x_label = None;
-                        cfg.x_tick_formatter = Some(null_fmt.clone());
+                if let Some(cfg) = chart.config_mut() {
+                    if share_x && gx_min.is_finite() && gx_max.is_finite() {
+                        cfg.axes.x_range = Some((gx_min, gx_max));
+                        // Only bottom row shows X labels
+                        if row + 1 < rows as usize {
+                            cfg.titles.x_label = None;
+                            cfg.ticks.x_tick_formatter = Some(null_fmt.clone());
+                        }
                     }
-                }
 
-                if share_y && gy_min.is_finite() && gy_max.is_finite() {
-                    cfg.y_range = Some((gy_min, gy_max));
-                    // Only leftmost column shows Y labels
-                    if col > 0 {
-                        cfg.y_label = None;
-                        cfg.y_tick_formatter = Some(null_fmt.clone());
+                    if share_y && gy_min.is_finite() && gy_max.is_finite() {
+                        cfg.axes.y_range = Some((gy_min, gy_max));
+                        // Only leftmost column shows Y labels
+                        if col > 0 {
+                            cfg.titles.y_label = None;
+                            cfg.ticks.y_tick_formatter = Some(null_fmt.clone());
+                        }
                     }
                 }
             }

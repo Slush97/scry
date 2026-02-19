@@ -3,7 +3,7 @@
 //! These tests verify that the chart library handles unusual or degenerate
 //! inputs gracefully — no panics, no infinite loops, no corrupted output.
 
-use scry_chart::chart::{Chart, LineChart};
+use scry_chart::chart::{Chart, Charts, LineChart};
 use scry_chart::data::Series;
 use scry_chart::export::render_to_png;
 use scry_chart::layout::render_chart;
@@ -31,31 +31,31 @@ fn empty_line_chart() {
 
 #[test]
 fn single_point_line() {
-    let chart = Chart::line(&[42.0]).title("Single Point").build();
+    let chart = Charts::line(&[42.0]).title("Single Point").build();
     assert_renders(&chart);
 }
 
 #[test]
 fn single_point_scatter() {
-    let chart = Chart::scatter(&[1.0], &[2.0]).title("One Point").build();
+    let chart = Charts::scatter(&[1.0], &[2.0]).title("One Point").build();
     assert_renders(&chart);
 }
 
 #[test]
 fn empty_bar_chart() {
-    let chart = Chart::bar(vec![], &[]).title("Empty Bar").build();
+    let chart = Charts::bar(vec![], &[]).title("Empty Bar").build();
     assert_renders(&chart);
 }
 
 #[test]
 fn single_bar() {
-    let chart = Chart::bar(vec!["A".into()], &[10.0]).title("Single Bar").build();
+    let chart = Charts::bar(vec!["A".into()], &[10.0]).title("Single Bar").build();
     assert_renders(&chart);
 }
 
 #[test]
 fn empty_histogram() {
-    let chart = Chart::histogram(&[]).title("Empty Hist").build();
+    let chart = Charts::histogram(&[]).title("Empty Hist").build();
     assert_renders(&chart);
 }
 
@@ -65,7 +65,7 @@ fn empty_histogram() {
 
 #[test]
 fn all_nan_line() {
-    let chart = Chart::line(&[f64::NAN, f64::NAN, f64::NAN])
+    let chart = Charts::line(&[f64::NAN, f64::NAN, f64::NAN])
         .title("All NaN")
         .build();
     assert_renders(&chart);
@@ -73,7 +73,7 @@ fn all_nan_line() {
 
 #[test]
 fn mixed_nan_line() {
-    let chart = Chart::line(&[1.0, f64::NAN, 3.0, f64::NAN, 5.0])
+    let chart = Charts::line(&[1.0, f64::NAN, 3.0, f64::NAN, 5.0])
         .title("Mixed NaN")
         .build();
     assert_renders(&chart);
@@ -81,7 +81,7 @@ fn mixed_nan_line() {
 
 #[test]
 fn infinity_values_scatter() {
-    let chart = Chart::scatter(
+    let chart = Charts::scatter(
         &[1.0, 2.0, f64::INFINITY],
         &[f64::NEG_INFINITY, 2.0, 3.0],
     )
@@ -92,7 +92,7 @@ fn infinity_values_scatter() {
 
 #[test]
 fn all_zero_values() {
-    let chart = Chart::line(&[0.0, 0.0, 0.0, 0.0])
+    let chart = Charts::line(&[0.0, 0.0, 0.0, 0.0])
         .title("All Zeros")
         .build();
     assert_renders(&chart);
@@ -100,7 +100,7 @@ fn all_zero_values() {
 
 #[test]
 fn constant_values() {
-    let chart = Chart::line(&[7.0, 7.0, 7.0, 7.0])
+    let chart = Charts::line(&[7.0, 7.0, 7.0, 7.0])
         .title("Constant")
         .build();
     assert_renders(&chart);
@@ -113,7 +113,7 @@ fn constant_values() {
 #[test]
 fn large_line_dataset() {
     let data: Vec<f64> = (0..10_000).map(|i| (i as f64 * 0.01).sin()).collect();
-    let chart = Chart::line(&data).title("10K Points").build();
+    let chart = Charts::line(&data).title("10K Points").build();
     assert_renders(&chart);
 }
 
@@ -121,7 +121,7 @@ fn large_line_dataset() {
 fn large_scatter_dataset() {
     let x: Vec<f64> = (0..5_000).map(|i| i as f64 * 0.1).collect();
     let y: Vec<f64> = x.iter().map(|xv| xv.cos() + xv * 0.01).collect();
-    let chart = Chart::scatter(&x, &y).title("5K Scatter").build();
+    let chart = Charts::scatter(&x, &y).title("5K Scatter").build();
     assert_renders(&chart);
 }
 
@@ -131,7 +131,7 @@ fn large_scatter_dataset() {
 
 #[test]
 fn huge_values() {
-    let chart = Chart::line(&[1e15, 2e15, 1.5e15, 3e15])
+    let chart = Charts::line(&[1e15, 2e15, 1.5e15, 3e15])
         .title("Huge Values")
         .build();
     assert_renders(&chart);
@@ -139,7 +139,7 @@ fn huge_values() {
 
 #[test]
 fn tiny_values() {
-    let chart = Chart::line(&[1e-15, 2e-15, 1.5e-15, 3e-15])
+    let chart = Charts::line(&[1e-15, 2e-15, 1.5e-15, 3e-15])
         .title("Tiny Values")
         .build();
     assert_renders(&chart);
@@ -147,7 +147,7 @@ fn tiny_values() {
 
 #[test]
 fn negative_values() {
-    let chart = Chart::bar(
+    let chart = Charts::bar(
         vec!["A".into(), "B".into(), "C".into()],
         &[-10.0, -20.0, -5.0],
     )
@@ -188,7 +188,7 @@ fn asymmetric_error_bars_scatter() {
 
 #[test]
 fn contour_minimal_grid() {
-    let chart = Chart::contour(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+    let chart = Charts::contour(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
         .levels(3)
         .title("Minimal Contour")
         .build();
@@ -197,7 +197,7 @@ fn contour_minimal_grid() {
 
 #[test]
 fn contour_uniform_grid() {
-    let chart = Chart::contour(vec![
+    let chart = Charts::contour(vec![
         vec![5.0, 5.0, 5.0],
         vec![5.0, 5.0, 5.0],
         vec![5.0, 5.0, 5.0],
@@ -210,7 +210,7 @@ fn contour_uniform_grid() {
 
 #[test]
 fn contour_filled() {
-    let chart = Chart::contour(vec![
+    let chart = Charts::contour(vec![
         vec![0.0, 1.0, 2.0, 3.0],
         vec![1.0, 2.0, 3.0, 4.0],
         vec![2.0, 3.0, 4.0, 5.0],
@@ -229,43 +229,43 @@ fn contour_filled() {
 
 #[test]
 fn try_build_empty_waterfall() {
-    let result = Chart::waterfall(vec![], &[]).try_build();
+    let result = Charts::waterfall(vec![], &[]).try_build();
     assert!(result.is_err());
 }
 
 #[test]
 fn try_build_mismatched_funnel() {
-    let result = Chart::funnel(vec!["A".into(), "B".into()], &[100.0]).try_build();
+    let result = Charts::funnel(vec!["A".into(), "B".into()], &[100.0]).try_build();
     assert!(result.is_err());
 }
 
 #[test]
 fn try_build_invalid_gauge_range() {
-    let result = Chart::gauge(50.0).range(100.0, 0.0).try_build();
+    let result = Charts::gauge(50.0).range(100.0, 0.0).try_build();
     assert!(result.is_err());
 }
 
 #[test]
 fn try_build_nan_gauge() {
-    let result = Chart::gauge(f64::NAN).try_build();
+    let result = Charts::gauge(f64::NAN).try_build();
     assert!(result.is_err());
 }
 
 #[test]
 fn try_build_empty_sparkline() {
-    let result = Chart::sparkline(&[]).try_build();
+    let result = Charts::sparkline(&[]).try_build();
     assert!(result.is_err());
 }
 
 #[test]
 fn try_build_empty_violin() {
-    let result = Chart::violin(Vec::<(&str, Vec<f64>)>::new()).try_build();
+    let result = Charts::violin(Vec::<(&str, Vec<f64>)>::new()).try_build();
     assert!(result.is_err());
 }
 
 #[test]
 fn try_build_jagged_contour() {
-    let result = Chart::contour(vec![vec![1.0, 2.0], vec![3.0]]).try_build();
+    let result = Charts::contour(vec![vec![1.0, 2.0], vec![3.0]]).try_build();
     assert!(result.is_err());
 }
 
@@ -324,7 +324,7 @@ fn min_max_decimate_small_data() {
 
 #[test]
 fn tiny_render_dimensions() {
-    let chart = Chart::line(&[1.0, 2.0, 3.0]).title("Tiny").build();
+    let chart = Charts::line(&[1.0, 2.0, 3.0]).title("Tiny").build();
     // 1x1 pixel — should not panic.
     let rendered = render_chart(&chart, 1, 1);
     assert!(!rendered.canvas.commands().is_empty() || true); // just ensure no panic
@@ -333,7 +333,7 @@ fn tiny_render_dimensions() {
 #[test]
 fn zero_dimension_render() {
     // 0x0 is degenerate — just verify no panic.
-    let chart = Chart::line(&[1.0, 2.0]).build();
+    let chart = Charts::line(&[1.0, 2.0]).build();
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = render_chart(&chart, 0, 0);
     }));
