@@ -2,11 +2,11 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 300x250, 55 commands
-overlays: 6
-  [0] (255, 26) Left "4.0"
-  [1] (255, 238) Left "1.0"
-  [2] (24, 77) Right "0"
-  [3] (24, 186) Right "1"
-  [4] (78, 18) Center "0"
-  [5] (175, 18) Center "1"
+canvas: 300x250, 61 commands
+text_labels: 6
+  [0] 4.0
+  [1] 1.0
+  [2] 0
+  [3] 1
+  [4] 0
+  [5] 1

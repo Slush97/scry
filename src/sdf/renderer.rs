@@ -97,7 +97,7 @@ impl SdfRenderer {
                 for (x, pixel) in row.iter_mut().enumerate() {
                     let ndc_x = (2.0 * (x as f32 + 0.5) / width as f32 - 1.0) * aspect * fov_scale;
                     let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
-                    let color = shade_ray(scene, scene.camera.eye, dir, time, 0);
+                    let color = shade_ray(scene, scene.camera.eye, dir, time, 0, None);
                     let (r, g, b) = if scene.tone_map {
                         (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
                     } else {
@@ -159,6 +159,7 @@ impl SdfRenderer {
                             dir,
                             time,
                             0,
+                            None,
                             &mut row_profile,
                         );
                         let (r, g, b) = if scene.tone_map {
@@ -302,7 +303,7 @@ impl SdfRenderer {
                 for x in 0..width as usize {
                     let ndc_x = (2.0 * (x as f32 + 0.5) / width as f32 - 1.0) * aspect * fov_scale;
                     let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
-                    let color = shade_ray(scene, scene.camera.eye, dir, time, 0);
+                    let color = shade_ray(scene, scene.camera.eye, dir, time, 0, None);
                     let (r, g, b) = if scene.tone_map {
                         (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
                     } else {
@@ -465,6 +466,42 @@ fn scene_sdf(scene: &SdfScene, point: Vec3, time: f32) -> (f32, usize) {
     (min_dist, closest)
 }
 
+/// Like [`scene_sdf`] but skips the object at `exclude_idx` (when `Some`).
+/// Used by glass refraction rays to avoid self-intersecting the glass body.
+#[inline]
+fn scene_sdf_exclude(
+    scene: &SdfScene,
+    point: Vec3,
+    time: f32,
+    exclude_idx: Option<usize>,
+) -> (f32, usize) {
+    let Some(exclude) = exclude_idx else {
+        return scene_sdf(scene, point, time);
+    };
+
+    let mut min_dist = MAX_DIST;
+    let mut closest = 0;
+
+    for (i, obj) in scene.objects.iter().enumerate() {
+        if i == exclude {
+            continue;
+        }
+        let delta = point - obj.position;
+        let dist_sq = delta.length_sq();
+        let threshold = min_dist + obj.bounding_radius;
+        if dist_sq > threshold * threshold {
+            continue;
+        }
+        let d = object_sdf(obj, point, time);
+        if d < min_dist {
+            min_dist = d;
+            closest = i;
+        }
+    }
+
+    (min_dist, closest)
+}
+
 /// Evaluate the SDF for a single object, handling water displacement and rotation.
 #[inline]
 fn object_sdf(obj: &SdfObject, point: Vec3, time: f32) -> f32 {
@@ -605,6 +642,7 @@ fn ray_march(
     dir: Vec3,
     time: f32,
     budget: &RayBudget,
+    exclude_idx: Option<usize>,
 ) -> Option<(Vec3, usize, f32)> {
     let mut t = SURF_DIST;
     let mut prev_d = 0.0_f32;
@@ -615,7 +653,7 @@ fn ray_march(
 
     for _ in 0..budget.march_steps {
         let p = origin + dir * t;
-        let (d, idx) = scene_sdf(scene, p, time);
+        let (d, idx) = scene_sdf_exclude(scene, p, time, exclude_idx);
         if d < SURF_DIST {
             return Some((p, idx, t));
         }
@@ -967,8 +1005,8 @@ impl SdfTracer for ProfilingTracer<'_> {
 // ── Unified shading functions ───────────────────────────────────────
 
 /// Top-level per-ray shading: march, hit → shade surface, miss → sky.
-fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32) -> Color {
-    shade_ray_traced(scene, origin, dir, time, bounce, &mut NoOpTracer)
+fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32, exclude_idx: Option<usize>) -> Color {
+    shade_ray_traced(scene, origin, dir, time, bounce, exclude_idx, &mut NoOpTracer)
 }
 
 /// Profiled variant of [`shade_ray`].
@@ -978,6 +1016,7 @@ fn shade_ray_profiled(
     dir: Vec3,
     time: f32,
     bounce: u32,
+    exclude_idx: Option<usize>,
     prof: &mut RowProfile,
 ) -> Color {
     shade_ray_traced(
@@ -986,6 +1025,7 @@ fn shade_ray_profiled(
         dir,
         time,
         bounce,
+        exclude_idx,
         &mut ProfilingTracer::new(prof),
     )
 }
@@ -997,6 +1037,7 @@ fn shade_ray_traced<T: SdfTracer>(
     dir: Vec3,
     time: f32,
     bounce: u32,
+    exclude_idx: Option<usize>,
     tracer: &mut T,
 ) -> Color {
     let budget = RayBudget::for_bounce(bounce);
@@ -1032,7 +1073,7 @@ fn shade_ray_traced<T: SdfTracer>(
 
                 if fire_color.a > 0.01 {
                     tracer.begin(SdfStage::March);
-                    let hit = ray_march(scene, origin, dir, time, &budget);
+                    let hit = ray_march(scene, origin, dir, time, &budget, None);
                     tracer.end(SdfStage::March);
 
                     let bg = if let Some((hit_pt, idx, _)) = hit {
@@ -1047,7 +1088,7 @@ fn shade_ray_traced<T: SdfTracer>(
     }
 
     tracer.begin(SdfStage::March);
-    let hit = ray_march(scene, origin, dir, time, &budget);
+    let hit = ray_march(scene, origin, dir, time, &budget, exclude_idx);
     tracer.end(SdfStage::March);
 
     match hit {
@@ -1103,7 +1144,7 @@ fn shade_surface_traced<T: SdfTracer>(
                 let refl_dir = ray_dir.reflect(normal);
                 let refl_origin = hit + normal * (SURF_DIST * 2.0);
                 let refl_color =
-                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, None, tracer);
                 tracer.end(SdfStage::Reflection);
                 lerp_color(result, refl_color, *reflectivity)
             } else {
@@ -1124,7 +1165,7 @@ fn shade_surface_traced<T: SdfTracer>(
 
                 tracer.begin(SdfStage::Reflection);
                 let refl_color =
-                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, None, tracer);
                 tracer.end(SdfStage::Reflection);
 
                 let eta = 1.0 / ior;
@@ -1132,7 +1173,7 @@ fn shade_surface_traced<T: SdfTracer>(
                 let refr_color = if let Some(refr_dir) = ray_dir.refract(normal, eta) {
                     let refr_origin = hit - normal * (SURF_DIST * 2.0);
                     let mut rc =
-                        shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, tracer);
+                        shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, None, tracer);
                     rc.r *= tint.r;
                     rc.g *= tint.g;
                     rc.b *= tint.b;
@@ -1193,7 +1234,7 @@ fn shade_surface_traced<T: SdfTracer>(
                 let refl_dir = ray_dir.reflect(normal);
                 let refl_origin = hit + normal * (SURF_DIST * 2.0);
                 let refl_color =
-                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, None, tracer);
                 tracer.end(SdfStage::Reflection);
                 lerp_color(result, refl_color, *reflectivity)
             } else {
@@ -1217,7 +1258,7 @@ fn shade_surface_traced<T: SdfTracer>(
                 let refl_origin = hit + normal * (SURF_DIST * 2.0);
                 tracer.begin(SdfStage::Reflection);
                 let refl_color =
-                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, tracer);
+                    shade_ray_traced(scene, refl_origin, refl_dir, time, bounce + 1, None, tracer);
                 tracer.end(SdfStage::Reflection);
 
                 // Refraction (with optional chromatic dispersion)
@@ -1229,14 +1270,15 @@ fn shade_surface_traced<T: SdfTracer>(
                     let ior_b = 1.0 / (*ior + *dispersion);
                     let refr_origin = hit - normal * (SURF_DIST * 2.0);
 
+                    let exclude = Some(obj_idx);
                     let shade_channel = |eta: f32| -> f32 {
                         if let Some(refr_dir) = ray_dir.refract(normal, eta) {
-                            let rc = shade_ray(scene, refr_origin, refr_dir, time, bounce + 1);
+                            let rc = shade_ray(scene, refr_origin, refr_dir, time, bounce + 1, exclude);
                             // Return luminance-ish single channel (we pick per-channel below)
                             rc.r * 0.33 + rc.g * 0.34 + rc.b * 0.33
                         } else {
                             // Total internal reflection fallback
-                            let rc = shade_ray(scene, refl_origin, refl_dir, time, bounce + 1);
+                            let rc = shade_ray(scene, refl_origin, refl_dir, time, bounce + 1, None);
                             rc.r * 0.33 + rc.g * 0.34 + rc.b * 0.33
                         }
                     };
@@ -1244,19 +1286,19 @@ fn shade_surface_traced<T: SdfTracer>(
                     // Refract each channel separately for prismatic effect
                     let mut cr = Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
                     if let Some(dir_r) = ray_dir.refract(normal, ior_r) {
-                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_r, time, bounce + 1);
+                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_r, time, bounce + 1, exclude);
                         cr.r = c.r * tint.r;
                     } else {
                         cr.r = shade_channel(ior_r) * tint.r;
                     }
                     if let Some(dir_g) = ray_dir.refract(normal, ior_g) {
-                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_g, time, bounce + 1);
+                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_g, time, bounce + 1, exclude);
                         cr.g = c.g * tint.g;
                     } else {
                         cr.g = shade_channel(ior_g) * tint.g;
                     }
                     if let Some(dir_b) = ray_dir.refract(normal, ior_b) {
-                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_b, time, bounce + 1);
+                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_b, time, bounce + 1, exclude);
                         cr.b = c.b * tint.b;
                     } else {
                         cr.b = shade_channel(ior_b) * tint.b;
@@ -1268,7 +1310,7 @@ fn shade_surface_traced<T: SdfTracer>(
                     if let Some(refr_dir) = ray_dir.refract(normal, eta) {
                         let refr_origin = hit - normal * (SURF_DIST * 2.0);
                         let mut rc =
-                            shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, tracer);
+                            shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, Some(obj_idx), tracer);
                         rc.r *= tint.r;
                         rc.g *= tint.g;
                         rc.b *= tint.b;
@@ -1465,7 +1507,7 @@ mod tests {
         let origin = Vec3::new(0.0, 1.0, 6.0);
         let dir = Vec3::new(0.0, 0.0, -1.0);
         let budget = RayBudget::for_bounce(0);
-        let hit = ray_march(&scene, origin, dir, 0.0, &budget);
+        let hit = ray_march(&scene, origin, dir, 0.0, &budget, None);
         assert!(hit.is_some(), "ray should hit sphere");
         let (p, _, _) = hit.unwrap();
         // Hit point Z should be near the sphere surface at z ≈ 1.0

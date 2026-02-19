@@ -8,12 +8,11 @@ use crate::backend::MathBackend;
 ///
 /// Returns the total norm (before clipping).
 pub fn clip_grad_norm<B: MathBackend>(grads: &mut Gradients<B>, max_norm: f32) -> f32 {
-    // Compute total L2 norm across all gradients (f64 accumulation)
-    let mut total_sq: f64 = 0.0;
-    for grad in grads.values() {
-        let n = B::norm(grad);
-        total_sq += f64::from(n) * f64::from(n);
-    }
+    // Compute total L2 norm across all gradients via batched multi_norm_squared
+    // (GPU override does all reductions in parallel with a single D2H transfer)
+    let grad_refs: Vec<&B::Storage> = grads.values().collect();
+    let sq_norms = B::multi_norm_squared(&grad_refs);
+    let total_sq: f64 = sq_norms.into_iter().sum();
     let total_norm = total_sq.sqrt() as f32;
 
     if total_norm > max_norm {

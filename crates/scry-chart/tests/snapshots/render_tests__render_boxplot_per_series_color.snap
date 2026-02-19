@@ -1,15 +1,14 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 1040
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 20 commands
-overlays: 8
-  [0] (29, 273) Right "1"
-  [1] (29, 243) Right "2"
-  [2] (29, 182) Right "4"
-  [3] (29, 121) Right "6"
-  [4] (29, 60) Right "8"
-  [5] (29, 30) Right "9"
-  [6] (212, 280) Center "Default"
-  [7] (212, 16) Center "Styled Boxplot"
+canvas: 400x300, 28 commands
+text_labels: 8
+  [0] 1
+  [1] 2
+  [2] 4
+  [3] 6
+  [4] 8
+  [5] 9
+  [6] Default
+  [7] Styled Boxplot

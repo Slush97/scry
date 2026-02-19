@@ -1,22 +1,21 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 1296
 expression: summarize(&rendered)
 ---
-canvas: 500x350, 20 commands
-overlays: 15
-  [0] (30, 318) Right "0"
-  [1] (30, 224) Right "10"
-  [2] (30, 130) Right "20"
-  [3] (30, 35) Right "30"
-  [4] (83, 326) Center "Mon"
-  [5] (172, 326) Center "Tue"
-  [6] (262, 326) Center "Wed"
-  [7] (352, 326) Center "Thu"
-  [8] (441, 326) Center "Fri"
-  [9] (83, 196) Center "12"
-  [10] (172, 130) Center "19"
-  [11] (262, 234) Center "8"
-  [12] (352, 168) Center "15"
-  [13] (441, 102) Center "22"
-  [14] (262, 18) Center "Weekly Scores"
+canvas: 500x350, 35 commands
+text_labels: 15
+  [0] 0
+  [1] 10
+  [2] 20
+  [3] 30
+  [4] Mon
+  [5] Tue
+  [6] Wed
+  [7] Thu
+  [8] Fri
+  [9] 12
+  [10] 19
+  [11] 8
+  [12] 15
+  [13] 22
+  [14] Weekly Scores

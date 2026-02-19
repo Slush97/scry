@@ -2,15 +2,15 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 21 commands
-overlays: 10
-  [0] (44, 280) Center "0"
-  [1] (130, 280) Center "5"
-  [2] (216, 280) Center "10"
-  [3] (302, 280) Center "15"
-  [4] (388, 280) Center "20"
-  [5] (37, 91) Right "Q1"
-  [6] (37, 212) Right "Q2"
-  [7] (301, 59) Left "Series 1"
-  [8] (301, 79) Left "Product B"
-  [9] (216, 16) Center "Horizontal Grouped"
+canvas: 400x300, 31 commands
+text_labels: 10
+  [0] 0
+  [1] 5
+  [2] 10
+  [3] 15
+  [4] 20
+  [5] Q1
+  [6] Q2
+  [7] Series 1
+  [8] Product B
+  [9] Horizontal Grouped

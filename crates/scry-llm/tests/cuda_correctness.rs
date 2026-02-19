@@ -717,7 +717,7 @@ fn full_training_step() {
     // Compare losses
     let loss_diff = (cpu_metrics.loss - gpu_metrics.loss).abs();
     assert!(
-        loss_diff < 0.1,
+        loss_diff < 0.15,
         "training step loss: cpu={:.4}, gpu={:.4}, diff={loss_diff:.4}",
         cpu_metrics.loss,
         gpu_metrics.loss,

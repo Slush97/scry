@@ -427,8 +427,8 @@ impl<B: MathBackend> Gpt2Model<B> {
         grads.insert(loss_id, ones);
 
         for node in tape.nodes.iter().rev() {
-            let d_out = match grads.get(&node.output_id) {
-                Some(g) => B::clone_storage(g),
+            let d_out = match grads.remove(&node.output_id) {
+                Some(g) => g,
                 None => continue,
             };
 
@@ -487,13 +487,13 @@ impl<B: MathBackend> Gpt2Model<B> {
 
                     // Run backward on local tape
                     for local_node in local_tape.nodes.iter().rev() {
-                        let local_d_out = match local_grads.get(&local_node.output_id) {
-                            Some(g) => B::clone_storage(g),
+                        let local_d_out = match local_grads.remove(&local_node.output_id) {
+                            Some(g) => g,
                             None => continue,
                         };
                         crate::autograd::backward::backward_node::<B>(
                             local_node,
-                            &local_d_out,
+                            local_d_out,
                             &mut local_grads,
                         );
                     }
@@ -509,7 +509,7 @@ impl<B: MathBackend> Gpt2Model<B> {
                 }
                 _ => {
                     // Normal backward — delegate to the standard per-node backward
-                    crate::autograd::backward::backward_node::<B>(node, &d_out, &mut grads);
+                    crate::autograd::backward::backward_node::<B>(node, d_out, &mut grads);
                 }
             }
         }

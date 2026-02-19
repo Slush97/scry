@@ -1,23 +1,22 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 950
 expression: summarize(&rendered)
 ---
-canvas: 600x400, 60 commands
-overlays: 16
-  [0] (76, 351) Center "0"
-  [1] (178, 351) Center "2"
-  [2] (279, 351) Center "4"
-  [3] (381, 351) Center "6"
-  [4] (482, 351) Center "8"
-  [5] (584, 351) Center "10"
-  [6] (67, 344) Right "0"
-  [7] (67, 283) Right "2"
-  [8] (67, 222) Right "4"
-  [9] (67, 162) Right "6"
-  [10] (67, 101) Right "8"
-  [11] (67, 40) Right "10"
-  [12] (289, 86) Left "Peak"
-  [13] (330, 20) Center "Full Feature Test"
-  [14] (330, 384) Center "X Axis"
-  [15] (33, 192) Center rot=90° "Y Axis"
+canvas: 600x400, 76 commands
+text_labels: 16
+  [0] 0
+  [1] 2
+  [2] 4
+  [3] 6
+  [4] 8
+  [5] 10
+  [6] 0
+  [7] 2
+  [8] 4
+  [9] 6
+  [10] 8
+  [11] 10
+  [12] Peak
+  [13] Full Feature Test
+  [14] X Axis
+  [15] Y Axis

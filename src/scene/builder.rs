@@ -1186,6 +1186,7 @@ pub struct TextBuilder {
     color: Color,
     font_data: Option<FontData>,
     align: TextAlign,
+    rotation: f32,
     outline_color: Option<Color>,
     outline_width: Option<f32>,
     fill_style: Option<FillStyle>,
@@ -1204,6 +1205,7 @@ impl TextBuilder {
             color: Color::WHITE,
             font_data: None,
             align: TextAlign::Left,
+            rotation: 0.0,
             outline_color: None,
             outline_width: None,
             fill_style: None,
@@ -1238,6 +1240,13 @@ impl TextBuilder {
     #[must_use]
     pub const fn align(mut self, align: TextAlign) -> Self {
         self.align = align;
+        self
+    }
+
+    /// Set the rotation angle in degrees (positive = counter-clockwise). Default: 0.0.
+    #[must_use]
+    pub const fn rotation(mut self, degrees: f32) -> Self {
+        self.rotation = degrees;
         self
     }
 
@@ -1347,6 +1356,7 @@ impl TextBuilder {
             color: self.color,
             font_data,
             align: self.align,
+            rotation: self.rotation,
             outline_color: self.outline_color,
             outline_width: self.outline_width,
             fill_style: self.fill_style,

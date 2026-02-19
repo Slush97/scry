@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `RenderContext` — shared rendering infrastructure for chart layout.
 
+use scry_engine::scene::command::{DrawCommand, FontData, TextAlign as EngineTextAlign};
 use scry_engine::scene::PixelCanvas;
 use scry_engine::style::Color;
 
@@ -12,6 +13,30 @@ use super::{
     axis_config_from_theme, compute_plot_area, scaled_font_size, x_tick_label_offset,
     y_tick_label_offset, RenderedChart, TextAlign, TextOverlay,
 };
+
+// ---------------------------------------------------------------------------
+// Shared font data for chart text commands
+// ---------------------------------------------------------------------------
+
+static FONT_BYTES_REGULAR: &[u8] = include_bytes!("../fonts/Inter-Regular.ttf");
+static FONT_BYTES_BOLD: &[u8] = include_bytes!("../fonts/Inter-Bold.ttf");
+
+/// Lazily initialized shared FontData for regular weight.
+static FONT_REGULAR: std::sync::OnceLock<FontData> = std::sync::OnceLock::new();
+/// Lazily initialized shared FontData for bold weight.
+static FONT_BOLD: std::sync::OnceLock<FontData> = std::sync::OnceLock::new();
+
+fn chart_font(bold: bool) -> FontData {
+    if bold {
+        FONT_BOLD
+            .get_or_init(|| FontData::new(FONT_BYTES_BOLD.to_vec()))
+            .clone()
+    } else {
+        FONT_REGULAR
+            .get_or_init(|| FontData::new(FONT_BYTES_REGULAR.to_vec()))
+            .clone()
+    }
+}
 
 /// Shared state for chart rendering, eliminating boilerplate across chart types.
 pub(crate) struct RenderContext {
@@ -153,16 +178,16 @@ impl RenderContext {
         let h = self.height();
         let tick_fs = scaled_font_size(config.theme.tick_style.font_size, w, h);
         for (x, label) in &x_ticks {
-            self.overlays.push(TextOverlay {
-                x_px: *x,
-                y_px: py + ph + x_tick_label_offset(h),
-                text: label.clone(),
-                color: config.theme.foreground,
+            self.add_text(
+                *x,
+                py + ph + x_tick_label_offset(h),
+                label,
+                config.theme.foreground,
                 align,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: rot_deg,
-            });
+                tick_fs,
+                false,
+                rot_deg,
+            );
         }
     }
 
@@ -239,37 +264,106 @@ impl RenderContext {
         };
 
         for (x, label) in x_ticks {
-            self.overlays.push(TextOverlay {
-                x_px: *x,
-                y_px: py + ph + x_off,
-                text: label.clone(),
+            self.add_text(
+                *x,
+                py + ph + x_off,
+                label,
                 color,
-                align: x_align,
-                font_size: tick_font_size,
-                bold: false,
-                rotation_deg: rot_deg,
-            });
+                x_align,
+                tick_font_size,
+                false,
+                rot_deg,
+            );
         }
 
         for (y, label) in y_ticks {
-            self.overlays.push(TextOverlay {
-                x_px: px - y_off,
-                y_px: *y,
-                text: label.clone(),
+            self.add_text(
+                px - y_off,
+                *y,
+                label,
                 color,
-                align: TextAlign::Right,
-                font_size: tick_font_size,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+                TextAlign::Right,
+                tick_font_size,
+                false,
+                0.0,
+            );
         }
     }
 
+    /// Stage a text label for rendering.
+    ///
+    /// Text is collected in `self.overlays` during layout so that culling
+    /// passes (e.g. `cull_overlapping_value_labels`) can remove overlapping
+    /// labels.  In [`finish()`](Self::finish), surviving overlays are
+    /// converted to `DrawCommand::Text` and pushed into the canvas.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add_text(
+        &mut self,
+        x: f32,
+        y: f32,
+        text: &str,
+        color: Color,
+        align: TextAlign,
+        font_size: f32,
+        bold: bool,
+        rotation_deg: f32,
+    ) {
+        self.overlays.push(TextOverlay {
+            x_px: x,
+            y_px: y,
+            text: text.to_string(),
+            color,
+            align,
+            font_size,
+            bold,
+            rotation_deg,
+        });
+    }
+
     /// Finalize into a `RenderedChart`.
-    pub fn finish(self) -> RenderedChart {
+    ///
+    /// Flushes all surviving text overlays into the canvas as
+    /// `DrawCommand::Text` commands, so every export path (PNG, SVG,
+    /// widget) consumes a single unified scene graph.
+    pub fn finish(mut self) -> RenderedChart {
+        let mut canvas = self.canvas.take().unwrap();
+
+        for ov in &self.overlays {
+            let engine_align = match ov.align {
+                TextAlign::Left => EngineTextAlign::Left,
+                TextAlign::Center => EngineTextAlign::Center,
+                TextAlign::Right => EngineTextAlign::Right,
+            };
+
+            // Chart layout positions text at the vertical center (y_px),
+            // but the engine's text rasterizer expects the baseline.
+            // Convert: baseline = center_y + ascent * 0.5
+            let fd = chart_font(ov.bold);
+            let metrics =
+                scry_engine::rasterize::skia::text::measure_text("X", Some(&fd), ov.font_size);
+            let baseline_y = ov.y_px + metrics.ascent * 0.5;
+
+            canvas.push_command(DrawCommand::Text {
+                text: ov.text.clone(),
+                x: ov.x_px,
+                y: baseline_y,
+                font_size: ov.font_size,
+                color: ov.color,
+                font_data: fd,
+                align: engine_align,
+                rotation: ov.rotation_deg,
+                outline_color: None,
+                outline_width: None,
+                fill_style: None,
+                shadow: None,
+            });
+        }
+
         RenderedChart {
-            canvas: self.canvas.unwrap(),
-            text_overlays: self.overlays,
+            canvas,
+            // text_overlays kept empty — cursor code may append to it
+            // post-render, and the widget path extracts text from canvas.
+            text_overlays: Vec::new(),
             plot_area: Some(self.plot),
             x_scale: self.x_scale,
             y_scale: self.y_scale,

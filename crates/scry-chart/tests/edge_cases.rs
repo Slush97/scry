@@ -48,16 +48,14 @@ fn assert_render(chart: &Chart, w: u32, h: u32, label: &str) -> layout::Rendered
     let r = layout::render_chart(chart, w, h);
     assert_eq!(r.canvas.width(), w, "{label}: width mismatch");
     assert_eq!(r.canvas.height(), h, "{label}: height mismatch");
-    for (i, ov) in r.text_overlays.iter().enumerate() {
+    for (i, (x, y, text)) in r.text_positions().iter().enumerate() {
         assert!(
-            ov.x_px.is_finite(),
-            "{label}: overlay[{i}].x_px = {}",
-            ov.x_px
+            x.is_finite(),
+            "{label}: text[{i}] '{text}' has non-finite x = {x}",
         );
         assert!(
-            ov.y_px.is_finite(),
-            "{label}: overlay[{i}].y_px = {}",
-            ov.y_px
+            y.is_finite(),
+            "{label}: text[{i}] '{text}' has non-finite y = {y}",
         );
     }
     r
@@ -1465,7 +1463,7 @@ fn chart_clone_and_render() {
     let r2 = render_transparent(&clone, "clone_copy");
 
     assert_eq!(r1.canvas.commands().len(), r2.canvas.commands().len());
-    assert_eq!(r1.text_overlays.len(), r2.text_overlays.len());
+    assert_eq!(r1.text_labels().len(), r2.text_labels().len());
 }
 
 #[test]
@@ -1547,7 +1545,7 @@ fn bar_show_values_vertical() {
     .show_values()
     .build();
     let r = render_transparent(&chart, "bar_show_values_v");
-    let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
+    let value_texts = r.text_labels();
     assert!(
         value_texts.contains(&"10"),
         "Should contain '10', got: {value_texts:?}"
@@ -1570,7 +1568,7 @@ fn bar_show_values_horizontal() {
         .show_values()
         .build();
     let r = render_transparent(&chart, "bar_show_values_h");
-    let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
+    let value_texts = r.text_labels();
     assert!(
         value_texts.contains(&"100"),
         "Should contain '100', got: {value_texts:?}"
@@ -1590,7 +1588,7 @@ fn bar_show_values_stacked() {
         .show_values()
         .build();
     let r = render_transparent(&chart, "bar_show_values_stacked");
-    let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
+    let value_texts = r.text_labels();
     // Stacked totals: 10+5=15, 20+15=35
     assert!(
         value_texts.contains(&"15"),
@@ -1609,7 +1607,7 @@ fn bar_show_values_negative() {
         .show_values()
         .build();
     let r = render_transparent(&chart, "bar_show_values_neg");
-    let value_texts: Vec<&str> = r.text_overlays.iter().map(|o| o.text.as_str()).collect();
+    let value_texts = r.text_labels();
     assert!(
         value_texts.contains(&"-10"),
         "Should contain '-10', got: {value_texts:?}"

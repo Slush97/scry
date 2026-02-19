@@ -103,37 +103,60 @@ pub struct SdfPipeline {
     /// Reusable readback buffer.
     #[cfg(feature = "sdf-gpu")]
     readback_buf: Vec<u8>,
+    /// Background thread handle for async GPU init.
+    #[cfg(feature = "sdf-gpu")]
+    gpu_init_handle: Option<std::thread::JoinHandle<Option<super::gpu_renderer::SdfGpuContext>>>,
 }
 
 impl SdfPipeline {
     /// Create a new SDF pipeline with auto-detected GPU.
+    ///
+    /// GPU initialization (adapter detection + shader compilation) runs on a
+    /// background thread so construction returns instantly. Early frames use
+    /// CPU rendering; once the GPU is ready it switches automatically.
     #[must_use]
     pub fn new() -> Self {
         #[cfg(feature = "sdf-gpu")]
-        let (gpu_ctx, gpu_active) = {
+        let gpu_init_handle = Some(std::thread::spawn(|| {
             use crate::gpu::GpuDevice;
-            match GpuDevice::global() {
-                Some(gpu) => {
-                    match super::gpu_renderer::SdfGpuContext::with_device(gpu) {
-                        Ok(ctx) => (Some(Some(ctx)), true),
-                        Err(e) => {
-                            if crate::scry_debug_enabled() {
-                                eprintln!("[scry] SDF GPU init failed: {e}");
-                            }
-                            (Some(None), false)
-                        }
-                    }
-                }
-                None => (Some(None), false),
+            use std::io::Write;
+            // Write to a separate file to avoid any sharing issues with the main diag log
+            let mut log = std::fs::File::create("/tmp/scry_gpu_init.log").ok();
+            macro_rules! glog {
+                ($($arg:tt)*) => {
+                    if let Some(f) = log.as_mut() { let _ = writeln!(f, $($arg)*); let _ = f.flush(); }
+                };
             }
-        };
-        #[cfg(not(feature = "sdf-gpu"))]
-        let gpu_active = false;
+            glog!("[gpu-thread] thread started");
+            let t0 = std::time::Instant::now();
+            glog!("[gpu-thread] calling GpuDevice::global()...");
+            let gpu = match GpuDevice::global() {
+                Some(g) => g,
+                None => {
+                    glog!("[gpu-thread] GpuDevice::global() returned None after {:?}", t0.elapsed());
+                    return None;
+                }
+            };
+            glog!("[gpu-thread] device ready in {:?}: {} ({} {})",
+                t0.elapsed(), gpu.info().adapter_name, gpu.info().backend, gpu.info().device_type);
+            glog!("[gpu-thread] compiling SDF shader...");
+            let t1 = std::time::Instant::now();
+            match super::gpu_renderer::SdfGpuContext::with_device(gpu) {
+                Ok(ctx) => {
+                    glog!("[gpu-thread] SDF context ready in {:?} (total {:?})", t1.elapsed(), t0.elapsed());
+                    Some(ctx)
+                }
+                Err(e) => {
+                    glog!("[gpu-thread] SDF context FAILED after {:?}: {e}", t1.elapsed());
+                    None
+                }
+            }
+        }));
 
         Self {
             #[cfg(feature = "sdf-gpu")]
-            gpu_ctx,
-            gpu_active,
+            gpu_ctx: None,
+            gpu_active: false,
             render_scale: 1.0,
             prev_image: None,
             #[cfg(feature = "sdf-gpu")]
@@ -148,6 +171,36 @@ impl SdfPipeline {
             pending_full_h: 0,
             #[cfg(feature = "sdf-gpu")]
             readback_buf: Vec::new(),
+            #[cfg(feature = "sdf-gpu")]
+            gpu_init_handle,
+        }
+    }
+
+    /// Poll the background GPU init thread (non-blocking).
+    ///
+    /// If the thread has finished, takes the result and sets up the GPU
+    /// context. If still running, returns immediately (CPU renders this frame).
+    #[cfg(feature = "sdf-gpu")]
+    fn ensure_gpu(&mut self) {
+        if self.gpu_ctx.is_some() {
+            return; // already resolved
+        }
+        let Some(handle) = self.gpu_init_handle.take() else {
+            return;
+        };
+        if handle.is_finished() {
+            match handle.join() {
+                Ok(Some(ctx)) => {
+                    self.gpu_ctx = Some(Some(ctx));
+                    self.gpu_active = true;
+                }
+                _ => {
+                    self.gpu_ctx = Some(None);
+                }
+            }
+        } else {
+            // Still compiling — put the handle back, use CPU this frame
+            self.gpu_init_handle = Some(handle);
         }
     }
 
@@ -172,6 +225,8 @@ impl SdfPipeline {
             pending_full_h: 0,
             #[cfg(feature = "sdf-gpu")]
             readback_buf: Vec::new(),
+            #[cfg(feature = "sdf-gpu")]
+            gpu_init_handle: None,
         }
     }
 
@@ -205,6 +260,10 @@ impl SdfPipeline {
     /// Human-readable name of the active SDF backend.
     #[must_use]
     pub fn backend_name(&self) -> &'static str {
+        #[cfg(feature = "sdf-gpu")]
+        if self.gpu_ctx.is_none() {
+            return "pending (GPU init deferred)";
+        }
         if self.gpu_active {
             "wgpu SDF compute"
         } else {
@@ -215,10 +274,26 @@ impl SdfPipeline {
     /// Toggle GPU on/off at runtime.
     pub fn set_gpu_active(&mut self, active: bool) {
         #[cfg(feature = "sdf-gpu")]
-        if active && self.gpu_ctx.as_ref().and_then(|o| o.as_ref()).is_some() {
-            self.gpu_active = true;
-        } else {
-            self.gpu_active = false;
+        {
+            // If GPU init is still pending, try to resolve it now
+            if active && self.gpu_ctx.is_none() {
+                if let Some(handle) = self.gpu_init_handle.take() {
+                    // Block briefly to see if GPU is ready
+                    match handle.join() {
+                        Ok(Some(ctx)) => {
+                            self.gpu_ctx = Some(Some(ctx));
+                        }
+                        _ => {
+                            self.gpu_ctx = Some(None);
+                        }
+                    }
+                }
+            }
+            if active && self.gpu_ctx.as_ref().and_then(|o| o.as_ref()).is_some() {
+                self.gpu_active = true;
+            } else {
+                self.gpu_active = false;
+            }
         }
         #[cfg(not(feature = "sdf-gpu"))]
         {
@@ -242,6 +317,10 @@ impl SdfPipeline {
         height: u32,
         time: f32,
     ) -> SdfRenderResult {
+        // Lazy GPU init on first render call
+        #[cfg(feature = "sdf-gpu")]
+        self.ensure_gpu();
+
         if width == 0 || height == 0 {
             return SdfRenderResult {
                 image: ImageData::new(1, 1, vec![0; 4]),
@@ -284,7 +363,7 @@ impl SdfPipeline {
             }
         }
 
-        // ── Phase 3: Return previous frame or CPU fallback ──
+        // ── Phase 3: Return previous frame, GPU sync, or CPU fallback ──
         if let Some(image) = self.prev_image.take() {
             SdfRenderResult {
                 width: image.width(),
@@ -293,7 +372,52 @@ impl SdfPipeline {
                 backend: SdfBackend::Gpu,
             }
         } else {
-            // First frame or CPU-only: render synchronously on CPU
+            // First frame: use synchronous GPU render if available,
+            // otherwise fall back to CPU.
+            #[cfg(feature = "sdf-gpu")]
+            if self.gpu_submitted {
+                // We just submitted GPU work above — do a blocking readback
+                // instead of wasting time on a CPU render.
+                self.gpu_submitted = false;
+                if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
+                    if render_w == width && render_h == height {
+                        if super::gpu_renderer::SdfGpuRenderer::readback_into(
+                            ctx,
+                            render_w,
+                            render_h,
+                            &mut self.readback_buf,
+                        )
+                        .is_ok()
+                        {
+                            let data = std::mem::take(&mut self.readback_buf);
+                            let image = ImageData::new(width, height, data);
+                            return SdfRenderResult {
+                                width,
+                                height,
+                                image,
+                                backend: SdfBackend::Gpu,
+                            };
+                        }
+                    } else if let Ok(pm) =
+                        super::gpu_renderer::SdfGpuRenderer::readback(ctx, render_w, render_h)
+                    {
+                        let upscaled = crate::sdf::upscale::upscale_bicubic(
+                            pm.data(),
+                            render_w,
+                            render_h,
+                            width,
+                            height,
+                        );
+                        let image = ImageData::new(width, height, upscaled);
+                        return SdfRenderResult {
+                            width,
+                            height,
+                            image,
+                            backend: SdfBackend::Gpu,
+                        };
+                    }
+                }
+            }
             self.render_cpu(scene, width, height, render_w, render_h, time)
         }
     }
@@ -309,6 +433,10 @@ impl SdfPipeline {
         height: u32,
         time: f32,
     ) -> SdfRenderResult {
+        // Lazy GPU init on first render call
+        #[cfg(feature = "sdf-gpu")]
+        self.ensure_gpu();
+
         let render_w = if self.render_scale < 1.0 {
             ((width as f32 * self.render_scale) as u32).max(1)
         } else {
@@ -444,6 +572,17 @@ impl SdfPipeline {
                     backend: SdfBackend::Cpu,
                 }
             }
+        }
+    }
+}
+
+impl Drop for SdfPipeline {
+    fn drop(&mut self) {
+        // Join the background GPU init thread to avoid heap corruption
+        // from wgpu resources being freed during process teardown.
+        #[cfg(feature = "sdf-gpu")]
+        if let Some(handle) = self.gpu_init_handle.take() {
+            let _ = handle.join();
         }
     }
 }

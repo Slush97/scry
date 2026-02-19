@@ -1,18 +1,17 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 207
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 15 commands
-overlays: 11
-  [0] (53, 273) Right "0"
-  [1] (53, 192) Right "10"
-  [2] (53, 111) Right "20"
-  [3] (53, 30) Right "30"
-  [4] (93, 280) Center "Mon"
-  [5] (158, 280) Center "Tue"
-  [6] (224, 280) Center "Wed"
-  [7] (290, 280) Center "Thu"
-  [8] (355, 280) Center "Fri"
-  [9] (224, 16) Center "Weekly Sales"
-  [10] (24, 152) Center rot=90° "Units"
+canvas: 400x300, 26 commands
+text_labels: 11
+  [0] 0
+  [1] 10
+  [2] 20
+  [3] 30
+  [4] Mon
+  [5] Tue
+  [6] Wed
+  [7] Thu
+  [8] Fri
+  [9] Weekly Sales
+  [10] Units

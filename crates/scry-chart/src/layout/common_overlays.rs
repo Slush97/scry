@@ -11,7 +11,7 @@ use super::render_context::RenderContext;
 use super::{
     char_width_for_size, estimate_y_label_width, proportional_margin, proportional_title_height,
     proportional_x_label_height, proportional_x_tick_height, scaled_font_size, x_tick_label_offset,
-    y_tick_label_offset, TextAlign, TextOverlay,
+    y_tick_label_offset, TextAlign,
 };
 
 impl RenderContext {
@@ -39,93 +39,93 @@ impl RenderContext {
         };
 
         if let Some(ref title) = config.titles.title {
-            self.overlays.push(TextOverlay {
-                x_px: px + pw / 2.0,
-                y_px: margin + extra_top + 4.0,
-                text: title.clone(),
-                color: config.theme.title_style.color,
-                align: TextAlign::Center,
-                font_size: title_fs,
-                bold: true,
-                rotation_deg: 0.0,
-            });
+            self.add_text(
+                px + pw / 2.0,
+                margin + extra_top + 4.0,
+                title,
+                config.theme.title_style.color,
+                TextAlign::Center,
+                title_fs,
+                true,
+                0.0,
+            );
         }
 
         // Subtitle: positioned below the title, smaller and not bold.
         if let Some(ref subtitle) = config.titles.subtitle {
             let sub_y = margin + extra_top + title_h + 2.0;
-            self.overlays.push(TextOverlay {
-                x_px: px + pw / 2.0,
-                y_px: sub_y,
-                text: subtitle.clone(),
-                color: config.theme.label_style.color,
-                align: TextAlign::Center,
-                font_size: subtitle_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            self.add_text(
+                px + pw / 2.0,
+                sub_y,
+                subtitle,
+                config.theme.label_style.color,
+                TextAlign::Center,
+                subtitle_fs,
+                false,
+                0.0,
+            );
         }
 
         if let Some(ref label) = config.titles.x_label {
             let x_tick_h = proportional_x_tick_height(h, config.ticks.x_tick_rotation);
             let x_label_h = proportional_x_label_height(h);
-            self.overlays.push(TextOverlay {
-                x_px: px + pw / 2.0,
-                y_px: py + ph + x_tick_h + x_label_h,
-                text: label.clone(),
-                color: config.theme.label_style.color,
-                align: TextAlign::Center,
-                font_size: label_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            self.add_text(
+                px + pw / 2.0,
+                py + ph + x_tick_h + x_label_h,
+                label,
+                config.theme.label_style.color,
+                TextAlign::Center,
+                label_fs,
+                false,
+                0.0,
+            );
         }
 
         if let Some(ref label) = config.titles.y_label {
             // Y-axis label is rotated 90° so it reads vertically.
             let y_label_w =
                 estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
-            self.overlays.push(TextOverlay {
-                x_px: margin + y_label_w / 2.0,
-                y_px: py + ph / 2.0,
-                text: label.clone(),
-                color: config.theme.label_style.color,
-                align: TextAlign::Center,
-                font_size: label_fs,
-                bold: false,
-                rotation_deg: 90.0,
-            });
+            self.add_text(
+                margin + y_label_w / 2.0,
+                py + ph / 2.0,
+                label,
+                config.theme.label_style.color,
+                TextAlign::Center,
+                label_fs,
+                false,
+                90.0,
+            );
         }
 
         // Secondary Y-axis label (right side, rotated -90°).
         if let Some(ref label) = config.secondary.label {
             let sec_label_w =
                 estimate_y_label_width(Some(label), w, h, config.theme.label_style.font_size);
-            self.overlays.push(TextOverlay {
-                x_px: (w as f32) - margin - sec_label_w / 2.0,
-                y_px: py + ph / 2.0,
-                text: label.clone(),
-                color: config.theme.label_style.color,
-                align: TextAlign::Center,
-                font_size: label_fs,
-                bold: false,
-                rotation_deg: -90.0,
-            });
+            self.add_text(
+                (w as f32) - margin - sec_label_w / 2.0,
+                py + ph / 2.0,
+                label,
+                config.theme.label_style.color,
+                TextAlign::Center,
+                label_fs,
+                false,
+                -90.0,
+            );
         }
 
         // Footer: small text at bottom center.
         if let Some(ref footer) = config.titles.footer {
             let extra_bottom = config.margin.as_ref().map_or(0.0, |m| m.bottom);
-            self.overlays.push(TextOverlay {
-                x_px: px + pw / 2.0,
-                y_px: (h as f32) - margin - extra_bottom + 2.0,
-                text: footer.clone(),
-                color: config.theme.label_style.color,
-                align: TextAlign::Center,
-                font_size: footer_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            self.add_text(
+                px + pw / 2.0,
+                (h as f32) - margin - extra_bottom + 2.0,
+                footer,
+                config.theme.label_style.color,
+                TextAlign::Center,
+                footer_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -137,16 +137,16 @@ impl RenderContext {
         let y_off = y_tick_label_offset(w);
         let tick_fs = scaled_font_size(11.0, w, h);
         for (pos, label) in y_ticks {
-            self.overlays.push(TextOverlay {
-                x_px: px - y_off,
-                y_px: *pos,
-                text: label.clone(),
+            self.add_text(
+                px - y_off,
+                *pos,
+                label,
                 color,
-                align: TextAlign::Right,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+                TextAlign::Right,
+                tick_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -260,16 +260,16 @@ impl RenderContext {
                 0.0
             };
 
-            self.overlays.push(TextOverlay {
-                x_px: cat_scale.center(ci) as f32,
-                y_px: py + ph + x_off + stagger_offset,
-                text: display_label,
-                color: theme.text_color(),
+            self.add_text(
+                cat_scale.center(ci) as f32,
+                py + ph + x_off + stagger_offset,
+                &display_label,
+                theme.text_color(),
                 align,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: rot_deg,
-            });
+                tick_fs,
+                false,
+                rot_deg,
+            );
         }
     }
 
@@ -312,16 +312,16 @@ impl RenderContext {
                 });
             }
 
-            self.overlays.push(TextOverlay {
-                x_px: text_x,
-                y_px: text_y,
-                text: ann.text.clone(),
-                color: ann.style.text_color,
-                align: TextAlign::Left,
-                font_size: ann_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            self.add_text(
+                text_x,
+                text_y,
+                &ann.text,
+                ann.style.text_color,
+                TextAlign::Left,
+                ann_fs,
+                false,
+                0.0,
+            );
         }
     }
 

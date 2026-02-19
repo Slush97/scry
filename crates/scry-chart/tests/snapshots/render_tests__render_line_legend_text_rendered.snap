@@ -2,20 +2,20 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 500x350, 32 commands
-overlays: 15
-  [0] (38, 326) Center "0.0"
-  [1] (113, 326) Center "0.5"
-  [2] (187, 326) Center "1.0"
-  [3] (262, 326) Center "1.5"
-  [4] (337, 326) Center "2.0"
-  [5] (411, 326) Center "2.5"
-  [6] (486, 326) Center "3.0"
-  [7] (30, 318) Right "10"
-  [8] (30, 271) Right "20"
-  [9] (30, 177) Right "40"
-  [10] (30, 82) Right "60"
-  [11] (30, 35) Right "70"
-  [12] (406, 64) Left "Temp"
-  [13] (406, 84) Left "Humidity"
-  [14] (262, 18) Center "Legend Text Check"
+canvas: 500x350, 47 commands
+text_labels: 15
+  [0] 0.0
+  [1] 0.5
+  [2] 1.0
+  [3] 1.5
+  [4] 2.0
+  [5] 2.5
+  [6] 3.0
+  [7] 10
+  [8] 20
+  [9] 40
+  [10] 60
+  [11] 70
+  [12] Temp
+  [13] Humidity
+  [14] Legend Text Check

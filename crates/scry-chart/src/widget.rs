@@ -257,18 +257,76 @@ impl StatefulWidget for ChartWidget<'_> {
             }
         }
 
+        // Extract text commands from the canvas for ratatui cell rendering,
+        // and build a text-free canvas for pixel-level rendering.
+        let (canvas, mut text_overlays_from_canvas) = extract_text_commands(rendered.canvas);
+
+        // Merge cursor/interactive overlays (which are added to text_overlays
+        // by the cursor code above, not via add_text).
+        text_overlays_from_canvas.extend(rendered.text_overlays);
+
         // Render the pixel canvas via the underlying widget
-        let pcw = PixelCanvasWidget::new(rendered.canvas).z_index(self.z_index);
+        let pcw = PixelCanvasWidget::new(canvas).z_index(self.z_index);
         pcw.render(area, buf, &mut state.pixel_state);
 
         // Overlay text labels via ratatui
-        render_text_overlays(buf, area, &rendered.text_overlays, font);
+        render_text_overlays(buf, area, &text_overlays_from_canvas, font);
     }
 }
 
 // ---------------------------------------------------------------------------
 // Text overlay rendering
 // ---------------------------------------------------------------------------
+
+/// Extract `DrawCommand::Text` commands from a canvas, returning a text-free
+/// canvas and a list of `TextOverlay` entries for ratatui cell rendering.
+///
+/// This prevents double-rendering in the terminal widget path where text
+/// must be rendered via ratatui character cells, not pixel-level fonts.
+fn extract_text_commands(
+    canvas: scry_engine::scene::PixelCanvas,
+) -> (scry_engine::scene::PixelCanvas, Vec<TextOverlay>) {
+    use scry_engine::scene::command::DrawCommand;
+    let bg = canvas.background_color();
+    let w = canvas.width();
+    let h = canvas.height();
+    let mut out = scry_engine::scene::PixelCanvas::new(w, h).background(bg);
+    let mut overlays = Vec::new();
+
+    for cmd in canvas.into_commands() {
+        match cmd {
+            DrawCommand::Text {
+                ref text,
+                x,
+                y,
+                font_size,
+                ref color,
+                ref align,
+                rotation,
+                ..
+            } => {
+                let layout_align = match align {
+                    scry_engine::scene::command::TextAlign::Left => TextAlign::Left,
+                    scry_engine::scene::command::TextAlign::Center => TextAlign::Center,
+                    scry_engine::scene::command::TextAlign::Right => TextAlign::Right,
+                };
+                overlays.push(TextOverlay {
+                    x_px: x,
+                    y_px: y,
+                    text: text.clone(),
+                    color: *color,
+                    align: layout_align,
+                    font_size,
+                    bold: false, // can't recover bold from DrawCommand, but ratatui ignores it
+                    rotation_deg: rotation,
+                });
+            }
+            other => out.push_command(other),
+        }
+    }
+
+    (out, overlays)
+}
 
 /// Render text overlays on top of the chart using the ratatui buffer.
 fn render_text_overlays(buf: &mut Buffer, area: Rect, overlays: &[TextOverlay], font: FontSize) {

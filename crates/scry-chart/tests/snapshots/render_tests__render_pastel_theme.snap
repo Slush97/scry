@@ -1,16 +1,15 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 490
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 20 commands
-overlays: 9
-  [0] (39, 280) Center "0.9"
-  [1] (163, 280) Center "2.0"
-  [2] (388, 280) Center "4.0"
-  [3] (32, 273) Right "3"
-  [4] (32, 212) Right "4"
-  [5] (32, 152) Right "5"
-  [6] (32, 91) Right "6"
-  [7] (32, 30) Right "7"
-  [8] (214, 16) Center "Pastel Theme"
+canvas: 400x300, 29 commands
+text_labels: 9
+  [0] 0.9
+  [1] 2.0
+  [2] 4.0
+  [3] 3
+  [4] 4
+  [5] 5
+  [6] 6
+  [7] 7
+  [8] Pastel Theme

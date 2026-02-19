@@ -425,22 +425,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Diagnostic log file (visible after exit, since stderr goes to alternate screen)
+    use std::io::Write as _;
+    let mut diag = std::fs::File::create("/tmp/masonic_diag.log").ok();
+    macro_rules! diag {
+        ($($arg:tt)*) => {
+            if let Some(f) = diag.as_mut() { let _ = writeln!(f, $($arg)*); let _ = f.flush(); }
+        };
+    }
+
+    diag!("[1] initializing GPU pipeline...");
+    let mut state = MasonicState::new();
+    diag!("[2] GPU pipeline ready: {}", state.sdf_pipeline.backend_name());
+
+    eprintln!("SDF backend: {} — entering terminal...", state.sdf_pipeline.backend_name());
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let picker = Picker::detect();
     let protocol_name = format!("{:?}", picker.protocol());
+    diag!("[3] protocol={protocol_name} font={:?}", picker.font_size());
     let backend = picker.create_backend();
     let mut px_state = PixelCanvasState::new(backend, picker.font_size());
 
-    let mut state = MasonicState::new();
     let start = Instant::now();
     let mut last_frame = Instant::now();
     let mut frozen_time = 0.0_f32;
     let mut frame_num = 0u64;
-
-    eprintln!("[masonic_mirror] SDF backend: {}", state.sdf_pipeline.backend_name());
 
     loop {
         frame_num += 1;
@@ -473,16 +486,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // ── Render SDF via pipeline (handles GPU pipelining internally) ──
         let sdf_scene = build_sdf_scene(elapsed);
+        let render_start = Instant::now();
         let sdf_result = state.sdf_pipeline.render(&sdf_scene, w, h, elapsed);
+        let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
+        if frame_num <= 5 || frame_num % 50 == 0
+            || (frame_num <= 200 && sdf_result.backend == scry_engine::sdf::pipeline::SdfBackend::Gpu)
+        {
+            diag!("[frame {frame_num}] {render_ms:.1}ms backend={:?} gpu_active={} t={elapsed:.1}s",
+                sdf_result.backend, state.sdf_pipeline.is_gpu_active());
+        }
+
+        // Diagnostic: dump first frames info + PNG
+        if frame_num <= 2 {
+            let img_data = sdf_result.image.data();
+            let total_px = (sdf_result.width * sdf_result.height) as usize;
+            let non_black = (0..total_px).filter(|&i| {
+                img_data[i*4] > 10 || img_data[i*4+1] > 10 || img_data[i*4+2] > 10
+            }).count();
+            eprintln!("[diag] frame={frame_num} w={w} h={h} backend={:?} scale={:.0}% non_black={non_black}/{total_px}",
+                sdf_result.backend,
+                state.sdf_pipeline.get_render_scale() * 100.0);
+            if frame_num == 1 {
+                if let Some(mut pm) = tiny_skia::Pixmap::new(sdf_result.width, sdf_result.height) {
+                    pm.data_mut().copy_from_slice(img_data);
+                    let _ = pm.save_png("/tmp/masonic_frame1.png");
+                    eprintln!("[diag] saved /tmp/masonic_frame1.png");
+                }
+            }
+        }
+
         let canvas = build_scene(w, h, sdf_result.image);
         let cmd_count = canvas.command_count();
-
-        // Diagnostic: log first frame info
-        if frame_num == 1 {
-            eprintln!("[diag] frame=1 w={w} h={h} cmds={cmd_count} backend={} scale={:.0}%",
-                state.sdf_pipeline.backend_name(),
-                state.sdf_pipeline.get_render_scale() * 100.0);
-        }
 
         // Track resolution for report
         state.canvas_w = w;

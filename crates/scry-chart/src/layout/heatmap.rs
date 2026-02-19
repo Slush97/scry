@@ -9,7 +9,7 @@ use crate::theme::contrast_text_color;
 
 use super::{
     proportional_margin, proportional_title_height, scaled_font_size, RenderContext, RenderedChart,
-    TextAlign, TextOverlay, INTER_ADVANCE_RATIO,
+    TextAlign, INTER_ADVANCE_RATIO,
 };
 
 pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
@@ -111,16 +111,16 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
                 } else {
                     format!("{val:.0}")
                 };
-                ctx.overlays.push(TextOverlay {
-                    x_px: cx + cell_w / 2.0,
-                    y_px: cy + cell_h / 2.0,
-                    text,
-                    color: contrast_text_color(cell_color),
-                    align: TextAlign::Center,
-                    font_size: data_fs,
-                    bold: false,
-                    rotation_deg: 0.0,
-                });
+                ctx.add_text(
+                    cx + cell_w / 2.0,
+                    cy + cell_h / 2.0,
+                    &text,
+                    contrast_text_color(cell_color),
+                    TextAlign::Center,
+                    data_fs,
+                    false,
+                    0.0,
+                );
             }
         }
     }
@@ -159,55 +159,55 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
     } else {
         format!("{}", v_lo as i64)
     };
-    ctx.overlays.push(TextOverlay {
-        x_px: bar_x + legend_bar_w + 4.0,
-        y_px: bar_y + 2.0,
-        text: fmt_hi,
-        color: theme.text_color(),
-        align: TextAlign::Left,
-        font_size: data_fs,
-        bold: false,
-        rotation_deg: 0.0,
-    });
-    ctx.overlays.push(TextOverlay {
-        x_px: bar_x + legend_bar_w + 4.0,
-        y_px: bar_y + bar_h - 2.0,
-        text: fmt_lo,
-        color: theme.text_color(),
-        align: TextAlign::Left,
-        font_size: data_fs,
-        bold: false,
-        rotation_deg: 0.0,
-    });
+    ctx.add_text(
+        bar_x + legend_bar_w + 4.0,
+        bar_y + 2.0,
+        &fmt_hi,
+        theme.text_color(),
+        TextAlign::Left,
+        data_fs,
+        false,
+        0.0,
+    );
+    ctx.add_text(
+        bar_x + legend_bar_w + 4.0,
+        bar_y + bar_h - 2.0,
+        &fmt_lo,
+        theme.text_color(),
+        TextAlign::Left,
+        data_fs,
+        false,
+        0.0,
+    );
 
     // Row labels
     for (ri, label) in hm.row_labels.iter().enumerate() {
         let cy = grid_y + ri as f32 * (cell_h + hm.cell_gap) + cell_h / 2.0;
-        ctx.overlays.push(TextOverlay {
-            x_px: grid_x - 6.0,
-            y_px: cy,
-            text: label.clone(),
-            color: theme.text_color(),
-            align: TextAlign::Right,
-            font_size: tick_fs,
-            bold: false,
-            rotation_deg: 0.0,
-        });
+        ctx.add_text(
+            grid_x - 6.0,
+            cy,
+            label,
+            theme.text_color(),
+            TextAlign::Right,
+            tick_fs,
+            false,
+            0.0,
+        );
     }
 
     // Column labels — positioned above the grid with adequate clearance
     for (ci, label) in hm.col_labels.iter().enumerate() {
         let cx = grid_x + ci as f32 * (cell_w + hm.cell_gap) + cell_w / 2.0;
-        ctx.overlays.push(TextOverlay {
-            x_px: cx,
-            y_px: grid_y - col_label_h * 0.45,
-            text: label.clone(),
-            color: theme.text_color(),
-            align: TextAlign::Center,
-            font_size: tick_fs,
-            bold: false,
-            rotation_deg: 0.0,
-        });
+        ctx.add_text(
+            cx,
+            grid_y - col_label_h * 0.45,
+            label,
+            theme.text_color(),
+            TextAlign::Center,
+            tick_fs,
+            false,
+            0.0,
+        );
     }
 
     // Title, subtitle, footer, axis labels — handled by RenderContext

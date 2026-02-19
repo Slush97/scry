@@ -155,14 +155,17 @@ impl<B: MathBackend> Trainer<B> {
                 self.model_config.vocab_size,
                 Some(&mut tape),
             );
-            total_loss += loss.to_vec()[0];
+            let loss_id = loss.id;
 
             let grads = if self.config.use_checkpointing {
-                self.model.backward_checkpointed(&tape, loss.id)
+                self.model.backward_checkpointed(&tape, loss_id)
             } else {
-                backward(&tape, loss.id)
+                backward(&tape, loss_id)
             };
             merge_grads::<B>(&mut accumulated_grads, grads);
+
+            // Defer D2H transfer until after backward to avoid mid-step GPU sync
+            total_loss += loss.to_vec()[0];
         }
 
         // NaN/Inf safety net: skip optimizer step if loss is bad

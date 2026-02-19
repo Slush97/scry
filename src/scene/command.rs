@@ -570,6 +570,9 @@ pub enum DrawCommand {
         font_data: FontData,
         /// Horizontal text alignment. Default: `Left`.
         align: TextAlign,
+        /// Rotation in degrees (0 = horizontal, positive = counter-clockwise).
+        /// The text is rotated around its anchor point (alignment-dependent).
+        rotation: f32,
         /// Optional outline color.
         outline_color: Option<Color>,
         /// Outline width in pixels.
@@ -743,6 +746,7 @@ impl Hash for DrawCommand {
                 color,
                 font_data,
                 align,
+                rotation,
                 outline_color,
                 outline_width,
                 fill_style,
@@ -755,6 +759,7 @@ impl Hash for DrawCommand {
                 color.hash(state);
                 font_data.hash(state);
                 align.hash(state);
+                rotation.to_bits().hash(state);
                 outline_color.hash(state);
                 outline_width.map(f32::to_bits).hash(state);
                 fill_style.hash(state);

@@ -163,12 +163,39 @@ impl Rasterizer {
                 x,
                 y,
                 font_size,
+                font_data,
                 text,
+                align,
+                rotation,
                 ..
             } => {
-                // Rough estimate: each character ~0.6 × font_size wide
-                let est_w = text.len() as f32 * font_size * 0.6;
-                (*x, y - font_size, x + est_w, *y + font_size * 0.3)
+                // Use actual measured width when possible, with rough fallback
+                let est_w = {
+                    let m = crate::rasterize::skia::text::measure_text(
+                        text,
+                        Some(font_data),
+                        *font_size,
+                    );
+                    if m.width > 0.0 { m.width } else { text.len() as f32 * font_size * 0.6 }
+                };
+                let est_h = font_size * 1.3;
+                // Pad for glyph overhang (first/last glyph extending past advance width)
+                let pad = font_size * 0.5;
+                // Compute left edge accounting for text alignment
+                let left_x = match align {
+                    crate::scene::command::TextAlign::Left => *x,
+                    crate::scene::command::TextAlign::Center => *x - est_w / 2.0,
+                    crate::scene::command::TextAlign::Right => *x - est_w,
+                };
+                if rotation.abs() > 0.01 {
+                    // Conservative: use the diagonal of the unrotated bbox
+                    let diag = (est_w * est_w + est_h * est_h).sqrt() + pad * 2.0;
+                    let cx = left_x + est_w / 2.0;
+                    let cy = *y - font_size / 2.0;
+                    (cx - diag / 2.0, cy - diag / 2.0, cx + diag / 2.0, cy + diag / 2.0)
+                } else {
+                    (left_x - pad, y - font_size - pad, left_x + est_w + pad, *y + font_size * 0.3 + pad)
+                }
             }
             #[cfg(feature = "sdf")]
             DrawCommand::Sdf3D { rect, .. } => {

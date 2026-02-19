@@ -5,7 +5,7 @@ use crate::chart::waterfall::WaterfallChart;
 use crate::scale::{CategoricalScale, LinearScale, Scale};
 use scry_engine::style::Color;
 
-use super::{resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{resolve_y_extent, RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_waterfall(wc: &WaterfallChart, w: u32, h: u32) -> RenderedChart {
     let config = &wc.config;
@@ -155,16 +155,7 @@ pub(crate) fn render_waterfall(wc: &WaterfallChart, w: u32, h: u32) -> RenderedC
                 } else {
                     py_bot + 12.0
                 };
-                ctx.overlays.push(TextOverlay {
-                    x_px: center,
-                    y_px: label_y,
-                    text: label,
-                    color: theme.text_color(),
-                    align: TextAlign::Center,
-                    font_size: data_fs,
-                    bold: false,
-                    rotation_deg: 0.0,
-                });
+                ctx.add_text(center, label_y, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
             }
         }
     }

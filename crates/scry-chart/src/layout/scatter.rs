@@ -228,16 +228,7 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
             } else {
                 format!("{yv:.1}")
             };
-            ctx.overlays.push(super::TextOverlay {
-                x_px: sx,
-                y_px: sy - radius - 4.0,
-                text: label,
-                color: theme.text_color(),
-                align: super::TextAlign::Center,
-                font_size: data_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(sx, sy - radius - 4.0, &label, theme.text_color(), super::TextAlign::Center, data_fs, false, 0.0);
         }
     }
 

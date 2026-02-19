@@ -37,13 +37,24 @@ impl<B: MathBackend> TransformerBlock<B> {
         let ln1_out = self.ln1.forward(input, tape);
         let attn_out = self.attn.forward(&ln1_out, dropout_rate, Some(rng), tape);
         let attn_out = ops::dropout(&attn_out, dropout_rate, rng, Some(tape));
-        let x = ops::add(input, &attn_out, Some(tape));
 
-        // x = x + dropout(mlp(ln2(x)))
-        let ln2_out = self.ln2.forward(&x, tape);
-        let mlp_out = self.mlp.forward(&ln2_out, tape);
-        let mlp_out = ops::dropout(&mlp_out, dropout_rate, rng, Some(tape));
-        ops::add(&x, &mlp_out, Some(tape))
+        // Fused: x = input + attn_out, ln2_out = layernorm(x)
+        let (ln2_out, x) = ops::residual_add_layernorm(
+            input, &attn_out, &self.ln2.gamma, &self.ln2.beta, self.ln2.eps, Some(tape),
+        );
+        // Fused: fc1+bias+gelu, then fc2+bias+dropout+residual in one kernel pass
+        let mlp_h = self.mlp.forward_pre_fc2(&ln2_out, tape);
+        ops::fused_linear_dropout_residual(
+            &mlp_h,
+            &self.mlp.fc2.weight,
+            &self.mlp.fc2.bias,
+            &x,
+            self.mlp.fc2.in_features,
+            self.mlp.fc2.out_features,
+            dropout_rate,
+            rng,
+            Some(tape),
+        )
     }
 
     /// Batched forward pass: `input` is `[batch_size * seq_len, d_model]`.
@@ -61,7 +72,7 @@ impl<B: MathBackend> TransformerBlock<B> {
     ) -> Tensor<B> {
         // LN1 works on [B*seq, d_model]
         let ln1_out = self.ln1.forward(input, tape);
-        let attn_out = ops::attention_batched(
+        let attn_out = ops::attention_flash(
             &ln1_out,
             &self.attn.qkv_weight,
             &self.attn.qkv_bias,
@@ -72,26 +83,38 @@ impl<B: MathBackend> TransformerBlock<B> {
             self.attn.d_head,
             batch_size,
             seq_len,
-            dropout_rate,
-            Some(rng),
             Some(tape),
         );
         let attn_out = ops::dropout(&attn_out, dropout_rate, rng, Some(tape));
-        let x = ops::add(input, &attn_out, Some(tape));
 
-        let ln2_out = self.ln2.forward(&x, tape);
-        let mlp_out = self.mlp.forward(&ln2_out, tape);
-        let mlp_out = ops::dropout(&mlp_out, dropout_rate, rng, Some(tape));
-        ops::add(&x, &mlp_out, Some(tape))
+        // Fused: x = input + attn_out, ln2_out = layernorm(x)
+        let (ln2_out, x) = ops::residual_add_layernorm(
+            input, &attn_out, &self.ln2.gamma, &self.ln2.beta, self.ln2.eps, Some(tape),
+        );
+        // Fused: fc1+bias+gelu, then fc2+bias+dropout+residual in one kernel pass
+        let mlp_h = self.mlp.forward_pre_fc2(&ln2_out, tape);
+        ops::fused_linear_dropout_residual(
+            &mlp_h,
+            &self.mlp.fc2.weight,
+            &self.mlp.fc2.bias,
+            &x,
+            self.mlp.fc2.in_features,
+            self.mlp.fc2.out_features,
+            dropout_rate,
+            rng,
+            Some(tape),
+        )
     }
 
     /// Single-token forward with KV cache (inference only).
     pub fn forward_with_cache(&self, input: &Tensor<B>, cache: &mut LayerKvCache<B>) -> Tensor<B> {
         let ln1_out = self.ln1.forward_inference(input);
         let attn_out = self.attn.forward_with_cache(&ln1_out, cache);
-        let x = ops::add(input, &attn_out, None);
 
-        let ln2_out = self.ln2.forward_inference(&x);
+        // Fused: x = input + attn_out, ln2_out = layernorm(x)
+        let (ln2_out, x) = ops::residual_add_layernorm(
+            input, &attn_out, &self.ln2.gamma, &self.ln2.beta, self.ln2.eps, None,
+        );
         let mlp_out = self.mlp.forward_inference(&ln2_out);
         ops::add(&x, &mlp_out, None)
     }
@@ -104,7 +127,7 @@ impl<B: MathBackend> TransformerBlock<B> {
         seq_len: usize,
     ) -> Tensor<B> {
         let ln1_out = self.ln1.forward_inference(input);
-        let attn_out = ops::attention_batched(
+        let attn_out = ops::attention_flash(
             &ln1_out,
             &self.attn.qkv_weight,
             &self.attn.qkv_bias,
@@ -115,13 +138,12 @@ impl<B: MathBackend> TransformerBlock<B> {
             self.attn.d_head,
             batch_size,
             seq_len,
-            0.0,
-            None,
             None,
         );
-        let x = ops::add(input, &attn_out, None);
-
-        let ln2_out = self.ln2.forward_inference(&x);
+        // Fused: x = input + attn_out, ln2_out = layernorm(x)
+        let (ln2_out, x) = ops::residual_add_layernorm(
+            input, &attn_out, &self.ln2.gamma, &self.ln2.beta, self.ln2.eps, None,
+        );
         let mlp_out = self.mlp.forward_inference(&ln2_out);
         ops::add(&x, &mlp_out, None)
     }
@@ -129,9 +151,11 @@ impl<B: MathBackend> TransformerBlock<B> {
     pub fn forward_inference(&self, input: &Tensor<B>) -> Tensor<B> {
         let ln1_out = self.ln1.forward_inference(input);
         let attn_out = self.attn.forward_inference(&ln1_out);
-        let x = ops::add(input, &attn_out, None);
 
-        let ln2_out = self.ln2.forward_inference(&x);
+        // Fused: x = input + attn_out, ln2_out = layernorm(x)
+        let (ln2_out, x) = ops::residual_add_layernorm(
+            input, &attn_out, &self.ln2.gamma, &self.ln2.beta, self.ln2.eps, None,
+        );
         let mlp_out = self.mlp.forward_inference(&ln2_out);
         ops::add(&x, &mlp_out, None)
     }

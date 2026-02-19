@@ -24,8 +24,10 @@ use scry_engine::scene::style::{
     StrokeStyle,
 };
 
+use scry_engine::scene::command::TextAlign as EngineTextAlign;
+
 use crate::chart::Chart;
-use crate::layout::{self, TextAlign, TextOverlay};
+use crate::layout;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -50,37 +52,48 @@ pub fn render_to_svg(chart: &Chart, width: u32, height: u32) -> String {
     );
     svg.push('\n');
 
-    // Accessibility: inject <title> and <desc> from chart metadata.
-    let title_text = rendered
-        .text_overlays
-        .iter()
-        .find(|o| o.bold && o.rotation_deg.abs() < 0.01)
-        .map(|o| o.text.as_str());
-    if let Some(t) = title_text {
-        let _ = write!(svg, "<title>{}</title>\n", xml_escape(t));
-    }
-    // Use subtitle or axis labels as description.
-    let desc_parts: Vec<&str> = rendered
-        .text_overlays
-        .iter()
-        .filter(|o| !o.bold && o.rotation_deg.abs() < 0.01 && !o.text.is_empty())
-        .take(2)
-        .map(|o| o.text.as_str())
-        .collect();
-    if !desc_parts.is_empty() {
-        let _ = write!(svg, "<desc>{}</desc>\n", xml_escape(&desc_parts.join(" — ")));
+    // Accessibility: extract <title> and <desc> from DrawCommand::Text in
+    // the canvas.  The first bold, non-rotated text is treated as the chart
+    // title; the first two non-bold, non-rotated texts form the description.
+    {
+        let mut title_text: Option<&str> = None;
+        let mut desc_parts: Vec<&str> = Vec::new();
+        for cmd in rendered.canvas.commands() {
+            if let DrawCommand::Text {
+                ref text,
+                rotation,
+                ..
+            } = cmd
+            {
+                // Heuristic: the first non-rotated text command is typically
+                // the chart title; the next non-rotated texts are axis labels.
+                if title_text.is_none() && rotation.abs() < 0.01 {
+                    title_text = Some(text.as_str());
+                } else if rotation.abs() < 0.01 && !text.is_empty() && desc_parts.len() < 2 {
+                    desc_parts.push(text.as_str());
+                }
+            }
+        }
+        if let Some(t) = title_text {
+            let _ = writeln!(svg, "<title>{}</title>", xml_escape(t));
+        }
+        if !desc_parts.is_empty() {
+            let _ = writeln!(
+                svg,
+                "<desc>{}</desc>",
+                xml_escape(&desc_parts.join(" — "))
+            );
+        }
     }
 
-    // Render all drawing commands
+    // Render all drawing commands (including DrawCommand::Text for text)
     let mut body = String::with_capacity(4096);
     for cmd in rendered.canvas.commands() {
         emit_command(&mut body, &mut defs, &mut grad_id, cmd);
     }
 
-    // Render text overlays
-    for overlay in &rendered.text_overlays {
-        emit_text_overlay(&mut body, overlay);
-    }
+    // Text overlays are no longer rendered separately — they are now
+    // emitted as DrawCommand::Text commands in the canvas above.
 
     // Insert defs block if we have any gradient definitions
     if !defs.is_empty() {
@@ -325,7 +338,21 @@ fn emit_command(body: &mut String, defs: &mut String, grad_id: &mut u32, cmd: &D
         // Image is not handled in SVG output.
         DrawCommand::Image { .. } => {}
 
-        // Feature-gated variants (e.g. Text behind "text" feature).
+        // Text commands → <text> SVG elements
+        DrawCommand::Text {
+            text,
+            x,
+            y,
+            font_size,
+            color,
+            align,
+            rotation,
+            ..
+        } => {
+            emit_text_command(body, text, *x, *y, *font_size, *color, *align, *rotation, false);
+        }
+
+        // Feature-gated variants.
         #[allow(
             unreachable_patterns,
             clippy::match_same_arms,
@@ -427,38 +454,47 @@ fn path_data_to_svg_d(path_data: &scry_engine::scene::command::PathData) -> Stri
 // widget paths, which both assume center-anchored placement.
 // ---------------------------------------------------------------------------
 
-fn emit_text_overlay(body: &mut String, overlay: &TextOverlay) {
-    let anchor = match overlay.align {
-        TextAlign::Left => "start",
-        TextAlign::Center => "middle",
-        TextAlign::Right => "end",
+/// Emit a `<text>` element from a `DrawCommand::Text`.
+fn emit_text_command(
+    body: &mut String,
+    text: &str,
+    x: f32,
+    y: f32,
+    font_size: f32,
+    color: Color,
+    align: EngineTextAlign,
+    rotation: f32,
+    bold: bool,
+) {
+    let anchor = match align {
+        EngineTextAlign::Left => "start",
+        EngineTextAlign::Center => "middle",
+        EngineTextAlign::Right => "end",
     };
 
-    let weight = if overlay.bold { "bold" } else { "normal" };
+    let weight = if bold { "bold" } else { "normal" };
 
-    let transform = if overlay.rotation_deg.abs() > 0.01 {
+    let transform = if rotation.abs() > 0.01 {
         format!(
             r#" transform="rotate({:.1} {:.1} {:.1})""#,
-            -overlay.rotation_deg, overlay.x_px, overlay.y_px
+            -rotation, x, y
         )
     } else {
         String::new()
     };
 
-    let color = svg_color(overlay.color);
+    let color_str = svg_color(color);
+    let text_escaped = xml_escape(text);
 
-    // Escape XML special characters in text
-    let text = xml_escape(&overlay.text);
-
-    // NOTE: font-size uses explicit `px` units for SVG standards compliance.
     write!(
         body,
         r#"<text x="{:.1}" y="{:.1}" font-family="Inter, system-ui, sans-serif" font-size="{:.0}px" font-weight="{}" fill="{}" text-anchor="{}" dominant-baseline="central"{}>{}</text>"#,
-        overlay.x_px, overlay.y_px, overlay.font_size, weight, color, anchor, transform, text
+        x, y, font_size, weight, color_str, anchor, transform, text_escaped
     )
     .unwrap();
     body.push('\n');
 }
+
 
 // ---------------------------------------------------------------------------
 // Style helpers

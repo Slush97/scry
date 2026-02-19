@@ -85,12 +85,12 @@ pub fn render_to_rgba(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>,
 /// available and falls back to CPU (tiny-skia) otherwise.
 fn render_to_rgba_raw(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, String> {
     let rendered = layout::render_chart(chart, width, height);
-    let mut pixmap = scry_engine::rasterize::RasterPipeline::new()
+    let pixmap = scry_engine::rasterize::RasterPipeline::new()
         .rasterize(&rendered.canvas)
         .map_err(|e| format!("rasterization failed: {e}"))?;
 
-    // Burn text overlays onto the pixmap using fontdue
-    stamp_text_overlays(&mut pixmap, &rendered.text_overlays);
+    // Text is now rasterized by the engine via DrawCommand::Text commands
+    // in the canvas — no separate stamp_text_overlays step needed.
 
     Ok(pixmap.data().to_vec())
 }
@@ -123,11 +123,9 @@ pub fn render_to_png_with_metadata(
     let dpi = chart_dpi(chart);
     let (w, h) = dpi_scale(width, height, dpi);
     let rendered = layout::render_chart(chart, w, h);
-    let mut pixmap = scry_engine::rasterize::RasterPipeline::new()
+    let pixmap = scry_engine::rasterize::RasterPipeline::new()
         .rasterize(&rendered.canvas)
         .map_err(|e| format!("rasterization failed: {e}"))?;
-
-    stamp_text_overlays(&mut pixmap, &rendered.text_overlays);
 
     let png = pixmap
         .encode_png()

@@ -5,7 +5,7 @@ use crate::chart::pie::PieChart;
 use crate::legend::{self, LegendEntry};
 use crate::theme::contrast_text_color;
 
-use super::{RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
     let config = &pc.config;
@@ -104,16 +104,7 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
             let lx = cx + label_r * mid_angle.cos();
             let ly = cy + label_r * mid_angle.sin();
 
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: format!("{:.0}%", fraction * 100.0),
-                color: contrast_text_color(color),
-                align: TextAlign::Center,
-                font_size: tick_fs,
-                bold: true,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(lx, ly, &format!("{:.0}%", fraction * 100.0), contrast_text_color(color), TextAlign::Center, tick_fs, true, 0.0);
         }
 
         current_angle += sweep;
@@ -137,16 +128,7 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: label,
-                color: theme.foreground,
-                align: TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(lx, ly, &label, theme.foreground, TextAlign::Left, tick_fs, false, 0.0);
         }
     }
 

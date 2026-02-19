@@ -238,16 +238,7 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     .sum();
                 if total.is_finite() {
                     let top_y = y_scale.to_pixel(total) as f32;
-                    ctx.overlays.push(TextOverlay {
-                        x_px: center,
-                        y_px: top_y - 4.0,
-                        text: format_value(total),
-                        color: text_color,
-                        align: TextAlign::Center,
-                        font_size: data_fs,
-                        bold: false,
-                        rotation_deg: 0.0,
-                    });
+                    ctx.add_text(center, top_y - 4.0, &format_value(total), text_color, TextAlign::Center, data_fs, false, 0.0);
                 }
             } else {
                 let bar_width = if n_series > 0 {
@@ -280,16 +271,7 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     } else {
                         top_y + 12.0 + err_offset
                     };
-                    ctx.overlays.push(TextOverlay {
-                        x_px: label_x,
-                        y_px: label_y,
-                        text: format_value(value),
-                        color: text_color,
-                        align: TextAlign::Center,
-                        font_size: data_fs,
-                        bold: false,
-                        rotation_deg: 0.0,
-                    });
+                    ctx.add_text(label_x, label_y, &format_value(value), text_color, TextAlign::Center, data_fs, false, 0.0);
                 }
             }
         }
@@ -322,16 +304,7 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: label,
-                color: theme.text_color(),
-                align: TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, tick_fs, false, 0.0);
         }
     }
 
@@ -511,16 +484,7 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     .sum();
                 if total.is_finite() {
                     let right_x = x_scale.to_pixel(total) as f32;
-                    ctx.overlays.push(TextOverlay {
-                        x_px: right_x + 4.0,
-                        y_px: center,
-                        text: format_value(total),
-                        color: text_color,
-                        align: TextAlign::Left,
-                        font_size: data_fs,
-                        bold: false,
-                        rotation_deg: 0.0,
-                    });
+                    ctx.add_text(right_x + 4.0, center, &format_value(total), text_color, TextAlign::Left, data_fs, false, 0.0);
                 }
             } else {
                 let bar_height = if n_series > 0 {
@@ -545,16 +509,7 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     } else {
                         (right_x - 4.0, TextAlign::Right)
                     };
-                    ctx.overlays.push(TextOverlay {
-                        x_px: label_x,
-                        y_px: label_y,
-                        text: format_value(value),
-                        color: text_color,
-                        align,
-                        font_size: data_fs,
-                        bold: false,
-                        rotation_deg: 0.0,
-                    });
+                    ctx.add_text(label_x, label_y, &format_value(value), text_color, align, data_fs, false, 0.0);
                 }
             }
         }
@@ -564,16 +519,7 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 
     // Category label overlays (on the left side)
     for (ci, label) in bc.labels.iter().enumerate() {
-        ctx.overlays.push(TextOverlay {
-            x_px: px - super::y_tick_label_offset(w),
-            y_px: cat_scale.center(ci) as f32,
-            text: label.clone(),
-            color: theme.text_color(),
-            align: TextAlign::Right,
-            font_size: tick_fs,
-            bold: false,
-            rotation_deg: 0.0,
-        });
+        ctx.add_text(px - super::y_tick_label_offset(w), cat_scale.center(ci) as f32, label, theme.text_color(), TextAlign::Right, tick_fs, false, 0.0);
     }
 
     // Legend for multi-series
@@ -598,16 +544,7 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: label,
-                color: theme.text_color(),
-                align: TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, tick_fs, false, 0.0);
         }
     }
 

@@ -439,6 +439,56 @@ pub fn dropout<B: MathBackend>(
     out
 }
 
+/// Fused residual-add + `LayerNorm`: `sum = residual + sublayer`,
+/// `normalized = layernorm(sum, gamma, beta, eps)`.
+///
+/// Returns `(normalized, sum)` — `normalized` feeds the next sublayer (e.g. MLP),
+/// `sum` feeds the next residual add.
+///
+/// Records a single tape node with `output_id = normalized.id`.
+/// The `sum_id` is stored in `SavedData` so backward can collect its gradient.
+pub fn residual_add_layernorm<B: MathBackend>(
+    residual: &Tensor<B>,
+    sublayer: &Tensor<B>,
+    gamma: &Tensor<B>,
+    beta: &Tensor<B>,
+    eps: f32,
+    tape: Option<&mut GradTape<B>>,
+) -> (Tensor<B>, Tensor<B>) {
+    let (sum_data, norm_data, mean, rstd) = B::residual_add_layernorm(
+        &residual.data,
+        &sublayer.data,
+        &gamma.data,
+        &beta.data,
+        &residual.shape,
+        eps,
+    );
+
+    let norm_out = Tensor::new(norm_data, residual.shape.clone());
+    let sum_out = Tensor::new(sum_data, residual.shape.clone());
+
+    if let Some(tape) = tape {
+        tape.record(TapeNode {
+            output_id: norm_out.id,
+            input_ids: vec![residual.id, sublayer.id],
+            op: Operation::ResidualAddLayerNorm,
+            saved: SavedData::ResidualAddLayerNorm {
+                residual: B::clone_storage(&residual.data),
+                sublayer: B::clone_storage(&sublayer.data),
+                gamma: B::clone_storage(&gamma.data),
+                mean,
+                rstd,
+                shape: residual.shape.clone(),
+                gamma_id: gamma.id,
+                beta_id: beta.id,
+                sum_id: sum_out.id,
+            },
+        });
+    }
+
+    (norm_out, sum_out)
+}
+
 /// Batched multi-head causal self-attention.
 ///
 /// `input`: `[batch_size * seq_len, d_model]` (flattened batch).
@@ -478,15 +528,9 @@ pub fn attention_batched<B: MathBackend>(
     let bias_shape = Shape::new(&[1, 3 * d_model]);
     let qkv = B::add(&qkv_raw, &qkv_bias.data, &qkv_shape, &bias_shape, &qkv_shape);
 
-    // 2. Extract Q, K, V via gather_columns: each [B*S, D]
-    let q_flat = B::gather_columns(&qkv, total_tokens, 3 * d_model, 0, d_model);
-    let k_flat = B::gather_columns(&qkv, total_tokens, 3 * d_model, d_model, d_model);
-    let v_flat = B::gather_columns(&qkv, total_tokens, 3 * d_model, 2 * d_model, d_model);
-
-    // 3. Reshape [B*S, D] -> [B*H, S, d_head] for Q, K, V
-    let q_heads = B::reshape_for_heads(&q_flat, batch_size, seq_len, n_heads, d_head);
-    let k_heads = B::reshape_for_heads(&k_flat, batch_size, seq_len, n_heads, d_head);
-    let v_heads = B::reshape_for_heads(&v_flat, batch_size, seq_len, n_heads, d_head);
+    // 2-3. Fused: extract Q, K, V and reshape to [B*H, S, d_head] in one kernel
+    let (q_heads, k_heads, v_heads) =
+        B::split_qkv_to_heads(&qkv, batch_size, seq_len, n_heads, d_head);
 
     // 4. Q @ K^T via strided batched GEMM: [B*H, S, d_head] @ [B*H, d_head, S] -> [B*H, S, S]
     let mut scores = B::matmul_strided_batched(
@@ -562,6 +606,209 @@ pub fn attention_batched<B: MathBackend>(
                 k_heads,
                 v_heads,
                 attn_dropout_mask,
+                head_concat,
+                n_heads,
+                d_model,
+                d_head,
+                batch_size,
+                seq_len,
+                qkv_weight_id: qkv_weight.id,
+                qkv_bias_id: qkv_bias.id,
+                proj_weight_id: proj_weight.id,
+                proj_bias_id: proj_bias.id,
+            },
+        });
+    }
+
+    out
+}
+
+/// Fused linear + GELU: `gelu(input @ weight + bias)`.
+///
+/// Replaces separate matmul → add → gelu with matmul → fused_bias_gelu.
+/// The bias add and GELU are done in a single kernel pass.
+#[allow(clippy::too_many_arguments)]
+pub fn fused_linear_gelu<B: MathBackend>(
+    input: &Tensor<B>,
+    weight: &Tensor<B>,
+    bias: &Tensor<B>,
+    in_features: usize,
+    out_features: usize,
+    tape: Option<&mut GradTape<B>>,
+) -> Tensor<B> {
+    let rows = input.shape.dims()[0];
+
+    // Matmul: [rows, in_features] @ [in_features, out_features] -> [rows, out_features]
+    let mm = B::matmul(&input.data, &weight.data, rows, in_features, out_features, false, false);
+
+    // Fused bias + GELU
+    let data = B::fused_bias_gelu(&mm, &bias.data, rows, out_features);
+    let out = Tensor::new(data, Shape::new(&[rows, out_features]));
+
+    if let Some(tape) = tape {
+        tape.record(TapeNode {
+            output_id: out.id,
+            input_ids: vec![input.id],
+            op: Operation::FusedBiasGelu,
+            saved: SavedData::FusedBiasGelu {
+                input: B::clone_storage(&mm),
+                bias: B::clone_storage(&bias.data),
+                rows,
+                cols: out_features,
+                bias_id: bias.id,
+                weight_id: weight.id,
+                matmul_input: B::clone_storage(&input.data),
+                weight: B::clone_storage(&weight.data),
+                in_features,
+                out_features,
+            },
+        });
+    }
+
+    out
+}
+
+/// Fused linear + dropout + residual: `residual + dropout(input @ weight + bias)`.
+///
+/// Replaces separate matmul → add → dropout → residual add.
+/// The bias add, dropout, and residual add are done in a single kernel pass.
+#[allow(clippy::too_many_arguments)]
+pub fn fused_linear_dropout_residual<B: MathBackend>(
+    input: &Tensor<B>,
+    weight: &Tensor<B>,
+    bias: &Tensor<B>,
+    residual: &Tensor<B>,
+    in_features: usize,
+    out_features: usize,
+    dropout_rate: f32,
+    rng: &mut fastrand::Rng,
+    tape: Option<&mut GradTape<B>>,
+) -> Tensor<B> {
+    let rows = input.shape.dims()[0];
+
+    // Matmul: [rows, in_features] @ [in_features, out_features] -> [rows, out_features]
+    let mm = B::matmul(&input.data, &weight.data, rows, in_features, out_features, false, false);
+
+    // Fused bias + dropout + residual
+    let seed = rng.u64(..);
+    let (data, mask) = if dropout_rate > 0.0 && dropout_rate < 1.0 {
+        B::fused_bias_dropout_residual(
+            &mm, &bias.data, &residual.data,
+            rows, out_features, dropout_rate, seed,
+        )
+    } else {
+        // No dropout: just bias + residual
+        let n = rows * out_features;
+        let shape = Shape::new(&[rows, out_features]);
+        let bias_shape = Shape::new(&[1, out_features]);
+        let biased = B::add(&mm, &bias.data, &shape, &bias_shape, &shape);
+        let result = B::add(&biased, &residual.data, &shape, &shape, &shape);
+        let ones = B::ones(&Shape::new(&[n]));
+        (result, ones)
+    };
+
+    let out = Tensor::new(data, Shape::new(&[rows, out_features]));
+
+    if let Some(tape) = tape {
+        tape.record(TapeNode {
+            output_id: out.id,
+            input_ids: vec![input.id, residual.id],
+            op: Operation::FusedBiasDropoutResidual,
+            saved: SavedData::FusedBiasDropoutResidual {
+                matmul_out: mm,
+                bias: B::clone_storage(&bias.data),
+                dropout_mask: mask,
+                rows,
+                cols: out_features,
+                bias_id: bias.id,
+                weight_id: weight.id,
+                matmul_input: B::clone_storage(&input.data),
+                weight: B::clone_storage(&weight.data),
+                in_features,
+                out_features,
+            },
+        });
+    }
+
+    out
+}
+
+/// FlashAttention-based batched multi-head causal self-attention.
+///
+/// Same interface as `attention_batched` but uses fused FlashAttention kernel
+/// instead of decomposed Q@K^T → mask → softmax → attn@V.
+/// Eliminates the S×S attention matrix from memory entirely.
+///
+/// Note: FlashAttention does NOT support attention dropout. If dropout is needed,
+/// fall back to the decomposed `attention_batched`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub fn attention_flash<B: MathBackend>(
+    input: &Tensor<B>,
+    qkv_weight: &Tensor<B>,
+    qkv_bias: &Tensor<B>,
+    proj_weight: &Tensor<B>,
+    proj_bias: &Tensor<B>,
+    n_heads: usize,
+    d_model: usize,
+    d_head: usize,
+    batch_size: usize,
+    seq_len: usize,
+    tape: Option<&mut GradTape<B>>,
+) -> Tensor<B> {
+    let total_tokens = batch_size * seq_len;
+    let bh = batch_size * n_heads;
+
+    // 1. QKV matmul: [B*S, D] @ [D, 3D] -> [B*S, 3D]
+    let qkv_raw = B::matmul(
+        &input.data, &qkv_weight.data,
+        total_tokens, d_model, 3 * d_model, false, false,
+    );
+    let qkv_shape = Shape::new(&[total_tokens, 3 * d_model]);
+    let bias_shape = Shape::new(&[1, 3 * d_model]);
+    let qkv = B::add(&qkv_raw, &qkv_bias.data, &qkv_shape, &bias_shape, &qkv_shape);
+
+    // 2. Fused split + reshape to heads: [B*S, 3D] -> Q, K, V each [B*H, S, d_head]
+    let (q_heads, k_heads, v_heads) =
+        B::split_qkv_to_heads(&qkv, batch_size, seq_len, n_heads, d_head);
+
+    // 3. FlashAttention: fused attention without materializing S×S matrix
+    let scale = 1.0 / (d_head as f64).sqrt();
+    let (flash_out, lse) = B::flash_attention_forward(
+        &q_heads, &k_heads, &v_heads,
+        bh, seq_len, d_head, scale as f32, true,
+    );
+
+    // 4. Reshape [B*H, S, d_head] -> [B*S, D]
+    let head_concat = B::reshape_from_heads(&flash_out, batch_size, seq_len, n_heads, d_head);
+
+    // 5. Output projection: [B*S, D] @ [D, D] + bias -> [B*S, D]
+    let proj_raw = B::matmul(
+        &head_concat, &proj_weight.data,
+        total_tokens, d_model, d_model, false, false,
+    );
+    let proj_shape = Shape::new(&[total_tokens, d_model]);
+    let pbias_shape = Shape::new(&[1, d_model]);
+    let output_data = B::add(
+        &proj_raw, &proj_bias.data,
+        &proj_shape, &pbias_shape, &proj_shape,
+    );
+
+    let out = Tensor::new(output_data, Shape::new(&[total_tokens, d_model]));
+
+    if let Some(tape) = tape {
+        tape.record(TapeNode {
+            output_id: out.id,
+            input_ids: vec![input.id],
+            op: Operation::FlashAttention,
+            saved: SavedData::FlashAttention {
+                input: B::clone_storage(&input.data),
+                qkv_weight: B::clone_storage(&qkv_weight.data),
+                proj_weight: B::clone_storage(&proj_weight.data),
+                q_heads,
+                k_heads,
+                v_heads,
+                flash_output: flash_out,
+                lse,
                 head_concat,
                 n_heads,
                 d_model,

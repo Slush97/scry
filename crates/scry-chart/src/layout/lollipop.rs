@@ -4,7 +4,7 @@
 use crate::chart::lollipop::LollipopChart;
 use crate::scale::{CategoricalScale, LinearScale, Scale};
 
-use super::{resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{resolve_y_extent, RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_lollipop(lc: &LollipopChart, w: u32, h: u32) -> RenderedChart {
     if lc.horizontal {
@@ -85,16 +85,7 @@ fn render_lollipop_vertical(lc: &LollipopChart, w: u32, h: u32) -> RenderedChart
             } else {
                 vy + lc.dot_radius + 12.0
             };
-            ctx.overlays.push(TextOverlay {
-                x_px: cx,
-                y_px: label_y,
-                text: format_value(value),
-                color: theme.text_color(),
-                align: TextAlign::Center,
-                font_size: data_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(cx, label_y, &format_value(value), theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
         }
     }
 
@@ -151,16 +142,7 @@ fn render_lollipop_horizontal(lc: &LollipopChart, w: u32, h: u32) -> RenderedCha
 
     // Category labels on the left
     for (ci, label) in lc.labels.iter().enumerate().take(n) {
-        ctx.overlays.push(TextOverlay {
-            x_px: px - super::y_tick_label_offset(w),
-            y_px: cat_scale.center(ci) as f32,
-            text: label.clone(),
-            color: theme.text_color(),
-            align: TextAlign::Right,
-            font_size: tick_fs,
-            bold: false,
-            rotation_deg: 0.0,
-        });
+        ctx.add_text(px - super::y_tick_label_offset(w), cat_scale.center(ci) as f32, label, theme.text_color(), TextAlign::Right, tick_fs, false, 0.0);
     }
 
     for i in 0..n {
@@ -189,16 +171,7 @@ fn render_lollipop_horizontal(lc: &LollipopChart, w: u32, h: u32) -> RenderedCha
             } else {
                 (vx - lc.dot_radius - 4.0, TextAlign::Right)
             };
-            ctx.overlays.push(TextOverlay {
-                x_px: label_x,
-                y_px: cy,
-                text: format_value(value),
-                color: theme.text_color(),
-                align,
-                font_size: data_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(label_x, cy, &format_value(value), theme.text_color(), align, data_fs, false, 0.0);
         }
     }
 

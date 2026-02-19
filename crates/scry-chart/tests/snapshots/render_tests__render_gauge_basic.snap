@@ -2,9 +2,9 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 6 commands
-overlays: 4
-  [0] (216, 194) Center "75"
-  [1] (88, 184) Center "0"
-  [2] (344, 184) Center "100"
-  [3] (216, 16) Center "CPU Usage"
+canvas: 400x300, 10 commands
+text_labels: 4
+  [0] 75
+  [1] 0
+  [2] 100
+  [3] CPU Usage

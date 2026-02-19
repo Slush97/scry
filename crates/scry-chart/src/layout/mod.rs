@@ -298,6 +298,93 @@ pub struct RenderedChart {
     pub series_points: Vec<Vec<(f64, f64)>>,
 }
 
+impl RenderedChart {
+    /// Collect all text labels from `DrawCommand::Text` commands in the canvas.
+    ///
+    /// Returns the text strings in command order. Useful for testing that
+    /// expected labels (titles, tick values, data labels) are present.
+    pub fn text_labels(&self) -> Vec<&str> {
+        use scry_engine::scene::command::DrawCommand;
+        self.canvas
+            .commands()
+            .iter()
+            .filter_map(|cmd| {
+                if let DrawCommand::Text { ref text, .. } = cmd {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Collect text commands with position info: `(x, y, text)`.
+    ///
+    /// Useful for tests that need to verify label positions (e.g.
+    /// overlap detection).
+    pub fn text_positions(&self) -> Vec<(f32, f32, &str)> {
+        use scry_engine::scene::command::DrawCommand;
+        self.canvas
+            .commands()
+            .iter()
+            .filter_map(|cmd| {
+                if let DrawCommand::Text {
+                    ref text, x, y, ..
+                } = cmd
+                {
+                    Some((*x, *y, text.as_str()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Reconstruct [`TextOverlay`] entries from `DrawCommand::Text` commands.
+    ///
+    /// Returns full text metadata (position, color, alignment, font_size,
+    /// rotation) extracted from the canvas scene graph. This is the
+    /// canonical way for tests and tooling to inspect text after rendering.
+    pub fn text_overlays_from_canvas(&self) -> Vec<TextOverlay> {
+        use scry_engine::scene::command::{DrawCommand, TextAlign as EngineTextAlign};
+        self.canvas
+            .commands()
+            .iter()
+            .filter_map(|cmd| {
+                if let DrawCommand::Text {
+                    ref text,
+                    x,
+                    y,
+                    font_size,
+                    ref color,
+                    ref align,
+                    rotation,
+                    ..
+                } = cmd
+                {
+                    let layout_align = match align {
+                        EngineTextAlign::Left => TextAlign::Left,
+                        EngineTextAlign::Center => TextAlign::Center,
+                        EngineTextAlign::Right => TextAlign::Right,
+                    };
+                    Some(TextOverlay {
+                        x_px: *x,
+                        y_px: *y,
+                        text: text.clone(),
+                        color: *color,
+                        align: layout_align,
+                        font_size: *font_size,
+                        bold: false, // not recoverable from DrawCommand
+                        rotation_deg: *rotation,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 /// A text label to be rendered via ratatui on top of the chart.
 #[derive(Clone, Debug)]
 #[non_exhaustive]

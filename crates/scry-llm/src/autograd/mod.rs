@@ -88,6 +88,60 @@ pub enum SavedData<B: DeviceBackend> {
         batch_size: Option<usize>,
         seq_len: Option<usize>,
     },
+    /// Fused residual-add + `LayerNorm`.
+    /// Stores inputs for backward recomputation (sum = residual + sublayer).
+    ResidualAddLayerNorm {
+        residual: B::Storage,
+        sublayer: B::Storage,
+        gamma: B::Storage,
+        mean: B::Storage,
+        rstd: B::Storage,
+        shape: Shape,
+        gamma_id: TensorId,
+        beta_id: TensorId,
+        /// `TensorId` of the residual sum output (second output).
+        sum_id: TensorId,
+    },
+    /// Fused bias + GELU: `gelu(matmul_out + bias)`.
+    FusedBiasGelu {
+        /// Pre-bias matmul output `[rows, cols]`
+        input: B::Storage,
+        /// Bias `[cols]`
+        bias: B::Storage,
+        rows: usize,
+        cols: usize,
+        /// TensorId of the bias parameter
+        bias_id: TensorId,
+        /// TensorId of the weight parameter
+        weight_id: TensorId,
+        /// Saved input to the matmul
+        matmul_input: B::Storage,
+        /// Weight storage
+        weight: B::Storage,
+        in_features: usize,
+        out_features: usize,
+    },
+    /// Fused bias + dropout + residual: `residual + dropout(matmul_out + bias)`.
+    FusedBiasDropoutResidual {
+        /// Pre-bias matmul output
+        matmul_out: B::Storage,
+        /// Bias
+        bias: B::Storage,
+        /// Dropout mask (scale values)
+        dropout_mask: B::Storage,
+        rows: usize,
+        cols: usize,
+        /// TensorId of the bias parameter
+        bias_id: TensorId,
+        /// TensorId of the weight parameter
+        weight_id: TensorId,
+        /// Saved input to the matmul
+        matmul_input: B::Storage,
+        /// Weight storage
+        weight: B::Storage,
+        in_features: usize,
+        out_features: usize,
+    },
     /// Batched attention: contiguous tensors for all batch×heads (no per-item vectors).
     AttentionBatched {
         input: B::Storage,
@@ -101,6 +155,32 @@ pub enum SavedData<B: DeviceBackend> {
         v_heads: B::Storage,
         /// `[B*H*S*S]` — dropout mask (scale values or 1.0 if no dropout)
         attn_dropout_mask: B::Storage,
+        /// `[B*S, D]` — concatenated head outputs before projection
+        head_concat: B::Storage,
+        n_heads: usize,
+        d_model: usize,
+        d_head: usize,
+        batch_size: usize,
+        seq_len: usize,
+        qkv_weight_id: TensorId,
+        qkv_bias_id: TensorId,
+        proj_weight_id: TensorId,
+        proj_bias_id: TensorId,
+    },
+    /// FlashAttention: fused Q@K^T → scale → causal mask → softmax → attn@V.
+    FlashAttention {
+        /// `[B*S, D]` — input to attention (for QKV weight gradient)
+        input: B::Storage,
+        qkv_weight: B::Storage,
+        proj_weight: B::Storage,
+        /// `[B*H, S, d_head]` — Q, K, V in head-first layout
+        q_heads: B::Storage,
+        k_heads: B::Storage,
+        v_heads: B::Storage,
+        /// `[B*H, S, d_head]` — flash attention output (before head merge)
+        flash_output: B::Storage,
+        /// `[B*H, S]` — log-sum-exp for backward recomputation
+        lse: B::Storage,
         /// `[B*S, D]` — concatenated head outputs before projection
         head_concat: B::Storage,
         n_heads: usize,
@@ -129,6 +209,10 @@ pub enum Operation {
     Dropout,
     Checkpoint,
     AttentionBatched,
+    ResidualAddLayerNorm,
+    FusedBiasGelu,
+    FusedBiasDropoutResidual,
+    FlashAttention,
 }
 
 /// A node on the autograd tape.

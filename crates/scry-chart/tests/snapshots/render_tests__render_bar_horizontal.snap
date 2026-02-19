@@ -1,15 +1,14 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 551
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 14 commands
-overlays: 8
-  [0] (44, 280) Center "0"
-  [1] (159, 280) Center "20"
-  [2] (273, 280) Center "40"
-  [3] (388, 280) Center "60"
-  [4] (37, 70) Right "Alpha"
-  [5] (37, 152) Right "Beta"
-  [6] (37, 232) Right "Gamma"
-  [7] (216, 16) Center "Horizontal Bars"
+canvas: 400x300, 22 commands
+text_labels: 8
+  [0] 0
+  [1] 20
+  [2] 40
+  [3] 60
+  [4] Alpha
+  [5] Beta
+  [6] Gamma
+  [7] Horizontal Bars

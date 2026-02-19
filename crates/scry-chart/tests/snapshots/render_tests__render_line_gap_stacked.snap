@@ -2,19 +2,19 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 32 commands
-overlays: 14
-  [0] (36, 280) Center "0"
-  [1] (106, 280) Center "1"
-  [2] (177, 280) Center "2"
-  [3] (247, 280) Center "3"
-  [4] (318, 280) Center "4"
-  [5] (388, 280) Center "5"
-  [6] (29, 273) Right "0.0"
-  [7] (29, 206) Right "2.5"
-  [8] (29, 138) Right "5.0"
-  [9] (29, 70) Right "7.5"
-  [10] (29, 30) Right "9.0"
-  [11] (336, 59) Left "Base"
-  [12] (336, 79) Left "Top"
-  [13] (212, 16) Center "Gap Stacked"
+canvas: 400x300, 46 commands
+text_labels: 14
+  [0] 0
+  [1] 1
+  [2] 2
+  [3] 3
+  [4] 4
+  [5] 5
+  [6] 0.0
+  [7] 2.5
+  [8] 5.0
+  [9] 7.5
+  [10] 9.0
+  [11] Base
+  [12] Top
+  [13] Gap Stacked

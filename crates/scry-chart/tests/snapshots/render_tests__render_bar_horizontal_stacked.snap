@@ -2,14 +2,14 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 19 commands
-overlays: 9
-  [0] (44, 280) Center "0"
-  [1] (159, 280) Center "10"
-  [2] (273, 280) Center "20"
-  [3] (388, 280) Center "30"
-  [4] (37, 91) Right "A"
-  [5] (37, 212) Right "B"
-  [6] (308, 59) Left "Series 1"
-  [7] (308, 79) Left "Layer 2"
-  [8] (216, 16) Center "Horizontal Stacked"
+canvas: 400x300, 28 commands
+text_labels: 9
+  [0] 0
+  [1] 10
+  [2] 20
+  [3] 30
+  [4] A
+  [5] B
+  [6] Series 1
+  [7] Layer 2
+  [8] Horizontal Stacked

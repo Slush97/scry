@@ -1,14 +1,13 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 464
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 18 commands
-overlays: 7
-  [0] (36, 280) Center "0.8"
-  [1] (117, 280) Center "2.0"
-  [2] (253, 280) Center "4.0"
-  [3] (388, 280) Center "6.0"
-  [4] (29, 273) Right "9"
-  [5] (29, 180) Right "20"
-  [6] (29, 12) Right "40"
+canvas: 400x300, 25 commands
+text_labels: 7
+  [0] 0.8
+  [1] 2.0
+  [2] 4.0
+  [3] 6.0
+  [4] 9
+  [5] 20
+  [6] 40

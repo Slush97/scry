@@ -2,23 +2,23 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 60 commands
-overlays: 18
-  [0] (78, 87) Center "1.00"
-  [1] (172, 87) Center "2.00"
-  [2] (266, 87) Center "3.00"
-  [3] (78, 168) Center "4.00"
-  [4] (172, 168) Center "5.00"
-  [5] (266, 168) Center "6.00"
-  [6] (78, 249) Center "7.00"
-  [7] (172, 249) Center "8.00"
-  [8] (266, 249) Center "9.00"
-  [9] (344, 50) Left "9.0"
-  [10] (344, 286) Left "1.0"
-  [11] (26, 87) Right "0"
-  [12] (26, 168) Right "1"
-  [13] (26, 249) Right "2"
-  [14] (78, 40) Center "0"
-  [15] (172, 40) Center "1"
-  [16] (266, 40) Center "2"
-  [17] (172, 16) Center "Viridis Heatmap"
+canvas: 400x300, 78 commands
+text_labels: 18
+  [0] 1.00
+  [1] 2.00
+  [2] 3.00
+  [3] 4.00
+  [4] 5.00
+  [5] 6.00
+  [6] 7.00
+  [7] 8.00
+  [8] 9.00
+  [9] 9.0
+  [10] 1.0
+  [11] 0
+  [12] 1
+  [13] 2
+  [14] 0
+  [15] 1
+  [16] 2
+  [17] Viridis Heatmap

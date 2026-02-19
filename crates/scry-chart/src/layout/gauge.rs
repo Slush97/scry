@@ -5,7 +5,7 @@ use std::f64::consts::PI;
 
 use crate::chart::gauge::GaugeChart;
 
-use super::{RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
     let config = &gc.config;
@@ -99,38 +99,11 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
             format!("{:.1}", gc.value)
         }
     });
-    ctx.overlays.push(TextOverlay {
-        x_px: center_x,
-        y_px: center_y + radius * 0.15,
-        text: label_text,
-        color: theme.text_color(),
-        align: TextAlign::Center,
-        font_size: value_fs,
-        bold: true,
-        rotation_deg: 0.0,
-    });
+    ctx.add_text(center_x, center_y + radius * 0.15, &label_text, theme.text_color(), TextAlign::Center, value_fs, true, 0.0);
 
     // Min/max labels at arc ends
-    ctx.overlays.push(TextOverlay {
-        x_px: center_x - radius - gc.arc_width / 2.0,
-        y_px: center_y + 8.0,
-        text: format_compact(gc.min),
-        color: theme.text_color().with_alpha(0.6),
-        align: TextAlign::Center,
-        font_size: data_fs,
-        bold: false,
-        rotation_deg: 0.0,
-    });
-    ctx.overlays.push(TextOverlay {
-        x_px: center_x + radius + gc.arc_width / 2.0,
-        y_px: center_y + 8.0,
-        text: format_compact(gc.max),
-        color: theme.text_color().with_alpha(0.6),
-        align: TextAlign::Center,
-        font_size: data_fs,
-        bold: false,
-        rotation_deg: 0.0,
-    });
+    ctx.add_text(center_x - radius - gc.arc_width / 2.0, center_y + 8.0, &format_compact(gc.min), theme.text_color().with_alpha(0.6), TextAlign::Center, data_fs, false, 0.0);
+    ctx.add_text(center_x + radius + gc.arc_width / 2.0, center_y + 8.0, &format_compact(gc.max), theme.text_color().with_alpha(0.6), TextAlign::Center, data_fs, false, 0.0);
 
     ctx.add_common_overlays(config);
     ctx.finish()

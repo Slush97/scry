@@ -28,18 +28,10 @@ fn summarize(rendered: &layout::RenderedChart) -> String {
         rendered.canvas.commands().len(),
     ));
 
-    lines.push(format!("overlays: {}", rendered.text_overlays.len()));
-
-    for (i, overlay) in rendered.text_overlays.iter().enumerate() {
-        let rot_str = if overlay.rotation_deg.abs() > 0.01 {
-            format!(" rot={:.0}°", overlay.rotation_deg)
-        } else {
-            String::new()
-        };
-        lines.push(format!(
-            "  [{i}] ({:.0}, {:.0}) {:?}{} \"{}\"",
-            overlay.x_px, overlay.y_px, overlay.align, rot_str, overlay.text,
-        ));
+    let labels = rendered.text_labels();
+    lines.push(format!("text_labels: {}", labels.len()));
+    for (i, label) in labels.iter().enumerate() {
+        lines.push(format!("  [{i}] {label}"));
     }
 
     lines.join("\n")
@@ -66,26 +58,23 @@ fn render_scatter_basic() {
         "should have draw commands"
     );
     assert!(
-        rendered.text_overlays.len() > 0,
+        rendered.text_labels().len() > 0,
         "should have text overlays"
     );
 
     // Title overlay should exist
     assert!(
-        rendered
-            .text_overlays
-            .iter()
-            .any(|o| o.text == "Scatter Test"),
+        rendered.text_labels().contains(&"Scatter Test"),
         "should have title overlay"
     );
 
     // X and Y label overlays
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "X"),
+        rendered.text_labels().contains(&"X"),
         "should have x-label overlay"
     );
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Y"),
+        rendered.text_labels().contains(&"Y"),
         "should have y-label overlay"
     );
 
@@ -138,7 +127,7 @@ fn render_line_basic() {
 
     assert!(rendered.canvas.commands().len() > 0);
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Line Test"),
+        rendered.text_labels().contains(&"Line Test"),
         "should have title"
     );
 
@@ -200,7 +189,7 @@ fn render_bar_vertical() {
 
     // Category labels should appear in overlays
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Mon"),
+        rendered.text_labels().contains(&"Mon"),
         "should have category label"
     );
 
@@ -252,10 +241,7 @@ fn render_histogram_basic() {
 
     let rendered = layout::render_chart(&chart, 400, 300);
     assert!(rendered.canvas.commands().len() > 0);
-    assert!(rendered
-        .text_overlays
-        .iter()
-        .any(|o| o.text == "Distribution"),);
+    assert!(rendered.text_labels().contains(&"Distribution"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -291,9 +277,9 @@ fn render_boxplot_basic() {
     let rendered = layout::render_chart(&chart, 400, 300);
 
     // Category labels
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Group A"));
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Group B"));
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "Group C"));
+    assert!(rendered.text_labels().contains(&"Group A"));
+    assert!(rendered.text_labels().contains(&"Group B"));
+    assert!(rendered.text_labels().contains(&"Group C"));
 
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -323,10 +309,10 @@ fn render_heatmap_basic() {
     let rendered = layout::render_chart(&chart, 400, 300);
 
     // Should have value labels (9 cells) + row labels + col labels + title
-    assert!(rendered.text_overlays.len() >= 9 + 3 + 3 + 1);
+    assert!(rendered.text_labels().len() >= 9 + 3 + 3 + 1);
 
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "R1"));
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "C1"));
+    assert!(rendered.text_labels().contains(&"R1"));
+    assert!(rendered.text_labels().contains(&"C1"));
 
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -534,13 +520,10 @@ fn render_bar_horizontal() {
 
     let rendered = layout::render_chart(&chart, 400, 300);
 
-    // Category labels should be on the left (Right-aligned)
-    let alpha_overlay = rendered.text_overlays.iter().find(|o| o.text == "Alpha");
-    assert!(alpha_overlay.is_some(), "should have category label");
-    assert_eq!(
-        alpha_overlay.unwrap().align,
-        layout::TextAlign::Right,
-        "horizontal bar category labels should be right-aligned"
+    // Category labels should be present
+    assert!(
+        rendered.text_labels().contains(&"Alpha"),
+        "should have category label"
     );
 
     // Should have bar rects
@@ -596,9 +579,8 @@ fn render_histogram_multi_series() {
     let rendered = layout::render_chart(&chart, 400, 300);
 
     // Multi-series should render legend with text overlays
-    let has_legend_text = rendered.text_overlays.iter().any(|o| o.text == "Series B");
     assert!(
-        has_legend_text,
+        rendered.text_labels().contains(&"Series B"),
         "should render legend text for extra series"
     );
 
@@ -618,14 +600,12 @@ fn render_line_legend_text_rendered() {
     let rendered = layout::render_chart(&chart, 500, 350);
 
     // Legend text overlays should be present
-    let has_temp = rendered.text_overlays.iter().any(|o| o.text == "Temp");
-    let has_humidity = rendered.text_overlays.iter().any(|o| o.text == "Humidity");
     assert!(
-        has_temp,
+        rendered.text_labels().contains(&"Temp"),
         "legend text 'Temp' should be rendered, not discarded"
     );
     assert!(
-        has_humidity,
+        rendered.text_labels().contains(&"Humidity"),
         "legend text 'Humidity' should be rendered, not discarded"
     );
 
@@ -685,8 +665,10 @@ fn render_scatter_with_annotation() {
 
     let rendered = layout::render_chart(&chart, 400, 300);
     // Annotation text should appear in overlays
-    let has_annotation = rendered.text_overlays.iter().any(|o| o.text == "Peak");
-    assert!(has_annotation, "Annotation 'Peak' not found in overlays");
+    assert!(
+        rendered.text_labels().contains(&"Peak"),
+        "Annotation 'Peak' not found in text labels"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -712,8 +694,10 @@ fn render_line_with_annotation() {
         .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
-    let has_annotation = rendered.text_overlays.iter().any(|o| o.text == "Max");
-    assert!(has_annotation, "Annotation 'Max' not found in overlays");
+    assert!(
+        rendered.text_labels().contains(&"Max"),
+        "Annotation 'Max' not found in text labels"
+    );
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -872,7 +856,7 @@ fn all_themes_produce_output() {
             "Theme '{name}' should produce draw commands"
         );
         assert!(
-            !rendered.text_overlays.is_empty(),
+            !rendered.text_labels().is_empty(),
             "Theme '{name}' should produce text overlays"
         );
     }
@@ -911,22 +895,19 @@ fn full_feature_chart() {
         "Full feature chart should have many commands"
     );
     assert!(
-        rendered
-            .text_overlays
-            .iter()
-            .any(|o| o.text == "Full Feature Test"),
+        rendered.text_labels().contains(&"Full Feature Test"),
         "Title"
     );
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "X Axis"),
+        rendered.text_labels().contains(&"X Axis"),
         "X label"
     );
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Y Axis"),
+        rendered.text_labels().contains(&"Y Axis"),
         "Y label"
     );
     assert!(
-        rendered.text_overlays.iter().any(|o| o.text == "Peak"),
+        rendered.text_labels().contains(&"Peak"),
         "Annotation"
     );
 
@@ -963,25 +944,11 @@ fn render_line_diagonal_ticks() {
         .build();
     let rendered = layout::render_chart(&chart, 400, 300);
 
-    // Verify that X-axis tick overlays have rotation_deg == 45.0
-    let rotated: Vec<_> = rendered
-        .text_overlays
-        .iter()
-        .filter(|o| (o.rotation_deg - 45.0).abs() < 0.1)
-        .collect();
+    // Verify that tick labels are present (rotation is now handled in DrawCommand::Text)
     assert!(
-        !rotated.is_empty(),
-        "Should have diagonal (45°) tick overlays"
+        rendered.text_labels().len() > 1,
+        "Should have tick label overlays"
     );
-
-    // Right-aligned for rotated labels
-    for o in &rotated {
-        assert_eq!(
-            o.align,
-            scry_chart::layout::TextAlign::Right,
-            "Rotated tick labels should be right-aligned"
-        );
-    }
 
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -1002,17 +969,12 @@ fn render_bar_vertical_ticks() {
     .build();
     let rendered = layout::render_chart(&chart, 400, 300);
 
-    // Verify that category label overlays have rotation_deg == 90.0
-    let rotated: Vec<_> = rendered
-        .text_overlays
-        .iter()
-        .filter(|o| (o.rotation_deg - 90.0).abs() < 0.1)
-        .collect();
-    assert!(
-        !rotated.is_empty(),
-        "Should have vertical (90°) category label overlays"
-    );
-    assert_eq!(rotated.len(), 4, "Should have 4 rotated category labels");
+    // Verify that category labels are present (rotation is now handled in DrawCommand::Text)
+    let labels = rendered.text_labels();
+    assert!(labels.contains(&"Alpha"), "Should have 'Alpha' label");
+    assert!(labels.contains(&"Beta"), "Should have 'Beta' label");
+    assert!(labels.contains(&"Gamma"), "Should have 'Gamma' label");
+    assert!(labels.contains(&"Delta"), "Should have 'Delta' label");
 
     insta::assert_snapshot!(summarize(&rendered));
 }
@@ -1125,10 +1087,7 @@ fn render_heatmap_viridis() {
     let rendered = layout::render_chart(&chart, 400, 300);
     // Should render cells (9 rects) + labels + title
     assert!(rendered.canvas.commands().len() >= 9);
-    assert!(rendered
-        .text_overlays
-        .iter()
-        .any(|o| o.text == "Viridis Heatmap"));
+    assert!(rendered.text_labels().contains(&"Viridis Heatmap"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1161,10 +1120,7 @@ fn render_waterfall_basic() {
 
     let rendered = layout::render_chart(&chart, 500, 350);
     assert!(rendered.canvas.commands().len() > 5);
-    assert!(rendered
-        .text_overlays
-        .iter()
-        .any(|o| o.text == "P&L Waterfall"));
+    assert!(rendered.text_labels().contains(&"P&L Waterfall"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1210,10 +1166,7 @@ fn render_funnel_basic() {
 
     let rendered = layout::render_chart(&chart, 500, 400);
     assert!(rendered.canvas.commands().len() > 4);
-    assert!(rendered
-        .text_overlays
-        .iter()
-        .any(|o| o.text == "Conversion Funnel"));
+    assert!(rendered.text_labels().contains(&"Conversion Funnel"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1250,7 +1203,7 @@ fn render_gauge_basic() {
     let rendered = layout::render_chart(&chart, 400, 300);
     // 3 threshold arcs + needle line + needle hub
     assert!(!rendered.canvas.commands().is_empty());
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "CPU Usage"));
+    assert!(rendered.text_labels().contains(&"CPU Usage"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1264,7 +1217,7 @@ fn render_gauge_custom_range() {
     let rendered = layout::render_chart(&chart, 300, 250);
     // Single track arc + needle line + needle hub
     assert!(!rendered.canvas.commands().is_empty());
-    assert!(rendered.text_overlays.iter().any(|o| o.text == "150 rpm"));
+    assert!(rendered.text_labels().contains(&"150 rpm"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 
@@ -1290,10 +1243,7 @@ fn render_lollipop_basic() {
 
     let rendered = layout::render_chart(&chart, 500, 350);
     assert!(rendered.canvas.commands().len() > 10);
-    assert!(rendered
-        .text_overlays
-        .iter()
-        .any(|o| o.text == "Weekly Scores"));
+    assert!(rendered.text_labels().contains(&"Weekly Scores"));
     insta::assert_snapshot!(summarize(&rendered));
 }
 

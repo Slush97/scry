@@ -1,25 +1,24 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 259
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 36 commands
-overlays: 18
-  [0] (60, 265) Center "0"
-  [1] (142, 265) Center "50"
-  [2] (224, 265) Center "100"
-  [3] (306, 265) Center "150"
-  [4] (388, 265) Center "200"
-  [5] (53, 258) Right "0"
-  [6] (53, 182) Right "10"
-  [7] (53, 106) Right "20"
-  [8] (53, 30) Right "30"
-  [9] (65, 170) Center "11"
-  [10] (76, 224) Center "4"
-  [11] (98, 239) Center "2"
-  [12] (109, 208) Center "6"
-  [13] (186, 193) Center "8"
-  [14] (218, 102) Center "20"
-  [15] (224, 16) Center "Distribution"
-  [16] (224, 288) Center "Value"
-  [17] (24, 144) Center rot=90° "Frequency"
+canvas: 400x300, 54 commands
+text_labels: 18
+  [0] 0
+  [1] 50
+  [2] 100
+  [3] 150
+  [4] 200
+  [5] 0
+  [6] 10
+  [7] 20
+  [8] 30
+  [9] 11
+  [10] 4
+  [11] 2
+  [12] 6
+  [13] 8
+  [14] 20
+  [15] Distribution
+  [16] Value
+  [17] Frequency

@@ -1,19 +1,18 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 92
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 25 commands
-overlays: 12
-  [0] (60, 265) Center "0.8"
-  [1] (136, 265) Center "2.0"
-  [2] (262, 265) Center "4.0"
-  [3] (388, 265) Center "6.0"
-  [4] (53, 258) Right "0.0"
-  [5] (53, 195) Right "2.5"
-  [6] (53, 131) Right "5.0"
-  [7] (53, 68) Right "7.5"
-  [8] (53, 30) Right "9.0"
-  [9] (224, 16) Center "Scatter Test"
-  [10] (224, 288) Center "X"
-  [11] (24, 144) Center rot=90° "Y"
+canvas: 400x300, 37 commands
+text_labels: 12
+  [0] 0.8
+  [1] 2.0
+  [2] 4.0
+  [3] 6.0
+  [4] 0.0
+  [5] 2.5
+  [6] 5.0
+  [7] 7.5
+  [8] 9.0
+  [9] Scatter Test
+  [10] X
+  [11] Y

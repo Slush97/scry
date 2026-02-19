@@ -162,14 +162,14 @@ fn classify_overlays(
     let (px, py, _pw, ph) = plot;
 
     rendered
-        .text_overlays
+        .text_overlays_from_canvas()
         .iter()
         .map(|o| {
             let mut bbox = measure_overlay(o);
 
             // Classify by matching against known labels and position
             if let Some(t) = config_title {
-                if o.text == t && o.bold {
+                if o.text == t {
                     bbox.role = "title".to_string();
                     return bbox;
                 }

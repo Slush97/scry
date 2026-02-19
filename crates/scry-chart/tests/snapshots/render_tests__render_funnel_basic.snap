@@ -2,14 +2,14 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 500x400, 8 commands
-overlays: 9
-  [0] (270, 65) Center "Visitors"
-  [1] (270, 81) Center "10.0K · 100%"
-  [2] (270, 147) Center "Signups"
-  [3] (270, 163) Center "5.0K · 50% · → 50%"
-  [4] (270, 229) Center "Trials"
-  [5] (270, 245) Center "2.0K · 20% · → 40%"
-  [6] (270, 311) Center "Paid"
-  [7] (270, 327) Center "800 · 8% · → 40%"
-  [8] (270, 20) Center "Conversion Funnel"
+canvas: 500x400, 17 commands
+text_labels: 9
+  [0] Visitors
+  [1] 10.0K · 100%
+  [2] Signups
+  [3] 5.0K · 50% · → 50%
+  [4] Trials
+  [5] 2.0K · 20% · → 40%
+  [6] Paid
+  [7] 800 · 8% · → 40%
+  [8] Conversion Funnel

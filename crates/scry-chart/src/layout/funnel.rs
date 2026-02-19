@@ -4,7 +4,7 @@
 use crate::chart::funnel::FunnelChart;
 use crate::theme::contrast_text_color;
 
-use super::{RenderContext, RenderedChart, TextAlign, TextOverlay};
+use super::{RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
     let config = &fc.config;
@@ -131,28 +131,10 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
             let text_block_h = if has_detail { tick_fs + data_fs * 0.8 + 4.0 } else { tick_fs };
             let block_top = bar_y + (stage_h - text_block_h) / 2.0;
 
-            ctx.overlays.push(TextOverlay {
-                x_px: center_x,
-                y_px: block_top,
-                text: fc.labels[i].clone(),
-                color: contrast_text_color(color),
-                align: TextAlign::Center,
-                font_size: tick_fs,
-                bold: true,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(center_x, block_top, &fc.labels[i], contrast_text_color(color), TextAlign::Center, tick_fs, true, 0.0);
 
             if has_detail {
-                ctx.overlays.push(TextOverlay {
-                    x_px: center_x,
-                    y_px: block_top + tick_fs + 2.0,
-                    text: detail,
-                    color: contrast_text_color(color).with_alpha(0.65),
-                    align: TextAlign::Center,
-                    font_size: data_fs * 0.85,
-                    bold: false,
-                    rotation_deg: 0.0,
-                });
+                ctx.add_text(center_x, block_top + tick_fs + 2.0, &detail, contrast_text_color(color).with_alpha(0.65), TextAlign::Center, data_fs * 0.85, false, 0.0);
             }
         } else {
             // ── Text overflow guard: move labels outside the bar ──
@@ -164,16 +146,7 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
                 text.push_str(" · ");
                 text.push_str(&detail);
             }
-            ctx.overlays.push(TextOverlay {
-                x_px: label_x,
-                y_px: label_y,
-                text,
-                color: theme.text_color(),
-                align: TextAlign::Left,
-                font_size: label_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(label_x, label_y, &text, theme.text_color(), TextAlign::Left, label_fs, false, 0.0);
         }
     }
 

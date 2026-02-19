@@ -164,6 +164,16 @@ pub trait MathBackend: DeviceBackend {
     /// Default is a no-op (CPU backend has no bf16 shadow).
     fn invalidate_bf16_cache(_storage: &Self::Storage) {}
 
+    /// Compute sum-of-squares for multiple tensors in one batch.
+    /// Returns a `Vec` of squared norms (one per input tensor).
+    /// GPU override does all reductions in parallel with a single D2H transfer.
+    fn multi_norm_squared(storages: &[&Self::Storage]) -> Vec<f64> {
+        storages.iter().map(|s| {
+            let n = Self::norm(s);
+            f64::from(n) * f64::from(n)
+        }).collect()
+    }
+
     /// `AdamW` optimizer step (fused). Updates `param` in place.
     #[allow(clippy::too_many_arguments)]
     fn adamw_step(
@@ -390,6 +400,42 @@ pub trait MathBackend: DeviceBackend {
         Self::from_vec(c_vec, &Shape::new(&[batch_count * m, n]))
     }
 
+    /// Fused residual-add + `LayerNorm`: `sum = residual + sublayer`, then
+    /// `normalized = layernorm(sum, gamma, beta, eps)`.
+    /// Returns `(sum, normalized, mean, rstd)`.
+    /// Default: add then layernorm.
+    fn residual_add_layernorm(
+        residual: &Self::Storage,
+        sublayer: &Self::Storage,
+        gamma: &Self::Storage,
+        beta: &Self::Storage,
+        shape: &Shape,
+        eps: f32,
+    ) -> (Self::Storage, Self::Storage, Self::Storage, Self::Storage) {
+        // Default: compute as two separate ops
+        let sum = Self::add(residual, sublayer, shape, shape, shape);
+        let (normalized, mean, rstd) = Self::layernorm(&sum, gamma, beta, shape, eps);
+        (sum, normalized, mean, rstd)
+    }
+
+    /// Backward for fused residual-add + `LayerNorm`.
+    /// Returns `(d_input, d_gamma, d_beta)` where `d_input` is the gradient for
+    /// both `residual` and `sublayer` (identical since same-shape add).
+    /// Default: `layernorm_backward` on recomputed sum.
+    fn residual_add_layernorm_backward(
+        d_out: &Self::Storage,
+        residual: &Self::Storage,
+        sublayer: &Self::Storage,
+        gamma: &Self::Storage,
+        mean: &Self::Storage,
+        rstd: &Self::Storage,
+        shape: &Shape,
+    ) -> (Self::Storage, Self::Storage, Self::Storage) {
+        // Default: recompute sum, then standard layernorm backward
+        let sum = Self::add(residual, sublayer, shape, shape, shape);
+        Self::layernorm_backward(d_out, &sum, gamma, mean, rstd, shape)
+    }
+
     /// Apply causal mask and scale to `num_matrices` copies of `[seq_len, seq_len]`
     /// stored contiguously. Default calls `apply_causal_mask_and_scale` in a loop.
     fn apply_batched_causal_mask_and_scale(
@@ -418,5 +464,202 @@ pub trait MathBackend: DeviceBackend {
         }
         let n = data.len();
         *scores = Self::from_vec(data, &Shape::new(&[n]));
+    }
+
+    /// Fused QKV split + reshape to heads.
+    /// Reads `qkv [B*S, 3*D]` and writes three `[B*H, S, d_head]` outputs.
+    /// Replaces 3× `gather_columns` + 3× `reshape_for_heads` (6 kernels → 1).
+    #[allow(clippy::type_complexity)]
+    fn split_qkv_to_heads(
+        qkv: &Self::Storage,
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> (Self::Storage, Self::Storage, Self::Storage) {
+        let d_model = n_heads * d_head;
+        let total_tokens = batch * seq;
+        let q_flat = Self::gather_columns(qkv, total_tokens, 3 * d_model, 0, d_model);
+        let k_flat = Self::gather_columns(qkv, total_tokens, 3 * d_model, d_model, d_model);
+        let v_flat = Self::gather_columns(qkv, total_tokens, 3 * d_model, 2 * d_model, d_model);
+        let q = Self::reshape_for_heads(&q_flat, batch, seq, n_heads, d_head);
+        let k = Self::reshape_for_heads(&k_flat, batch, seq, n_heads, d_head);
+        let v = Self::reshape_for_heads(&v_flat, batch, seq, n_heads, d_head);
+        (q, k, v)
+    }
+
+    /// Fused merge heads + scatter to QKV gradient.
+    /// Reads three `[B*H, S, d_head]` inputs and writes `[B*S, 3*D]` output (additive).
+    /// Replaces 3× `reshape_from_heads` + 3× `scatter_columns` (6 kernels → 1).
+    fn merge_heads_to_qkv(
+        dq: &Self::Storage,
+        dk: &Self::Storage,
+        dv: &Self::Storage,
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> Self::Storage {
+        let d_model = n_heads * d_head;
+        let total_tokens = batch * seq;
+        let dq_flat = Self::reshape_from_heads(dq, batch, seq, n_heads, d_head);
+        let dk_flat = Self::reshape_from_heads(dk, batch, seq, n_heads, d_head);
+        let dv_flat = Self::reshape_from_heads(dv, batch, seq, n_heads, d_head);
+        let mut d_qkv = Self::zeros(&Shape::new(&[total_tokens, 3 * d_model]));
+        Self::scatter_columns(&mut d_qkv, &dq_flat, total_tokens, 3 * d_model, 0, d_model);
+        Self::scatter_columns(&mut d_qkv, &dk_flat, total_tokens, 3 * d_model, d_model, d_model);
+        Self::scatter_columns(&mut d_qkv, &dv_flat, total_tokens, 3 * d_model, 2 * d_model, d_model);
+        d_qkv
+    }
+
+    /// Fused bias + GELU: `out = gelu(input + bias)` where bias is broadcast over rows.
+    /// `input`: `[rows, cols]`, `bias`: `[cols]`.
+    /// Returns `[rows, cols]`.
+    fn fused_bias_gelu(
+        input: &Self::Storage,
+        bias: &Self::Storage,
+        rows: usize,
+        cols: usize,
+    ) -> Self::Storage {
+        let shape = Shape::new(&[rows, cols]);
+        let bias_shape = Shape::new(&[1, cols]);
+        let biased = Self::add(input, bias, &shape, &bias_shape, &shape);
+        Self::gelu(&biased)
+    }
+
+    /// Backward for fused bias + GELU.
+    /// Returns `d_input [rows, cols]` (gradient w.r.t. the pre-bias matmul output).
+    /// Bias gradient = `reduce_rows(d_input)`.
+    fn fused_bias_gelu_backward(
+        d_out: &Self::Storage,
+        input: &Self::Storage,
+        bias: &Self::Storage,
+        rows: usize,
+        cols: usize,
+    ) -> Self::Storage {
+        let shape = Shape::new(&[rows, cols]);
+        let bias_shape = Shape::new(&[1, cols]);
+        let biased = Self::add(input, bias, &shape, &bias_shape, &shape);
+        Self::gelu_backward(d_out, &biased)
+    }
+
+    /// Fused bias + dropout + residual add:
+    /// `out = residual + dropout(matmul_out + bias, p, seed)`
+    /// Returns `(output, dropout_mask)`.
+    fn fused_bias_dropout_residual(
+        matmul_out: &Self::Storage,
+        bias: &Self::Storage,
+        residual: &Self::Storage,
+        rows: usize,
+        cols: usize,
+        p: f32,
+        seed: u64,
+    ) -> (Self::Storage, Self::Storage) {
+        let n = rows * cols;
+        let shape = Shape::new(&[rows, cols]);
+        let bias_shape = Shape::new(&[1, cols]);
+        let biased = Self::add(matmul_out, bias, &shape, &bias_shape, &shape);
+        let (dropped, mask) = Self::dropout(&biased, n, p, seed);
+        let out = Self::add(&dropped, residual, &shape, &shape, &shape);
+        (out, mask)
+    }
+
+    /// FlashAttention forward: fused Q@K^T → scale → causal mask → softmax → attn@V.
+    /// Processes attention in tiles without materializing the S×S attention matrix.
+    ///
+    /// `q`, `k`, `v`: `[B*H, S, d_head]`
+    /// Returns `(output [B*H, S, d_head], lse [B*H, S])` where `lse` = log-sum-exp for backward.
+    #[allow(clippy::type_complexity)]
+    fn flash_attention_forward(
+        q: &Self::Storage,
+        k: &Self::Storage,
+        v: &Self::Storage,
+        batch_heads: usize,
+        seq_len: usize,
+        d_head: usize,
+        scale: f32,
+        is_causal: bool,
+    ) -> (Self::Storage, Self::Storage) {
+        // Default CPU fallback: decomposed attention
+        let bh = batch_heads;
+        let mut scores = Self::matmul_strided_batched(q, k, bh, seq_len, d_head, seq_len, false, true);
+        if is_causal {
+            Self::apply_batched_causal_mask_and_scale(&mut scores, bh, seq_len, scale, f32::NEG_INFINITY);
+        } else {
+            Self::scale_inplace(&mut scores, scale);
+        }
+        let attn = Self::softmax(&scores, &Shape::new(&[bh * seq_len, seq_len]));
+        let output = Self::matmul_strided_batched(&attn, v, bh, seq_len, seq_len, d_head, false, false);
+        // Compute LSE from the scores (before softmax, after scale+mask)
+        // For CPU fallback, store dummy zeros — won't be used if backward also falls back
+        let lse = Self::zeros(&Shape::new(&[bh * seq_len]));
+        (output, lse)
+    }
+
+    /// FlashAttention backward: recomputes attention per tile using saved Q, K, V, lse, O.
+    /// Returns `(dQ, dK, dV)` each `[B*H, S, d_head]`.
+    #[allow(clippy::too_many_arguments)]
+    fn flash_attention_backward(
+        d_out: &Self::Storage,
+        q: &Self::Storage,
+        k: &Self::Storage,
+        v: &Self::Storage,
+        output: &Self::Storage,
+        lse: &Self::Storage,
+        batch_heads: usize,
+        seq_len: usize,
+        d_head: usize,
+        scale: f32,
+        is_causal: bool,
+    ) -> (Self::Storage, Self::Storage, Self::Storage) {
+        // Default CPU fallback: recompute attention and do decomposed backward
+        let _ = (output, lse); // not needed for CPU decomposed path
+        let bh = batch_heads;
+        let mut scores = Self::matmul_strided_batched(q, k, bh, seq_len, d_head, seq_len, false, true);
+        if is_causal {
+            Self::apply_batched_causal_mask_and_scale(&mut scores, bh, seq_len, scale, f32::NEG_INFINITY);
+        } else {
+            Self::scale_inplace(&mut scores, scale);
+        }
+        let attn = Self::softmax(&scores, &Shape::new(&[bh * seq_len, seq_len]));
+
+        // dV = attn^T @ dO
+        let dv = Self::matmul_strided_batched(&attn, d_out, bh, seq_len, seq_len, d_head, true, false);
+        // d_attn = dO @ V^T
+        let d_attn = Self::matmul_strided_batched(d_out, v, bh, seq_len, d_head, seq_len, false, true);
+        // d_scores = softmax_backward(d_attn, attn)
+        let d_scores = Self::softmax_backward(&d_attn, &attn, &Shape::new(&[bh * seq_len, seq_len]));
+        // Apply causal mask to d_scores
+        let mut d_scores_masked = d_scores;
+        if is_causal {
+            Self::apply_batched_causal_mask_and_scale(&mut d_scores_masked, bh, seq_len, scale, 0.0);
+        } else {
+            Self::scale_inplace(&mut d_scores_masked, scale);
+        }
+        // dQ = d_scores @ K
+        let dq = Self::matmul_strided_batched(&d_scores_masked, k, bh, seq_len, seq_len, d_head, false, false);
+        // dK = d_scores^T @ Q
+        let dk = Self::matmul_strided_batched(&d_scores_masked, q, bh, seq_len, seq_len, d_head, true, false);
+        (dq, dk, dv)
+    }
+
+    /// Fused elementwise multiply + row reduction:
+    /// `out[col] = sum_over_rows(a[row * cols + col] * b[row * cols + col])`
+    /// Default: `mul_elementwise` + manual sum. GPU override uses a single kernel.
+    fn fused_mul_reduce_rows(
+        a: &Self::Storage,
+        b: &Self::Storage,
+        rows: usize,
+        cols: usize,
+    ) -> Self::Storage {
+        let product = Self::mul_elementwise(a, b);
+        let data = Self::to_vec(&product);
+        let mut out = vec![0.0f32; cols];
+        for r in 0..rows {
+            for c in 0..cols {
+                out[c] += data[r * cols + c];
+            }
+        }
+        Self::from_vec(out, &Shape::new(&[cols]))
     }
 }

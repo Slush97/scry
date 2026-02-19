@@ -7,7 +7,7 @@ use crate::scale::{LinearScale, Scale};
 
 use super::scatter::draw_marker;
 use super::{
-    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay,
+    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign,
 };
 
 pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
@@ -137,16 +137,7 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
             let sy = y_scale.to_pixel(yv) as f32;
             let radius = map_radius(sv);
             let label = format_value(sv);
-            ctx.overlays.push(TextOverlay {
-                x_px: sx,
-                y_px: sy - radius - 4.0,
-                text: label,
-                color: theme.text_color(),
-                align: TextAlign::Center,
-                font_size: data_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(sx, sy - radius - 4.0, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
         }
     }
 
@@ -187,16 +178,7 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
             legend::draw_positioned_legend(c, &entries, plot, &config.legend, 10.0, 4.0, None)
         });
         for (lx, ly, label) in legend_text {
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: label,
-                color: theme.text_color(),
-                align: TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, tick_fs, false, 0.0);
         }
     }
 

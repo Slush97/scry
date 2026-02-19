@@ -2,23 +2,23 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 60 commands
-overlays: 18
-  [0] (81, 87) Center "1.00"
-  [1] (174, 87) Center "2.00"
-  [2] (267, 87) Center "3.00"
-  [3] (81, 168) Center "4.00"
-  [4] (174, 168) Center "5.00"
-  [5] (267, 168) Center "6.00"
-  [6] (81, 249) Center "7.00"
-  [7] (174, 249) Center "8.00"
-  [8] (267, 249) Center "9.00"
-  [9] (344, 50) Left "9.0"
-  [10] (344, 286) Left "1.0"
-  [11] (30, 87) Right "R1"
-  [12] (30, 168) Right "R2"
-  [13] (30, 249) Right "R3"
-  [14] (81, 40) Center "C1"
-  [15] (174, 40) Center "C2"
-  [16] (267, 40) Center "C3"
-  [17] (174, 16) Center "Heatmap Test"
+canvas: 400x300, 78 commands
+text_labels: 18
+  [0] 1.00
+  [1] 2.00
+  [2] 3.00
+  [3] 4.00
+  [4] 5.00
+  [5] 6.00
+  [6] 7.00
+  [7] 8.00
+  [8] 9.00
+  [9] 9.0
+  [10] 1.0
+  [11] R1
+  [12] R2
+  [13] R3
+  [14] C1
+  [15] C2
+  [16] C3
+  [17] Heatmap Test

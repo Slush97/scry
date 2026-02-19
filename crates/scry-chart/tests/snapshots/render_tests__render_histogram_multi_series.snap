@@ -2,18 +2,18 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 45 commands
-overlays: 13
-  [0] (36, 280) Center "0"
-  [1] (114, 280) Center "20"
-  [2] (192, 280) Center "40"
-  [3] (271, 280) Center "60"
-  [4] (349, 280) Center "80"
-  [5] (388, 280) Center "90"
-  [6] (29, 273) Right "0"
-  [7] (29, 192) Right "10"
-  [8] (29, 111) Right "20"
-  [9] (29, 30) Right "30"
-  [10] (308, 59) Left "Series 1"
-  [11] (308, 79) Left "Series B"
-  [12] (212, 16) Center "Multi-Histogram"
+canvas: 400x300, 58 commands
+text_labels: 13
+  [0] 0
+  [1] 20
+  [2] 40
+  [3] 60
+  [4] 80
+  [5] 90
+  [6] 0
+  [7] 10
+  [8] 20
+  [9] 30
+  [10] Series 1
+  [11] Series B
+  [12] Multi-Histogram

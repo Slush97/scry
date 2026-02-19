@@ -514,11 +514,42 @@ impl Rasterizer {
                 color,
                 font_data,
                 align,
+                rotation,
                 outline_color,
                 outline_width,
                 fill_style,
                 shadow,
             } => {
+                // Apply rotation around the text anchor point if non-zero.
+                let text_transform = if rotation.abs() > 0.01 {
+                    // Compute anchor: x adjusted for alignment, y is baseline.
+                    // Negate angle: positive rotation_deg = CCW in user space,
+                    // but tiny_skia rotation is CW, so negate.
+                    let metrics = crate::rasterize::skia::text::measure_text(
+                        text,
+                        Some(font_data),
+                        *font_size,
+                    );
+                    let anchor_x = match align {
+                        crate::scene::command::TextAlign::Left => *x + metrics.width / 2.0,
+                        crate::scene::command::TextAlign::Center => *x,
+                        crate::scene::command::TextAlign::Right => *x - metrics.width / 2.0,
+                    };
+                    let anchor_y = *y - metrics.ascent * 0.25;
+                    let rad = (-rotation).to_radians();
+                    let (sin, cos) = rad.sin_cos();
+                    // Rotation matrix around (anchor_x, anchor_y):
+                    // translate(-ax,-ay) * rotate * translate(ax,ay)
+                    let tx = anchor_x - cos * anchor_x + sin * anchor_y;
+                    let ty = anchor_y - sin * anchor_x - cos * anchor_y;
+                    let rot = tiny_skia::Transform::from_row(cos, sin, -sin, cos, tx, ty);
+                    // pre_concat: first rotate in original coordinates, then
+                    // apply parent transform (e.g. GPU fallback offset).
+                    parent_transform.pre_concat(rot)
+                } else {
+                    parent_transform
+                };
+
                 Self::render_rich_text(
                     pixmap,
                     text,
@@ -527,7 +558,7 @@ impl Rasterizer {
                     *font_size,
                     color,
                     font_data,
-                    parent_transform,
+                    text_transform,
                     *align,
                     outline_color.as_ref(),
                     *outline_width,

@@ -321,11 +321,24 @@ pub struct PipelinesSdf {
 impl PipelinesSdf {
     /// Compile the SDF compute pipeline for the given device.
     pub(crate) fn compile(device: &wgpu::Device) -> Self {
+        use std::io::Write;
+        let mut log = std::fs::OpenOptions::new()
+            .create(true).append(true)
+            .open("/tmp/scry_gpu_init.log").ok();
+        macro_rules! slog {
+            ($($arg:tt)*) => {
+                if let Some(f) = log.as_mut() { let _ = writeln!(f, $($arg)*); let _ = f.flush(); }
+            };
+        }
+        let t0 = std::time::Instant::now();
+        slog!("[compile] creating shader module ({} bytes WGSL)...", include_str!("../sdf/shaders/sdf_compute.wgsl").len());
+
         let shader_source = include_str!("../sdf/shaders/sdf_compute.wgsl");
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sdf-compute-shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
+        slog!("[compile] shader module created in {:?}", t0.elapsed());
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sdf-compute-bgl"),
@@ -400,6 +413,7 @@ impl PipelinesSdf {
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
+        slog!("[compile] layout created in {:?}, creating compute pipeline...", t0.elapsed());
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("sdf-compute-pipeline"),
@@ -409,6 +423,7 @@ impl PipelinesSdf {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
+        slog!("[compile] compute pipeline created in {:?} — done!", t0.elapsed());
 
         Self {
             pipeline,

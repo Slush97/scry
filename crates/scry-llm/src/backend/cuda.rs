@@ -893,6 +893,60 @@ impl MathBackend for CudaBackend {
         storage.invalidate_bf16_shadow();
     }
 
+    fn multi_norm_squared(storages: &[&GpuStorage]) -> Vec<f64> {
+        use cudarc::driver::DevicePtr;
+
+        if storages.is_empty() {
+            return Vec::new();
+        }
+        let n_tensors = storages.len();
+        with_gpu(|gpu| {
+            // Collect raw device pointers and lengths
+            let mut ptrs_host: Vec<u64> = Vec::with_capacity(n_tensors);
+            let mut guards = Vec::with_capacity(n_tensors);
+            let mut lens_host: Vec<u64> = Vec::with_capacity(n_tensors);
+
+            for s in storages {
+                let (ptr, guard) = s.inner.device_ptr(&gpu.stream);
+                ptrs_host.push(ptr);
+                guards.push(guard);
+                lens_host.push(s.len as u64);
+            }
+
+            // Upload pointer + length arrays to GPU
+            let ptrs_dev = gpu.stream.clone_htod(&ptrs_host).unwrap();
+            let lens_dev = gpu.stream.clone_htod(&lens_host).unwrap();
+            let mut out_dev = gpu.stream.alloc_zeros::<f32>(n_tensors).unwrap();
+
+            // Use multiple blocks per tensor for large tensors.
+            // Target: each thread processes ~1024 elements max for good throughput.
+            let threads = ROW_BLOCK; // 256 threads per block
+            let max_len = storages.iter().map(|s| s.len).max().unwrap_or(1);
+            let elems_per_block = threads as usize * 1024;
+            let blocks_per_tensor = ((max_len + elems_per_block - 1) / elems_per_block).max(1) as u32;
+
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.multi_dot_self)
+                    .arg(&mut out_dev)
+                    .arg(&ptrs_dev)
+                    .arg(&lens_dev)
+                    .arg(&n_tensors)
+                    .launch(LaunchConfig {
+                        grid_dim: (n_tensors as u32, blocks_per_tensor, 1),
+                        block_dim: (threads, 1, 1),
+                        shared_mem_bytes: threads * 4,
+                    })
+                    .unwrap();
+            }
+
+            // Single D2H transfer — one sync point instead of 125
+            let results = gpu.stream.clone_dtoh(&out_dev).unwrap();
+            drop(guards); // keep SyncOnDrop alive until after kernel completes
+            results.into_iter().map(|x| f64::from(x)).collect()
+        })
+    }
+
     fn adamw_step(
         param: &mut GpuStorage,
         grad: &GpuStorage,
@@ -1155,6 +1209,12 @@ impl MathBackend for CudaBackend {
         trans_a: bool,
         trans_b: bool,
     ) -> GpuStorage {
+        #[cfg(feature = "bf16")]
+        if bf16_enabled() {
+            return bf16_ops::matmul_strided_batched_bf16(
+                a, b, batch_count, m, k, n, trans_a, trans_b,
+            );
+        }
         let total = batch_count * m * n;
         with_gpu_mut(|gpu| {
             let mut c = gpu.stream.alloc_zeros::<f32>(total).unwrap();
@@ -1208,6 +1268,99 @@ impl MathBackend for CudaBackend {
         })
     }
 
+    fn residual_add_layernorm(
+        residual: &GpuStorage,
+        sublayer: &GpuStorage,
+        gamma: &GpuStorage,
+        beta: &GpuStorage,
+        shape: &Shape,
+        eps: f32,
+    ) -> (GpuStorage, GpuStorage, GpuStorage, GpuStorage) {
+        let dims = shape.dims();
+        let d = *dims.last().unwrap();
+        let rows = residual.len / d;
+        with_gpu(|gpu| {
+            let mut out_norm = gpu.stream.alloc_zeros::<f32>(residual.len).unwrap();
+            let mut out_sum = gpu.stream.alloc_zeros::<f32>(residual.len).unwrap();
+            let mut mean_out = gpu.stream.alloc_zeros::<f32>(rows).unwrap();
+            let mut rstd_out = gpu.stream.alloc_zeros::<f32>(rows).unwrap();
+            let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.residual_add_layernorm_fwd)
+                    .arg(&mut out_norm)
+                    .arg(&mut out_sum)
+                    .arg(&mut mean_out)
+                    .arg(&mut rstd_out)
+                    .arg(&residual.inner)
+                    .arg(&sublayer.inner)
+                    .arg(&gamma.inner)
+                    .arg(&beta.inner)
+                    .arg(&rows)
+                    .arg(&d)
+                    .arg(&eps)
+                    .launch(LaunchConfig {
+                        grid_dim: (rows as u32, 1, 1),
+                        block_dim: (threads, 1, 1),
+                        shared_mem_bytes: threads * 4,
+                    })
+                    .unwrap();
+            }
+            (
+                GpuStorage::new(out_sum, residual.len),
+                GpuStorage::new(out_norm, residual.len),
+                GpuStorage::new(mean_out, rows),
+                GpuStorage::new(rstd_out, rows),
+            )
+        })
+    }
+
+    fn residual_add_layernorm_backward(
+        d_out: &GpuStorage,
+        residual: &GpuStorage,
+        sublayer: &GpuStorage,
+        gamma: &GpuStorage,
+        mean: &GpuStorage,
+        rstd: &GpuStorage,
+        shape: &Shape,
+    ) -> (GpuStorage, GpuStorage, GpuStorage) {
+        let dims = shape.dims();
+        let d = *dims.last().unwrap();
+        let rows = residual.len / d;
+        with_gpu(|gpu| {
+            let mut dx = gpu.stream.alloc_zeros::<f32>(residual.len).unwrap();
+            let mut dgamma = gpu.stream.alloc_zeros::<f32>(d).unwrap();
+            let mut dbeta = gpu.stream.alloc_zeros::<f32>(d).unwrap();
+            let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.residual_add_layernorm_bwd)
+                    .arg(&mut dx)
+                    .arg(&mut dgamma)
+                    .arg(&mut dbeta)
+                    .arg(&d_out.inner)
+                    .arg(&residual.inner)
+                    .arg(&sublayer.inner)
+                    .arg(&gamma.inner)
+                    .arg(&mean.inner)
+                    .arg(&rstd.inner)
+                    .arg(&rows)
+                    .arg(&d)
+                    .launch(LaunchConfig {
+                        grid_dim: (rows as u32, 1, 1),
+                        block_dim: (threads, 1, 1),
+                        shared_mem_bytes: threads * 4 * 2, // two shared arrays
+                    })
+                    .unwrap();
+            }
+            (
+                GpuStorage::new(dx, residual.len),
+                GpuStorage::new(dgamma, d),
+                GpuStorage::new(dbeta, d),
+            )
+        })
+    }
+
     fn apply_batched_causal_mask_and_scale(
         scores: &mut GpuStorage,
         num_matrices: usize,
@@ -1233,6 +1386,328 @@ impl MathBackend for CudaBackend {
                     .unwrap();
             }
         });
+    }
+
+    fn split_qkv_to_heads(
+        qkv: &GpuStorage,
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> (GpuStorage, GpuStorage, GpuStorage) {
+        let per_output = batch * n_heads * seq * d_head;
+        with_gpu(|gpu| {
+            let mut q = gpu.stream.alloc_zeros::<f32>(per_output).unwrap();
+            let mut k = gpu.stream.alloc_zeros::<f32>(per_output).unwrap();
+            let mut v = gpu.stream.alloc_zeros::<f32>(per_output).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.split_qkv_to_heads)
+                    .arg(&mut q)
+                    .arg(&mut k)
+                    .arg(&mut v)
+                    .arg(&qkv.inner)
+                    .arg(&batch)
+                    .arg(&seq)
+                    .arg(&n_heads)
+                    .arg(&d_head)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(per_output, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            (
+                GpuStorage::new(q, per_output),
+                GpuStorage::new(k, per_output),
+                GpuStorage::new(v, per_output),
+            )
+        })
+    }
+
+    fn merge_heads_to_qkv(
+        dq: &GpuStorage,
+        dk: &GpuStorage,
+        dv: &GpuStorage,
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> GpuStorage {
+        let d_model = n_heads * d_head;
+        let total_tokens = batch * seq;
+        let per_head = batch * n_heads * seq * d_head;
+        with_gpu(|gpu| {
+            let mut d_qkv = gpu.stream.alloc_zeros::<f32>(total_tokens * 3 * d_model).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.merge_heads_to_qkv)
+                    .arg(&mut d_qkv)
+                    .arg(&dq.inner)
+                    .arg(&dk.inner)
+                    .arg(&dv.inner)
+                    .arg(&batch)
+                    .arg(&seq)
+                    .arg(&n_heads)
+                    .arg(&d_head)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(per_head, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(d_qkv, total_tokens * 3 * d_model)
+        })
+    }
+
+    fn fused_bias_gelu(
+        input: &GpuStorage,
+        bias: &GpuStorage,
+        rows: usize,
+        cols: usize,
+    ) -> GpuStorage {
+        let n = rows * cols;
+        with_gpu(|gpu| {
+            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.fused_bias_gelu_fwd)
+                    .arg(&mut out)
+                    .arg(&input.inner)
+                    .arg(&bias.inner)
+                    .arg(&rows)
+                    .arg(&cols)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(n, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(out, n)
+        })
+    }
+
+    fn fused_bias_gelu_backward(
+        d_out: &GpuStorage,
+        input: &GpuStorage,
+        bias: &GpuStorage,
+        rows: usize,
+        cols: usize,
+    ) -> GpuStorage {
+        let n = rows * cols;
+        with_gpu(|gpu| {
+            let mut dx = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.fused_bias_gelu_bwd)
+                    .arg(&mut dx)
+                    .arg(&d_out.inner)
+                    .arg(&input.inner)
+                    .arg(&bias.inner)
+                    .arg(&rows)
+                    .arg(&cols)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(n, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(dx, n)
+        })
+    }
+
+    fn fused_bias_dropout_residual(
+        matmul_out: &GpuStorage,
+        bias: &GpuStorage,
+        residual: &GpuStorage,
+        rows: usize,
+        cols: usize,
+        p: f32,
+        seed: u64,
+    ) -> (GpuStorage, GpuStorage) {
+        let n = rows * cols;
+        let scale = 1.0 / (1.0 - p);
+        with_gpu(|gpu| {
+            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut mask = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.fused_bias_dropout_residual_fwd)
+                    .arg(&mut out)
+                    .arg(&mut mask)
+                    .arg(&matmul_out.inner)
+                    .arg(&bias.inner)
+                    .arg(&residual.inner)
+                    .arg(&rows)
+                    .arg(&cols)
+                    .arg(&p)
+                    .arg(&scale)
+                    .arg(&seed)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(n, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            (GpuStorage::new(out, n), GpuStorage::new(mask, n))
+        })
+    }
+
+    fn flash_attention_forward(
+        q: &GpuStorage,
+        k: &GpuStorage,
+        v: &GpuStorage,
+        batch_heads: usize,
+        seq_len: usize,
+        d_head: usize,
+        scale: f32,
+        is_causal: bool,
+    ) -> (GpuStorage, GpuStorage) {
+        #[cfg(feature = "bf16")]
+        if bf16_enabled() {
+            return bf16_ops::flash_attention_forward_bf16(
+                q, k, v, batch_heads, seq_len, d_head, scale, is_causal,
+            );
+        }
+        let total_output = batch_heads * seq_len * d_head;
+        let total_lse = batch_heads * seq_len;
+        let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
+        let s_i32 = seq_len as i32;
+        let d_i32 = d_head as i32;
+        let br: u32 = 64;  // FA_BR
+        let bc: u32 = 32;  // FA_BC
+
+        // Shared memory: K_tile[BC * D] + V_tile[BC * D]
+        let smem_bytes = 2 * bc * (d_head as u32) * 4;
+
+        with_gpu(|gpu| {
+            let mut output = gpu.stream.alloc_zeros::<f32>(total_output).unwrap();
+            let mut lse = gpu.stream.alloc_zeros::<f32>(total_lse).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.flash_attention_fwd)
+                    .arg(&mut output)
+                    .arg(&mut lse)
+                    .arg(&q.inner)
+                    .arg(&k.inner)
+                    .arg(&v.inner)
+                    .arg(&s_i32)
+                    .arg(&d_i32)
+                    .arg(&scale)
+                    .arg(&is_causal_i32)
+                    .launch(LaunchConfig {
+                        grid_dim: (
+                            (seq_len as u32).div_ceil(br),
+                            batch_heads as u32,
+                            1,
+                        ),
+                        block_dim: (br, 1, 1),
+                        shared_mem_bytes: smem_bytes,
+                    })
+                    .unwrap();
+            }
+            (GpuStorage::new(output, total_output), GpuStorage::new(lse, total_lse))
+        })
+    }
+
+    fn flash_attention_backward(
+        d_out: &GpuStorage,
+        q: &GpuStorage,
+        k: &GpuStorage,
+        v: &GpuStorage,
+        output: &GpuStorage,
+        lse: &GpuStorage,
+        batch_heads: usize,
+        seq_len: usize,
+        d_head: usize,
+        scale: f32,
+        is_causal: bool,
+    ) -> (GpuStorage, GpuStorage, GpuStorage) {
+        #[cfg(feature = "bf16")]
+        if bf16_enabled() {
+            return bf16_ops::flash_attention_backward_bf16(
+                d_out, q, k, v, output, lse, batch_heads, seq_len, d_head, scale, is_causal,
+            );
+        }
+        let total = batch_heads * seq_len * d_head;
+        let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
+        let s_i32 = seq_len as i32;
+        let d_i32 = d_head as i32;
+        let bwd_bc: u32 = 32;  // FA_BWD_BC — KV-tile-centric block size
+
+        // Shared memory: K_tile[BC * D] + V_tile[BC * D]
+        let smem_bytes = 2 * bwd_bc * (d_head as u32) * 4;
+
+        with_gpu(|gpu| {
+            let mut dq = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut dk = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut dv = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.flash_attention_bwd)
+                    .arg(&mut dq)
+                    .arg(&mut dk)
+                    .arg(&mut dv)
+                    .arg(&d_out.inner)
+                    .arg(&q.inner)
+                    .arg(&k.inner)
+                    .arg(&v.inner)
+                    .arg(&output.inner)
+                    .arg(&lse.inner)
+                    .arg(&s_i32)
+                    .arg(&d_i32)
+                    .arg(&scale)
+                    .arg(&is_causal_i32)
+                    .launch(LaunchConfig {
+                        grid_dim: (
+                            (seq_len as u32).div_ceil(bwd_bc),
+                            batch_heads as u32,
+                            1,
+                        ),
+                        block_dim: (bwd_bc, 1, 1),
+                        shared_mem_bytes: smem_bytes,
+                    })
+                    .unwrap();
+            }
+            (
+                GpuStorage::new(dq, total),
+                GpuStorage::new(dk, total),
+                GpuStorage::new(dv, total),
+            )
+        })
+    }
+
+    fn fused_mul_reduce_rows(
+        a: &GpuStorage,
+        b: &GpuStorage,
+        rows: usize,
+        cols: usize,
+    ) -> GpuStorage {
+        with_gpu(|gpu| {
+            let mut out = gpu.stream.alloc_zeros::<f32>(cols).unwrap();
+            let threads = ROW_BLOCK.min(rows.next_power_of_two() as u32);
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.fused_mul_reduce_rows)
+                    .arg(&mut out)
+                    .arg(&a.inner)
+                    .arg(&b.inner)
+                    .arg(&rows)
+                    .arg(&cols)
+                    .launch(LaunchConfig {
+                        grid_dim: (cols as u32, 1, 1),
+                        block_dim: (threads, 1, 1),
+                        shared_mem_bytes: threads * 4,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(out, cols)
+        })
     }
 }
 
@@ -1347,4 +1822,212 @@ mod bf16_ops {
         })
     }
 
+    /// BF16 strided batched matmul via `cublasGemmStridedBatchedEx`:
+    /// bf16 inputs, f32 accumulation, f32 output.
+    pub fn matmul_strided_batched_bf16(
+        a: &GpuStorage,
+        b: &GpuStorage,
+        batch_count: usize,
+        m: usize,
+        k: usize,
+        n: usize,
+        trans_a: bool,
+        trans_b: bool,
+    ) -> GpuStorage {
+        let a_bf16 = a.ensure_bf16_shadow();
+        let b_bf16 = b.ensure_bf16_shadow();
+
+        let total = batch_count * m * n;
+        with_gpu_mut(|gpu| {
+            let mut c_f32 = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+
+            // Row-major trick: C = A @ B ↔ C^T = B^T @ A^T (col-major for cuBLAS)
+            let (transa, lda) = if trans_b {
+                (cublasOperation_t::CUBLAS_OP_T, k as i32)
+            } else {
+                (cublasOperation_t::CUBLAS_OP_N, n as i32)
+            };
+            let (transb, ldb) = if trans_a {
+                (cublasOperation_t::CUBLAS_OP_T, m as i32)
+            } else {
+                (cublasOperation_t::CUBLAS_OP_N, k as i32)
+            };
+
+            let stride_a = if trans_a { k * m } else { m * k };
+            let stride_b = if trans_b { n * k } else { k * n };
+            let stride_c = m * n;
+
+            let alpha: f32 = 1.0;
+            let beta: f32 = 0.0;
+
+            unsafe {
+                use cudarc::cublas::sys::{
+                    cublasComputeType_t, cublasGemmAlgo_t, cudaDataType_t,
+                };
+                use cudarc::driver::{DevicePtr, DevicePtrMut};
+
+                let (a_ptr, _a_rec) = a_bf16.device_ptr(&gpu.stream);
+                let (b_ptr, _b_rec) = b_bf16.device_ptr(&gpu.stream);
+                let (c_ptr, _c_rec) = c_f32.device_ptr_mut(&gpu.stream);
+
+                // Row-major trick: cuBLAS A = our B, cuBLAS B = our A
+                cudarc::cublas::result::gemm_strided_batched_ex(
+                    *gpu.blas.handle(),
+                    transa,
+                    transb,
+                    n as i32,  // cuBLAS m = our N
+                    m as i32,  // cuBLAS n = our M
+                    k as i32,
+                    (&alpha) as *const f32 as *const _,
+                    b_ptr as *const _,           // cuBLAS A = our B
+                    cudaDataType_t::CUDA_R_16BF,
+                    lda,
+                    stride_b as i64,             // swapped strides
+                    a_ptr as *const _,           // cuBLAS B = our A
+                    cudaDataType_t::CUDA_R_16BF,
+                    ldb,
+                    stride_a as i64,             // swapped strides
+                    (&beta) as *const f32 as *const _,
+                    c_ptr as *mut _,
+                    cudaDataType_t::CUDA_R_32F,
+                    n as i32,                    // ldc
+                    stride_c as i64,
+                    batch_count as i32,
+                    cublasComputeType_t::CUBLAS_COMPUTE_32F,
+                    cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,
+                )
+                .expect("cublasGemmStridedBatchedEx bf16→f32 failed");
+            }
+
+            GpuStorage::new(c_f32, total)
+        })
+    }
+
+    /// BF16 flash attention forward: bf16 Q/K/V inputs, f32 output/lse.
+    /// Uses bf16 shared memory tiles (BC=64, doubled from FP32's 32).
+    pub fn flash_attention_forward_bf16(
+        q: &GpuStorage,
+        k: &GpuStorage,
+        v: &GpuStorage,
+        batch_heads: usize,
+        seq_len: usize,
+        d_head: usize,
+        scale: f32,
+        is_causal: bool,
+    ) -> (GpuStorage, GpuStorage) {
+        let q_bf16 = q.ensure_bf16_shadow();
+        let k_bf16 = k.ensure_bf16_shadow();
+        let v_bf16 = v.ensure_bf16_shadow();
+
+        let total_output = batch_heads * seq_len * d_head;
+        let total_lse = batch_heads * seq_len;
+        let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
+        let s_i32 = seq_len as i32;
+        let d_i32 = d_head as i32;
+        let br: u32 = 64; // FA_BF16_BR
+        let bc: u32 = 64; // FA_BF16_BC
+
+        // Shared memory: K_tile[BC*D] + V_tile[BC*D] as bf16 (2 bytes each)
+        let smem_bytes = 2 * bc * (d_head as u32) * 2;
+
+        with_gpu(|gpu| {
+            let mut output = gpu.stream.alloc_zeros::<f32>(total_output).unwrap();
+            let mut lse = gpu.stream.alloc_zeros::<f32>(total_lse).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.flash_attention_fwd_bf16)
+                    .arg(&mut output)
+                    .arg(&mut lse)
+                    .arg(&q_bf16)
+                    .arg(&k_bf16)
+                    .arg(&v_bf16)
+                    .arg(&s_i32)
+                    .arg(&d_i32)
+                    .arg(&scale)
+                    .arg(&is_causal_i32)
+                    .launch(LaunchConfig {
+                        grid_dim: (
+                            (seq_len as u32).div_ceil(br),
+                            batch_heads as u32,
+                            1,
+                        ),
+                        block_dim: (br, 1, 1),
+                        shared_mem_bytes: smem_bytes,
+                    })
+                    .unwrap();
+            }
+            (
+                GpuStorage::new(output, total_output),
+                GpuStorage::new(lse, total_lse),
+            )
+        })
+    }
+
+    /// BF16 flash attention backward: bf16 dO/Q/K/V inputs, f32 O/lse, f32 dQ/dK/dV outputs.
+    /// Halves inner-loop bandwidth for Q and dO reads (the dominant cost).
+    pub fn flash_attention_backward_bf16(
+        d_out: &GpuStorage,
+        q: &GpuStorage,
+        k: &GpuStorage,
+        v: &GpuStorage,
+        output: &GpuStorage,
+        lse: &GpuStorage,
+        batch_heads: usize,
+        seq_len: usize,
+        d_head: usize,
+        scale: f32,
+        is_causal: bool,
+    ) -> (GpuStorage, GpuStorage, GpuStorage) {
+        let d_out_bf16 = d_out.ensure_bf16_shadow();
+        let q_bf16 = q.ensure_bf16_shadow();
+        let k_bf16 = k.ensure_bf16_shadow();
+        let v_bf16 = v.ensure_bf16_shadow();
+
+        let total = batch_heads * seq_len * d_head;
+        let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
+        let s_i32 = seq_len as i32;
+        let d_i32 = d_head as i32;
+        let bwd_bc: u32 = 32; // FA_BF16_BWD_BC
+
+        // Shared memory: K_tile[BC*D] + V_tile[BC*D] as bf16 (2 bytes each)
+        let smem_bytes = 2 * bwd_bc * (d_head as u32) * 2;
+
+        with_gpu(|gpu| {
+            let mut dq = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut dk = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut dv = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.flash_attention_bwd_bf16)
+                    .arg(&mut dq)
+                    .arg(&mut dk)
+                    .arg(&mut dv)
+                    .arg(&d_out_bf16)
+                    .arg(&q_bf16)
+                    .arg(&k_bf16)
+                    .arg(&v_bf16)
+                    .arg(&output.inner)
+                    .arg(&lse.inner)
+                    .arg(&s_i32)
+                    .arg(&d_i32)
+                    .arg(&scale)
+                    .arg(&is_causal_i32)
+                    .launch(LaunchConfig {
+                        grid_dim: (
+                            (seq_len as u32).div_ceil(bwd_bc),
+                            batch_heads as u32,
+                            1,
+                        ),
+                        block_dim: (bwd_bc, 1, 1),
+                        shared_mem_bytes: smem_bytes,
+                    })
+                    .unwrap();
+            }
+            (
+                GpuStorage::new(dq, total),
+                GpuStorage::new(dk, total),
+                GpuStorage::new(dv, total),
+            )
+        })
+    }
 }

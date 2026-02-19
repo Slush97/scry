@@ -23,17 +23,15 @@ fn assert_sane(rendered: &layout::RenderedChart, w: u32, h: u32, label: &str) {
     assert_eq!(rendered.canvas.width(), w, "{label}: wrong canvas width");
     assert_eq!(rendered.canvas.height(), h, "{label}: wrong canvas height");
 
-    // No NaN coordinates in text overlays
-    for (i, overlay) in rendered.text_overlays.iter().enumerate() {
+    // No NaN coordinates in text positions
+    for (i, (x, y, text)) in rendered.text_positions().iter().enumerate() {
         assert!(
-            overlay.x_px.is_finite(),
-            "{label}: overlay[{i}] has non-finite x_px = {}",
-            overlay.x_px
+            x.is_finite(),
+            "{label}: text[{i}] '{text}' has non-finite x = {x}",
         );
         assert!(
-            overlay.y_px.is_finite(),
-            "{label}: overlay[{i}] has non-finite y_px = {}",
-            overlay.y_px
+            y.is_finite(),
+            "{label}: text[{i}] '{text}' has non-finite y = {y}",
         );
     }
 }

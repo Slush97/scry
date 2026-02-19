@@ -6,7 +6,7 @@ use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
 
 use super::{
-    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay,
+    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign,
 };
 
 pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart {
@@ -118,16 +118,7 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
                 } else {
                     super::bar::format_value(bin.count)
                 };
-                ctx.overlays.push(TextOverlay {
-                    x_px: cx,
-                    y_px: top - 4.0,
-                    text: label,
-                    color: theme.text_color(),
-                    align: TextAlign::Center,
-                    font_size: data_fs,
-                    bold: false,
-                    rotation_deg: 0.0,
-                });
+                ctx.add_text(cx, top - 4.0, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
             }
         }
         super::bar::cull_overlapping_value_labels(&mut ctx.overlays, val_start, data_fs, false);
@@ -161,16 +152,7 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
 
         // Add legend text overlays
         for (lx, ly, label) in legend_text {
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: label,
-                color: theme.text_color(),
-                align: TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, tick_fs, false, 0.0);
         }
     }
 

@@ -415,12 +415,34 @@ fn hit_test_command(cmd: &DrawCommand, point: Point, config: &HitTestConfig) -> 
             y,
             font_size,
             text,
+            align,
+            rotation,
             ..
         } => {
             // Bounding-box approximation: width ≈ chars × font_size × 0.6
             let approx_width = text.len() as f32 * font_size * 0.6;
-            let rect = Rect::new(*x, *y - font_size, approx_width, *font_size);
-            rect.contains(point)
+            let box_x = match align {
+                crate::scene::command::TextAlign::Left => *x,
+                crate::scene::command::TextAlign::Center => *x - approx_width / 2.0,
+                crate::scene::command::TextAlign::Right => *x - approx_width,
+            };
+            let rect = Rect::new(box_x, *y - font_size, approx_width, *font_size);
+            if rotation.abs() > 0.01 {
+                // Inverse-rotate the test point around the text anchor
+                let anchor_x = box_x + approx_width / 2.0;
+                let anchor_y = *y - font_size / 2.0;
+                let rad = rotation.to_radians();
+                let (sin, cos) = rad.sin_cos();
+                let dx = point.x - anchor_x;
+                let dy = point.y - anchor_y;
+                let local = Point::new(
+                    cos * dx + sin * dy + anchor_x,
+                    -sin * dx + cos * dy + anchor_y,
+                );
+                rect.contains(local)
+            } else {
+                rect.contains(point)
+            }
         }
 
         // Forward-compatible: unknown variants don't hit

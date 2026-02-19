@@ -20,9 +20,29 @@ impl<B: MathBackend> Mlp<B> {
     }
 
     pub fn forward(&self, input: &Tensor<B>, tape: &mut GradTape<B>) -> Tensor<B> {
-        let h = self.fc1.forward(input, tape);
-        let h = ops::gelu(&h, Some(tape));
+        // Fused: matmul + bias + gelu in one kernel pass (saves one tensor read+write)
+        let h = ops::fused_linear_gelu(
+            input,
+            &self.fc1.weight,
+            &self.fc1.bias,
+            self.fc1.in_features,
+            self.fc1.out_features,
+            Some(tape),
+        );
         self.fc2.forward(&h, tape)
+    }
+
+    /// Forward pass returning the fc1+gelu intermediate, for use with
+    /// `fused_linear_dropout_residual` in the transformer block.
+    pub fn forward_pre_fc2(&self, input: &Tensor<B>, tape: &mut GradTape<B>) -> Tensor<B> {
+        ops::fused_linear_gelu(
+            input,
+            &self.fc1.weight,
+            &self.fc1.bias,
+            self.fc1.in_features,
+            self.fc1.out_features,
+            Some(tape),
+        )
     }
 
     pub fn forward_inference(&self, input: &Tensor<B>) -> Tensor<B> {

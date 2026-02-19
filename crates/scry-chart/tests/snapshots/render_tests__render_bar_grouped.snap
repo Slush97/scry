@@ -2,17 +2,17 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 24 commands
-overlays: 12
-  [0] (29, 273) Right "0"
-  [1] (29, 212) Right "5"
-  [2] (29, 152) Right "10"
-  [3] (29, 91) Right "15"
-  [4] (29, 30) Right "20"
-  [5] (80, 280) Center "Q1"
-  [6] (168, 280) Center "Q2"
-  [7] (256, 280) Center "Q3"
-  [8] (344, 280) Center "Q4"
-  [9] (301, 59) Left "Series 1"
-  [10] (301, 79) Left "Product B"
-  [11] (212, 16) Center "Grouped Bars"
+canvas: 400x300, 36 commands
+text_labels: 12
+  [0] 0
+  [1] 5
+  [2] 10
+  [3] 15
+  [4] 20
+  [5] Q1
+  [6] Q2
+  [7] Q3
+  [8] Q4
+  [9] Series 1
+  [10] Product B
+  [11] Grouped Bars

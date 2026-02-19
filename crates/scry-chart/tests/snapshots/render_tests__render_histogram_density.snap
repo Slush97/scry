@@ -1,20 +1,19 @@
 ---
 source: crates/scry-chart/tests/render_tests.rs
-assertion_line: 268
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 30 commands
-overlays: 13
-  [0] (52, 280) Center "0"
-  [1] (136, 280) Center "50"
-  [2] (220, 280) Center "100"
-  [3] (304, 280) Center "150"
-  [4] (388, 280) Center "200"
-  [5] (45, 273) Right "0.000"
-  [6] (45, 176) Right "0.005"
-  [7] (45, 79) Right "0.010"
-  [8] (45, 30) Right "0.013"
-  [9] (62, 67) Center "0.010"
-  [10] (80, 76) Center "0.010"
-  [11] (210, 67) Center "0.010"
-  [12] (220, 16) Center "Density"
+canvas: 400x300, 43 commands
+text_labels: 13
+  [0] 0
+  [1] 50
+  [2] 100
+  [3] 150
+  [4] 200
+  [5] 0.000
+  [6] 0.005
+  [7] 0.010
+  [8] 0.013
+  [9] 0.010
+  [10] 0.010
+  [11] 0.010
+  [12] Density

@@ -8,7 +8,7 @@ use crate::scale::{LinearScale, Scale};
 use scry_engine::style::{GradientDef, GradientKind, GradientStop, Point};
 
 use super::{
-    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign, TextOverlay,
+    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign,
 };
 
 /// A contiguous segment of pixel-space points with their original data indices.
@@ -245,16 +245,16 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         // Add right-side tick overlays
         let y_off = super::y_tick_label_offset(w);
         for (y_pos, label) in &sy_ticks {
-            ctx.overlays.push(super::TextOverlay {
-                x_px: px + pw + y_off,
-                y_px: *y_pos,
-                text: label.clone(),
-                color: theme.foreground,
-                align: super::TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(
+                px + pw + y_off,
+                *y_pos,
+                label,
+                theme.foreground,
+                super::TextAlign::Left,
+                tick_fs,
+                false,
+                0.0,
+            );
         }
 
         Some(sy_scale)
@@ -432,16 +432,16 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                     } else {
                         format!("{yv:.1}")
                     };
-                    ctx.overlays.push(super::TextOverlay {
-                        x_px: sx,
-                        y_px: sy - offset,
-                        text: label,
-                        color: theme.text_color(),
-                        align: super::TextAlign::Center,
-                        font_size: data_fs,
-                        bold: false,
-                        rotation_deg: 0.0,
-                    });
+                    ctx.add_text(
+                        sx,
+                        sy - offset,
+                        &label,
+                        theme.text_color(),
+                        super::TextAlign::Center,
+                        data_fs,
+                        false,
+                        0.0,
+                    );
                 }
             }
         }
@@ -535,16 +535,16 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
 
         // Add legend text overlays
         for (lx, ly, label) in legend_text {
-            ctx.overlays.push(TextOverlay {
-                x_px: lx,
-                y_px: ly,
-                text: label,
-                color: theme.text_color(),
-                align: TextAlign::Left,
-                font_size: tick_fs,
-                bold: false,
-                rotation_deg: 0.0,
-            });
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                tick_fs,
+                false,
+                0.0,
+            );
         }
     }
 
