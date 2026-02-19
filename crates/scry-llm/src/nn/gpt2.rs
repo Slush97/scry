@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::autograd::ops;
 use crate::autograd::GradTape;
 use crate::backend::MathBackend;
@@ -77,6 +79,36 @@ impl<B: MathBackend> Gpt2Model<B> {
         }
     }
 
+    /// Returns the set of parameter IDs that should be exempt from weight decay.
+    ///
+    /// This includes all bias parameters, and all layernorm gamma/beta parameters:
+    /// - Per block: `ln1.gamma`, `ln1.beta`, `qkv_bias`, `proj_bias`, `ln2.gamma`, `ln2.beta`,
+    ///   `fc1.bias`, `fc2.bias` (8 per block)
+    /// - Final layernorm: `ln_f.gamma`, `ln_f.beta` (2)
+    pub fn no_decay_ids(&self) -> HashSet<TensorId> {
+        let mut ids = HashSet::new();
+
+        for block in &self.blocks {
+            // LayerNorm gamma/beta
+            ids.insert(block.ln1.gamma.id);
+            ids.insert(block.ln1.beta.id);
+            ids.insert(block.ln2.gamma.id);
+            ids.insert(block.ln2.beta.id);
+            // Attention biases
+            ids.insert(block.attn.qkv_bias.id);
+            ids.insert(block.attn.proj_bias.id);
+            // MLP biases
+            ids.insert(block.mlp.fc1.bias.id);
+            ids.insert(block.mlp.fc2.bias.id);
+        }
+
+        // Final layernorm
+        ids.insert(self.ln_f.gamma.id);
+        ids.insert(self.ln_f.beta.id);
+
+        ids
+    }
+
     /// Forward pass: `token_ids` → logits `[seq, vocab]`.
     pub fn forward(
         &self,
@@ -85,6 +117,7 @@ impl<B: MathBackend> Gpt2Model<B> {
         tape: &mut GradTape<B>,
     ) -> Tensor<B> {
         let mut x = self.embedding.forward(token_ids, tape);
+        x = ops::dropout(&x, self.config.dropout_rate, rng, Some(tape));
 
         for block in &self.blocks {
             x = block.forward(&x, self.config.dropout_rate, rng, tape);
@@ -98,6 +131,44 @@ impl<B: MathBackend> Gpt2Model<B> {
             &x,
             &self.embedding.token_embedding,
             seq,
+            self.config.d_model,
+            self.config.vocab_size,
+            false,
+            true,
+            Some(tape),
+        )
+    }
+
+    /// Batched forward pass: `token_ids` is `[batch_size * seq_len]` flat.
+    /// Returns logits `[batch_size * seq_len, vocab]`.
+    pub fn forward_batch(
+        &self,
+        token_ids: &[usize],
+        batch_size: usize,
+        seq_len: usize,
+        rng: &mut fastrand::Rng,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
+        assert_eq!(
+            token_ids.len(),
+            batch_size * seq_len,
+            "forward_batch: token_ids length mismatch"
+        );
+
+        let mut x = self.embedding.forward_batch(token_ids, batch_size, seq_len, tape);
+        x = ops::dropout(&x, self.config.dropout_rate, rng, Some(tape));
+
+        for block in &self.blocks {
+            x = block.forward_batch(&x, batch_size, seq_len, self.config.dropout_rate, rng, tape);
+        }
+
+        x = self.ln_f.forward(&x, tape);
+
+        let total = batch_size * seq_len;
+        ops::matmul(
+            &x,
+            &self.embedding.token_embedding,
+            total,
             self.config.d_model,
             self.config.vocab_size,
             false,
@@ -188,7 +259,7 @@ impl<B: MathBackend> Gpt2Model<B> {
     /// [`backward_checkpointed`](Self::backward_checkpointed), each segment is
     /// recomputed to produce the real tape nodes.
     ///
-    /// This trades compute for memory: O(n_layers / checkpoint_every) boundary
+    /// This trades compute for memory: `O(n_layers / checkpoint_every)` boundary
     /// tensors stored instead of the full tape.
     pub fn forward_checkpointed(
         &self,
@@ -200,6 +271,7 @@ impl<B: MathBackend> Gpt2Model<B> {
         use crate::autograd::{Operation, SavedData, TapeNode};
 
         let mut x = self.embedding.forward(token_ids, tape);
+        x = ops::dropout(&x, self.config.dropout_rate, rng, Some(tape));
 
         let n = self.blocks.len();
         let mut i = 0;
@@ -233,6 +305,8 @@ impl<B: MathBackend> Gpt2Model<B> {
                     block_end: end,
                     dropout_rate: self.config.dropout_rate,
                     rng_seed,
+                    batch_size: None,
+                    seq_len: None,
                 },
             });
 
@@ -246,6 +320,79 @@ impl<B: MathBackend> Gpt2Model<B> {
             &x,
             &self.embedding.token_embedding,
             seq,
+            self.config.d_model,
+            self.config.vocab_size,
+            false,
+            true,
+            Some(tape),
+        )
+    }
+
+    /// Batched forward pass with gradient checkpointing.
+    ///
+    /// Like `forward_checkpointed` but for batched inputs `[batch_size * seq_len]`.
+    pub fn forward_batch_checkpointed(
+        &self,
+        token_ids: &[usize],
+        batch_size: usize,
+        seq_len: usize,
+        checkpoint_every: usize,
+        rng: &mut fastrand::Rng,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
+        use crate::autograd::{Operation, SavedData, TapeNode};
+
+        assert_eq!(
+            token_ids.len(),
+            batch_size * seq_len,
+            "forward_batch_checkpointed: token_ids length mismatch"
+        );
+
+        let mut x = self.embedding.forward_batch(token_ids, batch_size, seq_len, tape);
+        x = ops::dropout(&x, self.config.dropout_rate, rng, Some(tape));
+
+        let n = self.blocks.len();
+        let mut i = 0;
+        while i < n {
+            let end = (i + checkpoint_every).min(n);
+
+            let rng_seed = rng.u64(..);
+
+            let seg_input_id = x.id;
+            let seg_input_data = B::clone_storage(&x.data);
+            let seg_input_shape = x.shape.clone();
+
+            // Run segment without tape (inference)
+            for block in &self.blocks[i..end] {
+                x = block.forward_batch_inference(&x, batch_size, seq_len);
+            }
+
+            tape.record(TapeNode {
+                output_id: x.id,
+                input_ids: vec![seg_input_id],
+                op: Operation::Checkpoint,
+                saved: SavedData::Checkpoint {
+                    input_data: seg_input_data,
+                    input_shape: seg_input_shape,
+                    block_start: i,
+                    block_end: end,
+                    dropout_rate: self.config.dropout_rate,
+                    rng_seed,
+                    batch_size: Some(batch_size),
+                    seq_len: Some(seq_len),
+                },
+            });
+
+            i = end;
+        }
+
+        x = self.ln_f.forward(&x, tape);
+
+        let total = batch_size * seq_len;
+        ops::matmul(
+            &x,
+            &self.embedding.token_embedding,
+            total,
             self.config.d_model,
             self.config.vocab_size,
             false,
@@ -290,6 +437,8 @@ impl<B: MathBackend> Gpt2Model<B> {
                         block_end,
                         dropout_rate,
                         rng_seed,
+                        batch_size,
+                        seq_len,
                     },
                 ) => {
                     // Recompute the segment forward with a local tape
@@ -305,8 +454,23 @@ impl<B: MathBackend> Gpt2Model<B> {
                     };
 
                     let mut y = seg_input;
-                    for block in &self.blocks[*block_start..*block_end] {
-                        y = block.forward(&y, *dropout_rate, &mut seg_rng, &mut local_tape);
+                    if let (Some(bs), Some(sl)) = (batch_size, seq_len) {
+                        // Batched recomputation
+                        for block in &self.blocks[*block_start..*block_end] {
+                            y = block.forward_batch(
+                                &y,
+                                *bs,
+                                *sl,
+                                *dropout_rate,
+                                &mut seg_rng,
+                                &mut local_tape,
+                            );
+                        }
+                    } else {
+                        // Single-sequence recomputation
+                        for block in &self.blocks[*block_start..*block_end] {
+                            y = block.forward(&y, *dropout_rate, &mut seg_rng, &mut local_tape);
+                        }
                     }
 
                     // The local tape's last output should correspond to the

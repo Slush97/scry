@@ -1,4 +1,4 @@
-use crate::backend::MathBackend;
+use crate::backend::{DeviceBackend, MathBackend};
 use crate::tensor::shape::Shape;
 use crate::tensor::Tensor;
 
@@ -261,77 +261,45 @@ pub fn attention<B: MathBackend>(
         &bias_shape,
         &qkv_shape,
     );
-    let qkv_vec = B::to_vec(&qkv);
 
     let is_training = tape.is_some();
 
-    // Split into heads and compute attention
+    // Split into heads and compute attention using gather_columns (no host round-trips)
     let mut all_attn_weights: Vec<B::Storage> = Vec::with_capacity(n_heads);
     let mut all_q: Vec<B::Storage> = Vec::with_capacity(n_heads);
     let mut all_k: Vec<B::Storage> = Vec::with_capacity(n_heads);
     let mut all_v: Vec<B::Storage> = Vec::with_capacity(n_heads);
     let mut all_attn_dropout_masks: Vec<B::Storage> = Vec::with_capacity(n_heads);
-    let mut head_concat = vec![0.0f32; seq_len * d_model];
+    let mut head_concat_storage = B::zeros(&Shape::new(&[seq_len, d_model]));
 
     let scale = 1.0 / (d_head as f64).sqrt();
 
     for h in 0..n_heads {
-        // Extract Q, K, V for this head: [seq, d_head] each
-        let q_offset = h * d_head;
-        let k_offset = d_model + h * d_head;
-        let v_offset = 2 * d_model + h * d_head;
+        // Extract Q, K, V for this head using gather_columns (stays on device for GPU)
+        let q_h = B::gather_columns(&qkv, seq_len, 3 * d_model, h * d_head, d_head);
+        let k_h = B::gather_columns(&qkv, seq_len, 3 * d_model, d_model + h * d_head, d_head);
+        let v_h = B::gather_columns(&qkv, seq_len, 3 * d_model, 2 * d_model + h * d_head, d_head);
 
-        let mut q_h = vec![0.0f32; seq_len * d_head];
-        let mut k_h = vec![0.0f32; seq_len * d_head];
-        let mut v_h = vec![0.0f32; seq_len * d_head];
-
-        for s in 0..seq_len {
-            for d in 0..d_head {
-                q_h[s * d_head + d] = qkv_vec[s * 3 * d_model + q_offset + d];
-                k_h[s * d_head + d] = qkv_vec[s * 3 * d_model + k_offset + d];
-                v_h[s * d_head + d] = qkv_vec[s * 3 * d_model + v_offset + d];
-            }
-        }
-
-        // scores = Q @ K^T / sqrt(d_head) => [seq, seq]
-        let scores_raw = B::matmul(
-            &B::from_vec(q_h.clone(), &Shape::new(&[seq_len, d_head])),
-            &B::from_vec(k_h.clone(), &Shape::new(&[seq_len, d_head])),
-            seq_len,
-            d_head,
-            seq_len,
-            false,
-            true,
-        );
-        let mut scores = B::to_vec(&scores_raw);
-        for s in 0..seq_len {
-            for t in 0..seq_len {
-                scores[s * seq_len + t] = (f64::from(scores[s * seq_len + t]) * scale) as f32;
-            }
-        }
-
-        // Causal mask: upper triangle -> -inf
-        for s in 0..seq_len {
-            for t in (s + 1)..seq_len {
-                scores[s * seq_len + t] = f32::NEG_INFINITY;
-            }
-        }
+        // scores = Q @ K^T => [seq, seq], then apply causal mask + scale on device
+        let mut scores = B::matmul(&q_h, &k_h, seq_len, d_head, seq_len, false, true);
+        B::apply_causal_mask_and_scale(&mut scores, seq_len, scale as f32, f32::NEG_INFINITY);
 
         // Softmax over last dim
-        let scores_storage = B::from_vec(scores, &Shape::new(&[seq_len, seq_len]));
-        let attn = B::softmax(&scores_storage, &Shape::new(&[seq_len, seq_len]));
-        let attn_vec = B::to_vec(&attn);
+        let attn = B::softmax(&scores, &Shape::new(&[seq_len, seq_len]));
 
         // Apply dropout to attention weights (inverted dropout)
-        let (attn_for_v, dropout_mask_vec) =
+        // Dropout requires RNG on host — transfer to host only when needed
+        let attn_shape = Shape::new(&[seq_len, seq_len]);
+        let (attn_dropped, dropout_mask) =
             if is_training && dropout_rate > 0.0 && dropout_rate < 1.0 {
                 let rng = rng
                     .as_deref_mut()
                     .expect("rng required for attention dropout during training");
+                let attn_vec = B::to_vec(&attn);
                 let n = attn_vec.len();
                 let scale_inv = 1.0 / (1.0 - dropout_rate);
                 let mut mask = vec![0.0f32; n];
-                let mut dropped = attn_vec.clone();
+                let mut dropped = attn_vec;
                 for i in 0..n {
                     if rng.f32() >= dropout_rate {
                         mask[i] = scale_inv;
@@ -341,45 +309,32 @@ pub fn attention<B: MathBackend>(
                         dropped[i] = 0.0;
                     }
                 }
-                (dropped, mask)
+                (
+                    B::from_vec(dropped, &attn_shape),
+                    B::from_vec(mask, &attn_shape),
+                )
             } else {
-                let n = attn_vec.len();
-                (attn_vec.clone(), vec![1.0f32; n])
+                let n = seq_len * seq_len;
+                (B::clone_storage(&attn), B::ones(&Shape::new(&[n])))
             };
-        let attn_shape = Shape::new(&[seq_len, seq_len]);
-        let attn_dropped = B::from_vec(attn_for_v, &attn_shape);
 
         // out_h = attn @ V => [seq, d_head]
-        let out_h = B::matmul(
-            &attn_dropped,
-            &B::from_vec(v_h.clone(), &Shape::new(&[seq_len, d_head])),
-            seq_len,
-            seq_len,
-            d_head,
-            false,
-            false,
-        );
-        let out_h_vec = B::to_vec(&out_h);
+        let out_h = B::matmul(&attn_dropped, &v_h, seq_len, seq_len, d_head, false, false);
 
-        // Scatter into head_concat: [seq, d_model]
-        for s in 0..seq_len {
-            for d in 0..d_head {
-                head_concat[s * d_model + h * d_head + d] = out_h_vec[s * d_head + d];
-            }
-        }
+        // Scatter into head_concat on device
+        B::scatter_columns(&mut head_concat_storage, &out_h, seq_len, d_model, h * d_head, d_head);
 
-        let head_shape = Shape::new(&[seq_len, d_head]);
-        all_attn_weights.push(B::from_vec(attn_vec, &attn_shape));
-        all_q.push(B::from_vec(q_h, &head_shape));
-        all_k.push(B::from_vec(k_h, &head_shape));
-        all_v.push(B::from_vec(v_h, &head_shape));
-        all_attn_dropout_masks.push(B::from_vec(dropout_mask_vec, &attn_shape));
+        let attn_pre_dropout = B::clone_storage(&attn);
+        all_attn_weights.push(attn_pre_dropout);
+        all_q.push(q_h);
+        all_k.push(k_h);
+        all_v.push(v_h);
+        all_attn_dropout_masks.push(dropout_mask);
     }
 
     // Output projection: head_concat @ W_proj + b_proj => [seq, d_model]
-    let hc_storage = B::from_vec(head_concat.clone(), &Shape::new(&[seq_len, d_model]));
     let proj_raw = B::matmul(
-        &hc_storage,
+        &head_concat_storage,
         &proj_weight.data,
         seq_len,
         d_model,
@@ -413,7 +368,7 @@ pub fn attention<B: MathBackend>(
                 k_per_head: all_k,
                 v_per_head: all_v,
                 attn_dropout_masks: all_attn_dropout_masks,
-                head_concat: B::from_vec(head_concat, &Shape::new(&[seq_len, d_model])),
+                head_concat: head_concat_storage,
                 n_heads,
                 d_model,
                 d_head,
@@ -511,4 +466,178 @@ pub fn dropout<B: MathBackend>(
     }
 
     out
+}
+
+/// Batched multi-head causal self-attention.
+///
+/// `input`: `[batch_size * seq_len, d_model]` (flattened batch).
+/// Runs single-sequence attention per batch item, concatenates outputs.
+/// Returns `[batch_size * seq_len, d_model]`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub fn attention_batched<B: MathBackend>(
+    input: &Tensor<B>,
+    qkv_weight: &Tensor<B>,
+    qkv_bias: &Tensor<B>,
+    proj_weight: &Tensor<B>,
+    proj_bias: &Tensor<B>,
+    n_heads: usize,
+    d_model: usize,
+    d_head: usize,
+    batch_size: usize,
+    seq_len: usize,
+    dropout_rate: f32,
+    mut rng: Option<&mut fastrand::Rng>,
+    tape: Option<&mut GradTape<B>>,
+) -> Tensor<B> {
+    let total_tokens = batch_size * seq_len;
+
+    let is_training = tape.is_some();
+
+    let mut per_batch_saved: Vec<BatchItemAttnSaved<B>> = Vec::with_capacity(batch_size);
+    let mut output_storage = B::zeros(&Shape::new(&[total_tokens, d_model]));
+
+    for b in 0..batch_size {
+        let item_storage = B::gather_rows(&input.data, total_tokens, d_model, b * seq_len, seq_len);
+
+        let qkv_raw = B::matmul(
+            &item_storage,
+            &qkv_weight.data,
+            seq_len,
+            d_model,
+            3 * d_model,
+            false,
+            false,
+        );
+        let qkv_shape = Shape::new(&[seq_len, 3 * d_model]);
+        let bias_shape = Shape::new(&[1, 3 * d_model]);
+        let qkv = B::add(&qkv_raw, &qkv_bias.data, &qkv_shape, &bias_shape, &qkv_shape);
+
+        let mut all_attn_weights: Vec<B::Storage> = Vec::with_capacity(n_heads);
+        let mut all_q: Vec<B::Storage> = Vec::with_capacity(n_heads);
+        let mut all_k: Vec<B::Storage> = Vec::with_capacity(n_heads);
+        let mut all_v: Vec<B::Storage> = Vec::with_capacity(n_heads);
+        let mut all_attn_dropout_masks: Vec<B::Storage> = Vec::with_capacity(n_heads);
+        let mut head_concat_storage = B::zeros(&Shape::new(&[seq_len, d_model]));
+
+        let scale = 1.0 / (d_head as f64).sqrt();
+
+        for h in 0..n_heads {
+            // Extract Q, K, V via gather_columns (stays on device for GPU)
+            let q_h = B::gather_columns(&qkv, seq_len, 3 * d_model, h * d_head, d_head);
+            let k_h = B::gather_columns(&qkv, seq_len, 3 * d_model, d_model + h * d_head, d_head);
+            let v_h = B::gather_columns(&qkv, seq_len, 3 * d_model, 2 * d_model + h * d_head, d_head);
+
+            // scores = Q @ K^T => [seq, seq], then causal mask + scale
+            let mut scores = B::matmul(&q_h, &k_h, seq_len, d_head, seq_len, false, true);
+            B::apply_causal_mask_and_scale(&mut scores, seq_len, scale as f32, f32::NEG_INFINITY);
+
+            let attn = B::softmax(&scores, &Shape::new(&[seq_len, seq_len]));
+            let attn_shape = Shape::new(&[seq_len, seq_len]);
+
+            let (attn_dropped, dropout_mask) =
+                if is_training && dropout_rate > 0.0 && dropout_rate < 1.0 {
+                    let rng = rng
+                        .as_deref_mut()
+                        .expect("rng required for attention dropout during training");
+                    let attn_vec = B::to_vec(&attn);
+                    let n = attn_vec.len();
+                    let scale_inv = 1.0 / (1.0 - dropout_rate);
+                    let mut mask = vec![0.0f32; n];
+                    let mut dropped = attn_vec;
+                    for i in 0..n {
+                        if rng.f32() >= dropout_rate {
+                            mask[i] = scale_inv;
+                            dropped[i] *= scale_inv;
+                        } else {
+                            mask[i] = 0.0;
+                            dropped[i] = 0.0;
+                        }
+                    }
+                    (
+                        B::from_vec(dropped, &attn_shape),
+                        B::from_vec(mask, &attn_shape),
+                    )
+                } else {
+                    let n = seq_len * seq_len;
+                    (B::clone_storage(&attn), B::ones(&Shape::new(&[n])))
+                };
+
+            let out_h = B::matmul(&attn_dropped, &v_h, seq_len, seq_len, d_head, false, false);
+
+            // Scatter into head_concat on device
+            B::scatter_columns(&mut head_concat_storage, &out_h, seq_len, d_model, h * d_head, d_head);
+
+            let attn_pre_dropout = B::clone_storage(&attn);
+            all_attn_weights.push(attn_pre_dropout);
+            all_q.push(q_h);
+            all_k.push(k_h);
+            all_v.push(v_h);
+            all_attn_dropout_masks.push(dropout_mask);
+        }
+
+        let proj_raw = B::matmul(
+            &head_concat_storage,
+            &proj_weight.data,
+            seq_len,
+            d_model,
+            d_model,
+            false,
+            false,
+        );
+        let proj_shape = Shape::new(&[seq_len, d_model]);
+        let pbias_shape = Shape::new(&[1, d_model]);
+        let out_data = B::add(&proj_raw, &proj_bias.data, &proj_shape, &pbias_shape, &proj_shape);
+
+        B::scatter_rows(&mut output_storage, &out_data, total_tokens, d_model, b * seq_len, seq_len);
+
+        per_batch_saved.push(BatchItemAttnSaved {
+            input: item_storage,
+            attn_weights: all_attn_weights,
+            q_per_head: all_q,
+            k_per_head: all_k,
+            v_per_head: all_v,
+            attn_dropout_masks: all_attn_dropout_masks,
+            head_concat: head_concat_storage,
+        });
+    }
+
+    let out = Tensor::new(
+        output_storage,
+        Shape::new(&[total_tokens, d_model]),
+    );
+
+    if let Some(tape) = tape {
+        tape.record(TapeNode {
+            output_id: out.id,
+            input_ids: vec![input.id],
+            op: Operation::AttentionBatched,
+            saved: SavedData::AttentionBatched {
+                per_batch: per_batch_saved,
+                qkv_weight: B::clone_storage(&qkv_weight.data),
+                proj_weight: B::clone_storage(&proj_weight.data),
+                n_heads,
+                d_model,
+                d_head,
+                batch_size,
+                seq_len,
+                qkv_weight_id: qkv_weight.id,
+                qkv_bias_id: qkv_bias.id,
+                proj_weight_id: proj_weight.id,
+                proj_bias_id: proj_bias.id,
+            },
+        });
+    }
+
+    out
+}
+
+/// Saved data for one batch item inside `AttentionBatched`.
+pub struct BatchItemAttnSaved<B: DeviceBackend> {
+    pub input: B::Storage,
+    pub attn_weights: Vec<B::Storage>,
+    pub q_per_head: Vec<B::Storage>,
+    pub k_per_head: Vec<B::Storage>,
+    pub v_per_head: Vec<B::Storage>,
+    pub attn_dropout_masks: Vec<B::Storage>,
+    pub head_concat: B::Storage,
 }

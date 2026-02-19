@@ -182,6 +182,41 @@ pub fn backward_node<B: MathBackend>(
             let d_input = B::mul_elementwise(d_out, mask);
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
         }
+        (
+            Operation::AttentionBatched,
+            SavedData::AttentionBatched {
+                per_batch,
+                qkv_weight,
+                proj_weight,
+                n_heads,
+                d_model,
+                d_head,
+                batch_size,
+                seq_len,
+                qkv_weight_id,
+                qkv_bias_id,
+                proj_weight_id,
+                proj_bias_id,
+            },
+        ) => {
+            attention_batched_backward::<B>(
+                d_out,
+                per_batch,
+                qkv_weight,
+                proj_weight,
+                *n_heads,
+                *d_model,
+                *d_head,
+                *batch_size,
+                *seq_len,
+                grads,
+                node.input_ids[0],
+                *qkv_weight_id,
+                *qkv_bias_id,
+                *proj_weight_id,
+                *proj_bias_id,
+            );
+        }
         (Operation::Checkpoint, _) => {
             // Checkpoint nodes are handled by backward_checkpointed in Gpt2Model.
             // If encountered in standard backward, treat as a pass-through.
@@ -231,7 +266,6 @@ fn attention_backward<B: MathBackend>(
     // output = head_concat @ W_proj + b_proj
 
     // d_proj_bias = sum over seq of d_out => [d_model]
-    // but with broadcasting it's sum over rows
     let d_out_vec = B::to_vec(d_out);
     let mut d_proj_bias = vec![0.0f32; d_model];
     for s in 0..seq_len {
@@ -252,109 +286,55 @@ fn attention_backward<B: MathBackend>(
     let d_proj_weight = B::matmul(head_concat, d_out, d_model, seq_len, d_model, true, false);
     accumulate_grad::<B>(grads, proj_weight_id, d_proj_weight);
 
-    let d_hc_vec = B::to_vec(&d_head_concat);
     let scale = 1.0 / (d_head as f64).sqrt();
 
-    // Accumulate d_QKV across heads
-    let mut d_qkv = vec![0.0f32; seq_len * 3 * d_model];
+    // Accumulate d_QKV using gather/scatter (avoids host round-trips on GPU)
+    let mut d_qkv_storage = B::zeros(&Shape::new(&[seq_len, 3 * d_model]));
 
     for h in 0..n_heads {
         // Extract d_out_h from d_head_concat for this head
-        let mut d_out_h = vec![0.0f32; seq_len * d_head];
-        for s in 0..seq_len {
-            for d in 0..d_head {
-                d_out_h[s * d_head + d] = d_hc_vec[s * d_model + h * d_head + d];
-            }
-        }
+        let d_out_h = B::gather_columns(&d_head_concat, seq_len, d_model, h * d_head, d_head);
 
-        let attn = &attn_weights[h]; // [seq, seq] (pre-dropout softmax output)
-        let dropout_mask = &attn_dropout_masks[h]; // [seq, seq]
-        let q_h = &q_per_head[h]; // [seq, d_head]
+        let attn = &attn_weights[h];
+        let dropout_mask = &attn_dropout_masks[h];
+        let q_h = &q_per_head[h];
         let k_h = &k_per_head[h];
         let v_h = &v_per_head[h];
 
-        // attn_dropped = attn * dropout_mask (reconstruct dropped attention)
+        // attn_dropped = attn * dropout_mask
         let attn_dropped = B::mul_elementwise(attn, dropout_mask);
 
-        let d_out_h_storage = B::from_vec(d_out_h.clone(), &Shape::new(&[seq_len, d_head]));
-
         // d_attn_dropped = d_out_h @ V_h^T => [seq, seq]
-        let d_attn_dropped =
-            B::matmul(&d_out_h_storage, v_h, seq_len, d_head, seq_len, false, true);
+        let d_attn_dropped = B::matmul(&d_out_h, v_h, seq_len, d_head, seq_len, false, true);
 
         // d_V_h = attn_dropped^T @ d_out_h => [seq, d_head]
-        let d_v_h = B::matmul(
-            &attn_dropped,
-            &d_out_h_storage,
-            seq_len,
-            seq_len,
-            d_head,
-            true,
-            false,
-        );
-        let d_v_h_vec = B::to_vec(&d_v_h);
+        let d_v_h = B::matmul(&attn_dropped, &d_out_h, seq_len, seq_len, d_head, true, false);
 
         // Dropout backward: d_attn = d_attn_dropped * dropout_mask
         let d_attn = B::mul_elementwise(&d_attn_dropped, dropout_mask);
 
         // d_scores = softmax_backward(d_attn, attn) => [seq, seq]
         let d_scores = B::softmax_backward(&d_attn, attn, &Shape::new(&[seq_len, seq_len]));
-        let mut d_scores_vec = B::to_vec(&d_scores);
 
-        // Apply scale and causal mask to d_scores
-        for s in 0..seq_len {
-            for t in 0..seq_len {
-                if t > s {
-                    d_scores_vec[s * seq_len + t] = 0.0;
-                } else {
-                    d_scores_vec[s * seq_len + t] =
-                        (f64::from(d_scores_vec[s * seq_len + t]) * scale) as f32;
-                }
-            }
-        }
-
-        let d_scores_storage = B::from_vec(d_scores_vec.clone(), &Shape::new(&[seq_len, seq_len]));
+        // Apply scale and causal mask to d_scores (zeros upper triangle, scales lower)
+        // In backward, the causal mask zeros gradients for masked positions,
+        // and scale is applied to the unmasked ones — same operation as forward.
+        let mut d_scores_scaled = d_scores;
+        B::apply_causal_mask_and_scale(&mut d_scores_scaled, seq_len, scale as f32, 0.0);
 
         // d_Q_h = d_scores @ K_h => [seq, d_head]
-        let d_q_h = B::matmul(
-            &d_scores_storage,
-            k_h,
-            seq_len,
-            seq_len,
-            d_head,
-            false,
-            false,
-        );
-        let d_q_h_vec = B::to_vec(&d_q_h);
+        let d_q_h = B::matmul(&d_scores_scaled, k_h, seq_len, seq_len, d_head, false, false);
 
         // d_K_h = d_scores^T @ Q_h => [seq, d_head]
-        let d_k_h = B::matmul(
-            &d_scores_storage,
-            q_h,
-            seq_len,
-            seq_len,
-            d_head,
-            true,
-            false,
-        );
-        let d_k_h_vec = B::to_vec(&d_k_h);
+        let d_k_h = B::matmul(&d_scores_scaled, q_h, seq_len, seq_len, d_head, true, false);
 
         // Scatter d_Q, d_K, d_V into d_QKV
-        let q_offset = h * d_head;
-        let k_offset = d_model + h * d_head;
-        let v_offset = 2 * d_model + h * d_head;
-
-        for s in 0..seq_len {
-            for d in 0..d_head {
-                d_qkv[s * 3 * d_model + q_offset + d] += d_q_h_vec[s * d_head + d];
-                d_qkv[s * 3 * d_model + k_offset + d] += d_k_h_vec[s * d_head + d];
-                d_qkv[s * 3 * d_model + v_offset + d] += d_v_h_vec[s * d_head + d];
-            }
-        }
+        B::scatter_columns(&mut d_qkv_storage, &d_q_h, seq_len, 3 * d_model, h * d_head, d_head);
+        B::scatter_columns(&mut d_qkv_storage, &d_k_h, seq_len, 3 * d_model, d_model + h * d_head, d_head);
+        B::scatter_columns(&mut d_qkv_storage, &d_v_h, seq_len, 3 * d_model, 2 * d_model + h * d_head, d_head);
     }
 
     // d_input = d_QKV @ W_qkv^T => [seq, d_model]
-    let d_qkv_storage = B::from_vec(d_qkv.clone(), &Shape::new(&[seq_len, 3 * d_model]));
     let d_input = B::matmul(
         &d_qkv_storage,
         qkv_weight,
@@ -379,10 +359,11 @@ fn attention_backward<B: MathBackend>(
     accumulate_grad::<B>(grads, qkv_weight_id, d_qkv_weight);
 
     // d_qkv_bias = sum over seq of d_QKV => [3*d_model]
+    let d_qkv_vec = B::to_vec(&d_qkv_storage);
     let mut d_qkv_bias = vec![0.0f32; 3 * d_model];
     for s in 0..seq_len {
         for d in 0..(3 * d_model) {
-            d_qkv_bias[d] += d_qkv[s * 3 * d_model + d];
+            d_qkv_bias[d] += d_qkv_vec[s * 3 * d_model + d];
         }
     }
     accumulate_grad::<B>(
@@ -390,4 +371,77 @@ fn attention_backward<B: MathBackend>(
         qkv_bias_id,
         B::from_vec(d_qkv_bias, &Shape::new(&[3 * d_model])),
     );
+}
+
+/// Backward pass for batched attention: runs per-item attention backward,
+/// accumulates shared weight gradients.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn attention_batched_backward<B: MathBackend>(
+    d_out: &B::Storage,
+    per_batch: &[super::ops::BatchItemAttnSaved<B>],
+    qkv_weight: &B::Storage,
+    proj_weight: &B::Storage,
+    n_heads: usize,
+    d_model: usize,
+    d_head: usize,
+    batch_size: usize,
+    seq_len: usize,
+    grads: &mut Gradients<B>,
+    input_id: TensorId,
+    qkv_weight_id: TensorId,
+    qkv_bias_id: TensorId,
+    proj_weight_id: TensorId,
+    proj_bias_id: TensorId,
+) {
+    let total_tokens = batch_size * seq_len;
+    let mut d_input_storage = B::zeros(&Shape::new(&[total_tokens, d_model]));
+
+    for b in 0..batch_size {
+        let d_out_item = B::gather_rows(d_out, total_tokens, d_model, b * seq_len, seq_len);
+
+        let saved = &per_batch[b];
+
+        // Use a temporary grads map for this batch item's shared-weight grads
+        let mut item_grads: Gradients<B> = HashMap::new();
+
+        attention_backward::<B>(
+            &d_out_item,
+            &saved.input,
+            qkv_weight,
+            proj_weight,
+            &saved.head_concat,
+            &saved.attn_weights,
+            &saved.q_per_head,
+            &saved.k_per_head,
+            &saved.v_per_head,
+            &saved.attn_dropout_masks,
+            n_heads,
+            d_model,
+            d_head,
+            seq_len,
+            &mut item_grads,
+            input_id, // placeholder — we extract d_input manually
+            qkv_weight_id,
+            qkv_bias_id,
+            proj_weight_id,
+            proj_bias_id,
+        );
+
+        // Extract d_input for this batch item and accumulate via device-side add
+        if let Some(d_input_item) = item_grads.remove(&input_id) {
+            // Pad the per-item gradient to the full [total_tokens, d_model] shape
+            // by placing it at the right row offset, then add in place
+            let mut padded = B::zeros(&Shape::new(&[total_tokens, d_model]));
+            B::scatter_rows(&mut padded, &d_input_item, total_tokens, d_model, b * seq_len, seq_len);
+            B::add_inplace(&mut d_input_storage, &padded);
+        }
+
+        // Accumulate shared weight grads into main grads
+        for (id, grad) in item_grads {
+            accumulate_grad::<B>(grads, id, grad);
+        }
+    }
+
+    // Accumulate the batched input gradient
+    accumulate_grad::<B>(grads, input_id, d_input_storage);
 }

@@ -46,10 +46,79 @@ impl<B: MathBackend> TransformerBlock<B> {
         ops::add(&x, &mlp_out, Some(tape))
     }
 
+    /// Batched forward pass: `input` is `[batch_size * seq_len, d_model]`.
+    ///
+    /// Most ops work unchanged on the flattened `[B*seq, d_model]` tensor.
+    /// Attention loops over batch items because the causal mask is per-sequence.
+    pub fn forward_batch(
+        &self,
+        input: &Tensor<B>,
+        batch_size: usize,
+        seq_len: usize,
+        dropout_rate: f32,
+        rng: &mut fastrand::Rng,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
+        // LN1 works on [B*seq, d_model]
+        let ln1_out = self.ln1.forward(input, tape);
+        let attn_out = ops::attention_batched(
+            &ln1_out,
+            &self.attn.qkv_weight,
+            &self.attn.qkv_bias,
+            &self.attn.proj_weight,
+            &self.attn.proj_bias,
+            self.attn.n_heads,
+            self.attn.d_model,
+            self.attn.d_head,
+            batch_size,
+            seq_len,
+            dropout_rate,
+            Some(rng),
+            Some(tape),
+        );
+        let attn_out = ops::dropout(&attn_out, dropout_rate, rng, Some(tape));
+        let x = ops::add(input, &attn_out, Some(tape));
+
+        let ln2_out = self.ln2.forward(&x, tape);
+        let mlp_out = self.mlp.forward(&ln2_out, tape);
+        let mlp_out = ops::dropout(&mlp_out, dropout_rate, rng, Some(tape));
+        ops::add(&x, &mlp_out, Some(tape))
+    }
+
     /// Single-token forward with KV cache (inference only).
     pub fn forward_with_cache(&self, input: &Tensor<B>, cache: &mut LayerKvCache<B>) -> Tensor<B> {
         let ln1_out = self.ln1.forward_inference(input);
         let attn_out = self.attn.forward_with_cache(&ln1_out, cache);
+        let x = ops::add(input, &attn_out, None);
+
+        let ln2_out = self.ln2.forward_inference(&x);
+        let mlp_out = self.mlp.forward_inference(&ln2_out);
+        ops::add(&x, &mlp_out, None)
+    }
+
+    /// Batched inference forward (no tape, no dropout). Used for checkpointing recomputation.
+    pub fn forward_batch_inference(
+        &self,
+        input: &Tensor<B>,
+        batch_size: usize,
+        seq_len: usize,
+    ) -> Tensor<B> {
+        let ln1_out = self.ln1.forward_inference(input);
+        let attn_out = ops::attention_batched(
+            &ln1_out,
+            &self.attn.qkv_weight,
+            &self.attn.qkv_bias,
+            &self.attn.proj_weight,
+            &self.attn.proj_bias,
+            self.attn.n_heads,
+            self.attn.d_model,
+            self.attn.d_head,
+            batch_size,
+            seq_len,
+            0.0,
+            None,
+            None,
+        );
         let x = ops::add(input, &attn_out, None);
 
         let ln2_out = self.ln2.forward_inference(&x);

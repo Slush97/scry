@@ -11,6 +11,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+fastrand = "2"
 
 [dependencies.scry-llm]
 path = ".."
@@ -91,6 +92,31 @@ bench = false
 [[bin]]
 name = "fuzz_adamw"
 path = "fuzz_targets/fuzz_adamw.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 3 fuzz targets (data, training, generation)
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_data_loader"
+path = "fuzz_targets/fuzz_data_loader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_training_step"
+path = "fuzz_targets/fuzz_training_step.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_generate"
+path = "fuzz_targets/fuzz_generate.rs"
 test = false
 doc = false
 bench = false

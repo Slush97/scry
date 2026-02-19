@@ -4,6 +4,7 @@ pub mod ops;
 use crate::backend::DeviceBackend;
 use crate::tensor::shape::Shape;
 use crate::tensor::TensorId;
+use ops::BatchItemAttnSaved;
 
 /// What data each operation saves for backward.
 pub enum SavedData<B: DeviceBackend> {
@@ -84,6 +85,24 @@ pub enum SavedData<B: DeviceBackend> {
         block_end: usize,
         dropout_rate: f32,
         rng_seed: u64,
+        /// If set, this checkpoint was from a batched forward pass.
+        batch_size: Option<usize>,
+        seq_len: Option<usize>,
+    },
+    /// Batched attention: per-batch-item saved data + shared weight info.
+    AttentionBatched {
+        per_batch: Vec<BatchItemAttnSaved<B>>,
+        qkv_weight: B::Storage,
+        proj_weight: B::Storage,
+        n_heads: usize,
+        d_model: usize,
+        d_head: usize,
+        batch_size: usize,
+        seq_len: usize,
+        qkv_weight_id: TensorId,
+        qkv_bias_id: TensorId,
+        proj_weight_id: TensorId,
+        proj_bias_id: TensorId,
     },
 }
 
@@ -100,6 +119,7 @@ pub enum Operation {
     Attention,
     Dropout,
     Checkpoint,
+    AttentionBatched,
 }
 
 /// A node on the autograd tape.

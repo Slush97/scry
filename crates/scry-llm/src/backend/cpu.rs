@@ -1,8 +1,18 @@
+use rayon::prelude::*;
+
 use crate::backend::{DeviceBackend, MathBackend};
 use crate::tensor::shape::Shape;
 
 /// CPU reference backend. Correctness over performance.
 pub struct CpuBackend;
+
+/// Minimum number of rows (row-tiles) before engaging rayon for matmul.
+/// Below this, sequential is faster due to rayon dispatch overhead (~1-10µs).
+const MATMUL_PAR_THRESHOLD: usize = 128;
+/// Minimum number of rows before parallelizing row-wise ops (softmax, layernorm, etc).
+const ROW_PAR_THRESHOLD: usize = 64;
+/// Minimum element count before parallelizing element-wise ops (gelu, etc).
+const ELEM_PAR_THRESHOLD: usize = 8192;
 
 impl DeviceBackend for CpuBackend {
     type Storage = Vec<f32>;
@@ -39,27 +49,7 @@ impl MathBackend for CpuBackend {
         trans_a: bool,
         trans_b: bool,
     ) -> Vec<f32> {
-        let mut c = vec![0.0; m * n];
-        for i in 0..m {
-            for j in 0..n {
-                let mut sum = 0.0f64;
-                for p in 0..k {
-                    let a_val = if trans_a {
-                        a[p * m + i] // A is [K, M] stored row-major
-                    } else {
-                        a[i * k + p] // A is [M, K] stored row-major
-                    };
-                    let b_val = if trans_b {
-                        b[j * k + p] // B is [N, K] stored row-major
-                    } else {
-                        b[p * n + j] // B is [K, N] stored row-major
-                    };
-                    sum += f64::from(a_val) * f64::from(b_val);
-                }
-                c[i * n + j] = sum as f32;
-            }
-        }
-        c
+        matmul_tiled(a, b, m, k, n, trans_a, trans_b)
     }
 
     fn add(
@@ -97,22 +87,31 @@ impl MathBackend for CpuBackend {
         let dims = shape.dims();
         let last = *dims.last().unwrap();
         let batch = input.len() / last;
-        let mut output = vec![0.0; input.len()];
+        let mut output = vec![0.0f32; input.len()];
 
-        for b in 0..batch {
-            let start = b * last;
-            let slice = &input[start..start + last];
-
-            let max_val = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let process_row = |out_row: &mut [f32], in_row: &[f32]| {
+            let max_val = in_row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mut sum = 0.0f64;
             for i in 0..last {
-                let e = f64::from((slice[i] - max_val).exp());
-                output[start + i] = e as f32;
+                let e = f64::from((in_row[i] - max_val).exp());
+                out_row[i] = e as f32;
                 sum += e;
             }
             for i in 0..last {
-                output[start + i] = (f64::from(output[start + i]) / sum) as f32;
+                out_row[i] = (f64::from(out_row[i]) / sum) as f32;
             }
+        };
+
+        if batch >= ROW_PAR_THRESHOLD {
+            output
+                .par_chunks_mut(last)
+                .zip(input.par_chunks(last))
+                .for_each(|(o, i)| process_row(o, i));
+        } else {
+            output
+                .chunks_mut(last)
+                .zip(input.chunks(last))
+                .for_each(|(o, i)| process_row(o, i));
         }
         output
     }
@@ -127,19 +126,17 @@ impl MathBackend for CpuBackend {
         let dims = shape.dims();
         let d = *dims.last().unwrap();
         let n = input.len() / d;
-        let mut output = vec![0.0; input.len()];
-        let mut means = vec![0.0; n];
-        let mut rstds = vec![0.0; n];
+        let mut output = vec![0.0f32; input.len()];
+        let mut means = vec![0.0f32; n];
+        let mut rstds = vec![0.0f32; n];
 
-        for i in 0..n {
+        let process_row = |i: usize, out_row: &mut [f32], mean_out: &mut f32, rstd_out: &mut f32| {
             let start = i * d;
             let slice = &input[start..start + d];
 
-            // Mean (f64 accumulation)
             let mean = slice.iter().map(|&x| f64::from(x)).sum::<f64>() / d as f64;
-            means[i] = mean as f32;
+            *mean_out = mean as f32;
 
-            // Variance
             let var = slice
                 .iter()
                 .map(|&x| {
@@ -150,36 +147,61 @@ impl MathBackend for CpuBackend {
                 / d as f64;
 
             let rstd = 1.0 / (var + f64::from(eps)).sqrt();
-            rstds[i] = rstd as f32;
+            *rstd_out = rstd as f32;
 
-            // Normalize + affine
             for j in 0..d {
                 let norm = (f64::from(slice[j]) - mean) * rstd;
-                output[start + j] = (norm * f64::from(gamma[j]) + f64::from(beta[j])) as f32;
+                out_row[j] = (norm * f64::from(gamma[j]) + f64::from(beta[j])) as f32;
             }
+        };
+
+        if n >= ROW_PAR_THRESHOLD {
+            output
+                .par_chunks_mut(d)
+                .zip(means.par_iter_mut().zip(rstds.par_iter_mut()))
+                .enumerate()
+                .for_each(|(i, (out_row, (mean_out, rstd_out)))| {
+                    process_row(i, out_row, mean_out, rstd_out);
+                });
+        } else {
+            output
+                .chunks_mut(d)
+                .zip(means.iter_mut().zip(rstds.iter_mut()))
+                .enumerate()
+                .for_each(|(i, (out_row, (mean_out, rstd_out)))| {
+                    process_row(i, out_row, mean_out, rstd_out);
+                });
         }
 
         (output, means, rstds)
     }
 
     fn gelu(input: &Vec<f32>) -> Vec<f32> {
-        input.iter().map(|&x| gelu_scalar(x)).collect()
+        if input.len() >= ELEM_PAR_THRESHOLD {
+            input.par_iter().map(|&x| gelu_scalar(x)).collect()
+        } else {
+            input.iter().map(|&x| gelu_scalar(x)).collect()
+        }
     }
 
     fn cross_entropy(logits: &Vec<f32>, targets: &[usize], batch: usize, vocab: usize) -> f32 {
-        let mut total_loss = 0.0f64;
-        for b in 0..batch {
+        let ce_item = |b: usize| -> f64 {
             let start = b * vocab;
             let slice = &logits[start..start + vocab];
             let target = targets[b];
 
-            // log-softmax with max-subtract trick
             let max_val = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let sum_exp: f64 = slice.iter().map(|&x| f64::from((x - max_val).exp())).sum();
             let log_sum_exp = f64::from(max_val) + sum_exp.ln();
             let log_prob = f64::from(slice[target]) - log_sum_exp;
-            total_loss -= log_prob;
-        }
+            -log_prob
+        };
+
+        let total_loss: f64 = if batch >= ROW_PAR_THRESHOLD {
+            (0..batch).into_par_iter().map(ce_item).sum()
+        } else {
+            (0..batch).map(ce_item).sum()
+        };
         (total_loss / batch as f64) as f32
     }
 
@@ -260,20 +282,30 @@ impl MathBackend for CpuBackend {
         let dims = shape.dims();
         let last = *dims.last().unwrap();
         let batch = output.len() / last;
-        let mut d_input = vec![0.0; output.len()];
+        let mut d_input = vec![0.0f32; output.len()];
 
-        for b in 0..batch {
+        let process = |b: usize, d_row: &mut [f32]| {
             let start = b * last;
-            // dot = sum(dY * Y)
             let mut dot = 0.0f64;
             for i in 0..last {
                 dot += f64::from(d_out[start + i]) * f64::from(output[start + i]);
             }
-            // dX = Y * (dY - dot)
             for i in 0..last {
-                d_input[start + i] =
+                d_row[i] =
                     (f64::from(output[start + i]) * (f64::from(d_out[start + i]) - dot)) as f32;
             }
+        };
+
+        if batch >= ROW_PAR_THRESHOLD {
+            d_input
+                .par_chunks_mut(last)
+                .enumerate()
+                .for_each(|(b, d_row)| process(b, d_row));
+        } else {
+            d_input
+                .chunks_mut(last)
+                .enumerate()
+                .for_each(|(b, d_row)| process(b, d_row));
         }
         d_input
     }
@@ -332,11 +364,19 @@ impl MathBackend for CpuBackend {
     }
 
     fn gelu_backward(d_out: &Vec<f32>, input: &Vec<f32>) -> Vec<f32> {
-        d_out
-            .iter()
-            .zip(input.iter())
-            .map(|(&dy, &x)| dy * gelu_derivative(x))
-            .collect()
+        if d_out.len() >= ELEM_PAR_THRESHOLD {
+            d_out
+                .par_iter()
+                .zip(input.par_iter())
+                .map(|(&dy, &x)| dy * gelu_derivative(x))
+                .collect()
+        } else {
+            d_out
+                .iter()
+                .zip(input.iter())
+                .map(|(&dy, &x)| dy * gelu_derivative(x))
+                .collect()
+        }
     }
 
     fn cross_entropy_backward(
@@ -345,14 +385,13 @@ impl MathBackend for CpuBackend {
         batch: usize,
         vocab: usize,
     ) -> Vec<f32> {
-        let mut d_logits = vec![0.0; batch * vocab];
+        let mut d_logits = vec![0.0f32; batch * vocab];
 
-        for b in 0..batch {
+        let process = |b: usize, d_row: &mut [f32]| {
             let start = b * vocab;
             let slice = &logits[start..start + vocab];
             let target = targets[b];
 
-            // Compute softmax
             let max_val = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mut sum_exp = 0.0f64;
             for &x in slice {
@@ -362,8 +401,20 @@ impl MathBackend for CpuBackend {
             for j in 0..vocab {
                 let prob = f64::from((slice[j] - max_val).exp()) / sum_exp;
                 let target_val = if j == target { 1.0 } else { 0.0 };
-                d_logits[start + j] = ((prob - target_val) / batch as f64) as f32;
+                d_row[j] = ((prob - target_val) / batch as f64) as f32;
             }
+        };
+
+        if batch >= ROW_PAR_THRESHOLD {
+            d_logits
+                .par_chunks_mut(vocab)
+                .enumerate()
+                .for_each(|(b, d_row)| process(b, d_row));
+        } else {
+            d_logits
+                .chunks_mut(vocab)
+                .enumerate()
+                .for_each(|(b, d_row)| process(b, d_row));
         }
         d_logits
     }
@@ -461,6 +512,93 @@ impl MathBackend for CpuBackend {
 }
 
 // ---- Helper functions ----
+
+/// Compute one row-tile of C for the tiled matmul.
+fn matmul_tile_rows(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+    i_tile: usize,
+    i_end: usize,
+) -> Vec<f64> {
+    const T: usize = 32;
+    let rows = i_end - i_tile;
+    let mut local = vec![0.0f64; rows * n];
+
+    let mut p_tile = 0;
+    while p_tile < k {
+        let p_end = (p_tile + T).min(k);
+        let mut j_tile = 0;
+        while j_tile < n {
+            let j_end = (j_tile + T).min(n);
+
+            for i in i_tile..i_end {
+                let li = i - i_tile;
+                for p in p_tile..p_end {
+                    let a_val = if trans_a {
+                        f64::from(a[p * m + i])
+                    } else {
+                        f64::from(a[i * k + p])
+                    };
+                    for j in j_tile..j_end {
+                        let b_val = if trans_b {
+                            f64::from(b[j * k + p])
+                        } else {
+                            f64::from(b[p * n + j])
+                        };
+                        local[li * n + j] += a_val * b_val;
+                    }
+                }
+            }
+
+            j_tile += T;
+        }
+        p_tile += T;
+    }
+    local
+}
+
+/// Tiled matmul with optional rayon parallelism for large matrices.
+fn matmul_tiled(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Vec<f32> {
+    const T: usize = 32;
+    let i_tiles: Vec<usize> = (0..m).step_by(T).collect();
+
+    let row_chunks: Vec<Vec<f64>> = if m >= MATMUL_PAR_THRESHOLD {
+        i_tiles
+            .par_iter()
+            .map(|&i_tile| {
+                let i_end = (i_tile + T).min(m);
+                matmul_tile_rows(a, b, m, k, n, trans_a, trans_b, i_tile, i_end)
+            })
+            .collect()
+    } else {
+        i_tiles
+            .iter()
+            .map(|&i_tile| {
+                let i_end = (i_tile + T).min(m);
+                matmul_tile_rows(a, b, m, k, n, trans_a, trans_b, i_tile, i_end)
+            })
+            .collect()
+    };
+
+    let mut c = Vec::with_capacity(m * n);
+    for chunk in &row_chunks {
+        c.extend(chunk.iter().map(|&x| x as f32));
+    }
+    c
+}
 
 /// `GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044_715 * x^3)))`
 fn gelu_scalar(x: f32) -> f32 {

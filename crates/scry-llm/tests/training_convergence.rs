@@ -96,7 +96,7 @@ fn tiny_gpt2_training_converges() {
             .map(|(id, data, shape)| (*id, &mut **data, &*shape))
             .collect();
 
-        optimizer.step(&mut param_refs, &grads);
+        optimizer.step(&mut param_refs, &grads, &std::collections::HashSet::new());
     }
 
     println!("  initial_loss = {initial_loss:.4}, final_loss = {final_loss:.4}");

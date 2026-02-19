@@ -19,6 +19,7 @@ safetensors = { version = "0.4", optional = true }
 arrayvec = "0.7"
 thiserror = "2"
 fastrand = "2"
+rayon = "1"
 serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
@@ -40,3 +41,9 @@ cast_precision_loss = "allow"
 many_single_char_names = "allow"
 # tensor library — every op returns a value, #[must_use] on all of them is noise
 must_use_candidate = "allow"
+# cuBLAS requires i32; dimension casts from usize are safe for matrix sizes ≪ i32::MAX
+cast_possible_wrap = "allow"
+# similar variable names (e.g. transa/transb) are standard in BLAS code
+similar_names = "allow"
+# CUDA/cuBLAS functions can panic on device errors — documenting every one is noise
+missing_panics_doc = "allow"

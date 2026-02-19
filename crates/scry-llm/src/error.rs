@@ -16,6 +16,12 @@ pub enum ScryLlmError {
 
     #[error("weight load error: {0}")]
     WeightLoadError(String),
+
+    #[error("data error: {0}")]
+    DataError(String),
+
+    #[error("checkpoint error: {0}")]
+    CheckpointError(String),
 }
 
 pub type Result<T> = std::result::Result<T, ScryLlmError>;

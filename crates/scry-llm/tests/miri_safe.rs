@@ -420,7 +420,8 @@ fn miri_adamw_step() {
 
     let mut optimizer = AdamW::<Cpu>::new(AdamWConfig::default());
     let mut params = vec![(param.id, &mut param.data, &param.shape)];
-    optimizer.step(&mut params, &grad_map);
+    let no_decay = std::collections::HashSet::new();
+    optimizer.step(&mut params, &grad_map, &no_decay);
 
     let param_after = Cpu::to_vec(&param.data);
     assert!(param_after.iter().all(|v| v.is_finite()));
@@ -671,6 +672,8 @@ fn miri_training_step() {
         checkpoint_interval: 0,
         checkpoint_dir: std::path::PathBuf::from("/tmp"),
         seed: 42,
+        use_checkpointing: false,
+        checkpoint_every: 4,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -721,6 +724,8 @@ fn miri_gradient_accumulation() {
         checkpoint_interval: 0,
         checkpoint_dir: std::path::PathBuf::from("/tmp"),
         seed: 42,
+        use_checkpointing: false,
+        checkpoint_every: 4,
     };
 
     let mut trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -776,6 +781,8 @@ fn miri_evaluate() {
         checkpoint_interval: 0,
         checkpoint_dir: std::path::PathBuf::from("/tmp"),
         seed: 42,
+        use_checkpointing: false,
+        checkpoint_every: 4,
     };
 
     let trainer = Trainer::<Cpu>::new(model, model_config, config);
@@ -798,4 +805,139 @@ fn miri_evaluate() {
     let val_loss = trainer.evaluate(&batches);
     assert!(val_loss.is_finite());
     assert!(val_loss > 0.0);
+}
+
+// ============================================================
+// Phase 4: No-decay, embedding dropout, checkpointing, generate
+// ============================================================
+
+#[test]
+fn miri_no_decay_ids() {
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+
+    let config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 4,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 2,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(config, &mut rng);
+    let no_decay = model.no_decay_ids();
+    // 8 per layer + 2 for ln_f = 18
+    assert_eq!(no_decay.len(), 18);
+}
+
+#[test]
+fn miri_adamw_no_decay_step() {
+    use scry_llm::optim::adamw::{AdamW, AdamWConfig};
+    let shape = Shape::new(&[3]);
+    let mut param = Tensor::<Cpu>::from_vec(vec![1.0, 2.0, 3.0], shape.clone());
+    let mut grad_map = std::collections::HashMap::new();
+    grad_map.insert(param.id, Cpu::from_vec(vec![0.1, 0.2, 0.3], &shape));
+
+    let mut no_decay = std::collections::HashSet::new();
+    no_decay.insert(param.id);
+
+    let mut optimizer = AdamW::<Cpu>::new(AdamWConfig {
+        weight_decay: 0.1,
+        ..AdamWConfig::default()
+    });
+    let mut params = vec![(param.id, &mut param.data, &param.shape)];
+    optimizer.step(&mut params, &grad_map, &no_decay);
+
+    let after = Cpu::to_vec(&param.data);
+    assert!(after.iter().all(|v| v.is_finite()));
+}
+
+#[test]
+fn miri_embedding_dropout_forward() {
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+
+    let config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 4,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0, // zero dropout for miri (avoids stochastic issues)
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(config, &mut rng);
+
+    let mut rng_fwd = fastrand::Rng::with_seed(99);
+    let mut tape = GradTape::<Cpu>::new();
+    let logits = model.forward(&[0, 1, 2], &mut rng_fwd, &mut tape);
+    assert!(logits.to_vec().iter().all(|v| v.is_finite()));
+}
+
+#[test]
+fn miri_batched_checkpointed_forward_backward() {
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+
+    let config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 8,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 2,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(config.clone(), &mut rng);
+
+    let batch_size = 2;
+    let seq_len = 3;
+    let token_ids = vec![0, 1, 2, 3, 4, 0];
+    let targets = vec![1, 2, 3, 4, 0, 1];
+
+    let mut rng_fwd = fastrand::Rng::with_seed(99);
+    let mut tape = GradTape::<Cpu>::new();
+    let logits = model.forward_batch_checkpointed(
+        &token_ids, batch_size, seq_len, 1, &mut rng_fwd, &mut tape,
+    );
+    let loss = ops::cross_entropy(
+        &logits, &targets, batch_size * seq_len, config.vocab_size, Some(&mut tape),
+    );
+    let loss_val = loss.to_vec()[0];
+    assert!(loss_val.is_finite());
+
+    let grads = model.backward_checkpointed(&tape, loss.id);
+    assert!(grads.contains_key(&model.embedding.token_embedding.id));
+}
+
+#[test]
+fn miri_generate_tiny() {
+    use scry_llm::generate::{generate, SamplingConfig};
+    use scry_llm::nn::gpt2::{Gpt2Config, Gpt2Model};
+
+    let config = Gpt2Config {
+        vocab_size: 5,
+        max_seq_len: 16,
+        d_model: 4,
+        n_heads: 2,
+        n_layers: 1,
+        d_ff: 8,
+        dropout_rate: 0.0,
+    };
+    let mut rng = fastrand::Rng::with_seed(42);
+    let model = Gpt2Model::<Cpu>::new(config.clone(), &mut rng);
+
+    let sampling = SamplingConfig {
+        temperature: 0.0, // greedy for determinism
+        top_k: 0,
+        top_p: 1.0,
+        max_tokens: 3,
+    };
+    let mut gen_rng = fastrand::Rng::with_seed(99);
+    let tokens = generate(&model, &[0, 1], &sampling, &mut gen_rng);
+    assert_eq!(tokens.len(), 3);
+    for &t in &tokens {
+        assert!(t < config.vocab_size);
+    }
 }

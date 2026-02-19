@@ -56,7 +56,7 @@ fuzz_target!(|data: &[u8]| {
 
     for _ in 0..n_steps {
         let mut params = vec![(param.id, &mut param.data, &param.shape)];
-        optimizer.step(&mut params, &grad_map);
+        optimizer.step(&mut params, &grad_map, &std::collections::HashSet::new());
     }
 
     let final_data = Cpu::to_vec(&param.data);

@@ -56,6 +56,35 @@ impl<B: MathBackend> EmbeddingLayer<B> {
         ops::add(&tok_emb, &pos_emb, Some(tape))
     }
 
+    /// Batched forward: `token_ids` is `[batch_size * seq_len]` flat, with position
+    /// indices resetting per sequence.
+    pub fn forward_batch(
+        &self,
+        token_ids: &[usize],
+        batch_size: usize,
+        seq_len: usize,
+        tape: &mut GradTape<B>,
+    ) -> Tensor<B> {
+        // Position indices reset per sequence: [0,1,...,seq-1, 0,1,...,seq-1, ...]
+        let positions: Vec<usize> = (0..batch_size).flat_map(|_| 0..seq_len).collect();
+
+        let tok_emb = ops::embedding(
+            &self.token_embedding,
+            token_ids,
+            self.vocab_size,
+            self.d_model,
+            Some(tape),
+        );
+        let pos_emb = ops::embedding(
+            &self.position_embedding,
+            &positions,
+            self.max_seq_len,
+            self.d_model,
+            Some(tape),
+        );
+        ops::add(&tok_emb, &pos_emb, Some(tape))
+    }
+
     pub fn forward_inference(&self, token_ids: &[usize]) -> Tensor<B> {
         let seq_len = token_ids.len();
         let positions: Vec<usize> = (0..seq_len).collect();
