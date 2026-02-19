@@ -1,0 +1,33 @@
+Masonic Mirror — Benchmark Report
+=================================
+
+Environment
+-----------
+  Resolution:  1216x544
+  Pixels:      661504
+  Protocol:    Kitty
+  SDF render:  GPU (scale 100%)
+  Duration:    1.8s
+  Frames:      192
+
+FPS Statistics
+--------------
+  Mean:    104.2 fps  (9.60ms/frame)
+  Median:  104.8 fps  (9.55ms/frame)
+  P5:      108.0 fps  (fast frames)
+  P95:     98.7 fps  (slow frames)
+  Min:     87.7 fps
+  Max:     118.3 fps
+
+Rasterization Profile (median over 64 frames)
+-------------------------------------------
+  Total raster:  1.807ms (median)  1.878ms (P95)
+
+  Type         Count      Median         P95   % Tot
+  --------------------------------------------------
+  Image            1     1.786ms     1.832ms   98.8%
+
+Bottleneck Analysis
+-------------------
+  DOMINATES: Image (98.8% of raster time, 1x count)
+
