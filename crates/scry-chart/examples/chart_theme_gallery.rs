@@ -30,6 +30,9 @@ fn main() -> Result<(), String> {
         ("ocean", Theme::ocean()),
         ("forest", Theme::forest()),
         ("colorblind", Theme::colorblind()),
+        ("academic", Theme::academic()),
+        ("presentation", Theme::presentation()),
+        ("monochrome", Theme::monochrome()),
     ];
 
     let mut html_entries: Vec<ChartEntry> = Vec::new();
@@ -505,7 +508,7 @@ fn main() -> Result<(), String> {
     // Generate HTML gallery with feedback
     // ---------------------------------------------------------------
     let charts_per_theme = html_entries.len() / themes.len();
-    let theme_names = ["dark", "light", "pastel", "ocean", "forest", "colorblind"];
+    let theme_names = ["dark", "light", "pastel", "ocean", "forest", "colorblind", "academic", "presentation", "monochrome"];
 
     let mut html = String::with_capacity(256 * 1024);
     html.push_str(&format!(r#"<!DOCTYPE html>

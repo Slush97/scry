@@ -150,9 +150,9 @@ impl Theme {
                 Color::from_rgba8(134, 239, 172, 255), // mint green
                 Color::from_rgba8(251, 191, 36, 255),  // amber
                 Color::from_rgba8(196, 167, 255, 255), // lavender
-                Color::from_rgba8(255, 160, 122, 255), // salmon
-                Color::from_rgba8(103, 232, 249, 255), // cyan
-                Color::from_rgba8(253, 186, 116, 255), // peach
+                Color::from_rgba8(255, 130, 90, 255),  // warm coral
+                Color::from_rgba8(72, 226, 186, 255),  // turquoise
+                Color::from_rgba8(220, 120, 220, 255), // orchid
             ],
             title_style: TextStyle {
                 color: text_color,
@@ -178,7 +178,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(60, 60, 80, 180),
+                color: Color::from_rgba8(60, 60, 80, 110),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -189,7 +189,7 @@ impl Theme {
                 point_radius: 5.5,
                 line_width: 2.5,
                 bar_stroke_width: 1.0,
-                fill_opacity: 0.30,
+                fill_opacity: 0.25,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
@@ -200,23 +200,26 @@ impl Theme {
         }
     }
 
-    /// Light theme for terminals with light backgrounds.
+    /// Light theme — modern muted tones on a clean white background.
+    ///
+    /// Curated palette with wide hue separation, suitable for reports,
+    /// dashboards, and embedding in light-mode UIs.
     pub fn light() -> Self {
-        let text_color = Color::from_rgba8(40, 40, 60, 255);
-        let axis_color = Color::from_rgba8(60, 60, 80, 255);
+        let text_color = Color::from_rgba8(38, 38, 56, 255);
+        let axis_color = Color::from_rgba8(55, 55, 75, 255);
 
         Self {
-            background: Color::from_rgba8(250, 250, 252, 255),
+            background: Color::from_rgba8(252, 252, 254, 255),
             foreground: text_color,
             palette: vec![
-                Color::from_rgba8(31, 119, 180, 255),  // blue
-                Color::from_rgba8(255, 127, 14, 255),  // orange
-                Color::from_rgba8(44, 160, 44, 255),   // green
-                Color::from_rgba8(214, 39, 40, 255),   // red
-                Color::from_rgba8(148, 103, 189, 255), // purple
-                Color::from_rgba8(140, 86, 75, 255),   // brown
-                Color::from_rgba8(227, 119, 194, 255), // pink
-                Color::from_rgba8(127, 127, 127, 255), // gray
+                Color::from_rgba8(55, 126, 184, 255),  // steel blue
+                Color::from_rgba8(228, 120, 51, 255),  // warm amber
+                Color::from_rgba8(77, 175, 74, 255),   // sage green
+                Color::from_rgba8(178, 55, 65, 255),   // wine red
+                Color::from_rgba8(130, 100, 175, 255), // muted violet
+                Color::from_rgba8(0, 150, 145, 255),   // deep teal
+                Color::from_rgba8(140, 140, 50, 255),  // dark khaki
+                Color::from_rgba8(95, 95, 115, 255),   // cool slate
             ],
             title_style: TextStyle {
                 color: text_color,
@@ -242,45 +245,48 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(180, 180, 200, 120),
-                width: 1.0,
+                color: Color::from_rgba8(190, 190, 205, 100),
+                width: 0.8,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
                 show_x: None,
                 show_y: None,
             },
             series: SeriesTheme {
-                point_radius: 5.5,
-                line_width: 2.5,
-                bar_stroke_width: 1.0,
-                fill_opacity: 0.30,
-                bar_corner_radius: 3.0,
+                point_radius: 5.0,
+                line_width: 2.0,
+                bar_stroke_width: 0.8,
+                fill_opacity: 0.20,
+                bar_corner_radius: 2.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
-                background: Color::from_rgba8(250, 250, 252, 235),
-                border: Some(Color::from_rgba8(200, 200, 200, 200)),
+                background: Color::from_rgba8(252, 252, 254, 235),
+                border: Some(Color::from_rgba8(195, 195, 200, 200)),
             },
         }
     }
 
-    /// Chalk pastel theme — soft, warm colors on dark.
+    /// Chalk pastel theme — boosted soft pastels on dark charcoal.
+    ///
+    /// Warmer and more saturated than classic pastels, ensuring each
+    /// series is visible at 35% fill opacity on the dark background.
     pub fn pastel() -> Self {
-        let text_color = Color::from_rgba8(190, 190, 210, 255);
-        let axis_color = Color::from_rgba8(140, 140, 160, 255);
+        let text_color = Color::from_rgba8(195, 195, 215, 255);
+        let axis_color = Color::from_rgba8(145, 145, 165, 255);
 
         Self {
             background: Color::from_rgba8(22, 22, 30, 255),
             foreground: text_color,
             palette: vec![
-                Color::from_rgba8(179, 205, 224, 255), // powder blue
-                Color::from_rgba8(240, 178, 178, 255), // rose
-                Color::from_rgba8(178, 223, 178, 255), // sage
-                Color::from_rgba8(255, 218, 170, 255), // peach
-                Color::from_rgba8(204, 185, 232, 255), // lilac
-                Color::from_rgba8(255, 245, 186, 255), // butter
-                Color::from_rgba8(186, 225, 225, 255), // aqua
-                Color::from_rgba8(232, 196, 213, 255), // mauve
+                Color::from_rgba8(120, 170, 230, 255), // sky blue
+                Color::from_rgba8(240, 130, 130, 255), // coral
+                Color::from_rgba8(100, 210, 100, 255), // grass green
+                Color::from_rgba8(240, 200, 80, 255),  // sunflower
+                Color::from_rgba8(190, 120, 220, 255), // violet
+                Color::from_rgba8(50, 210, 190, 255),  // aqua-green
+                Color::from_rgba8(195, 175, 130, 255), // warm sand
+                Color::from_rgba8(170, 100, 120, 255), // dark rose
             ],
             title_style: TextStyle {
                 color: text_color,
@@ -306,8 +312,8 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(55, 55, 75, 180),
-                width: 1.0,
+                color: Color::from_rgba8(55, 55, 75, 110),
+                width: 0.8,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
                 show_x: None,
@@ -315,10 +321,10 @@ impl Theme {
             },
             series: SeriesTheme {
                 point_radius: 5.5,
-                line_width: 2.5,
-                bar_stroke_width: 1.0,
-                fill_opacity: 0.30,
-                bar_corner_radius: 3.0,
+                line_width: 2.0,
+                bar_stroke_width: 0.8,
+                fill_opacity: 0.35,
+                bar_corner_radius: 4.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
@@ -328,7 +334,10 @@ impl Theme {
         }
     }
 
-    /// Ocean theme — deep blues and teals with vibrant accents.
+    /// Ocean theme — deep navy with wide-hue aquatic accents.
+    ///
+    /// Cyan anchors the palette, with coral, gold, and violet accents
+    /// ensuring every series is distinctly identifiable.
     pub fn ocean() -> Self {
         let text_color = Color::from_rgba8(200, 220, 240, 255);
         let axis_color = Color::from_rgba8(120, 150, 180, 255);
@@ -337,14 +346,14 @@ impl Theme {
             background: Color::from_rgba8(10, 20, 40, 255),
             foreground: text_color,
             palette: vec![
-                Color::from_rgba8(0, 188, 212, 255),  // cyan
-                Color::from_rgba8(38, 166, 154, 255), // teal
-                Color::from_rgba8(100, 221, 23, 255), // lime
-                Color::from_rgba8(255, 167, 38, 255), // orange
-                Color::from_rgba8(171, 71, 188, 255), // purple
-                Color::from_rgba8(255, 112, 67, 255), // deep orange
-                Color::from_rgba8(66, 165, 245, 255), // light blue
-                Color::from_rgba8(255, 213, 79, 255), // yellow
+                Color::from_rgba8(0, 188, 212, 255),   // cyan
+                Color::from_rgba8(255, 140, 90, 255),  // coral (was teal — too close)
+                Color::from_rgba8(100, 221, 80, 255),  // lime
+                Color::from_rgba8(255, 200, 60, 255),  // gold
+                Color::from_rgba8(171, 100, 210, 255), // violet
+                Color::from_rgba8(66, 165, 245, 255),  // light blue
+                Color::from_rgba8(240, 98, 146, 255),  // pink
+                Color::from_rgba8(180, 180, 180, 255), // silver
             ],
             title_style: TextStyle {
                 color: text_color,
@@ -370,7 +379,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(40, 65, 90, 180),
+                color: Color::from_rgba8(40, 65, 90, 110),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -381,7 +390,7 @@ impl Theme {
                 point_radius: 5.5,
                 line_width: 2.5,
                 bar_stroke_width: 1.0,
-                fill_opacity: 0.30,
+                fill_opacity: 0.25,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
@@ -392,7 +401,10 @@ impl Theme {
         }
     }
 
-    /// Forest theme — earthy greens and warm browns.
+    /// Forest theme — earthy greens with warm accent hues.
+    ///
+    /// Anchored by forest green, then amber and terra cotta to ensure
+    /// adjacent series are always distinguishable.
     pub fn forest() -> Self {
         let text_color = Color::from_rgba8(210, 210, 190, 255);
         let axis_color = Color::from_rgba8(150, 140, 120, 255);
@@ -402,12 +414,12 @@ impl Theme {
             foreground: text_color,
             palette: vec![
                 Color::from_rgba8(76, 175, 80, 255),   // green
-                Color::from_rgba8(139, 195, 74, 255),  // light green
-                Color::from_rgba8(205, 220, 57, 255),  // lime yellow
-                Color::from_rgba8(255, 183, 77, 255),  // amber
-                Color::from_rgba8(161, 136, 127, 255), // brown
+                Color::from_rgba8(240, 170, 60, 255),  // warm amber (was light green)
+                Color::from_rgba8(180, 110, 85, 255),  // terra cotta (was lime yellow)
+                Color::from_rgba8(120, 200, 190, 255), // sage teal
+                Color::from_rgba8(200, 200, 80, 255),  // chartreuse
                 Color::from_rgba8(255, 138, 101, 255), // deep orange
-                Color::from_rgba8(77, 182, 172, 255),  // teal
+                Color::from_rgba8(160, 140, 200, 255), // mist violet
                 Color::from_rgba8(174, 213, 129, 255), // pale green
             ],
             title_style: TextStyle {
@@ -434,7 +446,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(50, 58, 42, 180),
+                color: Color::from_rgba8(50, 58, 42, 110),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -446,7 +458,7 @@ impl Theme {
                 line_width: 2.5,
                 bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
-                bar_corner_radius: 3.0,
+                bar_corner_radius: 2.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
@@ -504,7 +516,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(60, 60, 80, 180),
+                color: Color::from_rgba8(60, 60, 80, 110),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -515,13 +527,216 @@ impl Theme {
                 point_radius: 5.5,
                 line_width: 2.5,
                 bar_stroke_width: 1.0,
-                fill_opacity: 0.30,
-                bar_corner_radius: 3.0,
+                fill_opacity: 0.25,
+                bar_corner_radius: 2.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
                 background: Color::from_rgba8(15, 15, 25, 235),
                 border: Some(Color::from_rgba8(80, 80, 100, 200)),
+            },
+        }
+    }
+
+    /// Academic theme — publication-ready for journals and papers.
+    ///
+    /// White background, solid black axes, near-zero corner radii, thin
+    /// lines, and the Okabe-Ito palette for colorblind safety. Follows
+    /// Nature / Science / IEEE figure guidelines.
+    pub fn academic() -> Self {
+        let text_color = Color::from_rgba8(25, 25, 25, 255);
+        let axis_color = Color::from_rgba8(0, 0, 0, 255);
+
+        Self {
+            background: Color::WHITE,
+            foreground: text_color,
+            palette: vec![
+                Color::from_rgba8(0, 114, 178, 255),   // blue
+                Color::from_rgba8(200, 135, 0, 255),   // dark amber (deepened for white-bg contrast)
+                Color::from_rgba8(0, 158, 115, 255),   // bluish green
+                Color::from_rgba8(204, 121, 167, 255), // reddish purple
+                Color::from_rgba8(60, 150, 210, 255),  // sky blue (deepened for white-bg)
+                Color::from_rgba8(213, 94, 0, 255),    // vermillion
+                Color::from_rgba8(155, 140, 0, 255),   // olive gold (white-bg safe)
+                Color::from_rgba8(100, 100, 100, 255), // dark gray
+            ],
+            title_style: TextStyle {
+                color: text_color,
+                bold: true,
+                font_size: 16.0,
+            },
+            label_style: TextStyle {
+                color: text_color,
+                bold: false,
+                font_size: 13.0,
+            },
+            tick_style: TextStyle {
+                color: text_color,
+                bold: false,
+                font_size: 11.0,
+            },
+            axis: AxisTheme {
+                color: axis_color,
+                width: 1.5,
+                tick_length: 5.0,
+                tick_color: axis_color,
+                minor_ticks: true,
+                minor_tick_length: 3.0,
+            },
+            grid: GridTheme {
+                color: Color::from_rgba8(200, 200, 200, 80),
+                width: 0.6,
+                dash: Some(DashPattern::new(vec![2.0, 3.0], 0.0)),
+                show: true,
+                show_x: Some(false),
+                show_y: None,
+            },
+            series: SeriesTheme {
+                point_radius: 4.5,
+                line_width: 1.5,
+                bar_stroke_width: 0.5,
+                fill_opacity: 0.15,
+                bar_corner_radius: 0.0,
+            },
+            legend: LegendTheme {
+                font_size: 10.0,
+                background: Color::from_rgba8(255, 255, 255, 240),
+                border: Some(Color::from_rgba8(180, 180, 180, 200)),
+            },
+        }
+    }
+
+    /// Presentation theme — bold and vibrant for slides and projectors.
+    ///
+    /// Large font sizes, thick lines, high-saturation palette, and
+    /// generous point radii ensure readability from the back of the room.
+    pub fn presentation() -> Self {
+        let text_color = Color::from_rgba8(240, 240, 250, 255);
+        let axis_color = Color::from_rgba8(180, 180, 200, 255);
+
+        Self {
+            background: Color::from_rgba8(18, 18, 35, 255),
+            foreground: text_color,
+            palette: vec![
+                Color::from_rgba8(72, 149, 239, 255),  // vivid blue
+                Color::from_rgba8(255, 107, 107, 255), // bright red
+                Color::from_rgba8(78, 205, 130, 255),  // emerald
+                Color::from_rgba8(255, 193, 59, 255),  // sunflower
+                Color::from_rgba8(168, 85, 247, 255),  // vivid purple
+                Color::from_rgba8(45, 212, 191, 255),  // turquoise
+                Color::from_rgba8(251, 146, 60, 255),  // tangerine
+                Color::from_rgba8(244, 114, 182, 255), // hot pink
+            ],
+            title_style: TextStyle {
+                color: text_color,
+                bold: true,
+                font_size: 24.0,
+            },
+            label_style: TextStyle {
+                color: text_color,
+                bold: false,
+                font_size: 16.0,
+            },
+            tick_style: TextStyle {
+                color: text_color,
+                bold: false,
+                font_size: 13.0,
+            },
+            axis: AxisTheme {
+                color: axis_color,
+                width: 2.0,
+                tick_length: 6.0,
+                tick_color: axis_color,
+                minor_ticks: false,
+                minor_tick_length: 3.0,
+            },
+            grid: GridTheme {
+                color: Color::from_rgba8(70, 70, 100, 115),
+                width: 1.0,
+                dash: Some(DashPattern::new(vec![6.0, 4.0], 0.0)),
+                show: true,
+                show_x: None,
+                show_y: None,
+            },
+            series: SeriesTheme {
+                point_radius: 7.0,
+                line_width: 3.5,
+                bar_stroke_width: 1.5,
+                fill_opacity: 0.35,
+                bar_corner_radius: 4.0,
+            },
+            legend: LegendTheme {
+                font_size: 13.0,
+                background: Color::from_rgba8(18, 18, 35, 240),
+                border: Some(Color::from_rgba8(100, 100, 130, 200)),
+            },
+        }
+    }
+
+    /// Monochrome theme — pure grayscale for B&W printing.
+    ///
+    /// Uses 8 distinct gray shades and relies on `series_dash()` patterns
+    /// for line chart differentiation. No rounded corners. Designed for
+    /// academic papers, patents, and fax-safe output.
+    pub fn monochrome() -> Self {
+        let text_color = Color::from_rgba8(20, 20, 20, 255);
+        let axis_color = Color::from_rgba8(0, 0, 0, 255);
+
+        Self {
+            background: Color::WHITE,
+            foreground: text_color,
+            palette: vec![
+                Color::from_rgba8(30, 30, 30, 255),    // near-black
+                Color::from_rgba8(80, 80, 80, 255),    // dark gray
+                Color::from_rgba8(130, 130, 130, 255), // medium gray
+                Color::from_rgba8(55, 55, 55, 255),    // charcoal
+                Color::from_rgba8(105, 105, 105, 255), // dim gray
+                Color::from_rgba8(60, 60, 60, 255),    // jet
+                Color::from_rgba8(140, 140, 140, 255), // silver
+                Color::from_rgba8(40, 40, 40, 255),    // onyx
+            ],
+            title_style: TextStyle {
+                color: text_color,
+                bold: true,
+                font_size: 16.0,
+            },
+            label_style: TextStyle {
+                color: text_color,
+                bold: false,
+                font_size: 13.0,
+            },
+            tick_style: TextStyle {
+                color: text_color,
+                bold: false,
+                font_size: 11.0,
+            },
+            axis: AxisTheme {
+                color: axis_color,
+                width: 1.5,
+                tick_length: 5.0,
+                tick_color: axis_color,
+                minor_ticks: true,
+                minor_tick_length: 3.0,
+            },
+            grid: GridTheme {
+                color: Color::from_rgba8(180, 180, 180, 80),
+                width: 0.5,
+                dash: None, // solid thin lines
+                show: true,
+                show_x: Some(false),
+                show_y: None,
+            },
+            series: SeriesTheme {
+                point_radius: 5.0,
+                line_width: 2.0,
+                bar_stroke_width: 1.0,
+                fill_opacity: 0.20,
+                bar_corner_radius: 0.0,
+            },
+            legend: LegendTheme {
+                font_size: 10.0,
+                background: Color::from_rgba8(255, 255, 255, 240),
+                border: Some(Color::from_rgba8(150, 150, 150, 200)),
             },
         }
     }

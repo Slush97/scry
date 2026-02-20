@@ -795,6 +795,9 @@ pub fn resolve_theme(name: Option<&str>) -> Theme {
         Some("ocean") => Theme::ocean(),
         Some("forest") => Theme::forest(),
         Some("colorblind") => Theme::colorblind(),
+        Some("academic") => Theme::academic(),
+        Some("presentation") => Theme::presentation(),
+        Some("monochrome") => Theme::monochrome(),
         _ => Theme::dark(),
     }
 }

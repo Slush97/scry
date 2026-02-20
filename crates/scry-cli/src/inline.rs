@@ -225,7 +225,9 @@ pub fn display_kitty_animation_frame(png_data: &[u8], frame: u64) -> io::Result<
     let (img_w, img_h) = png_dimensions(png_data).unwrap_or((400, 400));
     // The terminal will scale the image to fit `c` columns and `r` rows.
     // We want the image to fit within the terminal width.
-    let img_cols = (img_w / u32::from(cell_w)).max(1) as u16;
+    // Use ceiling division so the cell grid is always large enough to
+    // contain the full image — floor division truncates and clips edges.
+    let img_cols = (img_w.div_ceil(u32::from(cell_w))).max(1) as u16;
     let cols_to_use = img_cols.min(term_cols);
     let scale = f64::from(cols_to_use) / f64::from(img_cols);
     let img_rows = ((f64::from(img_h) / f64::from(cell_h)) * scale).ceil() as u16;

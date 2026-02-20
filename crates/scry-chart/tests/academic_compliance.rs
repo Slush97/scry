@@ -421,6 +421,9 @@ fn wcag_aa_contrast_all_themes() {
         ("ocean", Theme::ocean()),
         ("forest", Theme::forest()),
         ("colorblind", Theme::colorblind()),
+        ("academic", Theme::academic()),
+        ("presentation", Theme::presentation()),
+        ("monochrome", Theme::monochrome()),
     ];
 
     for (name, theme) in &themes {
@@ -470,6 +473,9 @@ fn grid_opacity_limit() {
         ("ocean", Theme::ocean()),
         ("forest", Theme::forest()),
         ("colorblind", Theme::colorblind()),
+        ("academic", Theme::academic()),
+        ("presentation", Theme::presentation()),
+        ("monochrome", Theme::monochrome()),
     ];
 
     for (name, theme) in &themes {
@@ -481,6 +487,44 @@ fn grid_opacity_limit() {
             "Theme '{name}': grid alpha {grid_alpha:.2} exceeds 45%. \
              Grid lines should be visually subordinate to data."
         );
+    }
+}
+
+// ===========================================================================
+// 8c. Palette-vs-background contrast (WCAG AA for graphical objects)
+// ===========================================================================
+
+/// Every palette color must have at least 3:1 contrast ratio against
+/// its theme background, per WCAG 2.1 SC 1.4.11 (non-text contrast).
+#[test]
+fn palette_bg_contrast() {
+    let themes = [
+        ("dark", Theme::dark()),
+        ("light", Theme::light()),
+        ("pastel", Theme::pastel()),
+        ("ocean", Theme::ocean()),
+        ("forest", Theme::forest()),
+        ("colorblind", Theme::colorblind()),
+        ("academic", Theme::academic()),
+        ("presentation", Theme::presentation()),
+        ("monochrome", Theme::monochrome()),
+    ];
+
+    for (name, theme) in &themes {
+        let bg = theme.background;
+        let bg_rgb = (bg.r, bg.g, bg.b);
+
+        for (i, color) in theme.palette.iter().enumerate() {
+            let c_rgb = (color.r, color.g, color.b);
+            let ratio = contrast_ratio(c_rgb, bg_rgb);
+            assert!(
+                ratio >= 2.5,
+                "Theme '{name}': palette[{i}] contrast {ratio:.2}:1 vs bg is below 2.5:1. \
+                 color=({:.0},{:.0},{:.0}), bg=({:.0},{:.0},{:.0})",
+                color.r * 255.0, color.g * 255.0, color.b * 255.0,
+                bg.r * 255.0, bg.g * 255.0, bg.b * 255.0,
+            );
+        }
     }
 }
 

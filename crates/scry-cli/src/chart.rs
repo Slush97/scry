@@ -50,7 +50,7 @@ pub enum ChartCommands {
         #[arg(short = 'H', long, default_value = "500")]
         height: u32,
 
-        /// Theme: "dark" or "light"
+        /// Theme: dark, light, pastel, ocean, forest, colorblind, academic, presentation, monochrome
         #[arg(long, default_value = "dark")]
         theme: String,
 
@@ -133,7 +133,7 @@ pub enum ChartCommands {
         #[arg(short = 'H', long, default_value = "500")]
         height: u32,
 
-        /// Theme: "dark", "light", "pastel", "ocean", "forest"
+        /// Theme: dark, light, pastel, ocean, forest, colorblind, academic, presentation, monochrome
         #[arg(long, default_value = "dark")]
         theme: String,
 
@@ -480,7 +480,7 @@ fn cmd_info() -> Result<(), String> {
     println!("  --dpi VALUE            Export DPI (default: 144, 288 for Retina)");
     println!("  --output FILE          Save to PNG instead of inline display");
     println!();
-    println!("Themes: dark (default), light, pastel, ocean, forest, colorblind");
+    println!("Themes: dark (default), light, pastel, ocean, forest, colorblind, academic, presentation, monochrome");
 
     Ok(())
 }

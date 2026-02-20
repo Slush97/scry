@@ -19,6 +19,9 @@ fn all_themes() -> Vec<(&'static str, Theme)> {
         ("ocean", Theme::ocean()),
         ("forest", Theme::forest()),
         ("colorblind", Theme::colorblind()),
+        ("academic", Theme::academic()),
+        ("presentation", Theme::presentation()),
+        ("monochrome", Theme::monochrome()),
     ]
 }
 

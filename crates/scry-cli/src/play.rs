@@ -150,21 +150,65 @@ impl PlayArgs {
 
 /// Wrapper that tries GPU rendering first, falls back to CPU if unavailable.
 ///
-/// Created once at the start of each animation and reused across all frames.
+/// GPU initialization (shader compilation) runs on a background thread so
+/// construction returns instantly. The first frames use rayon-parallelized
+/// CPU rendering; if the GPU becomes ready within 5 seconds it switches
+/// automatically. This prevents hangs on drivers with slow shader compilers
+/// (e.g. Intel ANV with the 48 KB SDF compute shader).
 pub(crate) struct GpuRenderCtx {
     gpu: Option<scry_engine::sdf::gpu_renderer::SdfGpuContext>,
+    /// Background GPU init thread — `None` once resolved or timed out.
+    init_handle: Option<std::thread::JoinHandle<Option<scry_engine::sdf::gpu_renderer::SdfGpuContext>>>,
+    /// When the init started — used for the timeout check.
+    init_start: std::time::Instant,
 }
 
+/// Maximum time to wait for GPU shader compilation before giving up.
+const GPU_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl GpuRenderCtx {
-    /// Try to initialise GPU; silently fall back to CPU on failure.
+    /// Start GPU init on a background thread; returns instantly.
     pub fn new() -> Self {
-        let gpu = scry_engine::gpu::GpuDevice::global_or_init()
-            .ok()
-            .and_then(|dev| {
-                scry_engine::sdf::gpu_renderer::SdfGpuContext::with_device(dev).ok()
-            });
-        // Silently use GPU when available, fall back to CPU otherwise.
-        Self { gpu }
+        let handle = std::thread::spawn(|| {
+            let dev = scry_engine::gpu::GpuDevice::global_or_init().ok()?;
+            scry_engine::sdf::gpu_renderer::SdfGpuContext::with_device(dev).ok()
+        });
+        Self {
+            gpu: None,
+            init_handle: Some(handle),
+            init_start: std::time::Instant::now(),
+        }
+    }
+
+    /// Poll the background init thread (non-blocking).
+    fn ensure_gpu(&mut self) {
+        if self.gpu.is_some() {
+            return; // already resolved
+        }
+        let Some(handle) = self.init_handle.take() else {
+            return; // already resolved (no GPU)
+        };
+        if handle.is_finished() {
+            // Thread done — take the result
+            if let Ok(Some(ctx)) = handle.join() {
+                self.gpu = Some(ctx);
+            }
+            // init_handle stays None either way
+        } else if self.init_start.elapsed() > GPU_INIT_TIMEOUT {
+            // Timed out — detach the thread and give up on GPU.
+            // The thread will eventually finish and be cleaned up.
+            if scry_engine::scry_debug_enabled() {
+                eprintln!(
+                    "[scry-gpu] GPU shader compilation timed out after {:.1}s, using CPU",
+                    self.init_start.elapsed().as_secs_f64(),
+                );
+            }
+            // Drop the handle (detach the thread)
+            // init_handle stays None — we won't poll again
+        } else {
+            // Still compiling — put the handle back, use CPU this frame
+            self.init_handle = Some(handle);
+        }
     }
 
     /// Render a scene, using GPU if available, otherwise CPU.
@@ -175,6 +219,7 @@ impl GpuRenderCtx {
         height: u32,
         time: f32,
     ) -> Result<scry_engine::Pixmap, scry_engine::PixelCanvasError> {
+        self.ensure_gpu();
         if let Some(ctx) = &mut self.gpu {
             scry_engine::sdf::gpu_renderer::SdfGpuRenderer::render_to_pixmap(
                 ctx, scene, width, height, time,
@@ -309,10 +354,10 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
             .at(Vec3::ZERO)
             .orient(orientation);
 
-            // Tight orbiting camera — close to the cube so it fills the frame
+            // Orbiting camera — positioned so the full rotating cube fits in frame
             let cam_angle = t * 0.3;
-            let cam_radius = 2.8;
-            let cam_y = 1.0 + (t * 0.2).sin() * 0.2;
+            let cam_radius = 4.0;
+            let cam_y = 1.5 + (t * 0.2).sin() * 0.3;
             let eye = Vec3::new(
                 cam_angle.cos() * cam_radius,
                 cam_y,
@@ -334,7 +379,7 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
                     Color::from_rgba8(100, 150, 255, 255),
                     0.6,
                 ))
-                .camera(SdfCamera::new(eye, Vec3::ZERO, 40.0))
+                .camera(SdfCamera::new(eye, Vec3::ZERO, 50.0))
                 .sky_color(transparent)
                 .ambient(0.08)
                 .max_bounces(1);
