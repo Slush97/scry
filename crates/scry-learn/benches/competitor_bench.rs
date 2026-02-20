@@ -16,6 +16,24 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FAIRNESS: Enforce single-threaded execution for apples-to-apples comparison
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Enforce single-threaded execution. Called at the top of every benchmark.
+fn enforce_single_thread() {
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global();
+    assert_eq!(
+        rayon::current_num_threads(),
+        1,
+        "FAIRNESS VIOLATION: rayon has {} threads, expected 1. \
+         Set RAYON_NUM_THREADS=1 or run before any other rayon init.",
+        rayon::current_num_threads()
+    );
+}
+
 // ── Data generation (shared across all libraries) ─────────────────
 fn gen_classification(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
     let mut rng = fastrand::Rng::with_seed(42);
@@ -55,6 +73,7 @@ fn transpose(rows: &[Vec<f64>]) -> Vec<Vec<f64>> {
 // ── Benchmarks ───────────────────────────────────────────────────
 
 fn bench_dt_training(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/decision_tree/train");
     group.sample_size(20);
 
@@ -94,6 +113,7 @@ fn bench_dt_training(c: &mut Criterion) {
 }
 
 fn bench_dt_predict(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/decision_tree/predict");
     group.sample_size(50);
 
@@ -128,6 +148,7 @@ fn bench_dt_predict(c: &mut Criterion) {
 }
 
 fn bench_rf_training(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/random_forest/train");
     group.sample_size(10);
 
@@ -172,6 +193,7 @@ fn bench_rf_training(c: &mut Criterion) {
 }
 
 fn bench_rf_predict(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/random_forest/predict");
     group.sample_size(20);
 
@@ -242,6 +264,7 @@ fn gen_noisy_classification(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<
 }
 
 fn bench_dt_predict_deep(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/decision_tree/predict_deep");
     group.sample_size(50);
 
@@ -282,6 +305,7 @@ fn bench_dt_predict_deep(c: &mut Criterion) {
 // Solo baseline measurement — no competitor implements a comparable confusion_matrix
 // function to compare against.
 fn bench_confusion_matrix(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/metrics/confusion_matrix");
     group.sample_size(50);
 
@@ -306,6 +330,7 @@ fn bench_confusion_matrix(c: &mut Criterion) {
 // linfa: max_iterations=200.
 
 fn bench_logreg_training(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/logistic_regression/train");
     group.sample_size(10);
 
@@ -362,6 +387,7 @@ fn bench_logreg_training(c: &mut Criterion) {
 // ── KNN: scry vs smartcore ─────────────────────────────────────
 
 fn bench_knn_predict(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/knn/predict");
     group.sample_size(20);
 
@@ -403,6 +429,7 @@ fn bench_knn_predict(c: &mut Criterion) {
 // ── K-Means: scry vs linfa-clustering ──────────────────────────
 
 fn bench_kmeans_training(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/kmeans/train");
     group.sample_size(10);
 
@@ -446,6 +473,7 @@ fn bench_kmeans_training(c: &mut Criterion) {
 // Smartcore does not offer a LinearSVC equivalent.
 
 fn bench_svm_training(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/svm_linear_vs_kernel/train");
     group.sample_size(10);
 
@@ -487,6 +515,7 @@ fn bench_svm_training(c: &mut Criterion) {
 
 // NOT a like-for-like comparison — see bench_svm_training comment above.
 fn bench_svm_predict(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/svm_linear_vs_kernel/predict");
     group.sample_size(20);
 
@@ -545,6 +574,7 @@ fn gen_regression(n: usize, n_features: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
 }
 
 fn bench_lasso_training(c: &mut Criterion) {
+    enforce_single_thread();
     let mut group = c.benchmark_group("vs/lasso/train");
     group.sample_size(10);
 

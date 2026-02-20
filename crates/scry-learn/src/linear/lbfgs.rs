@@ -72,7 +72,12 @@ pub(crate) fn minimize(
     let mut s_k = vec![0.0; n];
     let mut y_k = vec![0.0; n];
 
-    // Stagnation detection: stop if function value barely changes for 2 iters.
+    // Stagnation detection: stop if function value barely changes for several
+    // consecutive iterations (relative improvement < tol).  A patience of 5
+    // prevents premature exit on large datasets where the loss plateau is
+    // gradual but the model has not yet converged (e.g. logistic regression
+    // on adult).  scipy uses patience=10; 5 is a pragmatic middle ground.
+    const STAGNATION_PATIENCE: u32 = 5;
     let mut stagnant_count: u32 = 0;
 
     for _iter in 0..config.max_iter {
@@ -268,7 +273,7 @@ pub(crate) fn minimize(
         // Stagnation check: |f_prev - f| < tol * |f_prev|.
         if f_prev.abs() > 0.0 && (f_prev - f).abs() < config.tolerance * f_prev.abs() {
             stagnant_count += 1;
-            if stagnant_count >= 1 {
+            if stagnant_count >= STAGNATION_PATIENCE {
                 break;
             }
         } else {

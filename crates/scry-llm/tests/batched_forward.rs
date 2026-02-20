@@ -170,6 +170,7 @@ fn batched_training_converges() {
         }
 
         let grads = backward(&tape, loss.id);
+        drop(tape);
 
         let mut params: Vec<_> = model
             .parameters_mut()
@@ -177,7 +178,7 @@ fn batched_training_converges() {
             .map(|p| {
                 let id = p.id;
                 let shape = p.shape.clone();
-                (id, &mut p.data, shape)
+                (id, p.data_mut(), shape)
             })
             .collect();
         let mut param_refs: Vec<_> = params

@@ -34,6 +34,26 @@ pub trait MathBackend: DeviceBackend {
         trans_b: bool,
     ) -> Self::Storage;
 
+    /// Matrix multiply with bias epilogue: `C = op(A) * op(B) + bias`
+    /// where `bias` is `[N]` and is broadcast over rows.
+    /// Default: `matmul` then `add`.
+    #[allow(clippy::too_many_arguments)]
+    fn matmul_bias(
+        a: &Self::Storage,
+        b: &Self::Storage,
+        bias: &Self::Storage,
+        m: usize,
+        k: usize,
+        n: usize,
+        trans_a: bool,
+        trans_b: bool,
+    ) -> Self::Storage {
+        let result = Self::matmul(a, b, m, k, n, trans_a, trans_b);
+        let out_shape = Shape::new(&[m, n]);
+        let bias_shape = Shape::new(&[1, n]);
+        Self::add(&result, bias, &out_shape, &bias_shape, &out_shape)
+    }
+
     /// Elementwise add with broadcasting.
     fn add(
         a: &Self::Storage,
@@ -60,9 +80,9 @@ pub trait MathBackend: DeviceBackend {
     fn gelu(input: &Self::Storage) -> Self::Storage;
 
     /// Cross-entropy loss from logits.
-    /// `logits`: `[B, V]`, `targets`: `[B]` (class indices as `f32`).
-    /// Returns scalar loss.
-    fn cross_entropy(logits: &Self::Storage, targets: &[usize], batch: usize, vocab: usize) -> f32;
+    /// `logits`: `[B, V]`, `targets`: `[B]` (class indices).
+    /// Returns scalar loss as a 1-element device-side storage (no D2H sync).
+    fn cross_entropy(logits: &Self::Storage, targets: &[usize], batch: usize, vocab: usize) -> Self::Storage;
 
     /// Embedding lookup: gather rows by indices.
     /// `weight`: `[V, D]`, `indices`: `[N]` → output: `[N, D]`
@@ -73,8 +93,15 @@ pub trait MathBackend: DeviceBackend {
         dim: usize,
     ) -> Self::Storage;
 
-    /// Sum all elements to scalar.
-    fn sum(input: &Self::Storage) -> f32;
+    /// Fused cross-entropy forward+backward: single softmax pass.
+    /// Returns `(loss [1], d_logits [B, V])` where `d_logits = (softmax - one_hot) / batch`.
+    /// Backward just scales `d_logits` by the upstream scalar gradient.
+    fn cross_entropy_fwd_bwd(
+        logits: &Self::Storage, targets: &[usize], batch: usize, vocab: usize,
+    ) -> (Self::Storage, Self::Storage);
+
+    /// Sum all elements. Returns a 1-element device-side storage (no D2H sync).
+    fn sum(input: &Self::Storage) -> Self::Storage;
 
     // ---- Backward ops ----
 
@@ -119,11 +146,14 @@ pub trait MathBackend: DeviceBackend {
     fn gelu_backward(d_out: &Self::Storage, input: &Self::Storage) -> Self::Storage;
 
     /// Backward for `cross_entropy`. Returns `d_logits` `[B, V]`.
+    /// `d_out_scalar` is the upstream gradient (1-element storage), fused into the kernel
+    /// to avoid a D2H sync + separate scale op.
     fn cross_entropy_backward(
         logits: &Self::Storage,
         targets: &[usize],
         batch: usize,
         vocab: usize,
+        d_out_scalar: &Self::Storage,
     ) -> Self::Storage;
 
     /// Backward for embedding. Returns `d_weight` `[V, D]`.
@@ -142,6 +172,10 @@ pub trait MathBackend: DeviceBackend {
 
     /// Elementwise add in place: `a += b`. Shapes must match.
     fn add_inplace(a: &mut Self::Storage, b: &Self::Storage);
+
+    /// Broadcast a 1-element storage to fill `n` elements.
+    /// Reads from device memory — no D2H sync needed.
+    fn broadcast_scalar(scalar: &Self::Storage, n: usize) -> Self::Storage;
 
     /// L2 norm of all elements: `sqrt(sum(x^2))`.
     fn norm(storage: &Self::Storage) -> f32;

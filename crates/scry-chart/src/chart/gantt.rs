@@ -23,7 +23,7 @@ use crate::spec::ChartSpec;
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::gantt::GanttTask;
+/// use scry_chart::chart::GanttTask;
 ///
 /// let task = GanttTask::new("Design", 0.0, 5.0)
 ///     .group("Engineering")
@@ -78,7 +78,7 @@ impl GanttTask {
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::gantt::{GanttChart, GanttTask};
+/// use scry_chart::chart::{GanttChart, GanttTask};
 ///
 /// let chart = GanttChart::new(vec![
 ///     GanttTask::new("Research", 0.0, 3.0).group("Phase 1"),

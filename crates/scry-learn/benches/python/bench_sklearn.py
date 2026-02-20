@@ -75,11 +75,29 @@ DATASETS = {
     "wine": load_wine,
     "breast_cancer": load_breast_cancer,
     "digits": load_digits,
+    "adult": None,  # loaded from CSV fixtures via load_uci()
 }
+
+# Path to CSV fixtures (shared with Rust benchmarks for data identity)
+FIXTURES_DIR = Path(__file__).parent.parent.parent / "tests" / "fixtures"
 
 
 def load_uci(name: str):
     """Load a UCI dataset, returning (X, y)."""
+    if name == "adult":
+        # Load from CSV fixtures (same data as Rust benchmarks)
+        import csv
+        features_path = FIXTURES_DIR / "adult_features.csv"
+        target_path = FIXTURES_DIR / "adult_target.csv"
+        with open(features_path) as f:
+            reader = csv.reader(f)
+            next(reader)  # skip header
+            X = np.array([[float(v) for v in row] for row in reader])
+        with open(target_path) as f:
+            reader = csv.reader(f)
+            next(reader)  # skip header
+            y = np.array([float(row[0]) for row in reader])
+        return X, y
     loader = DATASETS[name]
     data = loader()
     return data.data, data.target.astype(float)
@@ -95,7 +113,7 @@ def get_classifiers():
         "decision_tree": (DecisionTreeClassifier(max_depth=10, random_state=42), False),
         "random_forest": (
             RandomForestClassifier(
-                n_estimators=20, max_depth=10, random_state=42, n_jobs=-1
+                n_estimators=20, max_depth=10, random_state=42, n_jobs=1
             ),
             False,
         ),
@@ -112,7 +130,7 @@ def get_classifiers():
             False,
         ),
         "logistic_regression": (
-            LogisticRegression(max_iter=500, solver="lbfgs", random_state=42),
+            LogisticRegression(max_iter=200, solver="lbfgs", random_state=42),
             True,
         ),
         "knn": (KNeighborsClassifier(n_neighbors=5), True),

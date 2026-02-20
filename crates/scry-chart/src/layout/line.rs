@@ -242,7 +242,7 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         sy_cfg.tick_font_size = tick_fs;
         let plot = ctx.plot;
         let (sy_ticks, sy_grids, sy_tmarks) = ctx.draw_with(|c| {
-            let (c, ticks, grids, tmarks) = crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg);
+            let (c, ticks, grids, tmarks, _rot) = crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg);
             (c, (ticks, grids, tmarks))
         });
         // Draw secondary axis grid + tick marks for proper z-ordering

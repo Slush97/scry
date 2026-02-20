@@ -42,6 +42,8 @@ pub struct KernelCache {
     pub flash_attention_bwd: CudaFunction,
     pub multi_dot_self: CudaFunction,
     pub fused_mul_reduce_rows: CudaFunction,
+    pub broadcast_scalar: CudaFunction,
+    pub cross_entropy_fwd_bwd: CudaFunction,
 
     // BF16 kernels (cast + flash attention — element-wise ops use f32 path)
     #[cfg(feature = "bf16")]
@@ -115,6 +117,8 @@ impl KernelCache {
             flash_attention_bwd: module.load_function("flash_attention_bwd").unwrap(),
             multi_dot_self: module.load_function("multi_dot_self").unwrap(),
             fused_mul_reduce_rows: module.load_function("fused_mul_reduce_rows").unwrap(),
+            broadcast_scalar: module.load_function("broadcast_scalar").unwrap(),
+            cross_entropy_fwd_bwd: module.load_function("cross_entropy_fwd_bwd").unwrap(),
 
             #[cfg(feature = "bf16")]
             f32_to_bf16: bf16_module.load_function("f32_to_bf16").unwrap(),
@@ -436,7 +440,7 @@ extern "C" __global__ void cross_entropy_fwd(
 
 extern "C" __global__ void cross_entropy_bwd(
     float* d_logits, const float* logits, const unsigned int* targets,
-    size_t batch, size_t vocab
+    size_t batch, size_t vocab, const float* d_out_scalar
 ) {
     extern __shared__ float sdata[];
 
@@ -446,6 +450,9 @@ extern "C" __global__ void cross_entropy_bwd(
     size_t tid = threadIdx.x;
     size_t stride = blockDim.x;
     unsigned int target = targets[b];
+
+    // Read upstream scalar gradient from device memory (no D2H sync)
+    float d_out_s = d_out_scalar[0];
 
     // Max
     float local_max = -1e30f;
@@ -477,10 +484,96 @@ extern "C" __global__ void cross_entropy_bwd(
     __syncthreads();
 
     float inv_batch = 1.0f / (float)batch;
+    float combined_scale = inv_batch * d_out_s;
+    for (size_t j = tid; j < vocab; j += stride) {
+        float prob = expf(logits[off + j] - max_val) / sum_exp;
+        float target_val = (j == target) ? 1.0f : 0.0f;
+        d_logits[off + j] = (prob - target_val) * combined_scale;
+    }
+}
+
+// Broadcast a 1-element scalar to fill an N-element output.
+// Reads scalar from device memory — no D2H sync needed.
+extern "C" __global__ void broadcast_scalar(float* out, const float* scalar, size_t n) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    out[i] = scalar[0];
+}
+
+// ============================================================
+// Fused cross-entropy forward+backward: one softmax pass total.
+// Computes loss and caches d_logits = (softmax - one_hot) / batch.
+// Backward just scales the cached grad by upstream d_out.
+// One block per batch row. Three passes over vocab:
+//   1. Find max (shared mem reduction)
+//   2. Compute sum_exp (shared mem reduction)
+//   3. Write grad + accumulate loss via atomicAdd
+// ============================================================
+
+extern "C" __global__ void cross_entropy_fwd_bwd(
+    float* loss_out, float* d_logits,
+    const float* logits, const unsigned int* targets,
+    size_t batch, size_t vocab
+) {
+    extern __shared__ float sdata[];
+
+    size_t b = blockIdx.x;
+    if (b >= batch) return;
+    size_t off = b * vocab;
+    size_t tid = threadIdx.x;
+    size_t stride = blockDim.x;
+    unsigned int target = targets[b];
+
+    // Pass 1: find max
+    float local_max = -1e30f;
+    for (size_t j = tid; j < vocab; j += stride) {
+        float v = logits[off + j];
+        if (v > local_max) local_max = v;
+    }
+    sdata[tid] = local_max;
+    __syncthreads();
+    for (size_t s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s && sdata[tid + s] > sdata[tid]) sdata[tid] = sdata[tid + s];
+        __syncthreads();
+    }
+    float max_val = sdata[0];
+    __syncthreads();
+
+    // Pass 2: sum exp
+    float local_sum = 0.0f;
+    for (size_t j = tid; j < vocab; j += stride) {
+        local_sum += expf(logits[off + j] - max_val);
+    }
+    sdata[tid] = local_sum;
+    __syncthreads();
+    for (size_t s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    float sum_exp = sdata[0];
+    __syncthreads();
+
+    // Pass 3: write grad and accumulate loss
+    float inv_batch = 1.0f / (float)batch;
+    float local_loss = 0.0f;
     for (size_t j = tid; j < vocab; j += stride) {
         float prob = expf(logits[off + j] - max_val) / sum_exp;
         float target_val = (j == target) ? 1.0f : 0.0f;
         d_logits[off + j] = (prob - target_val) * inv_batch;
+        if (j == target) {
+            local_loss = -logf(prob) * inv_batch;
+        }
+    }
+
+    // Reduce local_loss across threads (only one thread has nonzero loss per row)
+    sdata[tid] = local_loss;
+    __syncthreads();
+    for (size_t s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) {
+        atomicAdd(loss_out, sdata[0]);
     }
 }
 
@@ -1055,17 +1148,18 @@ extern "C" __global__ void fused_bias_dropout_residual_fwd(
 }
 
 // ============================================================
-// FlashAttention forward kernel — tiled with shared memory
+// FlashAttention forward kernel — warp-cooperative tiled
 // Grid: (ceil(S/FA_BR), B*H, 1)
-// Block: (FA_BR, 1, 1) — each thread handles one Q row
+// Block: (FA_BR, 32, 1) — each warp (threadIdx.x) handles one Q row,
+//   32 lanes (threadIdx.y) cooperate on the D dimension via shuffle reduction.
 //
 // Shared memory: K_tile[FA_BC * D] + V_tile[FA_BC * D]
 // Each block owns FA_BR rows of Q/O, iterates over K/V in tiles of FA_BC.
-// Cooperative K/V loading eliminates redundant global reads.
 // ============================================================
 
-#define FA_BR 64
+#define FA_BR 32
 #define FA_BC 32
+#define FA_MAX_DPT 4  // max ceil(D/32), supports D up to 128
 
 extern "C" __global__ void flash_attention_fwd(
     float* O, float* lse_out,
@@ -1078,96 +1172,111 @@ extern "C" __global__ void flash_attention_fwd(
 
     int tile_row = blockIdx.x;
     int bh = blockIdx.y;
-    int row_in_tile = threadIdx.x;  // [0, FA_BR)
+    int row_in_tile = threadIdx.x;  // [0, FA_BR) — which Q row
+    int lane = threadIdx.y;          // [0, 32) — D-dimension lane
 
     int row = tile_row * FA_BR + row_in_tile;
+    // Entire warp shares same row — safe for warp-coherent early exit
     if (row >= S) return;
 
-    // Pointers for this batch-head
     const float* Q_bh = Q + (size_t)bh * S * D;
     const float* K_bh = K + (size_t)bh * S * D;
     const float* V_bh = V + (size_t)bh * S * D;
     float* O_bh = O + (size_t)bh * S * D;
     float* lse_bh = lse_out + (size_t)bh * S;
 
-    // Load Q row into registers (pre-scaled)
-    float q_row[128];
-    for (int d = 0; d < D; d++) {
-        q_row[d] = Q_bh[row * D + d] * scale;
+    int dpt = (D + 31) / 32;  // elements per lane (interleaved)
+
+    // Load Q row into registers (pre-scaled), interleaved across lanes
+    float q_reg[FA_MAX_DPT];
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        q_reg[dd] = (d < D) ? Q_bh[row * D + d] * scale : 0.0f;
     }
 
-    // Online softmax state
+    // Online softmax state (warp-uniform after each reduction)
     float row_max = -1e30f;
     float row_sum = 0.0f;
-    float acc[128];
-    for (int d = 0; d < D; d++) {
-        acc[d] = 0.0f;
-    }
+    float acc[FA_MAX_DPT];
+    for (int dd = 0; dd < dpt; dd++) acc[dd] = 0.0f;
 
     int n_kv_tiles = (S + FA_BC - 1) / FA_BC;
     int max_kv_tile = is_causal ? ((row / FA_BC) + 1) : n_kv_tiles;
 
+    // Flat thread ID for cooperative loading (1024 threads)
+    int tid = row_in_tile * 32 + lane;
+    int nthreads = FA_BR * 32;
+
     for (int kv_tile = 0; kv_tile < max_kv_tile; kv_tile++) {
         int kv_start = kv_tile * FA_BC;
-        int kv_end = kv_start + FA_BC;
-        if (kv_end > S) kv_end = S;
-        int tile_size = kv_end - kv_start;
+        int tile_size = (kv_start + FA_BC > S) ? (S - kv_start) : FA_BC;
+        int tile_elems = tile_size * D;
 
-        // Cooperative load K tile into shared memory
-        for (int i = row_in_tile; i < tile_size * D; i += FA_BR) {
-            int kv_local = i / D;
-            int d = i % D;
-            K_smem[kv_local * D + d] = K_bh[(kv_start + kv_local) * D + d];
+        // Cooperative load K and V tiles (1024 threads — 16x faster than old 64)
+        for (int i = tid; i < tile_elems; i += nthreads) {
+            K_smem[i] = K_bh[kv_start * D + i];
         }
-        // Cooperative load V tile
-        for (int i = row_in_tile; i < tile_size * D; i += FA_BR) {
-            int kv_local = i / D;
-            int d = i % D;
-            V_smem[kv_local * D + d] = V_bh[(kv_start + kv_local) * D + d];
+        for (int i = tid; i < tile_elems; i += nthreads) {
+            V_smem[i] = V_bh[kv_start * D + i];
         }
         __syncthreads();
 
-        // Compute scores against all K vectors in this tile from shared memory
+        // Process each K vector in tile — warp-cooperative dot products
         for (int j = 0; j < tile_size; j++) {
             int kv_global = kv_start + j;
             if (is_causal && kv_global > row) break;
 
-            float s = 0.0f;
-            for (int d = 0; d < D; d++) {
-                s += q_row[d] * K_smem[j * D + d];
+            // Warp-cooperative dot product: Q[row] · K[j]
+            float partial = 0.0f;
+            for (int dd = 0; dd < dpt; dd++) {
+                int d = dd * 32 + lane;
+                if (d < D) partial += q_reg[dd] * K_smem[j * D + d];
             }
+            // Butterfly warp reduction — all lanes get full dot product
+            #pragma unroll
+            for (int offset = 16; offset > 0; offset >>= 1) {
+                partial += __shfl_xor_sync(0xffffffff, partial, offset);
+            }
+            float s = partial;
 
-            // Online softmax update
+            // Online softmax update (warp-uniform: all lanes have same s)
             float old_max = row_max;
             if (s > row_max) row_max = s;
             float correction = expf(old_max - row_max);
             row_sum = row_sum * correction + expf(s - row_max);
 
+            // V accumulation: each lane handles its D slice
             float w = expf(s - row_max);
-            for (int d = 0; d < D; d++) {
-                acc[d] = acc[d] * correction + w * V_smem[j * D + d];
+            for (int dd = 0; dd < dpt; dd++) {
+                int d = dd * 32 + lane;
+                if (d < D) {
+                    acc[dd] = acc[dd] * correction + w * V_smem[j * D + d];
+                }
             }
         }
         __syncthreads();
     }
 
-    // Finalize: O[row] = acc / row_sum
+    // Finalize: O[row] = acc / row_sum, each lane writes its D slice
     float inv_sum = 1.0f / row_sum;
-    for (int d = 0; d < D; d++) {
-        O_bh[row * D + d] = acc[d] * inv_sum;
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        if (d < D) O_bh[row * D + d] = acc[dd] * inv_sum;
     }
 
-    lse_bh[row] = row_max + logf(row_sum);
+    if (lane == 0) {
+        lse_bh[row] = row_max + logf(row_sum);
+    }
 }
 
 // ============================================================
-// FlashAttention backward kernel — KV-tile-centric (FlashAttention-2 style)
+// FlashAttention backward kernel — warp-cooperative KV-tile-centric
 // Grid: (ceil(S/FA_BWD_BC), B*H, 1)
-// Block: (FA_BWD_BC, 1, 1) — each thread owns one K/V row within the tile
+// Block: (FA_BWD_BC, 32, 1) — each warp (threadIdx.x) owns one K/V row,
+//   32 lanes (threadIdx.y) cooperate on D-dimension dot products and accumulation.
 //
-// Key optimization: dK and dV are accumulated in registers (zero atomicAdd).
-// Only dQ uses atomicAdd to global memory (BC-way contention vs. old S-way).
-// Shared memory: K_tile[BC*D] + V_tile[BC*D]
+// dK and dV accumulated in registers (zero atomicAdd).
+// Only dQ uses atomicAdd (BC-way contention, not S-way).
 // ============================================================
 
 #define FA_BWD_BC 32
@@ -1186,12 +1295,12 @@ extern "C" __global__ void flash_attention_bwd(
     int kv_tile = blockIdx.x;
     int bh = blockIdx.y;
     int kv_in_tile = threadIdx.x;  // [0, FA_BWD_BC)
+    int lane = threadIdx.y;         // [0, 32)
 
     int kv_start = kv_tile * FA_BWD_BC;
     int my_kv_row = kv_start + kv_in_tile;
     if (my_kv_row >= S) return;
 
-    // Pointers for this batch-head
     const float* Q_bh  = Q  + (size_t)bh * S * D;
     const float* K_bh  = K  + (size_t)bh * S * D;
     const float* V_bh  = V  + (size_t)bh * S * D;
@@ -1202,71 +1311,86 @@ extern "C" __global__ void flash_attention_bwd(
     float* dK_bh = dK + (size_t)bh * S * D;
     float* dV_bh = dV + (size_t)bh * S * D;
 
-    // Load my K and V row into shared memory
-    for (int d = 0; d < D; d++) {
-        K_smem[kv_in_tile * D + d] = K_bh[my_kv_row * D + d];
-        V_smem[kv_in_tile * D + d] = V_bh[my_kv_row * D + d];
+    int dpt = (D + 31) / 32;
+
+    // Load my K and V row into shared memory — lanes cooperate
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        if (d < D) {
+            K_smem[kv_in_tile * D + d] = K_bh[my_kv_row * D + d];
+            V_smem[kv_in_tile * D + d] = V_bh[my_kv_row * D + d];
+        }
     }
     __syncthreads();
 
-    // Accumulators for dK and dV in registers — NO atomicAdd needed
-    float dk_acc[128];
-    float dv_acc[128];
-    for (int d = 0; d < D; d++) {
-        dk_acc[d] = 0.0f;
-        dv_acc[d] = 0.0f;
+    // Accumulators for dK and dV — each lane holds its D slice
+    float dk_acc[FA_MAX_DPT];
+    float dv_acc[FA_MAX_DPT];
+    for (int dd = 0; dd < dpt; dd++) {
+        dk_acc[dd] = 0.0f;
+        dv_acc[dd] = 0.0f;
     }
 
-    // Loop over Q rows that attend to this KV position
-    // Causal: only Q rows i >= my_kv_row can attend to K[my_kv_row]
     int q_start = is_causal ? my_kv_row : 0;
 
     for (int i = q_start; i < S; i++) {
         float lse_i = lse_bh[i];
 
-        // Recompute score = dot(Q[i] * scale, K[my_kv_row])
-        float s = 0.0f;
-        for (int d = 0; d < D; d++) {
-            s += Q_bh[i * D + d] * scale * K_smem[kv_in_tile * D + d];
+        // Load Q[i], dO[i], O[i] into registers — each lane loads its D slice
+        float q_r[FA_MAX_DPT], do_r[FA_MAX_DPT], o_r[FA_MAX_DPT];
+        for (int dd = 0; dd < dpt; dd++) {
+            int d = dd * 32 + lane;
+            if (d < D) {
+                q_r[dd]  = Q_bh[i * D + d];
+                do_r[dd] = dO_bh[i * D + d];
+                o_r[dd]  = O_bh[i * D + d];
+            } else {
+                q_r[dd] = 0.0f; do_r[dd] = 0.0f; o_r[dd] = 0.0f;
+            }
         }
 
-        // p_ij = exp(s - lse_i)
+        // Fused warp-cooperative reductions: score, Di, dov
+        float s_part = 0.0f, di_part = 0.0f, dov_part = 0.0f;
+        for (int dd = 0; dd < dpt; dd++) {
+            int d = dd * 32 + lane;
+            if (d < D) {
+                float k_d = K_smem[kv_in_tile * D + d];
+                float v_d = V_smem[kv_in_tile * D + d];
+                s_part   += q_r[dd] * scale * k_d;
+                di_part  += do_r[dd] * o_r[dd];
+                dov_part += do_r[dd] * v_d;
+            }
+        }
+        // 3 butterfly reductions
+        float s = s_part, Di = di_part, dov = dov_part;
+        #pragma unroll
+        for (int offset = 16; offset > 0; offset >>= 1) {
+            s   += __shfl_xor_sync(0xffffffff, s,   offset);
+            Di  += __shfl_xor_sync(0xffffffff, Di,  offset);
+            dov += __shfl_xor_sync(0xffffffff, dov, offset);
+        }
+
         float p_ij = expf(s - lse_i);
-
-        // Di = dot(dO[i], O[i])
-        float Di = 0.0f;
-        for (int d = 0; d < D; d++) {
-            Di += dO_bh[i * D + d] * O_bh[i * D + d];
-        }
-
-        // dov = dot(dO[i], V[my_kv_row])
-        float dov = 0.0f;
-        for (int d = 0; d < D; d++) {
-            dov += dO_bh[i * D + d] * V_smem[kv_in_tile * D + d];
-        }
-
         float ds_ij = p_ij * (dov - Di);
 
-        // Accumulate dK[my_kv_row] in registers — no atomics!
-        for (int d = 0; d < D; d++) {
-            dk_acc[d] += ds_ij * scale * Q_bh[i * D + d];
-        }
-
-        // Accumulate dV[my_kv_row] in registers — no atomics!
-        for (int d = 0; d < D; d++) {
-            dv_acc[d] += p_ij * dO_bh[i * D + d];
-        }
-
-        // Accumulate dQ[i] via atomicAdd (acceptable: BC-way contention, not S-way)
-        for (int d = 0; d < D; d++) {
-            atomicAdd(&dQ_bh[i * D + d], ds_ij * scale * K_smem[kv_in_tile * D + d]);
+        // Accumulate dK, dV, dQ — each lane handles its D slice
+        for (int dd = 0; dd < dpt; dd++) {
+            int d = dd * 32 + lane;
+            if (d < D) {
+                dk_acc[dd] += ds_ij * scale * q_r[dd];
+                dv_acc[dd] += p_ij * do_r[dd];
+                atomicAdd(&dQ_bh[i * D + d], ds_ij * scale * K_smem[kv_in_tile * D + d]);
+            }
         }
     }
 
-    // Write dK and dV to global memory — single non-atomic store
-    for (int d = 0; d < D; d++) {
-        dK_bh[my_kv_row * D + d] = dk_acc[d];
-        dV_bh[my_kv_row * D + d] = dv_acc[d];
+    // Write dK and dV — each lane writes its D slice
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        if (d < D) {
+            dK_bh[my_kv_row * D + d] = dk_acc[dd];
+            dV_bh[my_kv_row * D + d] = dv_acc[dd];
+        }
     }
 }
 
@@ -1343,16 +1467,16 @@ extern "C" __global__ void bf16_to_f32(float* out, const bf16_t* in, size_t n) {
 }
 
 // ============================================================
-// BF16 FlashAttention forward kernel — mixed-precision tiled
-// Q/K/V inputs: bf16 (halves global memory bandwidth)
-// K/V shared memory tiles: bf16 (halves smem → allows BC=64)
-// Score accumulation, online softmax, output O, lse: f32
+// BF16 FlashAttention forward kernel — warp-cooperative mixed-precision
+// Q/K/V inputs: bf16, K/V shared tiles: bf16
+// Score accumulation, online softmax, O, lse: f32
 // Grid: (ceil(S/FA_BF16_BR), B*H, 1)
-// Block: (FA_BF16_BR, 1, 1)
+// Block: (FA_BF16_BR, 32, 1) — warp-cooperative on D dimension
 // ============================================================
 
-#define FA_BF16_BR 64
+#define FA_BF16_BR 32
 #define FA_BF16_BC 64
+#define FA_BF16_MAX_DPT 4
 
 extern "C" __global__ void flash_attention_fwd_bf16(
     float* O, float* lse_out,
@@ -1366,95 +1490,97 @@ extern "C" __global__ void flash_attention_fwd_bf16(
     int tile_row = blockIdx.x;
     int bh = blockIdx.y;
     int row_in_tile = threadIdx.x;  // [0, FA_BF16_BR)
+    int lane = threadIdx.y;          // [0, 32)
 
     int row = tile_row * FA_BF16_BR + row_in_tile;
     if (row >= S) return;
 
-    // Pointers for this batch-head
     const bf16_t* Q_bh = Q + (size_t)bh * S * D;
     const bf16_t* K_bh = K + (size_t)bh * S * D;
     const bf16_t* V_bh = V + (size_t)bh * S * D;
     float* O_bh = O + (size_t)bh * S * D;
     float* lse_bh = lse_out + (size_t)bh * S;
 
-    // Load Q row into f32 registers (pre-scaled)
-    float q_row[128];
-    for (int d = 0; d < D; d++) {
-        q_row[d] = bf16_to_float(Q_bh[row * D + d]) * scale;
+    int dpt = (D + 31) / 32;
+
+    // Load Q row into f32 registers (pre-scaled), interleaved
+    float q_reg[FA_BF16_MAX_DPT];
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        q_reg[dd] = (d < D) ? bf16_to_float(Q_bh[row * D + d]) * scale : 0.0f;
     }
 
-    // Online softmax state
     float row_max = -1e30f;
     float row_sum = 0.0f;
-    float acc[128];
-    for (int d = 0; d < D; d++) {
-        acc[d] = 0.0f;
-    }
+    float acc[FA_BF16_MAX_DPT];
+    for (int dd = 0; dd < dpt; dd++) acc[dd] = 0.0f;
 
     int n_kv_tiles = (S + FA_BF16_BC - 1) / FA_BF16_BC;
     int max_kv_tile = is_causal ? ((row / FA_BF16_BC) + 1) : n_kv_tiles;
 
+    int tid = row_in_tile * 32 + lane;
+    int nthreads = FA_BF16_BR * 32;
+
     for (int kv_tile = 0; kv_tile < max_kv_tile; kv_tile++) {
         int kv_start = kv_tile * FA_BF16_BC;
-        int kv_end = kv_start + FA_BF16_BC;
-        if (kv_end > S) kv_end = S;
-        int tile_size = kv_end - kv_start;
+        int tile_size = (kv_start + FA_BF16_BC > S) ? (S - kv_start) : FA_BF16_BC;
+        int tile_elems = tile_size * D;
 
-        // Cooperative load K tile into bf16 shared memory
-        for (int i = row_in_tile; i < tile_size * D; i += FA_BF16_BR) {
-            int kv_local = i / D;
-            int d = i % D;
-            K_smem[kv_local * D + d] = K_bh[(kv_start + kv_local) * D + d];
+        for (int i = tid; i < tile_elems; i += nthreads) {
+            K_smem[i] = K_bh[kv_start * D + i];
         }
-        // Cooperative load V tile into bf16 shared memory
-        for (int i = row_in_tile; i < tile_size * D; i += FA_BF16_BR) {
-            int kv_local = i / D;
-            int d = i % D;
-            V_smem[kv_local * D + d] = V_bh[(kv_start + kv_local) * D + d];
+        for (int i = tid; i < tile_elems; i += nthreads) {
+            V_smem[i] = V_bh[kv_start * D + i];
         }
         __syncthreads();
 
-        // Compute scores against all K vectors in this tile
         for (int j = 0; j < tile_size; j++) {
             int kv_global = kv_start + j;
             if (is_causal && kv_global > row) break;
 
-            // Dot product: f32 accumulation with bf16 K values
-            float s = 0.0f;
-            for (int d = 0; d < D; d++) {
-                s += q_row[d] * bf16_to_float(K_smem[j * D + d]);
+            float partial = 0.0f;
+            for (int dd = 0; dd < dpt; dd++) {
+                int d = dd * 32 + lane;
+                if (d < D) partial += q_reg[dd] * bf16_to_float(K_smem[j * D + d]);
             }
+            #pragma unroll
+            for (int offset = 16; offset > 0; offset >>= 1) {
+                partial += __shfl_xor_sync(0xffffffff, partial, offset);
+            }
+            float s = partial;
 
-            // Online softmax update
             float old_max = row_max;
             if (s > row_max) row_max = s;
             float correction = expf(old_max - row_max);
             row_sum = row_sum * correction + expf(s - row_max);
 
             float w = expf(s - row_max);
-            for (int d = 0; d < D; d++) {
-                acc[d] = acc[d] * correction + w * bf16_to_float(V_smem[j * D + d]);
+            for (int dd = 0; dd < dpt; dd++) {
+                int d = dd * 32 + lane;
+                if (d < D) {
+                    acc[dd] = acc[dd] * correction + w * bf16_to_float(V_smem[j * D + d]);
+                }
             }
         }
         __syncthreads();
     }
 
-    // Finalize: O[row] = acc / row_sum (output in f32)
     float inv_sum = 1.0f / row_sum;
-    for (int d = 0; d < D; d++) {
-        O_bh[row * D + d] = acc[d] * inv_sum;
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        if (d < D) O_bh[row * D + d] = acc[dd] * inv_sum;
     }
 
-    lse_bh[row] = row_max + logf(row_sum);
+    if (lane == 0) {
+        lse_bh[row] = row_max + logf(row_sum);
+    }
 }
 
 // ============================================================
-// BF16 FlashAttention backward kernel — mixed-precision KV-tile-centric
-// Q/K/V/dO inputs: bf16 (halves inner-loop bandwidth — the big win)
-// O, lse: f32 (written by fwd as f32, read once per Q row)
-// dQ/dK/dV outputs: f32 (optimizer needs f32 master grads)
+// BF16 FlashAttention backward — warp-cooperative KV-tile-centric
+// Q/K/V/dO: bf16, O/lse: f32, dQ/dK/dV: f32
 // Grid: (ceil(S/FA_BF16_BWD_BC), B*H, 1)
-// Block: (FA_BF16_BWD_BC, 1, 1)
+// Block: (FA_BF16_BWD_BC, 32, 1)
 // ============================================================
 
 #define FA_BF16_BWD_BC 32
@@ -1473,12 +1599,12 @@ extern "C" __global__ void flash_attention_bwd_bf16(
     int kv_tile = blockIdx.x;
     int bh = blockIdx.y;
     int kv_in_tile = threadIdx.x;  // [0, FA_BF16_BWD_BC)
+    int lane = threadIdx.y;         // [0, 32)
 
     int kv_start = kv_tile * FA_BF16_BWD_BC;
     int my_kv_row = kv_start + kv_in_tile;
     if (my_kv_row >= S) return;
 
-    // Pointers for this batch-head
     const bf16_t* Q_bh  = Q  + (size_t)bh * S * D;
     const bf16_t* K_bh  = K  + (size_t)bh * S * D;
     const bf16_t* V_bh  = V  + (size_t)bh * S * D;
@@ -1489,61 +1615,82 @@ extern "C" __global__ void flash_attention_bwd_bf16(
     float* dK_bh = dK + (size_t)bh * S * D;
     float* dV_bh = dV + (size_t)bh * S * D;
 
-    // Load my K and V row into bf16 shared memory
-    for (int d = 0; d < D; d++) {
-        K_smem[kv_in_tile * D + d] = K_bh[my_kv_row * D + d];
-        V_smem[kv_in_tile * D + d] = V_bh[my_kv_row * D + d];
+    int dpt = (D + 31) / 32;
+
+    // Load my K and V row into bf16 shared memory — lanes cooperate
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        if (d < D) {
+            K_smem[kv_in_tile * D + d] = K_bh[my_kv_row * D + d];
+            V_smem[kv_in_tile * D + d] = V_bh[my_kv_row * D + d];
+        }
     }
     __syncthreads();
 
-    // Accumulators for dK and dV in f32 registers
-    float dk_acc[128];
-    float dv_acc[128];
-    for (int d = 0; d < D; d++) {
-        dk_acc[d] = 0.0f;
-        dv_acc[d] = 0.0f;
+    float dk_acc[FA_BF16_MAX_DPT];
+    float dv_acc[FA_BF16_MAX_DPT];
+    for (int dd = 0; dd < dpt; dd++) {
+        dk_acc[dd] = 0.0f;
+        dv_acc[dd] = 0.0f;
     }
 
-    // Loop over Q rows that attend to this KV position
     int q_start = is_causal ? my_kv_row : 0;
 
     for (int i = q_start; i < S; i++) {
         float lse_i = lse_bh[i];
 
-        // Pre-load Q[i] and dO[i] into f32 registers (1 bf16 read each)
-        float q_reg[128], do_reg[128];
-        for (int d = 0; d < D; d++) {
-            q_reg[d] = bf16_to_float(Q_bh[i * D + d]);
-            do_reg[d] = bf16_to_float(dO_bh[i * D + d]);
+        // Load Q[i], dO[i], O[i] — each lane loads its D slice
+        float q_r[FA_BF16_MAX_DPT], do_r[FA_BF16_MAX_DPT], o_r[FA_BF16_MAX_DPT];
+        for (int dd = 0; dd < dpt; dd++) {
+            int d = dd * 32 + lane;
+            if (d < D) {
+                q_r[dd]  = bf16_to_float(Q_bh[i * D + d]);
+                do_r[dd] = bf16_to_float(dO_bh[i * D + d]);
+                o_r[dd]  = O_bh[i * D + d];
+            } else {
+                q_r[dd] = 0.0f; do_r[dd] = 0.0f; o_r[dd] = 0.0f;
+            }
         }
 
-        // Fused reductions: score, Di, dov in a single pass over d
-        float s = 0.0f, Di = 0.0f, dov = 0.0f;
-        for (int d = 0; d < D; d++) {
-            float k_d = bf16_to_float(K_smem[kv_in_tile * D + d]);
-            float v_d = bf16_to_float(V_smem[kv_in_tile * D + d]);
-            s   += q_reg[d] * scale * k_d;
-            Di  += do_reg[d] * O_bh[i * D + d];
-            dov += do_reg[d] * v_d;
+        // Fused warp-cooperative reductions
+        float s_part = 0.0f, di_part = 0.0f, dov_part = 0.0f;
+        for (int dd = 0; dd < dpt; dd++) {
+            int d = dd * 32 + lane;
+            if (d < D) {
+                float k_d = bf16_to_float(K_smem[kv_in_tile * D + d]);
+                float v_d = bf16_to_float(V_smem[kv_in_tile * D + d]);
+                s_part   += q_r[dd] * scale * k_d;
+                di_part  += do_r[dd] * o_r[dd];
+                dov_part += do_r[dd] * v_d;
+            }
+        }
+        float s = s_part, Di = di_part, dov = dov_part;
+        #pragma unroll
+        for (int offset = 16; offset > 0; offset >>= 1) {
+            s   += __shfl_xor_sync(0xffffffff, s,   offset);
+            Di  += __shfl_xor_sync(0xffffffff, Di,  offset);
+            dov += __shfl_xor_sync(0xffffffff, dov, offset);
         }
 
         float p_ij = expf(s - lse_i);
         float ds_ij = p_ij * (dov - Di);
-        float ds_scale = ds_ij * scale;
 
-        // Fused accumulations: dk, dv, dQ in a single pass over d
-        for (int d = 0; d < D; d++) {
-            float k_d = bf16_to_float(K_smem[kv_in_tile * D + d]);
-            dk_acc[d] += ds_scale * q_reg[d];
-            dv_acc[d] += p_ij * do_reg[d];
-            atomicAdd(&dQ_bh[i * D + d], ds_scale * k_d);
+        for (int dd = 0; dd < dpt; dd++) {
+            int d = dd * 32 + lane;
+            if (d < D) {
+                dk_acc[dd] += ds_ij * scale * q_r[dd];
+                dv_acc[dd] += p_ij * do_r[dd];
+                atomicAdd(&dQ_bh[i * D + d], ds_ij * scale * bf16_to_float(K_smem[kv_in_tile * D + d]));
+            }
         }
     }
 
-    // Write dK and dV to f32 global memory
-    for (int d = 0; d < D; d++) {
-        dK_bh[my_kv_row * D + d] = dk_acc[d];
-        dV_bh[my_kv_row * D + d] = dv_acc[d];
+    for (int dd = 0; dd < dpt; dd++) {
+        int d = dd * 32 + lane;
+        if (d < D) {
+            dK_bh[my_kv_row * D + d] = dk_acc[dd];
+            dV_bh[my_kv_row * D + d] = dv_acc[dd];
+        }
     }
 }
 "#;

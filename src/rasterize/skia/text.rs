@@ -33,6 +33,146 @@ pub fn default_font() -> FontData {
 }
 
 // ---------------------------------------------------------------------------
+// Font fallback chain (lazy-loaded system fonts)
+// ---------------------------------------------------------------------------
+
+/// A parsed fallback font: the raw `FontData` + parsed `fontdue::Font`.
+#[cfg(feature = "text")]
+struct FallbackFont {
+    /// Kept alive so the bytes backing `font` remain valid.
+    #[allow(dead_code)]
+    data: FontData,
+    font: fontdue::Font,
+}
+
+/// Lazily initialized fallback font chain discovered from system font
+/// directories.  Only loaded on the first glyph miss in the primary font,
+/// so Latin-only text incurs zero extra cost.
+#[cfg(feature = "text")]
+static FALLBACK_CHAIN: std::sync::OnceLock<Vec<FallbackFont>> = std::sync::OnceLock::new();
+
+/// Well-known system font directories (Linux, macOS, Windows).
+#[cfg(feature = "text")]
+const SYSTEM_FONT_DIRS: &[&str] = &[
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    "/System/Library/Fonts",
+    "/Library/Fonts",
+    "C:\\Windows\\Fonts",
+];
+
+/// Priority keywords for fallback font file names (checked in order).
+/// Noto Sans variants are preferred because they cover most Unicode blocks.
+#[cfg(feature = "text")]
+const PRIORITY_KEYWORDS: &[&str] = &[
+    "NotoSansCJK",
+    "NotoSansArabic",
+    "NotoSansHebrew",
+    "NotoSansDevanagari",
+    "NotoSans-Regular",
+    "NotoSans-",
+    "DroidSansFallback",
+    "FreeSans",
+    "DejaVuSans",
+    "Arial",
+    "Roboto",
+];
+
+/// Build the fallback chain by scanning system font directories.
+///
+/// Priority fonts (Noto Sans variants) are placed first, followed by any
+/// remaining `.ttf` / `.otf` files found.  Each file is parsed once; files
+/// that fail to parse are silently skipped.
+#[cfg(feature = "text")]
+fn discover_fallback_fonts() -> Vec<FallbackFont> {
+    let mut priority: Vec<(usize, std::path::PathBuf)> = Vec::new();
+    let mut others: Vec<std::path::PathBuf> = Vec::new();
+
+    // Also check $HOME/.local/share/fonts
+    let home_fonts = std::env::var("HOME")
+        .ok()
+        .map(|h| std::path::PathBuf::from(h).join(".local/share/fonts"));
+
+    let dirs: Vec<&std::path::Path> = SYSTEM_FONT_DIRS
+        .iter()
+        .map(std::path::Path::new)
+        .chain(home_fonts.as_deref())
+        .collect();
+
+    for dir in dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        let walker = walkdir(dir);
+        for path in walker {
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            let lower = name.to_ascii_lowercase();
+            if !(lower.ends_with(".ttf") || lower.ends_with(".otf")) {
+                continue;
+            }
+            // Check priority
+            if let Some(pos) = PRIORITY_KEYWORDS.iter().position(|kw| name.contains(kw)) {
+                priority.push((pos, path));
+            } else {
+                others.push(path);
+            }
+        }
+    }
+
+    // Sort priority fonts by their keyword rank
+    priority.sort_by_key(|(rank, _)| *rank);
+
+    let mut chain = Vec::new();
+    // Cap at a reasonable limit to avoid loading hundreds of fonts
+    let candidates = priority
+        .into_iter()
+        .map(|(_, p)| p)
+        .chain(others.into_iter())
+        .take(12);
+
+    for path in candidates {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(font) = fontdue::Font::from_bytes(
+                bytes.as_slice(),
+                fontdue::FontSettings::default(),
+            ) {
+                chain.push(FallbackFont {
+                    data: FontData::new(bytes),
+                    font,
+                });
+            }
+        }
+    }
+    chain
+}
+
+/// Simple recursive directory walk (avoids adding a `walkdir` crate dep).
+#[cfg(feature = "text")]
+fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut result = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                result.extend(walkdir(&path));
+            } else {
+                result.push(path);
+            }
+        }
+    }
+    result
+}
+
+/// Get the fallback font chain, initializing it on first call.
+#[cfg(feature = "text")]
+fn fallback_chain() -> &'static [FallbackFont] {
+    FALLBACK_CHAIN.get_or_init(discover_fallback_fonts)
+}
+
+// ---------------------------------------------------------------------------
 // Text measurement
 // ---------------------------------------------------------------------------
 
@@ -74,8 +214,26 @@ pub fn measure_text(text: &str, font_data: Option<&FontData>, font_size: f32) ->
 
         let mut width = 0.0_f32;
         for ch in text.chars() {
-            let (metrics, _) = font.rasterize(ch, font_size);
-            width += metrics.advance_width;
+            if font.has_glyph(ch) {
+                let (metrics, _) = font.rasterize(ch, font_size);
+                width += metrics.advance_width;
+            } else {
+                // Try fallback chain
+                let mut found = false;
+                for fb in fallback_chain() {
+                    if fb.font.has_glyph(ch) {
+                        let (metrics, _) = fb.font.rasterize(ch, font_size);
+                        width += metrics.advance_width;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    // No fallback has it — use primary font (tofu)
+                    let (metrics, _) = font.rasterize(ch, font_size);
+                    width += metrics.advance_width;
+                }
+            }
         }
 
         let line_metrics = font.horizontal_line_metrics(font_size);
@@ -542,7 +700,20 @@ impl Rasterizer {
             let font = cache.get(&font_key).expect("font was just inserted");
 
             for ch in text.chars() {
-                let (metrics, bitmap) = font.rasterize(ch, font_size);
+                // Choose the best font for this character: primary or fallback.
+                let (metrics, bitmap) = if font.has_glyph(ch) {
+                    font.rasterize(ch, font_size)
+                } else {
+                    // Search fallback chain for a font that has this glyph
+                    let mut fallback_result = None;
+                    for fb in fallback_chain() {
+                        if fb.font.has_glyph(ch) {
+                            fallback_result = Some(fb.font.rasterize(ch, font_size));
+                            break;
+                        }
+                    }
+                    fallback_result.unwrap_or_else(|| font.rasterize(ch, font_size))
+                };
 
                 if metrics.width > 0 && metrics.height > 0 {
                     let gw = metrics.width as u32;

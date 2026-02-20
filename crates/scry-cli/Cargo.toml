@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 scry-chart = { version = "0.7.0", path = "../scry-chart", features = ["widget", "cli"] }
-scry-engine = { version = "0.7.0", path = "../..", features = ["kitty", "text", "sdf"] }
+scry-engine = { version = "0.7.0", path = "../..", features = ["kitty", "text", "sdf-gpu", "sdf-text"] }
 
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"

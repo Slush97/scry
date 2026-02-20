@@ -1,14 +1,82 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
 use cudarc::cublas::sys::cublasOperation_t;
+use cudarc::cublaslt::{CudaBlasLT, Matmul as CublasLtMatmul, MatmulConfig as LtMatmulConfig};
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, LaunchConfig, PushKernelArg};
 
 use crate::backend::{DeviceBackend, MathBackend};
 use crate::tensor::shape::Shape;
 
 use super::kernels::KernelCache;
+
+// ---- CUDA caching memory allocator ----
+
+/// Pool of device buffers bucketed by `next_power_of_two()` element count.
+/// Eliminates per-op `cuMemAlloc`/`cuMemFree` round-trips to the CUDA driver.
+struct GpuPool {
+    free: HashMap<usize, Vec<CudaSlice<f32>>>,
+    hits: u64,
+    misses: u64,
+}
+
+impl GpuPool {
+    fn new() -> Self {
+        Self {
+            free: HashMap::new(),
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// Allocate a device buffer of at least `n` f32 elements. Uninitialized.
+    /// Checks the pool first; falls back to `cuMemAlloc` on miss.
+    fn alloc(&mut self, stream: &Arc<CudaStream>, n: usize) -> CudaSlice<f32> {
+        let bucket = n.next_power_of_two().max(1);
+        if let Some(list) = self.free.get_mut(&bucket) {
+            if let Some(buf) = list.pop() {
+                self.hits += 1;
+                return buf;
+            }
+        }
+        self.misses += 1;
+        unsafe { stream.alloc::<f32>(bucket).unwrap() }
+    }
+
+    /// Allocate a zeroed device buffer of at least `n` f32 elements.
+    /// Pool buffer + `memset_zeros`, or fresh `alloc_zeros`.
+    fn alloc_zeros(&mut self, stream: &Arc<CudaStream>, n: usize) -> CudaSlice<f32> {
+        let bucket = n.next_power_of_two().max(1);
+        if let Some(list) = self.free.get_mut(&bucket) {
+            if let Some(mut buf) = list.pop() {
+                self.hits += 1;
+                stream.memset_zeros(&mut buf).unwrap();
+                return buf;
+            }
+        }
+        self.misses += 1;
+        stream.alloc_zeros::<f32>(bucket).unwrap()
+    }
+
+    /// Return a buffer to the pool for reuse.
+    fn recycle(&mut self, buf: CudaSlice<f32>, len: usize) {
+        let bucket = len.next_power_of_two().max(1);
+        self.free.entry(bucket).or_default().push(buf);
+    }
+
+    /// Pool hit/miss statistics. Returns `(hits, misses)`.
+    pub fn stats(&self) -> (u64, u64) {
+        (self.hits, self.misses)
+    }
+
+    /// Drop all pooled buffers (for VRAM pressure).
+    #[allow(dead_code)]
+    pub fn trim(&mut self) {
+        self.free.clear();
+    }
+}
 
 // ---- BF16 mode flag ----
 
@@ -23,13 +91,15 @@ fn bf16_enabled() -> bool {
 }
 
 
-/// Thread-local GPU context: device, stream, cuBLAS handle, compiled kernels.
+/// Thread-local GPU context: device, stream, cuBLAS handle, compiled kernels, memory pool.
 struct GpuCtx {
     #[allow(dead_code)]
     ctx: Arc<CudaContext>,
     stream: Arc<CudaStream>,
     blas: CudaBlas,
+    blas_lt: CudaBlasLT,
     kernels: KernelCache,
+    pool: RefCell<GpuPool>,
 }
 
 thread_local! {
@@ -58,12 +128,15 @@ pub fn init_gpu(device_id: usize) {
             );
         }
 
+        let blas_lt = CudaBlasLT::new(stream.clone()).expect("failed to create cuBLASLt handle");
         let kernels = KernelCache::compile(&ctx);
         *cell.borrow_mut() = Some(GpuCtx {
             ctx,
             stream,
             blas,
+            blas_lt,
             kernels,
+            pool: RefCell::new(GpuPool::new()),
         });
     });
 }
@@ -86,6 +159,21 @@ fn with_gpu<R>(f: impl FnOnce(&GpuCtx) -> R) -> R {
     })
 }
 
+/// Allocate from the pool (uninitialized). Use only when the kernel fully overwrites.
+fn pool_alloc(gpu: &GpuCtx, n: usize) -> CudaSlice<f32> {
+    gpu.pool.borrow_mut().alloc(&gpu.stream, n)
+}
+
+/// Allocate from the pool (zeroed). Use for atomicAdd targets, reductions, etc.
+fn pool_alloc_zeros(gpu: &GpuCtx, n: usize) -> CudaSlice<f32> {
+    gpu.pool.borrow_mut().alloc_zeros(&gpu.stream, n)
+}
+
+/// Query pool statistics. Returns `(hits, misses)`.
+pub fn pool_stats() -> (u64, u64) {
+    with_gpu(|gpu| gpu.pool.borrow().stats())
+}
+
 /// Access the thread-local GPU context mutably (for cuBLAS which needs &mut).
 fn with_gpu_mut<R>(f: impl FnOnce(&mut GpuCtx) -> R) -> R {
     GPU_CTX.with(|cell| {
@@ -96,11 +184,13 @@ fn with_gpu_mut<R>(f: impl FnOnce(&mut GpuCtx) -> R) -> R {
 }
 
 /// GPU storage: a device-side f32 buffer with optional bf16 shadow for mixed-precision.
+///
+/// Uses `Option<CudaSlice<f32>>` so `Drop` can take ownership and recycle to the pool.
 #[derive(Debug)]
 pub struct GpuStorage {
-    pub(crate) inner: CudaSlice<f32>,
+    buf: Option<CudaSlice<f32>>,
     pub(crate) len: usize,
-    /// Cached bf16 copy of `inner`, created lazily on first bf16 matmul access.
+    /// Cached bf16 copy, created lazily on first bf16 matmul access.
     /// Invalidated after each optimizer step so it stays in sync with f32 master weights.
     #[cfg(feature = "bf16")]
     pub(crate) bf16_shadow: std::cell::RefCell<Option<CudaSlice<half::bf16>>>,
@@ -108,16 +198,37 @@ pub struct GpuStorage {
 
 impl Clone for GpuStorage {
     fn clone(&self) -> Self {
-        let cloned = self
-            .inner
-            .try_clone()
-            .expect("failed to clone GPU storage");
-        Self {
-            inner: cloned,
-            len: self.len,
-            // Don't clone the shadow — it will be lazily recreated if needed.
-            #[cfg(feature = "bf16")]
-            bf16_shadow: std::cell::RefCell::new(None),
+        // Route clone through the pool: alloc from pool + D2D copy
+        with_gpu(|gpu| {
+            let mut cloned = gpu.pool.borrow_mut().alloc(&gpu.stream, self.len);
+            gpu.stream.memcpy_dtod(self.inner(), &mut cloned).unwrap();
+            Self {
+                buf: Some(cloned),
+                len: self.len,
+                #[cfg(feature = "bf16")]
+                bf16_shadow: std::cell::RefCell::new(None),
+            }
+        })
+    }
+}
+
+impl Drop for GpuStorage {
+    fn drop(&mut self) {
+        if let Some(slice) = self.buf.take() {
+            // Try to recycle into the thread-local pool.
+            // If the thread-local is already torn down (e.g. during thread exit),
+            // the CudaSlice drops normally via cuMemFree.
+            let len = self.len;
+            let _ = GPU_CTX.try_with(|cell| {
+                if let Ok(borrow) = cell.try_borrow() {
+                    if let Some(gpu) = borrow.as_ref() {
+                        gpu.pool.borrow_mut().recycle(slice, len);
+                        return;
+                    }
+                }
+                // Pool not available — let CudaSlice::drop handle it
+                drop(slice);
+            });
         }
     }
 }
@@ -126,11 +237,23 @@ impl GpuStorage {
     /// Create a new `GpuStorage` from a `CudaSlice<f32>` and length.
     fn new(inner: CudaSlice<f32>, len: usize) -> Self {
         Self {
-            inner,
+            buf: Some(inner),
             len,
             #[cfg(feature = "bf16")]
             bf16_shadow: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Access the underlying `CudaSlice`.
+    #[inline]
+    pub(crate) fn inner(&self) -> &CudaSlice<f32> {
+        self.buf.as_ref().expect("GpuStorage already recycled")
+    }
+
+    /// Mutable access to the underlying `CudaSlice`.
+    #[inline]
+    pub(crate) fn inner_mut(&mut self) -> &mut CudaSlice<f32> {
+        self.buf.as_mut().expect("GpuStorage already recycled")
     }
 
     /// Invalidate the bf16 shadow cache (called after optimizer updates f32 master weights).
@@ -147,7 +270,7 @@ impl GpuStorage {
             return s.try_clone().expect("failed to clone bf16 shadow");
         }
         // Create the shadow by casting f32 → bf16
-        let s = with_gpu(|gpu| bf16_ops::cast_f32_to_bf16(gpu, &self.inner, self.len));
+        let s = with_gpu(|gpu| bf16_ops::cast_f32_to_bf16(gpu, self.inner(), self.len));
         let cloned = s.try_clone().expect("failed to clone bf16 shadow");
         *shadow = Some(s);
         cloned
@@ -174,7 +297,7 @@ impl DeviceBackend for CudaBackend {
     fn zeros(shape: &Shape) -> GpuStorage {
         let n = shape.numel();
         with_gpu(|gpu| {
-            let inner = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let inner = pool_alloc_zeros(gpu, n);
             GpuStorage::new(inner, n )
         })
     }
@@ -183,21 +306,32 @@ impl DeviceBackend for CudaBackend {
         let n = shape.numel();
         let data = vec![1.0f32; n];
         with_gpu(|gpu| {
-            let inner = gpu.stream.clone_htod(&data).unwrap();
-            GpuStorage::new(inner, n )
+            let mut inner = pool_alloc(gpu, n);
+            gpu.stream.memcpy_htod(&data, &mut inner).unwrap();
+            GpuStorage::new(inner, n)
         })
     }
 
     fn from_vec(data: Vec<f32>, _shape: &Shape) -> GpuStorage {
         let len = data.len();
         with_gpu(|gpu| {
-            let inner = gpu.stream.clone_htod(&data).unwrap();
+            let mut inner = pool_alloc(gpu, len);
+            gpu.stream.memcpy_htod(&data, &mut inner).unwrap();
             GpuStorage::new(inner, len)
         })
     }
 
     fn to_vec(storage: &GpuStorage) -> Vec<f32> {
-        with_gpu(|gpu| gpu.stream.clone_dtoh(&storage.inner).unwrap())
+        with_gpu(|gpu| {
+            let full = gpu.stream.clone_dtoh(storage.inner()).unwrap();
+            // Pool allocations may be larger than logical size (next_power_of_two bucketing).
+            // Truncate to the actual element count.
+            if full.len() > storage.len {
+                full[..storage.len].to_vec()
+            } else {
+                full
+            }
+        })
     }
 
     fn clone_storage(storage: &GpuStorage) -> GpuStorage {
@@ -220,7 +354,7 @@ impl MathBackend for CudaBackend {
             return bf16_ops::matmul_bf16(a, b, m, k, n, trans_a, trans_b);
         }
         with_gpu_mut(|gpu| {
-            let mut c = gpu.stream.alloc_zeros::<f32>(m * n).unwrap();
+            let mut c = pool_alloc(gpu, m * n);
 
             // Row-major trick: C = A @ B in row-major ↔ C^T = B^T @ A^T in col-major
             // cuBLAS sees column-major, so we pass B as first arg, A as second.
@@ -269,14 +403,76 @@ impl MathBackend for CudaBackend {
                             beta: 0.0f32,
                             ldc: n as i32,
                         },
-                        &b.inner,
-                        &a.inner,
+                        b.inner(),
+                        a.inner(),
                         &mut c,
                     )
                     .expect("cuBLAS sgemm failed");
             }
 
             GpuStorage::new(c, m * n )
+        })
+    }
+
+    fn matmul_bias(
+        a: &GpuStorage,
+        b: &GpuStorage,
+        bias: &GpuStorage,
+        m: usize,
+        k: usize,
+        n: usize,
+        trans_a: bool,
+        trans_b: bool,
+    ) -> GpuStorage {
+        with_gpu(|gpu| {
+            let mut c = pool_alloc(gpu, m * n);
+
+            // Row-major trick: C = A @ B + bias in row-major
+            //   ↔ C^T = B^T @ A^T + bias in col-major (cuBLASLt perspective)
+            // cuBLASLt A = our B, cuBLASLt B = our A, m↔n swapped.
+            // Bias is [N] in our layout = [cuBLAS_m] in col-major → EPILOGUE_BIAS.
+            let (transa, lda) = if trans_b {
+                (true, k as i64)
+            } else {
+                (false, n as i64)
+            };
+            let (transb, ldb) = if trans_a {
+                (true, m as i64)
+            } else {
+                (false, k as i64)
+            };
+
+            unsafe {
+                <CudaBlasLT as CublasLtMatmul<f32>>::matmul(
+                    &gpu.blas_lt,
+                    LtMatmulConfig {
+                        transa,
+                        transb,
+                        transc: false,
+                        m: n as u64,
+                        n: m as u64,
+                        k: k as u64,
+                        alpha: 1.0,
+                        lda,
+                        ldb,
+                        beta: 0.0,
+                        ldc: n as i64,
+                        stride_a: None,
+                        stride_b: None,
+                        stride_c: None,
+                        stride_bias: None,
+                        batch_size: None,
+                    },
+                    b.inner(),   // cuBLAS A = our B
+                    a.inner(),   // cuBLAS B = our A
+                    &mut c,
+                    Some(bias.inner()),  // bias [N] = [cuBLAS_m]
+                    None,                // no activation epilogue
+                )
+                .expect("cuBLASLt matmul_bias failed");
+            }
+
+            GpuStorage::new(c, m * n)
         })
     }
 
@@ -292,13 +488,13 @@ impl MathBackend for CudaBackend {
         if a_shape == b_shape {
             let n = a.len;
             return with_gpu(|gpu| {
-                let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+                let mut out = pool_alloc(gpu, n);
                 unsafe {
-                    gpu.stream.memcpy_dtod(&a.inner, &mut out).unwrap();
+                    gpu.stream.memcpy_dtod(a.inner(), &mut out).unwrap();
                     gpu.stream
                         .launch_builder(&gpu.kernels.add_inplace_kernel)
                         .arg(&mut out)
-                        .arg(&b.inner)
+                        .arg(b.inner())
                         .arg(&n)
                         .launch(LaunchConfig {
                             grid_dim: (grid_for(n, BLOCK), 1, 1),
@@ -321,13 +517,13 @@ impl MathBackend for CudaBackend {
             let cols = out_dims[1];
             let n = rows * cols;
             return with_gpu(|gpu| {
-                let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+                let mut out = pool_alloc(gpu, n);
                 unsafe {
                     gpu.stream
                         .launch_builder(&gpu.kernels.add_broadcast_2d)
                         .arg(&mut out)
-                        .arg(&a.inner)
-                        .arg(&b.inner)
+                        .arg(a.inner())
+                        .arg(b.inner())
                         .arg(&rows)
                         .arg(&cols)
                         .launch(LaunchConfig {
@@ -354,13 +550,13 @@ impl MathBackend for CudaBackend {
         let cols = *dims.last().unwrap();
         let rows = input.len / cols;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(input.len).unwrap();
+            let mut out = pool_alloc(gpu, input.len);
             let threads = ROW_BLOCK.min(cols.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.softmax_fwd)
                     .arg(&mut out)
-                    .arg(&input.inner)
+                    .arg(input.inner())
                     .arg(&rows)
                     .arg(&cols)
                     .launch(LaunchConfig {
@@ -385,9 +581,9 @@ impl MathBackend for CudaBackend {
         let d = *dims.last().unwrap();
         let rows = input.len / d;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(input.len).unwrap();
-            let mut mean_out = gpu.stream.alloc_zeros::<f32>(rows).unwrap();
-            let mut rstd_out = gpu.stream.alloc_zeros::<f32>(rows).unwrap();
+            let mut out = pool_alloc(gpu, input.len);
+            let mut mean_out = pool_alloc(gpu, rows);
+            let mut rstd_out = pool_alloc(gpu, rows);
             let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
@@ -395,9 +591,9 @@ impl MathBackend for CudaBackend {
                     .arg(&mut out)
                     .arg(&mut mean_out)
                     .arg(&mut rstd_out)
-                    .arg(&input.inner)
-                    .arg(&gamma.inner)
-                    .arg(&beta.inner)
+                    .arg(input.inner())
+                    .arg(gamma.inner())
+                    .arg(beta.inner())
                     .arg(&rows)
                     .arg(&d)
                     .arg(&eps)
@@ -419,12 +615,12 @@ impl MathBackend for CudaBackend {
     fn gelu(input: &GpuStorage) -> GpuStorage {
         let n = input.len;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.gelu_fwd)
                     .arg(&mut out)
-                    .arg(&input.inner)
+                    .arg(input.inner())
                     .arg(&n)
                     .launch(LaunchConfig {
                         grid_dim: (grid_for(n, BLOCK), 1, 1),
@@ -442,9 +638,9 @@ impl MathBackend for CudaBackend {
         targets: &[usize],
         batch: usize,
         vocab: usize,
-    ) -> f32 {
+    ) -> GpuStorage {
         with_gpu(|gpu| {
-            let mut loss = gpu.stream.alloc_zeros::<f32>(1).unwrap();
+            let mut loss = pool_alloc_zeros(gpu, 1);
             let targets_u32: Vec<u32> = targets.iter().map(|&t| t as u32).collect();
             let targets_dev = gpu.stream.clone_htod(&targets_u32).unwrap();
             let threads = ROW_BLOCK.min(vocab.next_power_of_two() as u32);
@@ -452,7 +648,7 @@ impl MathBackend for CudaBackend {
                 gpu.stream
                     .launch_builder(&gpu.kernels.cross_entropy_fwd)
                     .arg(&mut loss)
-                    .arg(&logits.inner)
+                    .arg(logits.inner())
                     .arg(&targets_dev)
                     .arg(&batch)
                     .arg(&vocab)
@@ -463,8 +659,40 @@ impl MathBackend for CudaBackend {
                     })
                     .unwrap();
             }
-            let result = gpu.stream.clone_dtoh(&loss).unwrap();
-            result[0]
+            GpuStorage::new(loss, 1)
+        })
+    }
+
+    fn cross_entropy_fwd_bwd(
+        logits: &GpuStorage,
+        targets: &[usize],
+        batch: usize,
+        vocab: usize,
+    ) -> (GpuStorage, GpuStorage) {
+        let n = batch * vocab;
+        with_gpu(|gpu| {
+            let mut loss = pool_alloc_zeros(gpu, 1);
+            let mut d_logits = pool_alloc(gpu, n);
+            let targets_u32: Vec<u32> = targets.iter().map(|&t| t as u32).collect();
+            let targets_dev = gpu.stream.clone_htod(&targets_u32).unwrap();
+            let threads = ROW_BLOCK.min(vocab.next_power_of_two() as u32);
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.cross_entropy_fwd_bwd)
+                    .arg(&mut loss)
+                    .arg(&mut d_logits)
+                    .arg(logits.inner())
+                    .arg(&targets_dev)
+                    .arg(&batch)
+                    .arg(&vocab)
+                    .launch(LaunchConfig {
+                        grid_dim: (batch as u32, 1, 1),
+                        block_dim: (threads, 1, 1),
+                        shared_mem_bytes: threads * 4,
+                    })
+                    .unwrap();
+            }
+            (GpuStorage::new(loss, 1), GpuStorage::new(d_logits, n))
         })
     }
 
@@ -479,12 +707,12 @@ impl MathBackend for CudaBackend {
         with_gpu(|gpu| {
             let indices_u32: Vec<u32> = indices.iter().map(|&i| i as u32).collect();
             let indices_dev = gpu.stream.clone_htod(&indices_u32).unwrap();
-            let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut out = pool_alloc(gpu, total);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.embedding_fwd)
                     .arg(&mut out)
-                    .arg(&weight.inner)
+                    .arg(weight.inner())
                     .arg(&indices_dev)
                     .arg(&n_indices)
                     .arg(&dim)
@@ -499,16 +727,16 @@ impl MathBackend for CudaBackend {
         })
     }
 
-    fn sum(input: &GpuStorage) -> f32 {
+    fn sum(input: &GpuStorage) -> GpuStorage {
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(1).unwrap();
+            let mut out = pool_alloc_zeros(gpu, 1);
             let n = input.len;
             let threads = ROW_BLOCK.min(n.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.reduce_sum)
                     .arg(&mut out)
-                    .arg(&input.inner)
+                    .arg(input.inner())
                     .arg(&n)
                     .launch(LaunchConfig {
                         grid_dim: (1, 1, 1),
@@ -517,8 +745,7 @@ impl MathBackend for CudaBackend {
                     })
                     .unwrap();
             }
-            let result = gpu.stream.clone_dtoh(&out).unwrap();
-            result[0]
+            GpuStorage::new(out, 1)
         })
     }
 
@@ -579,13 +806,13 @@ impl MathBackend for CudaBackend {
             let cols = out_dims[1];
             let d_a = d_out.clone();
             let d_b = with_gpu(|gpu| {
-                let mut out = gpu.stream.alloc_zeros::<f32>(cols).unwrap();
+                let mut out = pool_alloc(gpu, cols);
                 let threads = ROW_BLOCK.min(rows.next_power_of_two() as u32);
                 unsafe {
                     gpu.stream
                         .launch_builder(&gpu.kernels.reduce_rows)
                         .arg(&mut out)
-                        .arg(&d_out.inner)
+                        .arg(d_out.inner())
                         .arg(&rows)
                         .arg(&cols)
                         .launch(LaunchConfig {
@@ -624,14 +851,14 @@ impl MathBackend for CudaBackend {
         let cols = *dims.last().unwrap();
         let rows = output.len / cols;
         with_gpu(|gpu| {
-            let mut dx = gpu.stream.alloc_zeros::<f32>(output.len).unwrap();
+            let mut dx = pool_alloc(gpu, output.len);
             let threads = ROW_BLOCK.min(cols.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.softmax_bwd)
                     .arg(&mut dx)
-                    .arg(&d_out.inner)
-                    .arg(&output.inner)
+                    .arg(d_out.inner())
+                    .arg(output.inner())
                     .arg(&rows)
                     .arg(&cols)
                     .launch(LaunchConfig {
@@ -657,9 +884,9 @@ impl MathBackend for CudaBackend {
         let d = *dims.last().unwrap();
         let rows = input.len / d;
         with_gpu(|gpu| {
-            let mut dx = gpu.stream.alloc_zeros::<f32>(input.len).unwrap();
-            let mut dgamma = gpu.stream.alloc_zeros::<f32>(d).unwrap();
-            let mut dbeta = gpu.stream.alloc_zeros::<f32>(d).unwrap();
+            let mut dx = pool_alloc(gpu, input.len);
+            let mut dgamma = pool_alloc_zeros(gpu, d);
+            let mut dbeta = pool_alloc_zeros(gpu, d);
             let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
@@ -667,11 +894,11 @@ impl MathBackend for CudaBackend {
                     .arg(&mut dx)
                     .arg(&mut dgamma)
                     .arg(&mut dbeta)
-                    .arg(&d_out.inner)
-                    .arg(&input.inner)
-                    .arg(&gamma.inner)
-                    .arg(&mean.inner)
-                    .arg(&rstd.inner)
+                    .arg(d_out.inner())
+                    .arg(input.inner())
+                    .arg(gamma.inner())
+                    .arg(mean.inner())
+                    .arg(rstd.inner())
                     .arg(&rows)
                     .arg(&d)
                     .launch(LaunchConfig {
@@ -692,13 +919,13 @@ impl MathBackend for CudaBackend {
     fn gelu_backward(d_out: &GpuStorage, input: &GpuStorage) -> GpuStorage {
         let n = input.len;
         with_gpu(|gpu| {
-            let mut dx = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut dx = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.gelu_bwd)
                     .arg(&mut dx)
-                    .arg(&d_out.inner)
-                    .arg(&input.inner)
+                    .arg(d_out.inner())
+                    .arg(input.inner())
                     .arg(&n)
                     .launch(LaunchConfig {
                         grid_dim: (grid_for(n, BLOCK), 1, 1),
@@ -716,21 +943,23 @@ impl MathBackend for CudaBackend {
         targets: &[usize],
         batch: usize,
         vocab: usize,
+        d_out_scalar: &GpuStorage,
     ) -> GpuStorage {
         let n = batch * vocab;
         with_gpu(|gpu| {
             let targets_u32: Vec<u32> = targets.iter().map(|&t| t as u32).collect();
             let targets_dev = gpu.stream.clone_htod(&targets_u32).unwrap();
-            let mut d_logits = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut d_logits = pool_alloc(gpu, n);
             let threads = ROW_BLOCK.min(vocab.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.cross_entropy_bwd)
                     .arg(&mut d_logits)
-                    .arg(&logits.inner)
+                    .arg(logits.inner())
                     .arg(&targets_dev)
                     .arg(&batch)
                     .arg(&vocab)
+                    .arg(d_out_scalar.inner())
                     .launch(LaunchConfig {
                         grid_dim: (batch as u32, 1, 1),
                         block_dim: (threads, 1, 1),
@@ -754,12 +983,12 @@ impl MathBackend for CudaBackend {
         with_gpu(|gpu| {
             let indices_u32: Vec<u32> = indices.iter().map(|&i| i as u32).collect();
             let indices_dev = gpu.stream.clone_htod(&indices_u32).unwrap();
-            let mut d_weight = gpu.stream.alloc_zeros::<f32>(weight_size).unwrap();
+            let mut d_weight = pool_alloc_zeros(gpu, weight_size);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.embedding_bwd)
                     .arg(&mut d_weight)
-                    .arg(&d_out.inner)
+                    .arg(d_out.inner())
                     .arg(&indices_dev)
                     .arg(&n_indices)
                     .arg(&dim)
@@ -777,13 +1006,13 @@ impl MathBackend for CudaBackend {
     fn mul_elementwise(a: &GpuStorage, b: &GpuStorage) -> GpuStorage {
         let n = a.len;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.mul_elementwise)
                     .arg(&mut out)
-                    .arg(&a.inner)
-                    .arg(&b.inner)
+                    .arg(a.inner())
+                    .arg(b.inner())
                     .arg(&n)
                     .launch(LaunchConfig {
                         grid_dim: (grid_for(n, BLOCK), 1, 1),
@@ -799,12 +1028,12 @@ impl MathBackend for CudaBackend {
     fn scale(a: &GpuStorage, scalar: f32) -> GpuStorage {
         let n = a.len;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.scale_kernel)
                     .arg(&mut out)
-                    .arg(&a.inner)
+                    .arg(a.inner())
                     .arg(&scalar)
                     .arg(&n)
                     .launch(LaunchConfig {
@@ -824,8 +1053,8 @@ impl MathBackend for CudaBackend {
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.add_inplace_kernel)
-                    .arg(&mut a.inner)
-                    .arg(&b.inner)
+                    .arg(a.inner_mut())
+                    .arg(b.inner())
                     .arg(&n)
                     .launch(LaunchConfig {
                         grid_dim: (grid_for(n, BLOCK), 1, 1),
@@ -837,16 +1066,36 @@ impl MathBackend for CudaBackend {
         });
     }
 
+    fn broadcast_scalar(scalar: &GpuStorage, n: usize) -> GpuStorage {
+        with_gpu(|gpu| {
+            let mut out = pool_alloc(gpu, n);
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.broadcast_scalar)
+                    .arg(&mut out)
+                    .arg(scalar.inner())
+                    .arg(&n)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(n, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(out, n)
+        })
+    }
+
     fn norm(storage: &GpuStorage) -> f32 {
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(1).unwrap();
+            let mut out = pool_alloc_zeros(gpu, 1);
             let n = storage.len;
             let threads = ROW_BLOCK.min(n.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.dot_self)
                     .arg(&mut out)
-                    .arg(&storage.inner)
+                    .arg(storage.inner())
                     .arg(&n)
                     .launch(LaunchConfig {
                         grid_dim: (1, 1, 1),
@@ -866,7 +1115,7 @@ impl MathBackend for CudaBackend {
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.scale_inplace_kernel)
-                    .arg(&mut a.inner)
+                    .arg(a.inner_mut())
                     .arg(&scalar)
                     .arg(&n)
                     .launch(LaunchConfig {
@@ -888,12 +1137,12 @@ impl MathBackend for CudaBackend {
     ) -> GpuStorage {
         let total = a.len + b.len;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut out = pool_alloc(gpu, total);
             gpu.stream
-                .memcpy_dtod(&a.inner, &mut out.slice_mut(0..a.len))
+                .memcpy_dtod(a.inner(), &mut out.slice_mut(0..a.len))
                 .unwrap();
             gpu.stream
-                .memcpy_dtod(&b.inner, &mut out.slice_mut(a.len..total))
+                .memcpy_dtod(b.inner(), &mut out.slice_mut(a.len..total))
                 .unwrap();
             GpuStorage::new(out, total)
         })
@@ -918,7 +1167,7 @@ impl MathBackend for CudaBackend {
             let mut lens_host: Vec<u64> = Vec::with_capacity(n_tensors);
 
             for s in storages {
-                let (ptr, guard) = s.inner.device_ptr(&gpu.stream);
+                let (ptr, guard) = s.inner().device_ptr(&gpu.stream);
                 ptrs_host.push(ptr);
                 guards.push(guard);
                 lens_host.push(s.len as u64);
@@ -927,7 +1176,7 @@ impl MathBackend for CudaBackend {
             // Upload pointer + length arrays to GPU
             let ptrs_dev = gpu.stream.clone_htod(&ptrs_host).unwrap();
             let lens_dev = gpu.stream.clone_htod(&lens_host).unwrap();
-            let mut out_dev = gpu.stream.alloc_zeros::<f32>(n_tensors).unwrap();
+            let mut out_dev = pool_alloc_zeros(gpu, n_tensors);
 
             // Use multiple blocks per tensor for large tensors.
             // Target: each thread processes ~1024 elements max for good throughput.
@@ -977,10 +1226,10 @@ impl MathBackend for CudaBackend {
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.adamw_step)
-                    .arg(&mut param.inner)
-                    .arg(&grad.inner)
-                    .arg(&mut m.inner)
-                    .arg(&mut v.inner)
+                    .arg(param.inner_mut())
+                    .arg(grad.inner())
+                    .arg(m.inner_mut())
+                    .arg(v.inner_mut())
                     .arg(&lr)
                     .arg(&beta1)
                     .arg(&beta2)
@@ -1009,12 +1258,12 @@ impl MathBackend for CudaBackend {
     ) -> GpuStorage {
         let n = rows * col_count;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.gather_columns)
                     .arg(&mut out)
-                    .arg(&storage.inner)
+                    .arg(storage.inner())
                     .arg(&rows)
                     .arg(&total_cols)
                     .arg(&col_start)
@@ -1043,8 +1292,8 @@ impl MathBackend for CudaBackend {
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.scatter_columns)
-                    .arg(&mut dst.inner)
-                    .arg(&src.inner)
+                    .arg(dst.inner_mut())
+                    .arg(src.inner())
                     .arg(&rows)
                     .arg(&total_cols)
                     .arg(&col_start)
@@ -1067,14 +1316,14 @@ impl MathBackend for CudaBackend {
     ) -> (GpuStorage, GpuStorage) {
         let scale = 1.0 / (1.0 - p);
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
-            let mut mask = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
+            let mut mask = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.dropout_fwd)
                     .arg(&mut out)
                     .arg(&mut mask)
-                    .arg(&input.inner)
+                    .arg(input.inner())
                     .arg(&p)
                     .arg(&scale)
                     .arg(&seed)
@@ -1100,9 +1349,9 @@ impl MathBackend for CudaBackend {
         let n = row_count * cols;
         let start = row_start * cols;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
             gpu.stream
-                .memcpy_dtod(&storage.inner.slice(start..start + n), &mut out)
+                .memcpy_dtod(&storage.inner().slice(start..start + n), &mut out)
                 .unwrap();
             GpuStorage::new(out, n)
         })
@@ -1120,7 +1369,7 @@ impl MathBackend for CudaBackend {
         let n = row_count * cols;
         with_gpu(|gpu| {
             gpu.stream
-                .memcpy_dtod(&src.inner, &mut dst.inner.slice_mut(start..start + n))
+                .memcpy_dtod(src.inner(), &mut dst.inner_mut().slice_mut(start..start + n))
                 .unwrap();
         });
     }
@@ -1136,7 +1385,7 @@ impl MathBackend for CudaBackend {
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.causal_mask_scale)
-                    .arg(&mut scores.inner)
+                    .arg(scores.inner_mut())
                     .arg(&seq_len)
                     .arg(&scale)
                     .arg(&mask_value)
@@ -1159,12 +1408,12 @@ impl MathBackend for CudaBackend {
     ) -> GpuStorage {
         let total = batch * n_heads * seq * d_head;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut out = pool_alloc(gpu, total);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.reshape_bsh_to_bnsh)
                     .arg(&mut out)
-                    .arg(&storage.inner)
+                    .arg(storage.inner())
                     .arg(&batch)
                     .arg(&seq)
                     .arg(&n_heads)
@@ -1189,12 +1438,12 @@ impl MathBackend for CudaBackend {
     ) -> GpuStorage {
         let total = batch * seq * n_heads * d_head;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut out = pool_alloc(gpu, total);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.reshape_bnsh_to_bsh)
                     .arg(&mut out)
-                    .arg(&storage.inner)
+                    .arg(storage.inner())
                     .arg(&batch)
                     .arg(&seq)
                     .arg(&n_heads)
@@ -1228,7 +1477,7 @@ impl MathBackend for CudaBackend {
         }
         let total = batch_count * m * n;
         with_gpu_mut(|gpu| {
-            let mut c = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut c = pool_alloc(gpu, total);
 
             // Row-major trick: same as matmul but with strides.
             // C = A @ B in row-major ↔ C^T = B^T @ A^T in col-major
@@ -1268,8 +1517,8 @@ impl MathBackend for CudaBackend {
                             stride_b: stride_a as i64,  // swapped: cuBLAS B = our A
                             stride_c: stride_c as i64,
                         },
-                        &b.inner,  // cuBLAS A = our B (row-major trick)
-                        &a.inner,  // cuBLAS B = our A
+                        b.inner(),  // cuBLAS A = our B (row-major trick)
+                        a.inner(),  // cuBLAS B = our A
                         &mut c,
                     )
                     .expect("cuBLAS sgemm_strided_batched failed");
@@ -1291,10 +1540,10 @@ impl MathBackend for CudaBackend {
         let d = *dims.last().unwrap();
         let rows = residual.len / d;
         with_gpu(|gpu| {
-            let mut out_norm = gpu.stream.alloc_zeros::<f32>(residual.len).unwrap();
-            let mut out_sum = gpu.stream.alloc_zeros::<f32>(residual.len).unwrap();
-            let mut mean_out = gpu.stream.alloc_zeros::<f32>(rows).unwrap();
-            let mut rstd_out = gpu.stream.alloc_zeros::<f32>(rows).unwrap();
+            let mut out_norm = pool_alloc(gpu, residual.len);
+            let mut out_sum = pool_alloc(gpu, residual.len);
+            let mut mean_out = pool_alloc(gpu, rows);
+            let mut rstd_out = pool_alloc(gpu, rows);
             let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
@@ -1303,10 +1552,10 @@ impl MathBackend for CudaBackend {
                     .arg(&mut out_sum)
                     .arg(&mut mean_out)
                     .arg(&mut rstd_out)
-                    .arg(&residual.inner)
-                    .arg(&sublayer.inner)
-                    .arg(&gamma.inner)
-                    .arg(&beta.inner)
+                    .arg(residual.inner())
+                    .arg(sublayer.inner())
+                    .arg(gamma.inner())
+                    .arg(beta.inner())
                     .arg(&rows)
                     .arg(&d)
                     .arg(&eps)
@@ -1339,9 +1588,9 @@ impl MathBackend for CudaBackend {
         let d = *dims.last().unwrap();
         let rows = residual.len / d;
         with_gpu(|gpu| {
-            let mut dx = gpu.stream.alloc_zeros::<f32>(residual.len).unwrap();
-            let mut dgamma = gpu.stream.alloc_zeros::<f32>(d).unwrap();
-            let mut dbeta = gpu.stream.alloc_zeros::<f32>(d).unwrap();
+            let mut dx = pool_alloc(gpu, residual.len);
+            let mut dgamma = pool_alloc_zeros(gpu, d);
+            let mut dbeta = pool_alloc_zeros(gpu, d);
             let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
@@ -1349,12 +1598,12 @@ impl MathBackend for CudaBackend {
                     .arg(&mut dx)
                     .arg(&mut dgamma)
                     .arg(&mut dbeta)
-                    .arg(&d_out.inner)
-                    .arg(&residual.inner)
-                    .arg(&sublayer.inner)
-                    .arg(&gamma.inner)
-                    .arg(&mean.inner)
-                    .arg(&rstd.inner)
+                    .arg(d_out.inner())
+                    .arg(residual.inner())
+                    .arg(sublayer.inner())
+                    .arg(gamma.inner())
+                    .arg(mean.inner())
+                    .arg(rstd.inner())
                     .arg(&rows)
                     .arg(&d)
                     .launch(LaunchConfig {
@@ -1384,7 +1633,7 @@ impl MathBackend for CudaBackend {
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.batched_causal_mask_scale)
-                    .arg(&mut scores.inner)
+                    .arg(scores.inner_mut())
                     .arg(&num_matrices)
                     .arg(&seq_len)
                     .arg(&scale)
@@ -1408,16 +1657,16 @@ impl MathBackend for CudaBackend {
     ) -> (GpuStorage, GpuStorage, GpuStorage) {
         let per_output = batch * n_heads * seq * d_head;
         with_gpu(|gpu| {
-            let mut q = gpu.stream.alloc_zeros::<f32>(per_output).unwrap();
-            let mut k = gpu.stream.alloc_zeros::<f32>(per_output).unwrap();
-            let mut v = gpu.stream.alloc_zeros::<f32>(per_output).unwrap();
+            let mut q = pool_alloc(gpu, per_output);
+            let mut k = pool_alloc(gpu, per_output);
+            let mut v = pool_alloc(gpu, per_output);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.split_qkv_to_heads)
                     .arg(&mut q)
                     .arg(&mut k)
                     .arg(&mut v)
-                    .arg(&qkv.inner)
+                    .arg(qkv.inner())
                     .arg(&batch)
                     .arg(&seq)
                     .arg(&n_heads)
@@ -1450,14 +1699,14 @@ impl MathBackend for CudaBackend {
         let total_tokens = batch * seq;
         let per_head = batch * n_heads * seq * d_head;
         with_gpu(|gpu| {
-            let mut d_qkv = gpu.stream.alloc_zeros::<f32>(total_tokens * 3 * d_model).unwrap();
+            let mut d_qkv = pool_alloc_zeros(gpu, total_tokens * 3 * d_model);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.merge_heads_to_qkv)
                     .arg(&mut d_qkv)
-                    .arg(&dq.inner)
-                    .arg(&dk.inner)
-                    .arg(&dv.inner)
+                    .arg(dq.inner())
+                    .arg(dk.inner())
+                    .arg(dv.inner())
                     .arg(&batch)
                     .arg(&seq)
                     .arg(&n_heads)
@@ -1481,13 +1730,13 @@ impl MathBackend for CudaBackend {
     ) -> GpuStorage {
         let n = rows * cols;
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.fused_bias_gelu_fwd)
                     .arg(&mut out)
-                    .arg(&input.inner)
-                    .arg(&bias.inner)
+                    .arg(input.inner())
+                    .arg(bias.inner())
                     .arg(&rows)
                     .arg(&cols)
                     .launch(LaunchConfig {
@@ -1510,14 +1759,14 @@ impl MathBackend for CudaBackend {
     ) -> GpuStorage {
         let n = rows * cols;
         with_gpu(|gpu| {
-            let mut dx = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut dx = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.fused_bias_gelu_bwd)
                     .arg(&mut dx)
-                    .arg(&d_out.inner)
-                    .arg(&input.inner)
-                    .arg(&bias.inner)
+                    .arg(d_out.inner())
+                    .arg(input.inner())
+                    .arg(bias.inner())
                     .arg(&rows)
                     .arg(&cols)
                     .launch(LaunchConfig {
@@ -1543,16 +1792,16 @@ impl MathBackend for CudaBackend {
         let n = rows * cols;
         let scale = 1.0 / (1.0 - p);
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
-            let mut mask = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out = pool_alloc(gpu, n);
+            let mut mask = pool_alloc(gpu, n);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.fused_bias_dropout_residual_fwd)
                     .arg(&mut out)
                     .arg(&mut mask)
-                    .arg(&matmul_out.inner)
-                    .arg(&bias.inner)
-                    .arg(&residual.inner)
+                    .arg(matmul_out.inner())
+                    .arg(bias.inner())
+                    .arg(residual.inner())
                     .arg(&rows)
                     .arg(&cols)
                     .arg(&p)
@@ -1590,23 +1839,23 @@ impl MathBackend for CudaBackend {
         let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
         let s_i32 = seq_len as i32;
         let d_i32 = d_head as i32;
-        let br: u32 = 64;  // FA_BR
+        let br: u32 = 32;  // FA_BR — warp-cooperative (each warp = 1 Q row)
         let bc: u32 = 32;  // FA_BC
 
         // Shared memory: K_tile[BC * D] + V_tile[BC * D]
         let smem_bytes = 2 * bc * (d_head as u32) * 4;
 
         with_gpu(|gpu| {
-            let mut output = gpu.stream.alloc_zeros::<f32>(total_output).unwrap();
-            let mut lse = gpu.stream.alloc_zeros::<f32>(total_lse).unwrap();
+            let mut output = pool_alloc(gpu, total_output);
+            let mut lse = pool_alloc(gpu, total_lse);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.flash_attention_fwd)
                     .arg(&mut output)
                     .arg(&mut lse)
-                    .arg(&q.inner)
-                    .arg(&k.inner)
-                    .arg(&v.inner)
+                    .arg(q.inner())
+                    .arg(k.inner())
+                    .arg(v.inner())
                     .arg(&s_i32)
                     .arg(&d_i32)
                     .arg(&scale)
@@ -1617,7 +1866,7 @@ impl MathBackend for CudaBackend {
                             batch_heads as u32,
                             1,
                         ),
-                        block_dim: (br, 1, 1),
+                        block_dim: (br, 32, 1),
                         shared_mem_bytes: smem_bytes,
                     })
                     .unwrap();
@@ -1649,27 +1898,27 @@ impl MathBackend for CudaBackend {
         let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
         let s_i32 = seq_len as i32;
         let d_i32 = d_head as i32;
-        let bwd_bc: u32 = 32;  // FA_BWD_BC — KV-tile-centric block size
+        let bwd_bc: u32 = 32;  // FA_BWD_BC — warp-cooperative KV-tile-centric
 
         // Shared memory: K_tile[BC * D] + V_tile[BC * D]
         let smem_bytes = 2 * bwd_bc * (d_head as u32) * 4;
 
         with_gpu(|gpu| {
-            let mut dq = gpu.stream.alloc_zeros::<f32>(total).unwrap();
-            let mut dk = gpu.stream.alloc_zeros::<f32>(total).unwrap();
-            let mut dv = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut dq = pool_alloc_zeros(gpu, total);  // atomicAdd target
+            let mut dk = pool_alloc(gpu, total);
+            let mut dv = pool_alloc(gpu, total);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.flash_attention_bwd)
                     .arg(&mut dq)
                     .arg(&mut dk)
                     .arg(&mut dv)
-                    .arg(&d_out.inner)
-                    .arg(&q.inner)
-                    .arg(&k.inner)
-                    .arg(&v.inner)
-                    .arg(&output.inner)
-                    .arg(&lse.inner)
+                    .arg(d_out.inner())
+                    .arg(q.inner())
+                    .arg(k.inner())
+                    .arg(v.inner())
+                    .arg(output.inner())
+                    .arg(lse.inner())
                     .arg(&s_i32)
                     .arg(&d_i32)
                     .arg(&scale)
@@ -1680,7 +1929,7 @@ impl MathBackend for CudaBackend {
                             batch_heads as u32,
                             1,
                         ),
-                        block_dim: (bwd_bc, 1, 1),
+                        block_dim: (bwd_bc, 32, 1),
                         shared_mem_bytes: smem_bytes,
                     })
                     .unwrap();
@@ -1700,14 +1949,14 @@ impl MathBackend for CudaBackend {
         cols: usize,
     ) -> GpuStorage {
         with_gpu(|gpu| {
-            let mut out = gpu.stream.alloc_zeros::<f32>(cols).unwrap();
+            let mut out = pool_alloc(gpu, cols);
             let threads = ROW_BLOCK.min(rows.next_power_of_two() as u32);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.fused_mul_reduce_rows)
                     .arg(&mut out)
-                    .arg(&a.inner)
-                    .arg(&b.inner)
+                    .arg(a.inner())
+                    .arg(b.inner())
                     .arg(&rows)
                     .arg(&cols)
                     .launch(LaunchConfig {
@@ -1777,7 +2026,7 @@ mod bf16_ops {
         let b_bf16 = b.ensure_bf16_shadow();
 
         with_gpu_mut(|gpu| {
-            let mut c_f32 = gpu.stream.alloc_zeros::<f32>(m * n).unwrap();
+            let mut c_f32 = pool_alloc(gpu, m * n);
 
             // Row-major trick: C = A @ B ↔ C^T = B^T @ A^T (col-major for cuBLAS)
             let (transa, lda) = if trans_b {
@@ -1850,7 +2099,7 @@ mod bf16_ops {
 
         let total = batch_count * m * n;
         with_gpu_mut(|gpu| {
-            let mut c_f32 = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut c_f32 = pool_alloc(gpu, total);
 
             // Row-major trick: C = A @ B ↔ C^T = B^T @ A^T (col-major for cuBLAS)
             let (transa, lda) = if trans_b {
@@ -1935,15 +2184,15 @@ mod bf16_ops {
         let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
         let s_i32 = seq_len as i32;
         let d_i32 = d_head as i32;
-        let br: u32 = 64; // FA_BF16_BR
+        let br: u32 = 32; // FA_BF16_BR — warp-cooperative
         let bc: u32 = 64; // FA_BF16_BC
 
         // Shared memory: K_tile[BC*D] + V_tile[BC*D] as bf16 (2 bytes each)
         let smem_bytes = 2 * bc * (d_head as u32) * 2;
 
         with_gpu(|gpu| {
-            let mut output = gpu.stream.alloc_zeros::<f32>(total_output).unwrap();
-            let mut lse = gpu.stream.alloc_zeros::<f32>(total_lse).unwrap();
+            let mut output = pool_alloc(gpu, total_output);
+            let mut lse = pool_alloc(gpu, total_lse);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.flash_attention_fwd_bf16)
@@ -1962,7 +2211,7 @@ mod bf16_ops {
                             batch_heads as u32,
                             1,
                         ),
-                        block_dim: (br, 1, 1),
+                        block_dim: (br, 32, 1),
                         shared_mem_bytes: smem_bytes,
                     })
                     .unwrap();
@@ -1998,15 +2247,15 @@ mod bf16_ops {
         let is_causal_i32: i32 = if is_causal { 1 } else { 0 };
         let s_i32 = seq_len as i32;
         let d_i32 = d_head as i32;
-        let bwd_bc: u32 = 32; // FA_BF16_BWD_BC
+        let bwd_bc: u32 = 32; // FA_BF16_BWD_BC — warp-cooperative
 
         // Shared memory: K_tile[BC*D] + V_tile[BC*D] as bf16 (2 bytes each)
         let smem_bytes = 2 * bwd_bc * (d_head as u32) * 2;
 
         with_gpu(|gpu| {
-            let mut dq = gpu.stream.alloc_zeros::<f32>(total).unwrap();
-            let mut dk = gpu.stream.alloc_zeros::<f32>(total).unwrap();
-            let mut dv = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            let mut dq = pool_alloc_zeros(gpu, total);  // atomicAdd target
+            let mut dk = pool_alloc(gpu, total);
+            let mut dv = pool_alloc(gpu, total);
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.flash_attention_bwd_bf16)
@@ -2017,8 +2266,8 @@ mod bf16_ops {
                     .arg(&q_bf16)
                     .arg(&k_bf16)
                     .arg(&v_bf16)
-                    .arg(&output.inner)
-                    .arg(&lse.inner)
+                    .arg(output.inner())
+                    .arg(lse.inner())
                     .arg(&s_i32)
                     .arg(&d_i32)
                     .arg(&scale)
@@ -2029,7 +2278,7 @@ mod bf16_ops {
                             batch_heads as u32,
                             1,
                         ),
-                        block_dim: (bwd_bc, 1, 1),
+                        block_dim: (bwd_bc, 32, 1),
                         shared_mem_bytes: smem_bytes,
                     })
                     .unwrap();

@@ -116,6 +116,10 @@ const SHAPE_ROUNDED_BOX: u32 = 7;
 const SHAPE_CONE: u32 = 8;
 #[cfg(feature = "sdf-text")]
 const SHAPE_TEXT3D: u32 = 9;
+const SHAPE_SUBTRACT: u32 = 10;
+const SHAPE_MANDELBULB: u32 = 11;
+const SHAPE_MENGER: u32 = 12;
+const SHAPE_GYROID: u32 = 13;
 
 // Material type discriminants
 const MAT_SOLID: u32 = 0;
@@ -205,6 +209,38 @@ fn flatten_shape(shape: &SdfShape) -> (u32, [f32; 4], [f32; 4], [f32; 4], [f32; 
         SdfShape::Cone { radius, height } => (
             SHAPE_CONE,
             [*radius, *height, 0.0, 0.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 3],
+        ),
+        SdfShape::Subtract { a, b, b_offset } => {
+            let (a_type, a_params, _, _, _) = flatten_shape(a);
+            let (b_type, b_params, _, _, _) = flatten_shape(b);
+            (
+                SHAPE_SUBTRACT,
+                [0.0, a_type as f32, b_type as f32, 0.0],
+                a_params,
+                b_params,
+                vec3_to_arr(*b_offset),
+            )
+        }
+        SdfShape::Mandelbulb { power, iterations } => (
+            SHAPE_MANDELBULB,
+            [*power, *iterations as f32, 0.0, 0.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 3],
+        ),
+        SdfShape::MengerSponge { iterations } => (
+            SHAPE_MENGER,
+            [*iterations as f32, 0.0, 0.0, 0.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 3],
+        ),
+        SdfShape::Gyroid { scale, thickness, bound } => (
+            SHAPE_GYROID,
+            [*scale, *thickness, *bound, 0.0],
             [0.0; 4],
             [0.0; 4],
             [0.0; 3],

@@ -196,9 +196,9 @@ fn cross_entropy_forward() {
     let logits = rand_vec(batch * vocab, 40);
     let targets: Vec<usize> = vec![0, 5, 10, 31];
 
-    let cpu_loss = CpuBackend::cross_entropy(&logits, &targets, batch, vocab);
+    let cpu_loss = CpuBackend::cross_entropy(&logits, &targets, batch, vocab)[0];
     let gl = CudaBackend::from_vec(logits, &Shape::new(&[batch, vocab]));
-    let gpu_loss = CudaBackend::cross_entropy(&gl, &targets, batch, vocab);
+    let gpu_loss = CudaBackend::to_vec(&CudaBackend::cross_entropy(&gl, &targets, batch, vocab))[0];
 
     let diff = (cpu_loss - gpu_loss).abs();
     assert!(
@@ -215,9 +215,10 @@ fn cross_entropy_backward() {
     let logits = rand_vec(batch * vocab, 41);
     let targets: Vec<usize> = vec![0, 5, 10, 31];
 
-    let cpu = CpuBackend::cross_entropy_backward(&logits, &targets, batch, vocab);
+    let cpu = CpuBackend::cross_entropy_backward(&logits, &targets, batch, vocab, &vec![1.0f32]);
     let gl = CudaBackend::from_vec(logits, &Shape::new(&[batch, vocab]));
-    let gpu = CudaBackend::to_vec(&CudaBackend::cross_entropy_backward(&gl, &targets, batch, vocab));
+    let d_out = CudaBackend::from_vec(vec![1.0f32], &Shape::new(&[1]));
+    let gpu = CudaBackend::to_vec(&CudaBackend::cross_entropy_backward(&gl, &targets, batch, vocab, &d_out));
 
     assert_close(&cpu, &gpu, 1e-4, "cross_entropy_bwd");
 }
@@ -589,9 +590,9 @@ fn sum_op() {
     let n = 256;
     let data = rand_vec(n, 160);
 
-    let cpu_sum = CpuBackend::sum(&data);
+    let cpu_sum = CpuBackend::sum(&data)[0];
     let gd = CudaBackend::from_vec(data, &Shape::new(&[n]));
-    let gpu_sum = CudaBackend::sum(&gd);
+    let gpu_sum = CudaBackend::to_vec(&CudaBackend::sum(&gd))[0];
 
     let diff = (cpu_sum - gpu_sum).abs();
     assert!(diff < 1e-3, "sum: cpu={cpu_sum}, gpu={gpu_sum}, diff={diff}");

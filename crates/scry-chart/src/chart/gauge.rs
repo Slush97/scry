@@ -16,7 +16,7 @@ use scry_engine::style::Color;
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::Chart;
+/// use scry_chart::chart::Charts;
 /// use scry_engine::style::Color;
 ///
 /// let chart = Charts::gauge(75.0)

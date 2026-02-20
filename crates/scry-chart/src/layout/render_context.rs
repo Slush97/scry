@@ -136,13 +136,13 @@ impl RenderContext {
         x_cfg_no_spine.visible = false;
         y_cfg_no_spine.visible = false;
 
-        let (x_ticks, x_grids, x_tick_marks) = self.draw_with(|c| {
-            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, x_scale, &x_cfg_no_spine);
-            (c, (ticks, grids, tmarks))
+        let (x_ticks, x_grids, x_tick_marks, x_actual_rot) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks, rot) = axis::draw_axis(c, plot, x_scale, &x_cfg_no_spine);
+            (c, (ticks, grids, tmarks, rot))
         });
-        let (y_ticks, y_grids, y_tick_marks) = self.draw_with(|c| {
-            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, y_scale, &y_cfg_no_spine);
-            (c, (ticks, grids, tmarks))
+        let (y_ticks, y_grids, y_tick_marks, _y_actual_rot) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks, rot) = axis::draw_axis(c, plot, y_scale, &y_cfg_no_spine);
+            (c, (ticks, grids, tmarks, rot))
         });
 
         // Phase 2: draw grid lines FIRST (z-layer 1 — behind everything)
@@ -164,7 +164,7 @@ impl RenderContext {
             &x_ticks,
             &y_ticks,
             config.theme.foreground,
-            config.ticks.x_tick_rotation,
+            x_actual_rot,
             tick_fs,
         );
     }
@@ -219,9 +219,9 @@ impl RenderContext {
         let mut cfg_no_spine = cfg.clone();
         cfg_no_spine.visible = false;
 
-        let (ticks, grids, tmarks) = self.draw_with(|c| {
-            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, y_scale, &cfg_no_spine);
-            (c, (ticks, grids, tmarks))
+        let (ticks, grids, tmarks, _rot) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks, rot) = axis::draw_axis(c, plot, y_scale, &cfg_no_spine);
+            (c, (ticks, grids, tmarks, rot))
         });
 
         // Grids first
@@ -276,9 +276,9 @@ impl RenderContext {
         let mut cfg_no_spine = cfg.clone();
         cfg_no_spine.visible = false;
 
-        let (x_ticks, x_grids, x_tmarks) = self.draw_with(|c| {
-            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, x_scale, &cfg_no_spine);
-            (c, (ticks, grids, tmarks))
+        let (x_ticks, x_grids, x_tmarks, x_actual_rot) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks, rot) = axis::draw_axis(c, plot, x_scale, &cfg_no_spine);
+            (c, (ticks, grids, tmarks, rot))
         });
 
         // Grids first
@@ -303,7 +303,7 @@ impl RenderContext {
         }
 
         let (_px, py, _pw, ph) = self.plot;
-        let rot_deg = config.ticks.x_tick_rotation.degrees();
+        let rot_deg = x_actual_rot.degrees();
         let align = if rot_deg > 0.0 {
             TextAlign::Right
         } else {
@@ -398,7 +398,17 @@ impl RenderContext {
             TextAlign::Center
         };
 
+        // Axis origin overlap suppression: skip X tick labels that sit
+        // too close to the Y-axis labels (the origin corner), per
+        // Cleveland (1985) recommendation.
+        let char_w = crate::axis::char_width_for_size(tick_font_size);
+        let origin_exclusion = char_w * 3.0;
+
         for (x, label) in x_ticks {
+            // Skip labels that converge with Y-axis labels at the origin corner
+            if (*x - px).abs() < origin_exclusion {
+                continue;
+            }
             self.add_text(
                 *x,
                 py + ph + x_off,

@@ -158,6 +158,12 @@ python3 -m venv .venv
 
 ### Model configurations
 
+> **Parallelism note:** scry-learn uses rayon `par_iter` internally in RF, LogReg,
+> KNN, KMeans, SVM, and HistGBT. Under `RAYON_NUM_THREADS=1`, these degrade to
+> sequential execution with ~2-5µs overhead per dispatch. smartcore 0.4 and
+> linfa-trees 0.8 do not use rayon. This means single-threaded benchmarks
+> slightly *disadvantage* scry-learn relative to the competitors.
+
 All models use default hyperparameters matching sklearn conventions:
 
 | Model | scry config | sklearn config |
@@ -166,7 +172,7 @@ All models use default hyperparameters matching sklearn conventions:
 | Random Forest | `n_estimators=20, max_depth=10, seed=42` | `n_estimators=20, max_depth=10, random_state=42` |
 | Gradient Boosting | `n_estimators=100, max_depth=5, lr=0.1` | same |
 | HistGBT | `n_estimators=100, max_depth=6, lr=0.1` | `max_iter=100, max_depth=6, lr=0.1` |
-| Logistic Regression | `max_iter=1000, solver=L-BFGS, alpha=1.0` | `max_iter=500, solver=lbfgs, C=1.0` |
+| Logistic Regression | `max_iter=200, solver=L-BFGS, alpha=1.0` | `max_iter=200, solver=lbfgs, C=1.0` |
 | KNN | `k=5, uniform weights` | `n_neighbors=5, weights=uniform` |
 | Gaussian NB | defaults | defaults |
 | Linear SVC | `C=1.0, max_iter=1000` | `max_iter=2000` |

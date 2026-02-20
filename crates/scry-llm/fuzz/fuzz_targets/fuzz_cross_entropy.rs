@@ -39,12 +39,12 @@ fuzz_target!(|data: &[u8]| {
         })
         .collect();
 
-    let loss = CpuBackend::cross_entropy(&logits, &targets, batch, vocab);
+    let loss = CpuBackend::cross_entropy(&logits, &targets, batch, vocab)[0];
     assert!(loss.is_finite(), "cross-entropy loss is not finite: {loss}");
     assert!(loss >= 0.0, "cross-entropy loss is negative: {loss}");
 
     // Backward
-    let d_logits = CpuBackend::cross_entropy_backward(&logits, &targets, batch, vocab);
+    let d_logits = CpuBackend::cross_entropy_backward(&logits, &targets, batch, vocab, &vec![1.0f32]);
     assert_eq!(d_logits.len(), numel);
     assert!(d_logits.iter().all(|v| v.is_finite()));
 });

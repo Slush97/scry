@@ -123,6 +123,7 @@ fn training_step(c: &mut Criterion) {
 
         group.bench_function("train_step_no_accum", |b| {
             b.iter(|| {
+                trainer.step = 0;
                 let batch = make_batch(2, 16, config.vocab_size);
                 black_box(trainer.train_step(black_box(&[batch])))
             });
@@ -162,6 +163,7 @@ fn training_step(c: &mut Criterion) {
 
         group.bench_function("train_step_accum_4", |b| {
             b.iter(|| {
+                trainer.step = 0;
                 let batches: Vec<_> =
                     (0..4).map(|_| make_batch(2, 16, config.vocab_size)).collect();
                 black_box(trainer.train_step(black_box(&batches)))
@@ -270,7 +272,7 @@ fn ops_micro(c: &mut Criterion) {
         let logits = vec![0.1f32; 8 * 32];
         let targets: Vec<usize> = (0..8).collect();
         for _ in 0..2 {
-            let _ = black_box(CpuBackend::cross_entropy(&logits, &targets, 8, 32));
+            let _ = black_box(CpuBackend::cross_entropy(&logits, &targets, 8, 32)[0]);
         }
         group.bench_function("cross_entropy_256", |bench| {
             bench.iter(|| {
@@ -278,7 +280,7 @@ fn ops_micro(c: &mut Criterion) {
                     black_box(&logits),
                     black_box(&targets),
                     8, 32,
-                ))
+                )[0])
             });
         });
     }
@@ -464,6 +466,7 @@ fn gpu_ops(c: &mut Criterion) {
 
         group.bench_function("train_step_gpu", |b| {
             b.iter(|| {
+                trainer.step = 0;
                 let batch = make_batch(2, 16, config.vocab_size);
                 let r = black_box(trainer.train_step(black_box(&[batch])));
                 CudaBackend::synchronize();

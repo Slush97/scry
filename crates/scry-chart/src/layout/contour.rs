@@ -43,26 +43,48 @@ pub(crate) fn render_contour(cc: &ContourChart, w: u32, h: u32) -> RenderedChart
             lerp_color(cc.color_lo, cc.color_hi, t)
         };
 
-        // If filled, draw fill between this level and the next (or max).
+        // If filled, draw smooth bilinear-interpolated sub-cells.
         if cc.filled {
-            let fill_color = color.with_alpha(0.4);
-            // Fill: for each cell, if data >= level, fill the cell rectangle.
+            let next_level = levels.get(li + 1).copied().unwrap_or(v_max + 1.0);
+            // Subdivide each data cell into SUB×SUB sub-cells for smooth fill.
+            const SUB: usize = 4;
+            let sub_f = SUB as f64;
             for r in 0..rows.saturating_sub(1) {
                 for c in 0..cols.saturating_sub(1) {
-                    let cell_avg = (cc.data[r][c] + cc.data[r][c + 1]
-                        + cc.data[r + 1][c] + cc.data[r + 1][c + 1]) / 4.0;
-                    if cell_avg >= level {
-                        let next_level = levels.get(li + 1).copied().unwrap_or(v_max + 1.0);
-                        if cell_avg < next_level {
-                            let x0 = x_scale.to_pixel(c as f64) as f32;
-                            let x1 = x_scale.to_pixel((c + 1) as f64) as f32;
-                            let y0 = y_scale.to_pixel(r as f64) as f32;
-                            let y1 = y_scale.to_pixel((r + 1) as f64) as f32;
-                            let rx = x0.min(x1);
-                            let ry = y0.min(y1);
-                            let rw = (x1 - x0).abs();
-                            let rh = (y1 - y0).abs();
-                            ctx.draw(|cv| cv.rect(rx, ry, rw, rh).fill(fill_color).done());
+                    let v00 = cc.data[r][c];
+                    let v10 = cc.data[r][c + 1];
+                    let v01 = cc.data[r + 1][c];
+                    let v11 = cc.data[r + 1][c + 1];
+
+                    for sr in 0..SUB {
+                        for sc in 0..SUB {
+                            // Centre of this sub-cell in [0,1]² within the data cell
+                            let u = (sc as f64 + 0.5) / sub_f;
+                            let v = (sr as f64 + 0.5) / sub_f;
+                            let val = bilinear(v00, v10, v01, v11, u, v);
+
+                            if val >= level && val < next_level {
+                                // Map value to a continuous color via the full range
+                                let ct = ((val - v_min) / v_range).clamp(0.0, 1.0) as f32;
+                                let sub_color = if let Some(ref cm) = cc.colormap {
+                                    cm.color_at(ct)
+                                } else {
+                                    lerp_color(cc.color_lo, cc.color_hi, ct)
+                                };
+                                let fill_color = sub_color.with_alpha(0.55);
+
+                                // Sub-cell pixel coordinates
+                                let x0 = x_scale.to_pixel(c as f64 + sc as f64 / sub_f) as f32;
+                                let x1 = x_scale.to_pixel(c as f64 + (sc + 1) as f64 / sub_f) as f32;
+                                let y0 = y_scale.to_pixel(r as f64 + sr as f64 / sub_f) as f32;
+                                let y1 = y_scale.to_pixel(r as f64 + (sr + 1) as f64 / sub_f) as f32;
+                                let rx = x0.min(x1);
+                                let ry = y0.min(y1);
+                                // +0.5 to avoid hairline gaps between sub-cells
+                                let rw = (x1 - x0).abs() + 0.5;
+                                let rh = (y1 - y0).abs() + 0.5;
+                                ctx.draw(|cv| cv.rect(rx, ry, rw, rh).fill(fill_color).done());
+                            }
                         }
                     }
                 }
@@ -94,6 +116,17 @@ fn lerp_color(a: scry_engine::style::Color, b: scry_engine::style::Color, t: f32
         a.b + (b.b - a.b) * t,
         a.a + (b.a - a.a) * t,
     )
+}
+
+/// Bilinear interpolation of four corner values.
+///
+/// `v00` = top-left, `v10` = top-right, `v01` = bottom-left, `v11` = bottom-right.
+/// `u` and `v` are in [0, 1].
+#[inline]
+fn bilinear(v00: f64, v10: f64, v01: f64, v11: f64, u: f64, v: f64) -> f64 {
+    let top = v00 + (v10 - v00) * u;
+    let bot = v01 + (v11 - v01) * u;
+    top + (bot - top) * v
 }
 
 /// Marching squares: compute iso-level line segments from a 2D grid.

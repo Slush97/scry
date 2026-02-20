@@ -106,10 +106,24 @@ pub fn backward_node<B: MathBackend>(
                 vocab,
             },
         ) => {
-            let d_logits = B::cross_entropy_backward(logits, targets, *batch, *vocab);
-            let d_out_scalar = B::to_vec(&d_out)[0];
-            let d_logits_scaled = B::scale(&d_logits, d_out_scalar);
-            accumulate_grad::<B>(grads, node.input_ids[0], d_logits_scaled);
+            // d_out is a 1-element storage — pass directly to the kernel (no D2H sync)
+            let d_logits = B::cross_entropy_backward(logits, targets, *batch, *vocab, &d_out);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_logits);
+        }
+        (
+            Operation::CrossEntropyFused,
+            SavedData::CrossEntropyFused {
+                cached_grad,
+                batch: _,
+                vocab: _,
+            },
+        ) => {
+            // cached_grad = (softmax - one_hot) / batch, precomputed during forward.
+            // d_logits = cached_grad * d_out_scalar.
+            // d_out is 1-element — read to host (single D2H, negligible cost).
+            let d_out_val = B::to_vec(&d_out)[0];
+            let d_logits = B::scale(cached_grad, d_out_val);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_logits);
         }
         (
             Operation::Embedding,
@@ -124,8 +138,8 @@ pub fn backward_node<B: MathBackend>(
             accumulate_grad::<B>(grads, *weight_id, d_weight);
         }
         (Operation::Sum, SavedData::Sum { input_shape }) => {
-            let d_out_scalar = B::to_vec(&d_out)[0];
-            let d_input = B::from_vec(vec![d_out_scalar; input_shape.numel()], input_shape);
+            // Broadcast d_out (1-element) to input shape on device (no D2H sync)
+            let d_input = B::broadcast_scalar(&d_out, input_shape.numel());
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
         }
         (
@@ -284,8 +298,9 @@ pub fn backward_node<B: MathBackend>(
                 out_features,
             },
         ) => {
-            // d_gelu_input = fused_bias_gelu_backward(d_out, matmul_output, bias)
-            let d_mm = B::fused_bias_gelu_backward(&d_out, input, bias, *rows, *cols);
+            // input is post-bias (matmul + bias), so gelu_backward directly
+            let d_mm = B::gelu_backward(&d_out, input);
+            let _ = bias; // bias gradient comes from reduce_rows(d_mm) below
 
             // Bias gradient = reduce_rows(d_mm) — same values as d_mm since
             // d(bias_add)/d(bias) = 1, passed through GELU backward

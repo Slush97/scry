@@ -48,6 +48,10 @@ const SHAPE_CAPSULE: u32 = 6u;
 const SHAPE_ROUNDED_BOX: u32 = 7u;
 const SHAPE_CONE: u32 = 8u;
 const SHAPE_TEXT3D: u32 = 9u;
+const SHAPE_SUBTRACT: u32 = 10u;
+const SHAPE_MANDELBULB: u32 = 11u;
+const SHAPE_MENGER: u32 = 12u;
+const SHAPE_GYROID: u32 = 13u;
 
 // Material types (discriminant)
 const MAT_SOLID: u32 = 0u;
@@ -285,6 +289,82 @@ fn sd_cone(p: vec3<f32>, radius: f32, height: f32) -> f32 {
     return dist_to_edge;
 }
 
+fn sd_mandelbulb(pos: vec3<f32>, power: f32, max_iter: u32) -> f32 {
+    var w = pos;
+    var m = dot(w, w);
+    var dz = 1.0;
+
+    for (var i = 0u; i < max_iter; i++) {
+        let m_sqrt = sqrt(m);
+        dz = power * pow(m_sqrt, power - 1.0) * dz + 1.0;
+
+        let r = m_sqrt;
+        let theta = atan2(w.y, w.x);
+        let phi = asin(clamp(w.z / r, -1.0, 1.0));
+
+        let rp = pow(r, power);
+        let tp = theta * power;
+        let pp = phi * power;
+
+        w = vec3<f32>(
+            rp * cos(pp) * cos(tp),
+            rp * cos(pp) * sin(tp),
+            rp * sin(pp),
+        ) + pos;
+
+        m = dot(w, w);
+        if m > 256.0 {
+            break;
+        }
+    }
+
+    let r = sqrt(m);
+    return 0.25 * r * log(r) / dz;
+}
+
+fn sd_menger_sponge(p: vec3<f32>, iterations: u32) -> f32 {
+    var d = sd_box(p, vec3<f32>(1.0, 1.0, 1.0));
+    var s = 1.0;
+
+    for (var i = 0u; i < iterations; i++) {
+        let a = vec3<f32>(
+            ((p.x * s) % 2.0 + 3.0) % 2.0 - 1.0,
+            ((p.y * s) % 2.0 + 3.0) % 2.0 - 1.0,
+            ((p.z * s) % 2.0 + 3.0) % 2.0 - 1.0,
+        );
+        s *= 3.0;
+
+        let r = vec3<f32>(
+            abs(1.0 - 3.0 * abs(a.x)),
+            abs(1.0 - 3.0 * abs(a.y)),
+            abs(1.0 - 3.0 * abs(a.z)),
+        );
+
+        let da = max(r.y, r.z) / s;
+        let db = max(r.x, r.z) / s;
+        let dc = max(r.x, r.y) / s;
+        let c = min(min(da, db), dc);
+
+        d = max(d, c);
+    }
+
+    return d;
+}
+
+fn sd_gyroid(p: vec3<f32>, scale: f32, thickness: f32, bound: f32) -> f32 {
+    let sp = p * scale;
+    let val = sin(sp.x) * cos(sp.y)
+            + sin(sp.y) * cos(sp.z)
+            + sin(sp.z) * cos(sp.x);
+    let gyroid_d = (abs(val) - thickness) / scale;
+
+    if bound > 0.0 {
+        let sphere_d = length(p) - bound;
+        return max(gyroid_d, sphere_d);
+    }
+    return gyroid_d;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Text3D glyph sampling
 // ═══════════════════════════════════════════════════════════════════
@@ -389,6 +469,9 @@ fn eval_sub_shape(shape_type: u32, params: vec4<f32>, p: vec3<f32>) -> f32 {
         case 6u: { return sd_capsule(p, params.x, params.y); }        // SHAPE_CAPSULE
         case 7u: { return sd_rounded_box(p, vec3<f32>(params.x, params.y, params.z), params.w); } // SHAPE_ROUNDED_BOX
         case 8u: { return sd_cone(p, params.x, params.y); }           // SHAPE_CONE
+        case 11u: { return sd_mandelbulb(p, params.x, u32(params.y)); } // SHAPE_MANDELBULB
+        case 12u: { return sd_menger_sponge(p, u32(params.x)); }      // SHAPE_MENGER
+        case 13u: { return sd_gyroid(p, params.x, params.y, params.z); } // SHAPE_GYROID
         default: { return sd_sphere(p, 1.0); }
     }
 }
@@ -425,6 +508,13 @@ fn shape_sdf(obj: GpuObject, local: vec3<f32>) -> f32 {
         let da = eval_sub_shape(sub_a_type, obj.blend_a_params, local);
         let db = eval_sub_shape(sub_b_type, obj.blend_b_params, local - obj.blend_b_offset);
         return smooth_min(da, db, k);
+    }
+    if obj.shape_type == SHAPE_SUBTRACT {
+        let sub_a_type = u32(obj.shape_params.y);
+        let sub_b_type = u32(obj.shape_params.z);
+        let da = eval_sub_shape(sub_a_type, obj.blend_a_params, local);
+        let db = eval_sub_shape(sub_b_type, obj.blend_b_params, local - obj.blend_b_offset);
+        return max(da, -db);
     }
     return eval_sub_shape(obj.shape_type, obj.shape_params, local);
 }
@@ -801,7 +891,7 @@ fn march_fire_volume(origin: vec3<f32>, dir: vec3<f32>, obj: GpuObject) -> vec4<
 // Main shading (iterative — no recursion in WGSL)
 // ═══════════════════════════════════════════════════════════════════
 
-fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
+fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
     // Fire check on primary ray
     var fire_color = vec4<f32>(0.0);
     for (var i = 0u; i < u.num_objects; i++) {
@@ -818,11 +908,15 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
     var ray_dir = dir;
     var accumulated_color = vec3<f32>(0.0);
     var attenuation = 1.0;
+    var alpha = 1.0;
 
     for (var bounce = 0u; bounce <= u.max_bounces; bounce++) {
         let hit = ray_march(ray_origin, ray_dir, bounce);
         if !hit.hit {
             accumulated_color += u.sky_color.xyz * attenuation;
+            if bounce == 0u {
+                alpha = u.sky_color.w;
+            }
             break;
         }
 
@@ -1090,7 +1184,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
         accumulated_color = fire_color.xyz + accumulated_color * inv_a;
     }
 
-    return accumulated_color;
+    return vec4<f32>(accumulated_color, alpha);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1124,7 +1218,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let r = u32(corrected.x * 255.0);
     let g = u32(corrected.y * 255.0);
     let b = u32(corrected.z * 255.0);
-    let pixel = r | (g << 8u) | (b << 16u) | (255u << 24u);
+    let a = u32(clamp(color.w, 0.0, 1.0) * 255.0);
+    let pixel = r | (g << 8u) | (b << 16u) | (a << 24u);
 
     output[y * u.width + x] = pixel;
 }

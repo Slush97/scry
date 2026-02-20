@@ -73,11 +73,14 @@ pub struct CandlestickChart {
 impl CandlestickChart {
     /// Create a new candlestick chart from OHLC data.
     pub fn new(data: Vec<OhlcEntry>) -> Self {
+        let config = ChartConfig::default();
+        let up_color = config.theme.series_color(0);
+        let down_color = config.theme.series_color(1);
         Self {
             data,
-            config: ChartConfig::default(),
-            up_color: Color::from_rgba8(0, 114, 178, 255),   // Okabe-Ito blue (bullish)
-            down_color: Color::from_rgba8(213, 94, 0, 255),  // Okabe-Ito vermillion (bearish)
+            config,
+            up_color,
+            down_color,
             wick_width: 1.5,
             body_width_frac: 0.7,
         }

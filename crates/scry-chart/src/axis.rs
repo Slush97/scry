@@ -11,6 +11,7 @@ use scry_engine::scene::PixelCanvas;
 use scry_engine::style::{Color, DashPattern};
 
 use crate::formatter::{AutoFormatter, TickFormatter};
+use crate::locator::TickLocator;
 use crate::scale::{LinearScale, Scale};
 
 /// Axis position on the chart.
@@ -131,8 +132,14 @@ pub struct AxisConfig {
     // --- Fixed step ---
     /// Fixed tick step size. When set, ticks are placed at multiples of
     /// this value within the axis domain (overrides adaptive generation,
-    /// but `fixed_ticks` takes priority).
+    /// but `fixed_ticks` and `tick_locator` take priority).
     pub tick_step: Option<f64>,
+
+    // --- Custom locator ---
+    /// Custom tick locator. When set, overrides `fixed_ticks` and `tick_step`
+    /// for tick position generation. See [`crate::locator`] for built-in
+    /// implementations.
+    pub tick_locator: Option<Arc<dyn TickLocator>>,
 
     // --- Zero line ---
     /// Color for the zero line (when domain spans zero). `None` = auto (semi-transparent axis color).
@@ -174,6 +181,7 @@ impl Clone for AxisConfig {
             tick_formatter: self.tick_formatter.clone(),
             label_offset: self.label_offset,
             tick_step: self.tick_step,
+            tick_locator: self.tick_locator.clone(),
             zero_line_color: self.zero_line_color,
             zero_line_width: self.zero_line_width,
             tick_label_rotation: self.tick_label_rotation,
@@ -226,6 +234,7 @@ impl Default for AxisConfig {
             tick_formatter: None,
             label_offset: 8.0,
             tick_step: None,
+            tick_locator: None,
             zero_line_color: None,
             zero_line_width: 1.5,
             tick_label_rotation: LabelRotation::Horizontal,
@@ -386,7 +395,7 @@ pub fn draw_axis(
     plot_area: (f32, f32, f32, f32),
     scale: &LinearScale,
     config: &AxisConfig,
-) -> (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>) {
+) -> (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>, LabelRotation) {
     let (px, py, pw, ph) = plot_area;
     let mut tick_labels = Vec::new();
     let mut grid_lines = Vec::new();
@@ -401,9 +410,11 @@ pub fn draw_axis(
         adaptive_tick_count_rotated(axis_length, is_horizontal, config.tick_label_rotation)
     };
 
-    // Get tick values: fixed_ticks > tick_step > auto
+    // Get tick values: tick_locator > fixed_ticks > tick_step > auto
     #[allow(clippy::option_if_let_else)]
-    let ticks = if let Some(ref fixed) = config.fixed_ticks {
+    let ticks = if let Some(ref locator) = config.tick_locator {
+        locator.tick_values(scale.domain(), n_ticks)
+    } else if let Some(ref fixed) = config.fixed_ticks {
         fixed.clone()
     } else if let Some(step) = config.tick_step {
         generate_step_ticks(scale.domain(), step)
@@ -420,22 +431,52 @@ pub fn draw_axis(
     let tick_label_pairs: Vec<(f64, String)> =
         ticks.iter().zip(labels).map(|(&v, l)| (v, l)).collect();
 
+    // ---------- Phase 3: Auto-rotation (before skip) ----------
+    // When horizontal X labels would overlap, try rotating before
+    // falling back to the more destructive label-skipping.
+    let effective_rotation = if is_horizontal
+        && config.tick_label_rotation == LabelRotation::Horizontal
+        && tick_label_pairs.len() > 2
+    {
+        // Quick overlap probe: compare label span to spacing
+        let avg_spacing = axis_length / tick_label_pairs.len().max(1) as f32;
+        let char_w = config.tick_font_size * 0.59; // INTER_ADVANCE_RATIO
+        let max_label_len = tick_label_pairs
+            .iter()
+            .map(|(_, l)| l.len())
+            .max()
+            .unwrap_or(1) as f32;
+        let label_span = max_label_len * char_w + 4.0;
+        if label_span > avg_spacing {
+            // Labels would overlap horizontally — try diagonal
+            let diag_span = label_span * 0.71; // sin(45°)
+            if diag_span <= avg_spacing {
+                LabelRotation::Diagonal
+            } else {
+                LabelRotation::Vertical
+            }
+        } else {
+            LabelRotation::Horizontal
+        }
+    } else {
+        config.tick_label_rotation
+    };
+
     let tick_label_pairs = auto_skip_labels(
         tick_label_pairs,
         axis_length,
         is_horizontal,
-        config.tick_label_rotation,
+        effective_rotation,
         scale,
         config.tick_font_size,
     );
 
-    // D3: Final collision verification pass — if any adjacent labels still
-    // overlap after auto-skip, increase the skip factor and retry.
+    // D3: Final collision verification pass
     let tick_label_pairs = verify_no_overlap(
         tick_label_pairs,
         axis_length,
         is_horizontal,
-        config.tick_label_rotation,
+        effective_rotation,
         scale,
         config.tick_font_size,
     );
@@ -615,7 +656,7 @@ pub fn draw_axis(
         }
     }
 
-    (canvas, tick_labels, grid_lines, tick_marks)
+    (canvas, tick_labels, grid_lines, tick_marks, effective_rotation)
 }
 
 // ---------------------------------------------------------------------------
@@ -628,7 +669,7 @@ use crate::layout::INTER_ADVANCE_RATIO;
 ///
 /// Font-proportional replacement for the old hardcoded `AVG_CHAR_WIDTH`.
 #[inline]
-fn char_width_for_size(font_size: f32) -> f32 {
+pub(crate) fn char_width_for_size(font_size: f32) -> f32 {
     INTER_ADVANCE_RATIO * font_size
 }
 
@@ -683,7 +724,13 @@ fn auto_skip_labels(
     let min_spacing = pixel_positions
         .windows(2)
         .map(|w| (w[1] - w[0]).abs())
+        .filter(|d| d.is_finite())
         .fold(f32::INFINITY, f32::min);
+
+    // If no finite spacing was found (degenerate scale), keep all labels.
+    if !min_spacing.is_finite() {
+        return pairs;
+    }
 
     // If the tightest pair of adjacent labels has enough room, keep all
     if min_spacing >= label_span {
@@ -1109,5 +1156,18 @@ mod tests {
         let count = adaptive_tick_count_rotated(300.0, true, LabelRotation::Angle(45.0));
         assert!(count >= 3);
         assert!(count <= 12);
+    }
+
+    #[test]
+    fn auto_skip_degenerate_scale() {
+        // All ticks at the same pixel position (degenerate domain)
+        let pairs: Vec<(f64, String)> = (0..5)
+            .map(|i| (i as f64, format!("{i}")))
+            .collect();
+        // Domain is a single point — all pixels will be same
+        let scale = crate::scale::LinearScale::new((5.0, 5.0), (100.0, 400.0));
+        // Should not panic and should keep all labels
+        let result = auto_skip_labels(pairs.clone(), 300.0, true, LabelRotation::Horizontal, &scale, 11.0);
+        assert!(!result.is_empty(), "degenerate scale should keep some labels");
     }
 }

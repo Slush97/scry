@@ -60,6 +60,7 @@ fn op_name(op: &Operation) -> &'static str {
         Operation::FusedBiasGelu => "FusedBiasGelu",
         Operation::FusedBiasDropoutResidual => "FusedBiasDropoutRes",
         Operation::FlashAttention => "FlashAttention",
+        Operation::CrossEntropyFused => "CrossEntropyFused",
     }
 }
 
@@ -217,7 +218,7 @@ fn profile<B: MathBackend>(
             .map(|p| {
                 let id = p.id;
                 let shape = p.shape.clone();
-                (id, &mut p.data, shape)
+                (id, p.data_mut(), shape)
             })
             .collect();
         let mut param_refs: Vec<_> = params

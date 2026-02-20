@@ -17,7 +17,7 @@ use crate::spec::ChartSpec;
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::Chart;
+/// use scry_chart::chart::Charts;
 ///
 /// let chart = Charts::lollipop(
 ///     vec!["Mon".into(), "Tue".into(), "Wed".into(), "Thu".into(), "Fri".into()],

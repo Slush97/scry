@@ -101,6 +101,88 @@ pub struct PlayArgs {
     /// Output height in pixels (default: 640)
     #[arg(short = 'H', long, default_value = "640")]
     pub height: u32,
+
+    /// Use low-resolution rendering (200×200)
+    #[arg(long)]
+    pub low_res: bool,
+}
+
+/// Compute the default SDF resolution from the terminal's actual pixel
+/// dimensions.  We target about 40% of the terminal's shorter axis so
+/// the rendered object is a compact, crisp inline element — not a
+/// massive rectangle that fills the whole screen.
+pub(crate) fn sdf_default_res() -> u32 {
+    let (pw, ph) = crate::inline::terminal_pixel_size();
+    // 40% of the smaller axis, capped to [200, 300] for quality vs size.
+    let target = ((pw.min(ph) as f64) * 0.4) as u32;
+    target.clamp(200, 300)
+}
+/// Low-res SDF resolution.
+pub(crate) const SDF_LOW_RES: u32 = 200;
+
+/// Shared parameters for all SDF animation presets.
+///
+/// Both `scry play` and `scry see` convert their CLI args into this
+/// struct before calling the `run_*` functions.
+#[derive(Debug, Clone)]
+pub(crate) struct SdfRunParams {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub duration: u64,
+}
+
+impl PlayArgs {
+    pub(crate) fn to_sdf_params(&self) -> SdfRunParams {
+        let default = if self.low_res { SDF_LOW_RES } else { sdf_default_res() };
+        SdfRunParams {
+            width: if self.width != 960 { self.width } else { default },
+            height: if self.height != 640 { self.height } else { default },
+            fps: self.fps,
+            duration: self.duration,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GPU-accelerated SDF render context (with CPU fallback)
+// ---------------------------------------------------------------------------
+
+/// Wrapper that tries GPU rendering first, falls back to CPU if unavailable.
+///
+/// Created once at the start of each animation and reused across all frames.
+pub(crate) struct GpuRenderCtx {
+    gpu: Option<scry_engine::sdf::gpu_renderer::SdfGpuContext>,
+}
+
+impl GpuRenderCtx {
+    /// Try to initialise GPU; silently fall back to CPU on failure.
+    pub fn new() -> Self {
+        let gpu = scry_engine::gpu::GpuDevice::global_or_init()
+            .ok()
+            .and_then(|dev| {
+                scry_engine::sdf::gpu_renderer::SdfGpuContext::with_device(dev).ok()
+            });
+        // Silently use GPU when available, fall back to CPU otherwise.
+        Self { gpu }
+    }
+
+    /// Render a scene, using GPU if available, otherwise CPU.
+    pub fn render(
+        &mut self,
+        scene: &scry_engine::sdf::SdfScene,
+        width: u32,
+        height: u32,
+        time: f32,
+    ) -> Result<scry_engine::Pixmap, scry_engine::PixelCanvasError> {
+        if let Some(ctx) = &mut self.gpu {
+            scry_engine::sdf::gpu_renderer::SdfGpuRenderer::render_to_pixmap(
+                ctx, scene, width, height, time,
+            )
+        } else {
+            scry_engine::sdf::SdfRenderer::render_to_pixmap(scene, width, height, time)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,20 +190,21 @@ pub struct PlayArgs {
 // ---------------------------------------------------------------------------
 
 pub fn run(args: &PlayArgs) -> Result<(), String> {
+    let params = args.to_sdf_params();
     match args.preset {
-        PlayPreset::Illusion => run_illusion(args),
-        PlayPreset::Cube => run_cube(args),
-        PlayPreset::Vortex => run_vortex(args),
-        PlayPreset::Pulse => run_pulse(args),
-        PlayPreset::Orbit => run_orbit(args),
-        PlayPreset::Torus => run_torus(args),
-        PlayPreset::Mirror => run_mirror(args),
-        PlayPreset::Mandelbulb => run_mandelbulb(args),
-        PlayPreset::Menger => run_menger(args),
-        PlayPreset::Gyroid => run_gyroid(args),
-        PlayPreset::GradientDescent => run_gradient_descent(args),
-        PlayPreset::NeuralNet => run_neural_net(args),
-        PlayPreset::KMeans => run_kmeans(args),
+        PlayPreset::Illusion => run_illusion(&params),
+        PlayPreset::Cube => run_cube(&params),
+        PlayPreset::Vortex => run_vortex(&params),
+        PlayPreset::Pulse => run_pulse(&params),
+        PlayPreset::Orbit => run_orbit(&params),
+        PlayPreset::Torus => run_torus(&params),
+        PlayPreset::Mirror => run_mirror(&params),
+        PlayPreset::Mandelbulb => run_mandelbulb(&params),
+        PlayPreset::Menger => run_menger(&params),
+        PlayPreset::Gyroid => run_gyroid(&params),
+        PlayPreset::GradientDescent => run_gradient_descent(&params),
+        PlayPreset::NeuralNet => run_neural_net(&params),
+        PlayPreset::KMeans => run_kmeans(&params),
         preset => {
             eprintln!("scry play: interactive TUI animations");
             eprintln!();
@@ -156,18 +239,16 @@ pub fn run(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_cube(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    // Smaller render — the cube is the focus, not a huge transparent canvas.
-    // Use CLI overrides if the user explicitly set them, otherwise default small.
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -179,6 +260,7 @@ fn run_cube(args: &PlayArgs) -> Result<(), String> {
 
 
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -227,10 +309,10 @@ fn run_cube(args: &PlayArgs) -> Result<(), String> {
             .at(Vec3::ZERO)
             .orient(orientation);
 
-            // Tighter orbiting camera — closer to the cube for less empty space
+            // Tight orbiting camera — close to the cube so it fills the frame
             let cam_angle = t * 0.3;
-            let cam_radius = 3.5;
-            let cam_y = 1.5 + (t * 0.2).sin() * 0.3;
+            let cam_radius = 2.8;
+            let cam_y = 1.0 + (t * 0.2).sin() * 0.2;
             let eye = Vec3::new(
                 cam_angle.cos() * cam_radius,
                 cam_y,
@@ -252,12 +334,12 @@ fn run_cube(args: &PlayArgs) -> Result<(), String> {
                     Color::from_rgba8(100, 150, 255, 255),
                     0.6,
                 ))
-                .camera(SdfCamera::new(eye, Vec3::ZERO, 50.0))
+                .camera(SdfCamera::new(eye, Vec3::ZERO, 40.0))
                 .sky_color(transparent)
                 .ambient(0.08)
                 .max_bounces(1);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -289,16 +371,16 @@ fn run_cube(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_vortex(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -310,6 +392,7 @@ fn run_vortex(args: &PlayArgs) -> Result<(), String> {
 
 
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -401,7 +484,7 @@ fn run_vortex(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.06)
                 .max_bounces(2);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -433,16 +516,16 @@ fn run_vortex(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_pulse(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -454,6 +537,7 @@ fn run_pulse(args: &PlayArgs) -> Result<(), String> {
 
 
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -562,7 +646,7 @@ fn run_pulse(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.10)
                 .max_bounces(1);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -594,16 +678,16 @@ fn run_pulse(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_orbit(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -615,6 +699,7 @@ fn run_orbit(args: &PlayArgs) -> Result<(), String> {
 
 
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -730,7 +815,7 @@ fn run_orbit(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.06)
                 .max_bounces(3);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -764,16 +849,16 @@ fn run_orbit(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_mandelbulb(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -783,6 +868,7 @@ fn run_mandelbulb(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -865,7 +951,7 @@ fn run_mandelbulb(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.06)
                 .max_bounces(1);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -895,16 +981,16 @@ fn run_mandelbulb(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_menger(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -914,6 +1000,7 @@ fn run_menger(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1002,7 +1089,7 @@ fn run_menger(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(2);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -1032,16 +1119,16 @@ fn run_menger(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_gyroid(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -1051,6 +1138,7 @@ fn run_gyroid(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1143,7 +1231,7 @@ fn run_gyroid(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.07)
                 .max_bounces(1);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -1173,16 +1261,16 @@ fn run_gyroid(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_torus(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -1192,6 +1280,7 @@ fn run_torus(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1311,7 +1400,7 @@ fn run_torus(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(2);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -1343,17 +1432,17 @@ fn run_torus(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_mirror(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, SdfTextLabel,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, SdfTextLabel,
         Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -1363,6 +1452,7 @@ fn run_mirror(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1505,7 +1595,7 @@ fn run_mirror(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.05)
                 .max_bounces(3);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -1536,18 +1626,21 @@ fn run_mirror(args: &PlayArgs) -> Result<(), String> {
 // Illusion preset — renders 6 optical illusion panels inline
 // ---------------------------------------------------------------------------
 
-fn run_illusion(args: &PlayArgs) -> Result<(), String> {
+fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use std::time::{Duration, Instant};
 
-    // Auto-size from terminal dimensions if the user kept the defaults.
+    // Auto-size from terminal dimensions for the illusion grid.
     let (w, h) = {
         let (term_cols, term_rows) =
             crossterm::terminal::size().unwrap_or((120, 40));
-        let auto_w = (term_cols as u32) * 8;
-        let auto_h = (term_rows as u32).saturating_sub(4) * 16;
-        let w = if args.width != 960 { args.width } else { auto_w.max(320) };
-        let h = if args.height != 640 { args.height } else { auto_h.max(200) };
+        let (cw, ch) = crate::inline::detect_cell_size();
+        let auto_w = (term_cols as u32) * u32::from(cw);
+        let auto_h = (term_rows as u32).saturating_sub(4) * u32::from(ch);
+        let default_res = sdf_default_res();
+        // Use the params width/height only if they differ from the SDF default
+        let w = if args.width != default_res && args.width != SDF_LOW_RES { args.width } else { auto_w.max(320) };
+        let h = if args.height != default_res && args.height != SDF_LOW_RES { args.height } else { auto_h.max(200) };
         (w, h)
     };
 
@@ -1882,16 +1975,16 @@ fn build_illusions(w: u32, h: u32, t: f32) -> PixelCanvas {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_gradient_descent(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -1901,6 +1994,7 @@ fn run_gradient_descent(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2057,7 +2151,7 @@ fn run_gradient_descent(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(1);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -2090,16 +2184,16 @@ fn run_gradient_descent(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_neural_net(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -2109,6 +2203,7 @@ fn run_neural_net(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2277,7 +2372,7 @@ fn run_neural_net(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(0);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -2309,16 +2404,16 @@ fn run_neural_net(args: &PlayArgs) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
-fn run_kmeans(args: &PlayArgs) -> Result<(), String> {
+pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfRenderer, SdfScene, SdfShape, Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
     };
     use std::time::{Duration, Instant};
 
-    let w = if args.width != 960 { args.width } else { 200 };
-    let h = if args.height != 640 { args.height } else { 200 };
+    let w = args.width;
+    let h = args.height;
 
     let fps = args.fps.max(1);
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
@@ -2328,6 +2423,7 @@ fn run_kmeans(args: &PlayArgs) -> Result<(), String> {
         None
     };
 
+    let mut gpu_ctx = GpuRenderCtx::new();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2517,7 +2613,7 @@ fn run_kmeans(args: &PlayArgs) -> Result<(), String> {
                 .ambient(0.10)
                 .max_bounces(2);
 
-            let pixmap = SdfRenderer::render_to_pixmap(&scene, w, h, t)
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
             let png_data = pixmap
@@ -2543,6 +2639,275 @@ fn run_kmeans(args: &PlayArgs) -> Result<(), String> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Text preset — GPU SDF 3D extruded text with custom message
+// ---------------------------------------------------------------------------
+
+/// Options for the text preset, collected from CLI flags.
+pub(crate) struct TextOptions {
+    pub message: String,
+    pub material: crate::see::TextMaterial,
+    pub animate: bool,
+    pub wiggle: bool,
+    pub warp: bool,
+}
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), String> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+    use scry_engine::scene::style::Color;
+    use scry_engine::sdf::{
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
+    };
+    use std::time::{Duration, Instant};
+
+    // Uppercase the message for a bolder 3D look.
+    let text = opts.message.to_uppercase();
+
+    // Load the bundled Inter-Bold font (same font the chart library uses).
+    const FONT: &[u8] = include_bytes!("../../scry-chart/src/fonts/Inter-Bold.ttf");
+
+    // Auto-scale font size based on string length so the text fits the view.
+    let base_font_size = 1.4_f32;
+    let font_size = if text.len() <= 4 {
+        base_font_size
+    } else {
+        (base_font_size * 4.0 / text.len() as f32).max(0.4)
+    };
+
+    // Build the Text3D shape.
+    let text_shape = SdfShape::text_3d(FONT, &text, font_size, font_size * 0.4)
+        .ok_or_else(|| format!("Failed to build 3D text for \"{text}\" — font may not support these characters"))?;
+
+    let w = args.width;
+    let h = args.height;
+
+    // Helper: build the material for this frame
+    let build_material = |t: f32| -> Material {
+        match opts.material {
+            crate::see::TextMaterial::Rainbow => Material::Rainbow {
+                saturation: 0.95,
+                lightness: 0.55,
+                hue_offset: t * 0.5,
+                specular: 128.0,
+            },
+            crate::see::TextMaterial::Chrome => Material::mirror(
+                Color::from_rgba8(220, 220, 230, 255),
+                0.9,
+            ),
+            crate::see::TextMaterial::Glass => Material::glass_dispersive(
+                Color::from_rgba8(220, 240, 255, 255),
+                1.5,
+                0.03,
+            ),
+            crate::see::TextMaterial::Fire => Material::Fire {
+                intensity: 2.0,
+                noise_scale: 2.0,
+                speed: 1.0,
+            },
+            crate::see::TextMaterial::Matte => Material::Solid {
+                color: Color::from_rgba8(240, 235, 230, 255),
+                reflectivity: 0.05,
+                specular: 64.0,
+            },
+        }
+    };
+
+    // Helper: build a scene for given camera angles and time
+    let build_scene = |yaw: f32, pitch: f32, t: f32| -> SdfScene {
+        let mat = build_material(t);
+
+        let mut obj = SdfObject::new(text_shape.clone(), mat)
+            .at(Vec3::new(0.0, 1.0, 0.0));
+
+        // Base rotation: flip text 180° around Y so it faces the +Z camera.
+        // The text SDF's readable face points toward -Z by default.
+        let base_rot = scry_engine::math3d::Quaternion::from_axis_angle(
+            Vec3::new(0.0, 1.0, 0.0),
+            std::f32::consts::PI,
+        );
+
+        // Compose user yaw/pitch on top of base rotation
+        let mut q = base_rot;
+
+        if yaw.abs() > 0.001 || pitch.abs() > 0.001 {
+            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
+                Vec3::new(0.0, 1.0, 0.0), yaw,
+            );
+            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
+                Vec3::new(1.0, 0.0, 0.0), pitch,
+            );
+            q = qy * qx * q;
+        }
+
+        // Apply wiggle: gentle Z-axis oscillation composed on top
+        if opts.wiggle {
+            let wiggle_angle = (t * 2.0).sin() * 0.15;
+            let qw = scry_engine::math3d::Quaternion::from_axis_angle(
+                Vec3::new(0.0, 0.0, 1.0), wiggle_angle,
+            );
+            q = qw * q;
+        }
+
+        obj = obj.orient(q);
+
+        // Camera distance adapts to text length
+        let cam_r = 5.0 + (text.len() as f32 - 4.0).max(0.0) * 0.5;
+        let cam_y = 2.2;
+
+        let mut scene = SdfScene::new()
+            .object(obj)
+            // Warm key light
+            .light(SdfLight::new(
+                Vec3::new(5.0, 8.0, 5.0),
+                Color::from_rgba8(255, 240, 220, 255),
+                0.9,
+            ))
+            // Cool fill light
+            .light(SdfLight::new(
+                Vec3::new(-4.0, 6.0, -2.0),
+                Color::from_rgba8(150, 180, 255, 255),
+                0.4,
+            ))
+            // Back accent
+            .light(SdfLight::new(
+                Vec3::new(0.0, 4.0, -5.0),
+                Color::from_rgba8(255, 200, 160, 255),
+                0.3,
+            ))
+            .camera(SdfCamera::new(
+                Vec3::new(0.0, cam_y, cam_r),
+                Vec3::new(0.0, 0.8, 0.0),
+                50.0,
+            ))
+            .sky_color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 })
+            .ambient(0.08)
+            .max_bounces(2);
+
+        // Warp: add small distortion spheres around the text that pulse
+        if opts.warp {
+            let num_warp = 6;
+            for i in 0..num_warp {
+                let phase = (i as f32 / num_warp as f32) * std::f32::consts::PI * 2.0;
+                let warp_r = 0.15 + (t * 1.5 + phase).sin() * 0.08;
+                let wx = (phase + t * 0.5).cos() * 2.5;
+                let wy = 1.0 + (t * 1.2 + phase).sin() * 0.4;
+                let wz = (phase + t * 0.5).sin() * 1.2;
+                let (hr, hg, hb) = hsl_to_rgb(
+                    ((i as f32 / num_warp as f32) * 360.0 + t * 40.0) % 360.0,
+                    0.9, 0.6,
+                );
+                scene = scene.object(
+                    SdfObject::new(
+                        SdfShape::Sphere { radius: warp_r },
+                        Material::Solid {
+                            color: Color::from_rgba8(hr, hg, hb, 255),
+                            reflectivity: 0.6,
+                            specular: 96.0,
+                        },
+                    )
+                    .at(Vec3::new(wx, wy, wz)),
+                );
+            }
+        }
+
+        scene
+    };
+
+    let mut gpu_ctx = GpuRenderCtx::new();
+
+    // ── Static mode (default): render one frame and display inline ──
+    if !opts.animate {
+        let t = if opts.wiggle || opts.warp { 0.5 } else { 0.0 };
+        let scene = build_scene(0.0, 0.0, t);
+
+        let pixmap = gpu_ctx.render(&scene, w, h, t)
+            .map_err(|e| format!("SDF render failed: {e}"))?;
+
+        let png_data = pixmap
+            .encode_png()
+            .map_err(|e| format!("PNG encoding failed: {e}"))?;
+
+        inline::display_inline_auto(&png_data)
+            .map_err(|e| format!("inline display failed: {e}"))?;
+
+        return Ok(());
+    }
+
+    // ── Animate mode: live loop with arrow-key rotation ──
+    let fps = args.fps.max(1);
+    let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
+    let deadline = if args.duration > 0 {
+        Some(Instant::now() + Duration::from_secs(args.duration))
+    } else {
+        None
+    };
+
+    let mut frame_count: u64 = 0;
+    let start = Instant::now();
+    let mut yaw: f32 = 0.0;
+    let mut pitch: f32 = 0.0;
+    let rot_speed: f32 = 0.08;
+
+    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+
+    let result = (|| -> Result<(), String> {
+        loop {
+            let frame_start = Instant::now();
+            let t = start.elapsed().as_secs_f32();
+
+            // Handle input: arrow keys rotate, q/Esc quits
+            if event::poll(Duration::ZERO).unwrap_or(false) {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Left => yaw -= rot_speed,
+                            KeyCode::Right => yaw += rot_speed,
+                            KeyCode::Up => pitch -= rot_speed,
+                            KeyCode::Down => pitch += rot_speed,
+                            KeyCode::Char('q') | KeyCode::Esc => break,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            if let Some(dl) = deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
+
+            let scene = build_scene(yaw, pitch, t);
+
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
+                .map_err(|e| format!("SDF render failed: {e}"))?;
+
+            let png_data = pixmap
+                .encode_png()
+                .map_err(|e| format!("PNG encoding failed: {e}"))?;
+
+            inline::display_kitty_animation_frame(&png_data, frame_count)
+                .map_err(|e| format!("inline display failed: {e}"))?;
+
+            frame_count += 1;
+
+            let elapsed = frame_start.elapsed();
+            if elapsed < frame_dur {
+                std::thread::sleep(frame_dur - elapsed);
+            }
+        }
+        Ok(())
+    })();
+
+    let _ = crossterm::terminal::disable_raw_mode();
+
+    result?;
+
+    Ok(())
+}
+
 
 // ─── Utility: HSL to RGB ──────────────────────────────────────────────────────
 

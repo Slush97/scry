@@ -16,7 +16,7 @@ use crate::spec::ChartSpec;
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::Chart;
+/// use scry_chart::chart::Charts;
 ///
 /// let chart = Charts::violin(vec![
 ///     ("Control", vec![2.0, 3.1, 2.8, 3.5, 2.9]),

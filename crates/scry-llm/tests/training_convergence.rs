@@ -79,6 +79,7 @@ fn tiny_gpt2_training_converges() {
 
         // Backward
         let grads = backward(&tape, loss.id);
+        drop(tape);
 
         // Optimizer step
         let mut params: Vec<_> = model
@@ -87,7 +88,7 @@ fn tiny_gpt2_training_converges() {
             .map(|p| {
                 let id = p.id;
                 let shape = p.shape.clone();
-                (id, &mut p.data, shape)
+                (id, p.data_mut(), shape)
             })
             .collect();
 

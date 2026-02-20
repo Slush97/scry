@@ -1,51 +1,56 @@
-# Auto-generated
+# Build artifacts
 /target/
+**/fuzz/target/
+**/fuzz/corpus/
+**/fuzz/artifacts/
+
+# Editor / OS
 *.swp
 *.swo
 *~
 .DS_Store
+
+# Rust
 Cargo.lock
-
-# Generated output directories
-chart_output/
-feature_showcase_output/
-
-# Internal tracking (not for publication)
-FORMATTING_PROGRESS.md
-
-# Model weights (too large for git)
-*.safetensors
-
-# Fuzz build artifacts and corpus
-**/fuzz/target/
-**/fuzz/corpus/
-**/fuzz/artifacts/
 
 # Python virtual environments
 .venv/
 **/venv/
 **/.venv/
+__pycache__/
+*.pyc
 
-# Build tools / binaries
-tectonic
+# Model weights
+*.safetensors
+*.onnx
 
-# Debug logs
-debug*.log
-
-# Generated artifacts
-*.pdf
-masonic_mirror_bench_*.txt
-text3d_debug.log
-
-# Coverage reports
-tarpaulin-report.json
-
-# Generated viz output
+# Generated output directories
+chart_output/
+chart_showcase_output/
+feature_showcase_output/
 ml_viz_output/
+output/
+
+# LaTeX build artifacts
+*.aux
+*.out
+*.toc
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# Generated binaries / reports
+*.pdf
+*.log
+tectonic
+tarpaulin-report.json
+bench_dashboard.html
+masonic_mirror_bench_*.txt
 subplot_demo.png
 
-# Log files
-*.log
-
-# Comparison reports
+# Internal / generated tracking files
+FORMATTING_PROGRESS.md
 ml_ecosystem_comparison.*
+scry_chart_audit.*

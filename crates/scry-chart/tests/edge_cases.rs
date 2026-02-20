@@ -1637,3 +1637,221 @@ fn colorblind_theme_renders() {
         assert_render(chart, 400, 300, &format!("colorblind_{i}"));
     }
 }
+
+// ===========================================================================
+// Section: try_build() for remaining chart types
+// ===========================================================================
+
+#[test]
+fn try_build_waterfall_empty() {
+    use scry_chart::chart::WaterfallChart;
+    let r = WaterfallChart::new(vec![], vec![]).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_waterfall_valid() {
+    let r = Charts::waterfall(vec!["A".into(), "B".into()], &[10.0, -5.0]).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_funnel_empty() {
+    use scry_chart::chart::FunnelChart;
+    let r = FunnelChart::new(vec![], vec![]).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_funnel_valid() {
+    let r = Charts::funnel(vec!["A".into(), "B".into()], &[100.0, 60.0]).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_gauge_valid() {
+    use scry_chart::chart::GaugeChart;
+    let r = GaugeChart::new(75.0).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_lollipop_empty() {
+    use scry_chart::chart::LollipopChart;
+    let r = LollipopChart::new(vec![], vec![]).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_lollipop_valid() {
+    let r = Charts::lollipop(vec!["A".into(), "B".into()], &[10.0, 20.0]).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_gantt_empty() {
+    use scry_chart::chart::GanttChart;
+    let r = GanttChart::new(vec![]).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_gantt_valid() {
+    use scry_chart::chart::GanttTask;
+    let tasks = vec![GanttTask::new("Task A", 0.0, 5.0)];
+    let r = Charts::gantt(tasks).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_candlestick_empty() {
+    use scry_chart::chart::CandlestickChart;
+    let r = CandlestickChart::new(vec![]).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_candlestick_valid() {
+    use scry_chart::chart::OhlcEntry;
+    let data = vec![OhlcEntry::new(1.0, 10.0, 15.0, 8.0, 12.0)];
+    let r = Charts::candlestick(data).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_radar_empty() {
+    use scry_chart::chart::RadarChart;
+    let r = RadarChart::new(Vec::<String>::new()).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_radar_valid() {
+    let r = Charts::radar(vec!["A", "B", "C"])
+        .add_series("S", &[1.0, 2.0, 3.0])
+        .try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_sparkline_empty() {
+    use scry_chart::chart::Sparkline;
+    let r = Sparkline::new(vec![]).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_sparkline_valid() {
+    let r = Charts::sparkline(&[1.0, 5.0, 3.0, 7.0]).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_bubble_empty() {
+    use scry_chart::chart::BubbleChart;
+    let r = BubbleChart::new(
+        Series::from_values(vec![]),
+        Series::from_values(vec![]),
+        vec![],
+    ).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_bubble_valid() {
+    let r = Charts::bubble(&[1.0, 2.0], &[3.0, 4.0], &[10.0, 20.0]).try_build();
+    assert!(r.is_ok());
+}
+
+#[test]
+fn try_build_violin_empty() {
+    use scry_chart::chart::ViolinPlot;
+    let r = ViolinPlot::new(Vec::<(String, Vec<f64>)>::new()).try_build();
+    assert_eq!(r.unwrap_err(), ChartError::EmptyData);
+}
+
+#[test]
+fn try_build_violin_valid() {
+    let r = Charts::violin(vec![("G".to_string(), vec![1.0, 2.0, 3.0, 4.0, 5.0])]).try_build();
+    assert!(r.is_ok());
+}
+
+// ===========================================================================
+// Section: Degenerate rendering — charts that should NOT panic
+// ===========================================================================
+
+#[test]
+fn degenerate_pie_single_slice() {
+    // Full circle, not an arc with a gap
+    let chart = Charts::pie(vec!["Only".into()], &[100.0])
+        .theme(transparent_theme())
+        .build();
+    render_transparent(&chart, "pie_single_slice");
+}
+
+#[test]
+fn degenerate_radar_two_axes() {
+    // Minimal degenerate polygon
+    let chart = Charts::radar(vec!["X", "Y"])
+        .add_series("S", &[3.0, 7.0])
+        .theme(transparent_theme())
+        .build();
+    render_transparent(&chart, "radar_two_axes");
+}
+
+#[test]
+fn degenerate_candlestick_doji() {
+    // open == close — doji candle
+    use scry_chart::chart::OhlcEntry;
+    let data = vec![
+        OhlcEntry::new(1.0, 10.0, 12.0, 8.0, 10.0),  // doji
+        OhlcEntry::new(2.0, 15.0, 17.0, 13.0, 15.0),  // doji
+    ];
+    let chart = Charts::candlestick(data)
+        .theme(transparent_theme())
+        .build();
+    render_transparent(&chart, "candlestick_doji");
+}
+
+#[test]
+fn degenerate_funnel_all_equal() {
+    // All equal values — should render rectangles, not trapezoids
+    let chart = Charts::funnel(
+        vec!["A".into(), "B".into(), "C".into()],
+        &[50.0, 50.0, 50.0],
+    )
+    .theme(transparent_theme())
+    .build();
+    render_transparent(&chart, "funnel_equal");
+}
+
+#[test]
+fn degenerate_violin_few_points() {
+    // <5 data points — KDE is statistically meaningless but shouldn't crash
+    let chart = Charts::violin(vec![("Small".to_string(), vec![1.0, 2.0])])
+        .theme(transparent_theme())
+        .build();
+    render_transparent(&chart, "violin_few_points");
+}
+
+#[test]
+fn degenerate_gauge_out_of_range() {
+    use scry_chart::chart::GaugeChart;
+    // Value exceeds default [0, 100] range
+    let chart = GaugeChart::new(150.0)
+        .theme(transparent_theme())
+        .build();
+    render_transparent(&chart, "gauge_over_range");
+}
+
+#[test]
+fn degenerate_waterfall_crosses_zero() {
+    // Running total crosses zero multiple times
+    let chart = Charts::waterfall(
+        vec!["Start".into(), "Down".into(), "Up".into(), "Down2".into()],
+        &[100.0, -150.0, 200.0, -300.0],
+    )
+    .theme(transparent_theme())
+    .build();
+    render_transparent(&chart, "waterfall_cross_zero");
+}

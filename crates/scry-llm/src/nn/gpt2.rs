@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::autograd::ops;
 use crate::autograd::GradTape;
@@ -454,7 +455,7 @@ impl<B: MathBackend> Gpt2Model<B> {
                     // so gradients flow correctly to the segment input
                     let seg_input = Tensor {
                         id: node.input_ids[0],
-                        data: B::clone_storage(input_data),
+                        data: Arc::new(B::clone_storage(input_data)),
                         shape: input_shape.clone(),
                     };
 

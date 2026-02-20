@@ -107,7 +107,7 @@ def make_xgb(n_classes):
         learning_rate=0.1,
         tree_method="hist",
         random_state=42,
-        n_jobs=-1,
+        n_jobs=1,  # FAIRNESS: match Rust single-thread (RAYON_NUM_THREADS=1)
         objective=objective,
         verbosity=0,
     )
@@ -169,7 +169,7 @@ def run_training_benchmarks():
         X, y = gen_classification(n, 10)
         model = xgb.XGBClassifier(
             n_estimators=100, max_depth=6, learning_rate=0.1,
-            tree_method="hist", random_state=42, n_jobs=-1, verbosity=0,
+            tree_method="hist", random_state=42, n_jobs=1, verbosity=0,  # FAIRNESS: single-thread
         )
         median_us = time_fn(lambda X=X, y=y: model.fit(X, y))
         rows_per_sec = n / (median_us / 1e6) if median_us > 0 else 0
@@ -194,7 +194,7 @@ def run_prediction_benchmarks():
     X, y = gen_classification(1000, 10)
     model = xgb.XGBClassifier(
         n_estimators=100, max_depth=6, learning_rate=0.1,
-        tree_method="hist", random_state=42, verbosity=0,
+        tree_method="hist", random_state=42, n_jobs=1, verbosity=0,  # FAIRNESS: single-thread
     )
     model.fit(X, y)
     latency = prediction_latency(model, X)

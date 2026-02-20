@@ -49,6 +49,7 @@ pub mod layout;
 #[cfg(feature = "pdf")]
 pub mod pdf_export;
 pub mod legend;
+pub mod locator;
 pub mod margin;
 pub mod scale;
 pub mod spec;

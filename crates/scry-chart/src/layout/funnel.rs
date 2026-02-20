@@ -2,7 +2,7 @@
 //! Funnel chart rendering — trapezoid stages for conversion pipeline.
 
 use crate::chart::funnel::FunnelChart;
-use crate::theme::contrast_text_color;
+use crate::theme::{contrast_text_color_composited};
 
 use super::{RenderContext, RenderedChart, TextAlign};
 
@@ -131,10 +131,10 @@ pub(crate) fn render_funnel(fc: &FunnelChart, w: u32, h: u32) -> RenderedChart {
             let text_block_h = if has_detail { tick_fs + data_fs * 0.8 + 4.0 } else { tick_fs };
             let block_top = bar_y + (stage_h - text_block_h) / 2.0;
 
-            ctx.add_text(center_x, block_top, &fc.labels[i], contrast_text_color(color), TextAlign::Center, tick_fs, true, 0.0);
+            ctx.add_text(center_x, block_top, &fc.labels[i], contrast_text_color_composited(color, theme.background), TextAlign::Center, tick_fs, true, 0.0);
 
             if has_detail {
-                ctx.add_text(center_x, block_top + tick_fs + 2.0, &detail, contrast_text_color(color).with_alpha(0.65), TextAlign::Center, data_fs * 0.85, false, 0.0);
+                ctx.add_text(center_x, block_top + tick_fs + 2.0, &detail, contrast_text_color_composited(color, theme.background).with_alpha(0.65), TextAlign::Center, data_fs * 0.85, false, 0.0);
             }
         } else {
             // ── Text overflow guard: move labels outside the bar ──

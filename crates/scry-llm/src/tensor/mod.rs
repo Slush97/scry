@@ -1,6 +1,7 @@
 pub mod shape;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use crate::backend::DeviceBackend;
 use shape::Shape;
@@ -18,11 +19,14 @@ impl TensorId {
 }
 
 /// N-dimensional tensor backed by a device-specific storage.
-/// Backend is passed as parameter to ops, not stored in the tensor.
+///
+/// `data` is wrapped in `Arc` so that recording to the autograd tape
+/// can capture weight tensors via Arc clone (O(1) refcount bump)
+/// instead of a full device memcpy.
 #[derive(Clone, Debug)]
 pub struct Tensor<B: DeviceBackend> {
     pub id: TensorId,
-    pub data: B::Storage,
+    pub data: Arc<B::Storage>,
     pub shape: Shape,
 }
 
@@ -30,7 +34,7 @@ impl<B: DeviceBackend> Tensor<B> {
     pub fn new(data: B::Storage, shape: Shape) -> Self {
         Self {
             id: TensorId::next(),
-            data,
+            data: Arc::new(data),
             shape,
         }
     }
@@ -68,5 +72,15 @@ impl<B: DeviceBackend> Tensor<B> {
 
     pub fn numel(&self) -> usize {
         self.shape.numel()
+    }
+
+    /// Get exclusive mutable access to the storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics if other references to the `Arc` still exist (e.g. tape not dropped).
+    pub fn data_mut(&mut self) -> &mut B::Storage {
+        Arc::get_mut(&mut self.data)
+            .expect("Tensor::data_mut: Arc still shared — drop the tape first")
     }
 }

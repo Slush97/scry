@@ -267,9 +267,31 @@ pub(crate) fn render_gantt(gc: &GanttChart, w: u32, h: u32) -> RenderedChart {
                         false,
                         0.0,
                     );
+                } else {
+                    // Truncate with ellipsis and draw inside the bar
+                    let avail_chars = ((bar_w - 8.0) / super::char_width_for_size(bar_fs)).floor() as usize;
+                    if avail_chars >= 2 {
+                        let truncated: String = if task.label.chars().count() > avail_chars {
+                            let mut s: String = task.label.chars().take(avail_chars.saturating_sub(1)).collect();
+                            s.push('…');
+                            s
+                        } else {
+                            task.label.clone()
+                        };
+                        let lx = x0 + bar_w / 2.0;
+                        let txt_color = contrast_text_color(color);
+                        ctx.add_text(
+                            lx,
+                            bar_mid_y,
+                            &truncated,
+                            txt_color,
+                            TextAlign::Center,
+                            bar_fs * 0.85,
+                            false,
+                            0.0,
+                        );
+                    }
                 }
-                // If it doesn't fit to the right either, the Y-axis label
-                // on the left already identifies the task, so we skip.
             }
         }
 
@@ -338,21 +360,22 @@ pub(crate) fn render_gantt(gc: &GanttChart, w: u32, h: u32) -> RenderedChart {
         });
 
         for (i, g) in visible_groups.iter().enumerate() {
-            let row_y = ly + legend_pad + i as f32 * line_h;
+            let row_center = ly + legend_pad + i as f32 * line_h + swatch_size / 2.0;
+            let swatch_y = row_center - swatch_size / 2.0;
             let color = group_color(g);
 
-            // Swatch
+            // Swatch — vertically centered in the row
             ctx.draw(|c| {
-                c.rect(lx + legend_pad, row_y, swatch_size, swatch_size)
+                c.rect(lx + legend_pad, swatch_y, swatch_size, swatch_size)
                     .fill(color)
                     .corner_radius(2.0)
                     .done()
             });
 
-            // Label
+            // Label — vertically centered to match the swatch
             ctx.add_text(
                 lx + legend_pad + swatch_size + 5.0,
-                row_y + swatch_size * 0.85,
+                row_center + legend_fs * 0.35,
                 g,
                 theme.text_color(),
                 TextAlign::Left,

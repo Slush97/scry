@@ -1,15 +1,22 @@
 pub mod backward;
 pub mod ops;
 
+use std::sync::Arc;
+
 use crate::backend::DeviceBackend;
 use crate::tensor::shape::Shape;
 use crate::tensor::TensorId;
 
 /// What data each operation saves for backward.
+///
+/// Fields holding tensor data from model parameters use `Arc<B::Storage>` to
+/// avoid deep device-memory copies when recording on the autograd tape.
+/// Intermediate computation results produced within the forward op remain
+/// owned `B::Storage`.
 pub enum SavedData<B: DeviceBackend> {
     Matmul {
-        a: B::Storage,
-        b: B::Storage,
+        a: Arc<B::Storage>,
+        b: Arc<B::Storage>,
         m: usize,
         k: usize,
         n: usize,
@@ -26,8 +33,8 @@ pub enum SavedData<B: DeviceBackend> {
         shape: Shape,
     },
     LayerNorm {
-        input: B::Storage,
-        gamma: B::Storage,
+        input: Arc<B::Storage>,
+        gamma: Arc<B::Storage>,
         mean: B::Storage,
         rstd: B::Storage,
         shape: Shape,
@@ -35,11 +42,17 @@ pub enum SavedData<B: DeviceBackend> {
         beta_id: TensorId,
     },
     Gelu {
-        input: B::Storage,
+        input: Arc<B::Storage>,
     },
     CrossEntropy {
-        logits: B::Storage,
+        logits: Arc<B::Storage>,
         targets: Vec<usize>,
+        batch: usize,
+        vocab: usize,
+    },
+    /// Fused cross-entropy: cached grad from forward, just scale in backward.
+    CrossEntropyFused {
+        cached_grad: B::Storage,
         batch: usize,
         vocab: usize,
     },
@@ -53,9 +66,9 @@ pub enum SavedData<B: DeviceBackend> {
         input_shape: Shape,
     },
     Attention {
-        input: B::Storage,
-        qkv_weight: B::Storage,
-        proj_weight: B::Storage,
+        input: Arc<B::Storage>,
+        qkv_weight: Arc<B::Storage>,
+        proj_weight: Arc<B::Storage>,
         attn_weights: Vec<B::Storage>,
         q_per_head: Vec<B::Storage>,
         k_per_head: Vec<B::Storage>,
@@ -91,9 +104,9 @@ pub enum SavedData<B: DeviceBackend> {
     /// Fused residual-add + `LayerNorm`.
     /// Stores inputs for backward recomputation (sum = residual + sublayer).
     ResidualAddLayerNorm {
-        residual: B::Storage,
-        sublayer: B::Storage,
-        gamma: B::Storage,
+        residual: Arc<B::Storage>,
+        sublayer: Arc<B::Storage>,
+        gamma: Arc<B::Storage>,
         mean: B::Storage,
         rstd: B::Storage,
         shape: Shape,
@@ -104,10 +117,10 @@ pub enum SavedData<B: DeviceBackend> {
     },
     /// Fused bias + GELU: `gelu(matmul_out + bias)`.
     FusedBiasGelu {
-        /// Pre-bias matmul output `[rows, cols]`
+        /// Pre-bias matmul output `[rows, cols]` (intermediate, not from a tensor)
         input: B::Storage,
         /// Bias `[cols]`
-        bias: B::Storage,
+        bias: Arc<B::Storage>,
         rows: usize,
         cols: usize,
         /// TensorId of the bias parameter
@@ -115,9 +128,9 @@ pub enum SavedData<B: DeviceBackend> {
         /// TensorId of the weight parameter
         weight_id: TensorId,
         /// Saved input to the matmul
-        matmul_input: B::Storage,
+        matmul_input: Arc<B::Storage>,
         /// Weight storage
-        weight: B::Storage,
+        weight: Arc<B::Storage>,
         in_features: usize,
         out_features: usize,
     },
@@ -126,7 +139,7 @@ pub enum SavedData<B: DeviceBackend> {
         /// Pre-bias matmul output
         matmul_out: B::Storage,
         /// Bias
-        bias: B::Storage,
+        bias: Arc<B::Storage>,
         /// Dropout mask (scale values)
         dropout_mask: B::Storage,
         rows: usize,
@@ -136,17 +149,17 @@ pub enum SavedData<B: DeviceBackend> {
         /// TensorId of the weight parameter
         weight_id: TensorId,
         /// Saved input to the matmul
-        matmul_input: B::Storage,
+        matmul_input: Arc<B::Storage>,
         /// Weight storage
-        weight: B::Storage,
+        weight: Arc<B::Storage>,
         in_features: usize,
         out_features: usize,
     },
     /// Batched attention: contiguous tensors for all batch×heads (no per-item vectors).
     AttentionBatched {
-        input: B::Storage,
-        qkv_weight: B::Storage,
-        proj_weight: B::Storage,
+        input: Arc<B::Storage>,
+        qkv_weight: Arc<B::Storage>,
+        proj_weight: Arc<B::Storage>,
         /// `[B*H, S, S]` — attention weights (pre-dropout softmax output)
         attn_weights: B::Storage,
         /// `[B*H, S, d_head]` — Q, K, V in head-first layout
@@ -170,9 +183,9 @@ pub enum SavedData<B: DeviceBackend> {
     /// FlashAttention: fused Q@K^T → scale → causal mask → softmax → attn@V.
     FlashAttention {
         /// `[B*S, D]` — input to attention (for QKV weight gradient)
-        input: B::Storage,
-        qkv_weight: B::Storage,
-        proj_weight: B::Storage,
+        input: Arc<B::Storage>,
+        qkv_weight: Arc<B::Storage>,
+        proj_weight: Arc<B::Storage>,
         /// `[B*H, S, d_head]` — Q, K, V in head-first layout
         q_heads: B::Storage,
         k_heads: B::Storage,
@@ -203,6 +216,7 @@ pub enum Operation {
     LayerNorm,
     Gelu,
     CrossEntropy,
+    CrossEntropyFused,
     Embedding,
     Sum,
     Attention,

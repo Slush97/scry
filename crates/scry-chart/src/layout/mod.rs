@@ -221,7 +221,7 @@ fn estimate_y_tick_width_scaled(
     let max_chars = labels.iter().map(|l| l.len()).max().unwrap_or(3);
 
     let text_px = max_chars as f32 * char_width_for_size(font_size);
-    (text_px + 8.0).max(24.0).min(120.0)
+    (text_px + 8.0).max(24.0).min(180.0)
 }
 
 /// Estimate the pixel width needed for the Y-axis label text.

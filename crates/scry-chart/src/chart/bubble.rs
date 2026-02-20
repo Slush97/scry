@@ -23,7 +23,7 @@ use crate::spec::ChartSpec;
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::Chart;
+/// use scry_chart::chart::Charts;
 /// use scry_chart::data::Series;
 ///
 /// let chart = Charts::bubble(

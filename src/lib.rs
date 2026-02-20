@@ -223,3 +223,6 @@ pub mod prelude {
 
 // Re-export the style module at crate root for convenience
 pub use scene::style;
+
+/// Re-export `tiny_skia::Pixmap` so downstream crates don't need a direct dependency.
+pub use tiny_skia::Pixmap;

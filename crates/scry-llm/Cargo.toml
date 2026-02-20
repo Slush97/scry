@@ -15,7 +15,7 @@ safetensors = ["dep:safetensors"]
 tokenizer = ["dep:serde_json"]
 
 [dependencies]
-cudarc = { version = "0.19", features = ["cublas", "nvrtc", "cuda-13010"], optional = true }
+cudarc = { version = "0.19", features = ["cublas", "cublaslt", "nvrtc", "cuda-13010"], optional = true }
 half = { version = "2", optional = true }
 safetensors = { version = "0.4", optional = true }
 arrayvec = "0.7"

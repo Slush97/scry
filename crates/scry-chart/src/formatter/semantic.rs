@@ -152,4 +152,28 @@ mod tests {
         assert_eq!(labels[2], "$1K");
         assert_eq!(labels[3], "($2M)");
     }
+
+    #[test]
+    fn currency_formatter_negative_zero() {
+        let fmt = CurrencyFormatter::default();
+        let labels = fmt.format_batch(&[-0.0], (-100.0, 100.0));
+        // -0.0 should produce "$0", not "-$0" or "(-$0)"
+        assert_eq!(labels[0], "$0", "Negative zero should display as $0");
+    }
+
+    #[test]
+    fn percent_formatter_nan_inf() {
+        let fmt = PercentFormatter::default();
+        // Should not panic on NaN/Inf inputs
+        let labels = fmt.format_batch(
+            &[f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.5],
+            (0.0, 1.0),
+        );
+        assert_eq!(labels.len(), 4);
+        // NaN and Inf produce *some* output, not crash
+        assert!(!labels[0].is_empty(), "NaN should produce a label");
+        assert!(!labels[1].is_empty(), "Inf should produce a label");
+        assert!(!labels[2].is_empty(), "-Inf should produce a label");
+        assert_eq!(labels[3], "50%");
+    }
 }

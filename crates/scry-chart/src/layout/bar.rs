@@ -43,6 +43,18 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
     let x_dummy = LinearScale::new((0.0, 1.0), (px as f64, (px + pw) as f64));
     ctx.draw_reference_lines(config, &x_dummy, &y_scale);
 
+    // ── Emphasized zero-line for ± data ──
+    if y_extent.0 < 0.0 && y_extent.1 > 0.0 {
+        let zero_y = y_scale.to_pixel(0.0) as f32;
+        let zero_color = theme.axis_color().with_alpha(0.9);
+        ctx.draw(|c| {
+            c.line(px, zero_y, px + pw, zero_y)
+                .color(zero_color)
+                .width(theme.axis_width() * 2.0)
+                .done()
+        });
+    }
+
     // Draw bars
     let n_series = bc.series.len();
     let band = cat_scale.band_width() as f32;

@@ -129,7 +129,7 @@ fn miri_gelu() {
 fn miri_cross_entropy() {
     let logits = vec![10.0, -10.0, -10.0, -10.0, 10.0, -10.0];
     let targets = vec![0usize, 1];
-    let loss = CpuBackend::cross_entropy(&logits, &targets, 2, 3);
+    let loss = CpuBackend::cross_entropy(&logits, &targets, 2, 3)[0];
     assert!(loss.is_finite());
     assert!(loss < 0.01); // very confident predictions
 }
@@ -145,7 +145,7 @@ fn miri_embedding() {
 #[test]
 fn miri_sum() {
     let input = vec![1.0, 2.0, 3.0, 4.0];
-    let s = CpuBackend::sum(&input);
+    let s = CpuBackend::sum(&input)[0];
     assert!((s - 10.0).abs() < 1e-6);
 }
 
@@ -419,9 +419,12 @@ fn miri_adamw_step() {
     );
 
     let mut optimizer = AdamW::<Cpu>::new(AdamWConfig::default());
-    let mut params = vec![(param.id, &mut param.data, &param.shape)];
+    let param_id = param.id;
+    let param_shape = param.shape.clone();
+    let mut params = vec![(param_id, param.data_mut(), &param_shape)];
     let no_decay = std::collections::HashSet::new();
     optimizer.step(&mut params, &grad_map, &no_decay);
+    drop(params);
 
     let param_after = Cpu::to_vec(&param.data);
     assert!(param_after.iter().all(|v| v.is_finite()));
@@ -852,8 +855,11 @@ fn miri_adamw_no_decay_step() {
         weight_decay: 0.1,
         ..AdamWConfig::default()
     });
-    let mut params = vec![(param.id, &mut param.data, &param.shape)];
+    let param_id = param.id;
+    let param_shape = param.shape.clone();
+    let mut params = vec![(param_id, param.data_mut(), &param_shape)];
     optimizer.step(&mut params, &grad_map, &no_decay);
+    drop(params);
 
     let after = Cpu::to_vec(&param.data);
     assert!(after.iter().all(|v| v.is_finite()));

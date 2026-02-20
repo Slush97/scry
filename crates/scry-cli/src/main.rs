@@ -26,6 +26,7 @@ mod examples;
 mod inline;
 mod play;
 mod render_image;
+mod see;
 mod spec;
 mod splash;
 mod stream;
@@ -62,6 +63,9 @@ enum Commands {
     /// Play interactive fullscreen animations
     Play(play::PlayArgs),
 
+    /// View SDF shapes inline (`scry see cube`, `scry see torus`, …)
+    See(see::SeeArgs),
+
     /// Live streaming chart from stdin
     Stream(stream::StreamArgs),
 
@@ -87,6 +91,7 @@ fn main() {
         Commands::Splash(args) => splash::run(&args),
         Commands::Render(args) => render_image::run(&args),
         Commands::Play(args) => play::run(&args),
+        Commands::See(args) => see::run(&args),
         Commands::Stream(args) => stream::run(&args),
         Commands::Viz { cmd } => viz::run(*cmd),
         Commands::Info => cmd_info(),
@@ -139,6 +144,8 @@ fn cmd_info() -> Result<(), String> {
     println!("  scry stream          Live streaming chart from stdin");
     println!("  scry play            Interactive TUI animations & illusions");
     println!("  scry play -p illusion  Render optical illusions inline");
+    println!("  scry see <shape>     View SDF shapes (cube, torus, gyroid, …)");
+    println!("  scry see cube --low-res  Low-res mode (200×200)");
     println!("  scry info            Terminal capabilities");
     println!();
 

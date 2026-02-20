@@ -60,9 +60,9 @@ pub mod configs {
     pub const HGBT_MAX_DEPTH: usize = 6;
     pub const HGBT_LR: f64 = 0.1;
 
-    /// Logistic Regression: `max_iter=500, lr=0.01`
-    /// sklearn: `max_iter=500, solver='lbfgs', C=1.0`
-    pub const LOGREG_MAX_ITER: usize = 500;
+    /// Logistic Regression: `max_iter=200, lr=0.01`
+    /// sklearn: `max_iter=200, solver='lbfgs', C=1.0`
+    pub const LOGREG_MAX_ITER: usize = 200;
     pub const LOGREG_LR: f64 = 0.01;
 
     /// KNN: `k=5, uniform weights`

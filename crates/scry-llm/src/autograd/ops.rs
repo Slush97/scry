@@ -26,8 +26,8 @@ pub fn matmul<B: MathBackend>(
             input_ids: vec![a.id, b.id],
             op: Operation::Matmul,
             saved: SavedData::Matmul {
-                a: B::clone_storage(&a.data),
-                b: B::clone_storage(&b.data),
+                a: a.data.clone(),
+                b: b.data.clone(),
                 m,
                 k,
                 n,
@@ -107,8 +107,8 @@ pub fn layernorm<B: MathBackend>(
             input_ids: vec![input.id],
             op: Operation::LayerNorm,
             saved: SavedData::LayerNorm {
-                input: B::clone_storage(&input.data),
-                gamma: B::clone_storage(&gamma.data),
+                input: input.data.clone(),
+                gamma: gamma.data.clone(),
                 mean,
                 rstd,
                 shape: input.shape.clone(),
@@ -132,7 +132,7 @@ pub fn gelu<B: MathBackend>(input: &Tensor<B>, tape: Option<&mut GradTape<B>>) -
             input_ids: vec![input.id],
             op: Operation::Gelu,
             saved: SavedData::Gelu {
-                input: B::clone_storage(&input.data),
+                input: input.data.clone(),
             },
         });
     }
@@ -143,6 +143,10 @@ pub fn gelu<B: MathBackend>(input: &Tensor<B>, tape: Option<&mut GradTape<B>>) -
 /// Cross-entropy loss from logits.
 /// `logits`: `[B, V]`, `targets`: `[B]` as `usize` indices.
 /// Returns scalar loss tensor.
+///
+/// Uses fused forward+backward when tape is active: computes loss and caches
+/// the gradient `(softmax - one_hot) / batch` in a single softmax pass.
+/// Backward just scales the cached grad by the upstream scalar.
 pub fn cross_entropy<B: MathBackend>(
     logits: &Tensor<B>,
     targets: &[usize],
@@ -150,25 +154,30 @@ pub fn cross_entropy<B: MathBackend>(
     vocab: usize,
     tape: Option<&mut GradTape<B>>,
 ) -> Tensor<B> {
-    let loss_val = B::cross_entropy(&logits.data, targets, batch, vocab);
-    let data = B::from_vec(vec![loss_val], &Shape::new(&[1]));
-    let out = Tensor::new(data, Shape::new(&[1]));
+    if tape.is_some() {
+        // Fused path: one softmax pass computes both loss and grad
+        let (loss, cached_grad) = B::cross_entropy_fwd_bwd(&logits.data, targets, batch, vocab);
+        let out = Tensor::new(loss, Shape::new(&[1]));
 
-    if let Some(tape) = tape {
-        tape.record(TapeNode {
-            output_id: out.id,
-            input_ids: vec![logits.id],
-            op: Operation::CrossEntropy,
-            saved: SavedData::CrossEntropy {
-                logits: B::clone_storage(&logits.data),
-                targets: targets.to_vec(),
-                batch,
-                vocab,
-            },
-        });
+        if let Some(tape) = tape {
+            tape.record(TapeNode {
+                output_id: out.id,
+                input_ids: vec![logits.id],
+                op: Operation::CrossEntropyFused,
+                saved: SavedData::CrossEntropyFused {
+                    cached_grad,
+                    batch,
+                    vocab,
+                },
+            });
+        }
+
+        out
+    } else {
+        // Inference: no grad needed, use forward-only kernel
+        let data = B::cross_entropy(&logits.data, targets, batch, vocab);
+        Tensor::new(data, Shape::new(&[1]))
     }
-
-    out
 }
 
 /// Embedding lookup.
@@ -202,8 +211,7 @@ pub fn embedding<B: MathBackend>(
 
 /// Sum all elements to a scalar.
 pub fn sum<B: MathBackend>(input: &Tensor<B>, tape: Option<&mut GradTape<B>>) -> Tensor<B> {
-    let val = B::sum(&input.data);
-    let data = B::from_vec(vec![val], &Shape::new(&[1]));
+    let data = B::sum(&input.data);
     let out = Tensor::new(data, Shape::new(&[1]));
 
     if let Some(tape) = tape {
@@ -243,23 +251,15 @@ pub fn attention<B: MathBackend>(
     let seq_len = input.shape.dims()[0];
 
     // QKV = input @ W_qkv + b_qkv  => [seq, 3*d_model]
-    let qkv_raw = B::matmul(
+    let qkv = B::matmul_bias(
         &input.data,
         &qkv_weight.data,
+        &qkv_bias.data,
         seq_len,
         d_model,
         3 * d_model,
         false,
         false,
-    );
-    let qkv_shape = Shape::new(&[seq_len, 3 * d_model]);
-    let bias_shape = Shape::new(&[1, 3 * d_model]);
-    let qkv = B::add(
-        &qkv_raw,
-        &qkv_bias.data,
-        &qkv_shape,
-        &bias_shape,
-        &qkv_shape,
     );
 
     let is_training = tape.is_some();
@@ -315,23 +315,15 @@ pub fn attention<B: MathBackend>(
     }
 
     // Output projection: head_concat @ W_proj + b_proj => [seq, d_model]
-    let proj_raw = B::matmul(
+    let output_data = B::matmul_bias(
         &head_concat_storage,
         &proj_weight.data,
+        &proj_bias.data,
         seq_len,
         d_model,
         d_model,
         false,
         false,
-    );
-    let proj_shape = Shape::new(&[seq_len, d_model]);
-    let pbias_shape = Shape::new(&[1, d_model]);
-    let output_data = B::add(
-        &proj_raw,
-        &proj_bias.data,
-        &proj_shape,
-        &pbias_shape,
-        &proj_shape,
     );
 
     let out = Tensor::new(output_data, Shape::new(&[seq_len, d_model]));
@@ -342,9 +334,9 @@ pub fn attention<B: MathBackend>(
             input_ids: vec![input.id],
             op: Operation::Attention,
             saved: SavedData::Attention {
-                input: B::clone_storage(&input.data),
-                qkv_weight: B::clone_storage(&qkv_weight.data),
-                proj_weight: B::clone_storage(&proj_weight.data),
+                input: input.data.clone(),
+                qkv_weight: qkv_weight.data.clone(),
+                proj_weight: proj_weight.data.clone(),
                 attn_weights: all_attn_weights,
                 q_per_head: all_q,
                 k_per_head: all_k,
@@ -385,12 +377,12 @@ pub fn dropout<B: MathBackend>(
 
     // Inference: identity (no tape)
     if tape.is_none() {
-        return Tensor::new(B::clone_storage(&input.data), input.shape.clone());
+        return Tensor::new(B::clone_storage(&*input.data), input.shape.clone());
     }
 
     // p=0: record identity on tape for gradient flow
     if p == 0.0 {
-        let out = Tensor::new(B::clone_storage(&input.data), input.shape.clone());
+        let out = Tensor::new(B::clone_storage(&*input.data), input.shape.clone());
         if let Some(tape) = tape {
             tape.record(TapeNode {
                 output_id: out.id,
@@ -473,9 +465,9 @@ pub fn residual_add_layernorm<B: MathBackend>(
             input_ids: vec![residual.id, sublayer.id],
             op: Operation::ResidualAddLayerNorm,
             saved: SavedData::ResidualAddLayerNorm {
-                residual: B::clone_storage(&residual.data),
-                sublayer: B::clone_storage(&sublayer.data),
-                gamma: B::clone_storage(&gamma.data),
+                residual: residual.data.clone(),
+                sublayer: sublayer.data.clone(),
+                gamma: gamma.data.clone(),
                 mean,
                 rstd,
                 shape: residual.shape.clone(),
@@ -514,19 +506,17 @@ pub fn attention_batched<B: MathBackend>(
     let is_training = tape.is_some();
     let bh = batch_size * n_heads;
 
-    // 1. Single QKV matmul: [B*S, D] @ [D, 3D] -> [B*S, 3D]
-    let qkv_raw = B::matmul(
+    // 1. Single QKV matmul + bias: [B*S, D] @ [D, 3D] + bias -> [B*S, 3D]
+    let qkv = B::matmul_bias(
         &input.data,
         &qkv_weight.data,
+        &qkv_bias.data,
         total_tokens,
         d_model,
         3 * d_model,
         false,
         false,
     );
-    let qkv_shape = Shape::new(&[total_tokens, 3 * d_model]);
-    let bias_shape = Shape::new(&[1, 3 * d_model]);
-    let qkv = B::add(&qkv_raw, &qkv_bias.data, &qkv_shape, &bias_shape, &qkv_shape);
 
     // 2-3. Fused: extract Q, K, V and reshape to [B*H, S, d_head] in one kernel
     let (q_heads, k_heads, v_heads) =
@@ -571,23 +561,15 @@ pub fn attention_batched<B: MathBackend>(
     let head_concat = B::reshape_from_heads(&out_heads, batch_size, seq_len, n_heads, d_head);
 
     // 10. Output projection: [B*S, D] @ [D, D] + bias -> [B*S, D]
-    let proj_raw = B::matmul(
+    let output_data = B::matmul_bias(
         &head_concat,
         &proj_weight.data,
+        &proj_bias.data,
         total_tokens,
         d_model,
         d_model,
         false,
         false,
-    );
-    let proj_shape = Shape::new(&[total_tokens, d_model]);
-    let pbias_shape = Shape::new(&[1, d_model]);
-    let output_data = B::add(
-        &proj_raw,
-        &proj_bias.data,
-        &proj_shape,
-        &pbias_shape,
-        &proj_shape,
     );
 
     let out = Tensor::new(output_data, Shape::new(&[total_tokens, d_model]));
@@ -598,9 +580,9 @@ pub fn attention_batched<B: MathBackend>(
             input_ids: vec![input.id],
             op: Operation::AttentionBatched,
             saved: SavedData::AttentionBatched {
-                input: B::clone_storage(&input.data),
-                qkv_weight: B::clone_storage(&qkv_weight.data),
-                proj_weight: B::clone_storage(&proj_weight.data),
+                input: input.data.clone(),
+                qkv_weight: qkv_weight.data.clone(),
+                proj_weight: proj_weight.data.clone(),
                 attn_weights: attn,
                 q_heads,
                 k_heads,
@@ -638,11 +620,12 @@ pub fn fused_linear_gelu<B: MathBackend>(
 ) -> Tensor<B> {
     let rows = input.shape.dims()[0];
 
-    // Matmul: [rows, in_features] @ [in_features, out_features] -> [rows, out_features]
-    let mm = B::matmul(&input.data, &weight.data, rows, in_features, out_features, false, false);
-
-    // Fused bias + GELU
-    let data = B::fused_bias_gelu(&mm, &bias.data, rows, out_features);
+    // Fused matmul + bias via cuBLASLt epilogue, then GELU
+    let biased = B::matmul_bias(
+        &input.data, &weight.data, &bias.data,
+        rows, in_features, out_features, false, false,
+    );
+    let data = B::gelu(&biased);
     let out = Tensor::new(data, Shape::new(&[rows, out_features]));
 
     if let Some(tape) = tape {
@@ -651,14 +634,14 @@ pub fn fused_linear_gelu<B: MathBackend>(
             input_ids: vec![input.id],
             op: Operation::FusedBiasGelu,
             saved: SavedData::FusedBiasGelu {
-                input: B::clone_storage(&mm),
-                bias: B::clone_storage(&bias.data),
+                input: B::clone_storage(&biased),
+                bias: bias.data.clone(),
                 rows,
                 cols: out_features,
                 bias_id: bias.id,
                 weight_id: weight.id,
-                matmul_input: B::clone_storage(&input.data),
-                weight: B::clone_storage(&weight.data),
+                matmul_input: input.data.clone(),
+                weight: weight.data.clone(),
                 in_features,
                 out_features,
             },
@@ -716,14 +699,14 @@ pub fn fused_linear_dropout_residual<B: MathBackend>(
             op: Operation::FusedBiasDropoutResidual,
             saved: SavedData::FusedBiasDropoutResidual {
                 matmul_out: mm,
-                bias: B::clone_storage(&bias.data),
+                bias: bias.data.clone(),
                 dropout_mask: mask,
                 rows,
                 cols: out_features,
                 bias_id: bias.id,
                 weight_id: weight.id,
-                matmul_input: B::clone_storage(&input.data),
-                weight: B::clone_storage(&weight.data),
+                matmul_input: input.data.clone(),
+                weight: weight.data.clone(),
                 in_features,
                 out_features,
             },
@@ -758,14 +741,11 @@ pub fn attention_flash<B: MathBackend>(
     let total_tokens = batch_size * seq_len;
     let bh = batch_size * n_heads;
 
-    // 1. QKV matmul: [B*S, D] @ [D, 3D] -> [B*S, 3D]
-    let qkv_raw = B::matmul(
-        &input.data, &qkv_weight.data,
+    // 1. QKV matmul + bias: [B*S, D] @ [D, 3D] + bias -> [B*S, 3D]
+    let qkv = B::matmul_bias(
+        &input.data, &qkv_weight.data, &qkv_bias.data,
         total_tokens, d_model, 3 * d_model, false, false,
     );
-    let qkv_shape = Shape::new(&[total_tokens, 3 * d_model]);
-    let bias_shape = Shape::new(&[1, 3 * d_model]);
-    let qkv = B::add(&qkv_raw, &qkv_bias.data, &qkv_shape, &bias_shape, &qkv_shape);
 
     // 2. Fused split + reshape to heads: [B*S, 3D] -> Q, K, V each [B*H, S, d_head]
     let (q_heads, k_heads, v_heads) =
@@ -782,15 +762,9 @@ pub fn attention_flash<B: MathBackend>(
     let head_concat = B::reshape_from_heads(&flash_out, batch_size, seq_len, n_heads, d_head);
 
     // 5. Output projection: [B*S, D] @ [D, D] + bias -> [B*S, D]
-    let proj_raw = B::matmul(
-        &head_concat, &proj_weight.data,
+    let output_data = B::matmul_bias(
+        &head_concat, &proj_weight.data, &proj_bias.data,
         total_tokens, d_model, d_model, false, false,
-    );
-    let proj_shape = Shape::new(&[total_tokens, d_model]);
-    let pbias_shape = Shape::new(&[1, d_model]);
-    let output_data = B::add(
-        &proj_raw, &proj_bias.data,
-        &proj_shape, &pbias_shape, &proj_shape,
     );
 
     let out = Tensor::new(output_data, Shape::new(&[total_tokens, d_model]));
@@ -801,9 +775,9 @@ pub fn attention_flash<B: MathBackend>(
             input_ids: vec![input.id],
             op: Operation::FlashAttention,
             saved: SavedData::FlashAttention {
-                input: B::clone_storage(&input.data),
-                qkv_weight: B::clone_storage(&qkv_weight.data),
-                proj_weight: B::clone_storage(&proj_weight.data),
+                input: input.data.clone(),
+                qkv_weight: qkv_weight.data.clone(),
+                proj_weight: proj_weight.data.clone(),
                 q_heads,
                 k_heads,
                 v_heads,

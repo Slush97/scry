@@ -178,7 +178,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(60, 60, 80, 55),
+                color: Color::from_rgba8(60, 60, 80, 180),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -188,13 +188,13 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 0.0,
+                bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
-                background: Color::from_rgba8(30, 30, 40, 240),
+                background: Color::from_rgba8(15, 15, 25, 235),
                 border: Some(Color::from_rgba8(80, 80, 100, 200)),
             },
         }
@@ -242,7 +242,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(180, 180, 200, 40),
+                color: Color::from_rgba8(180, 180, 200, 120),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -252,13 +252,13 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 0.0,
+                bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
-                background: Color::from_rgba8(255, 255, 255, 240),
+                background: Color::from_rgba8(250, 250, 252, 235),
                 border: Some(Color::from_rgba8(200, 200, 200, 200)),
             },
         }
@@ -306,7 +306,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(55, 55, 75, 55),
+                color: Color::from_rgba8(55, 55, 75, 180),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -316,14 +316,14 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 0.0,
+                bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
-                background: Color::from_rgba8(250, 248, 245, 240),
-                border: Some(Color::from_rgba8(200, 195, 190, 200)),
+                background: Color::from_rgba8(22, 22, 30, 235),
+                border: Some(Color::from_rgba8(80, 80, 100, 200)),
             },
         }
     }
@@ -370,7 +370,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(40, 65, 90, 55),
+                color: Color::from_rgba8(40, 65, 90, 180),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -380,7 +380,7 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 0.0,
+                bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
@@ -434,7 +434,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(50, 58, 42, 55),
+                color: Color::from_rgba8(50, 58, 42, 180),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -444,13 +444,13 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 0.0,
+                bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
-                background: Color::from_rgba8(18, 22, 15, 240),
+                background: Color::from_rgba8(18, 22, 15, 235),
                 border: Some(Color::from_rgba8(80, 75, 60, 200)),
             },
         }
@@ -504,7 +504,7 @@ impl Theme {
                 minor_tick_length: 3.0,
             },
             grid: GridTheme {
-                color: Color::from_rgba8(60, 60, 80, 55),
+                color: Color::from_rgba8(60, 60, 80, 180),
                 width: 1.0,
                 dash: Some(DashPattern::new(vec![4.0, 4.0], 0.0)),
                 show: true,
@@ -514,14 +514,14 @@ impl Theme {
             series: SeriesTheme {
                 point_radius: 5.5,
                 line_width: 2.5,
-                bar_stroke_width: 0.0,
+                bar_stroke_width: 1.0,
                 fill_opacity: 0.30,
                 bar_corner_radius: 3.0,
             },
             legend: LegendTheme {
                 font_size: 11.0,
-                background: Color::from_rgba8(240, 240, 240, 240),
-                border: Some(Color::from_rgba8(150, 150, 150, 200)),
+                background: Color::from_rgba8(15, 15, 25, 235),
+                border: Some(Color::from_rgba8(80, 80, 100, 200)),
             },
         }
     }
@@ -788,6 +788,24 @@ pub fn contrast_text_color(bg: Color) -> Color {
     } else {
         Color::WHITE
     }
+}
+
+/// Alpha-composite-aware contrast text color.
+///
+/// Composites `fg` over `canvas_bg` using standard "over" blending, then
+/// picks black or white text for maximum readability. This is essential for
+/// semi-transparent fills (e.g. funnel chart gradient stages) where the
+/// nominal RGB values don't reflect the actual perceived color.
+#[must_use]
+pub fn contrast_text_color_composited(fg: Color, canvas_bg: Color) -> Color {
+    let a = fg.a;
+    let composited = Color::from_rgba(
+        fg.r * a + canvas_bg.r * (1.0 - a),
+        fg.g * a + canvas_bg.g * (1.0 - a),
+        fg.b * a + canvas_bg.b * (1.0 - a),
+        1.0,
+    );
+    contrast_text_color(composited)
 }
 
 // ---------------------------------------------------------------------------

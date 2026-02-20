@@ -553,6 +553,97 @@ fn test_matrix() -> Vec<(
         Some("Val".to_string()),
     ));
 
+    // ── Decimal y-label overlap edge cases ──
+    // These force wide decimal tick labels (e.g. "0.0012") that may collide
+    // with the y-axis label string.
+
+    // 11. Scatter — micro-fractional y values
+    charts.push((
+        "scatter_decimal_y".to_string(),
+        Charts::scatter(
+            &[1.0, 2.0, 3.0, 4.0, 5.0],
+            &[0.001, 0.0025, 0.0018, 0.004, 0.0035],
+        )
+        .title("Scatter Decimals")
+        .x_label("X")
+        .y_label("Concentration")
+        .theme(Theme::dark())
+        .build(),
+        Some("Scatter Decimals".to_string()),
+        Some("X".to_string()),
+        Some("Concentration".to_string()),
+    ));
+
+    // 12. Bar — fractional y values in 0.1–0.9 range
+    charts.push((
+        "bar_decimal_y".to_string(),
+        Charts::bar(
+            vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
+            &[0.12, 0.45, 0.78, 0.33, 0.91],
+        )
+        .title("Bar Decimals")
+        .y_label("Probability")
+        .theme(Theme::dark())
+        .build(),
+        Some("Bar Decimals".to_string()),
+        None,
+        Some("Probability".to_string()),
+    ));
+
+    // 13. Histogram — tiny fractional data forcing decimal bin edges
+    let hist_frac: Vec<f64> = (0..100)
+        .map(|i| 0.01 + (i as f64 * 0.0004) + ((i as u64 * 2654435761 % 100) as f64 * 0.00001))
+        .collect();
+    charts.push((
+        "histogram_decimal_y".to_string(),
+        Charts::histogram(&hist_frac)
+            .title("Histogram Decimals")
+            .x_label("Value")
+            .y_label("Frequency")
+            .bins(15)
+            .theme(Theme::dark())
+            .build(),
+        Some("Histogram Decimals".to_string()),
+        Some("Value".to_string()),
+        Some("Frequency".to_string()),
+    ));
+
+    // 14. Line — large base with tiny fractional offsets (e.g. "1000000.002")
+    charts.push((
+        "line_large_decimal_y".to_string(),
+        Charts::line(&[1000000.001, 1000000.003, 1000000.002, 1000000.005, 1000000.004])
+            .title("Large Decimal")
+            .x_label("Step")
+            .y_label("Measurement")
+            .theme(Theme::dark())
+            .build(),
+        Some("Large Decimal".to_string()),
+        Some("Step".to_string()),
+        Some("Measurement".to_string()),
+    ));
+
+    // 15. Boxplot — fractional values
+    charts.push((
+        "boxplot_decimal_y".to_string(),
+        Charts::boxplot(vec![
+            (
+                "Group A".to_string(),
+                vec![0.0012, 0.0018, 0.0025, 0.0031, 0.0045, 0.0052, 0.0060],
+            ),
+            (
+                "Group B".to_string(),
+                vec![0.0008, 0.0015, 0.0022, 0.0028, 0.0034, 0.0041, 0.0055],
+            ),
+        ])
+        .title("Boxplot Decimals")
+        .y_label("Rate")
+        .theme(Theme::dark())
+        .build(),
+        Some("Boxplot Decimals".to_string()),
+        None,
+        Some("Rate".to_string()),
+    ));
+
     charts
 }
 

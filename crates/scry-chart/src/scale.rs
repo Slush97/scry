@@ -332,7 +332,7 @@ impl Scale for LogScale {
 /// - ≥4 decades: decade boundaries only `{1}`
 /// - 2–3 decades: `{1, 2, 5}` (classic)
 /// - <2 decades: finer `{1, 2, 3, 5, 7}` for better resolution
-fn log_ticks(lo: f64, hi: f64, _target_count: usize) -> Vec<f64> {
+pub(crate) fn log_ticks(lo: f64, hi: f64, _target_count: usize) -> Vec<f64> {
     let lo = lo.max(f64::EPSILON);
     let hi = hi.max(lo);
 
@@ -425,17 +425,23 @@ pub(crate) fn nice_ticks(lo: f64, hi: f64, target_count: usize) -> Vec<f64> {
         }
     }
 
+    // Safety: filter any non-finite values that slipped through
+    // floating-point arithmetic edge cases.
+    ticks.retain(|v| v.is_finite());
+
     ticks
 }
 
 /// Find a "nice" step size close to the given rough step.
 pub(crate) fn nice_step(rough: f64) -> f64 {
-    // Guard against zero or near-zero step (would produce log10(0) = -inf)
-    if rough.abs() < f64::EPSILON * 100.0 {
+    // Guard against zero, near-zero, NaN, or Infinity
+    if rough.abs() < f64::EPSILON * 100.0 || !rough.is_finite() {
         return 1.0;
     }
     let magnitude = 10.0_f64.powf(rough.abs().log10().floor());
-    let fraction = rough / magnitude;
+    // Always use absolute value for bucketing so negative inputs
+    // (e.g. inverted axes) produce correct step sizes.
+    let fraction = rough.abs() / magnitude;
 
     let nice_fraction = if fraction <= 1.0 {
         1.0
@@ -457,6 +463,11 @@ fn nice_floor(v: f64) -> f64 {
     if v == 0.0 {
         return 0.0;
     }
+    // Pass through non-finite values (NaN, ±Infinity) rather than
+    // producing garbage from log10 arithmetic.
+    if !v.is_finite() {
+        return v;
+    }
     let abs = v.abs();
     if abs < f64::EPSILON {
         return 0.0;
@@ -474,6 +485,10 @@ fn nice_floor(v: f64) -> f64 {
 fn nice_ceil(v: f64) -> f64 {
     if v == 0.0 {
         return 0.0;
+    }
+    // Pass through non-finite values (NaN, ±Infinity).
+    if !v.is_finite() {
+        return v;
     }
     let abs = v.abs();
     if abs < f64::EPSILON {
@@ -493,6 +508,17 @@ fn nice_ceil(v: f64) -> f64 {
 /// Uses SI suffixes (K, M, G) for large values and span-relative
 /// decimal precision for small ranges.
 pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64) -> String {
+    // Guard: non-finite values get a human-readable representation
+    // rather than propagating garbage through downstream arithmetic.
+    if !value.is_finite() {
+        return if value.is_nan() {
+            "NaN".to_string()
+        } else if value.is_sign_positive() {
+            "∞".to_string()
+        } else {
+            "-∞".to_string()
+        };
+    }
     // Canonicalize negative zero so no tick ever displays as "-0".
     // Use abs() < epsilon to also catch -0.0 from float arithmetic.
     let value = if value == 0.0 || value.abs() < f64::EPSILON * 100.0 {
@@ -505,6 +531,22 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
 
     // SI suffix formatting for large numbers
     if span >= 1_000.0 {
+        if abs >= 1e15 {
+            let v = value / 1e15;
+            return if (v - v.round()).abs() < 0.05 && v.round().abs() <= i64::MAX as f64 {
+                format!("{}P", v.round() as i64)
+            } else {
+                format!("{v:.1}P")
+            };
+        }
+        if abs >= 1e12 {
+            let v = value / 1e12;
+            return if (v - v.round()).abs() < 0.05 && v.round().abs() <= i64::MAX as f64 {
+                format!("{}T", v.round() as i64)
+            } else {
+                format!("{v:.1}T")
+            };
+        }
         if abs >= 1e9 {
             let v = value / 1e9;
             return if (v - v.round()).abs() < 0.05 && v.round().abs() <= i64::MAX as f64 {
@@ -556,8 +598,9 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
     let decimals = if step >= 1.0 {
         usize::from((value - value.round()).abs() >= f64::EPSILON * 100.0)
     } else {
-        // Count decimals needed to represent the step
-        -step.log10().floor() as usize
+        // Count decimals needed to represent the step.
+        // Clamp to 0 before casting to avoid wrapping on negative log values.
+        (-step.log10().floor()).max(0.0) as usize
     };
 
     // If we need more than 6 decimal places, switch to scientific notation.
@@ -567,8 +610,9 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
         let sig_digits = if step < 1e-15 {
             6
         } else {
-            let step_digits = (-step.log10().floor() as usize)
-                .saturating_sub(-abs.max(1e-300).log10().floor() as usize);
+            let raw_step_d = (-step.log10().floor()).max(0.0) as usize;
+            let raw_abs_d = (-abs.max(1e-300).log10().floor()).max(0.0) as usize;
+            let step_digits = raw_step_d.saturating_sub(raw_abs_d);
             step_digits.max(1).min(4)
         };
         return match sig_digits {
@@ -594,6 +638,267 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
         5 => format!("{value:.5}"),
         _ => format!("{value:.6}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// SymlogScale — symmetric logarithmic
+// ---------------------------------------------------------------------------
+
+/// A symmetric logarithmic mapping that handles zero-crossing data.
+///
+/// Uses the transform `symlog(x) = sign(x) × log₁₀(1 + |x| / threshold)`,
+/// which transitions smoothly from linear near zero to logarithmic at large
+/// magnitudes. This makes it ideal for data with both positive and negative
+/// values spanning many orders of magnitude (e.g., financial PnL, temperature
+/// anomalies, seismic data).
+///
+/// Equivalent to matplotlib's `SymLogNorm` / D3's `scaleSymlog`.
+///
+/// # Parameters
+///
+/// - `linear_threshold` (default `1.0`): Controls where the linear-to-log
+///   transition occurs. Values within `[-threshold, threshold]` appear
+///   roughly linear; values beyond are compressed logarithmically.
+#[derive(Clone, Debug)]
+pub struct SymlogScale {
+    domain_min: f64,
+    domain_max: f64,
+    range_min: f64,
+    range_max: f64,
+    /// The linear-to-logarithmic transition threshold.
+    linear_threshold: f64,
+}
+
+impl SymlogScale {
+    /// Create a new symlog scale with the given domain, range, and linear
+    /// threshold.
+    ///
+    /// `threshold` must be positive and finite; invalid values default to 1.0.
+    #[must_use]
+    pub fn new(domain: (f64, f64), range: (f64, f64), threshold: f64) -> Self {
+        Self {
+            domain_min: domain.0,
+            domain_max: domain.1,
+            range_min: range.0,
+            range_max: range.1,
+            linear_threshold: if threshold > 0.0 && threshold.is_finite() {
+                threshold
+            } else {
+                1.0
+            },
+        }
+    }
+
+    /// Create a symlog scale with the default threshold of 1.0.
+    #[must_use]
+    pub fn with_default_threshold(domain: (f64, f64), range: (f64, f64)) -> Self {
+        Self::new(domain, range, 1.0)
+    }
+
+    /// Create a symlog scale with nice domain bounds.
+    #[must_use]
+    pub fn nice(extent: (f64, f64), range: (f64, f64), threshold: f64) -> Self {
+        let thresh = if threshold > 0.0 && threshold.is_finite() {
+            threshold
+        } else {
+            1.0
+        };
+        let (lo, hi) = extent;
+
+        // For degenerate domains, use linear nice rounding
+        if !lo.is_finite() || !hi.is_finite() || (hi - lo).abs() < f64::EPSILON {
+            let lin = LinearScale::nice(extent, range);
+            return Self::new(lin.domain(), range, thresh);
+        }
+
+        // Nice-round each side independently in symlog space
+        let nice_lo = symlog_nice_bound(lo, thresh, false);
+        let nice_hi = symlog_nice_bound(hi, thresh, true);
+
+        Self::new((nice_lo, nice_hi), range, thresh)
+    }
+
+    /// The domain bounds.
+    #[must_use]
+    pub fn domain(&self) -> (f64, f64) {
+        (self.domain_min, self.domain_max)
+    }
+
+    /// The linear threshold.
+    #[must_use]
+    pub fn threshold(&self) -> f64 {
+        self.linear_threshold
+    }
+}
+
+/// The symlog transform: `sign(x) × log₁₀(1 + |x| / threshold)`.
+fn symlog_transform(x: f64, threshold: f64) -> f64 {
+    if !x.is_finite() {
+        return x;
+    }
+    x.signum() * (1.0 + x.abs() / threshold).log10()
+}
+
+/// The inverse symlog transform.
+fn symlog_inverse(y: f64, threshold: f64) -> f64 {
+    if !y.is_finite() {
+        return y;
+    }
+    y.signum() * threshold * (10.0_f64.powf(y.abs()) - 1.0)
+}
+
+/// Round a value to a "nice" boundary in symlog space.
+fn symlog_nice_bound(val: f64, threshold: f64, is_upper: bool) -> f64 {
+    let abs = val.abs();
+
+    // Within the linear region — snap to 0 or ±threshold
+    if abs <= threshold {
+        if is_upper {
+            return if val >= 0.0 { threshold } else { 0.0 };
+        }
+        return if val <= 0.0 { -threshold } else { 0.0 };
+    }
+
+    // In the log region — round to a nice power of 10
+    let magnitude = 10.0_f64.powf(abs.log10().floor());
+    let nice = if is_upper {
+        if val > 0.0 {
+            (val / magnitude).ceil() * magnitude
+        } else {
+            -(((-val) / magnitude).floor() * magnitude)
+        }
+    } else if val < 0.0 {
+        -(((-val) / magnitude).ceil() * magnitude)
+    } else {
+        (val / magnitude).floor() * magnitude
+    };
+    nice
+}
+
+impl Scale for SymlogScale {
+    fn to_pixel(&self, value: f64) -> f64 {
+        let s_lo = symlog_transform(self.domain_min, self.linear_threshold);
+        let s_hi = symlog_transform(self.domain_max, self.linear_threshold);
+        let s_span = s_hi - s_lo;
+        if s_span.abs() < f64::EPSILON {
+            return (self.range_min + self.range_max) / 2.0;
+        }
+        let s_val = symlog_transform(value, self.linear_threshold);
+        let t = (s_val - s_lo) / s_span;
+        self.range_min + t * (self.range_max - self.range_min)
+    }
+
+    fn to_data(&self, pixel: f64) -> f64 {
+        let range_span = self.range_max - self.range_min;
+        if range_span.abs() < f64::EPSILON {
+            return (self.domain_min + self.domain_max) / 2.0;
+        }
+        let t = (pixel - self.range_min) / range_span;
+        let s_lo = symlog_transform(self.domain_min, self.linear_threshold);
+        let s_hi = symlog_transform(self.domain_max, self.linear_threshold);
+        let s_val = s_lo + t * (s_hi - s_lo);
+        symlog_inverse(s_val, self.linear_threshold)
+    }
+
+    fn ticks(&self, target_count: usize) -> Vec<f64> {
+        symlog_ticks(
+            self.domain_min,
+            self.domain_max,
+            self.linear_threshold,
+            target_count,
+        )
+    }
+
+    fn format_tick(&self, value: f64) -> String {
+        format_tick_adaptive(value, self.domain_min, self.domain_max)
+    }
+}
+
+/// Generate tick values for a symlog-scale axis.
+///
+/// Places ticks symmetrically around zero at:
+/// `0, ±threshold, ±2t, ±5t, ±10t, ±20t, ±50t, ±100t, ...`
+pub(crate) fn symlog_ticks(lo: f64, hi: f64, threshold: f64, target_count: usize) -> Vec<f64> {
+    let target = target_count.max(3);
+
+    if !lo.is_finite() || !hi.is_finite() {
+        return vec![0.0];
+    }
+
+    let mut ticks: Vec<f64> = Vec::new();
+
+    // Always include 0 if domain crosses zero
+    let crosses_zero = lo <= 0.0 && hi >= 0.0;
+    if crosses_zero {
+        ticks.push(0.0);
+    }
+
+    // Generate positive ticks
+    let nice_mults: &[f64] = &[1.0, 2.0, 5.0];
+    if hi > 0.0 {
+        let start = if lo > 0.0 { lo } else { threshold };
+        let mag_start = if start <= threshold {
+            threshold.log10().floor() as i32
+        } else {
+            start.log10().floor() as i32
+        };
+        let mag_end = if hi > threshold {
+            hi.log10().ceil() as i32
+        } else {
+            mag_start + 1
+        };
+
+        for exp in mag_start..=mag_end {
+            for &m in nice_mults {
+                let v = m * 10.0_f64.powi(exp);
+                if v >= lo * 0.99 && v <= hi * 1.01 && v > 0.0 {
+                    ticks.push(v);
+                }
+            }
+        }
+    }
+
+    // Generate negative ticks (mirror of positive)
+    if lo < 0.0 {
+        let neg_hi = hi.min(0.0).abs().max(threshold);
+        let neg_lo = lo.abs();
+        let mag_start = if neg_hi <= threshold {
+            threshold.log10().floor() as i32
+        } else {
+            neg_hi.log10().floor() as i32
+        };
+        let mag_end = neg_lo.log10().ceil() as i32;
+
+        for exp in mag_start..=mag_end {
+            for &m in nice_mults {
+                let v = -(m * 10.0_f64.powi(exp));
+                if v >= lo * 1.01 && v <= hi.max(0.0) * 1.01 && v < 0.0 {
+                    ticks.push(v);
+                }
+            }
+        }
+    }
+
+    // Sort and deduplicate
+    ticks.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    ticks.dedup_by(|a, b| (*a - *b).abs() < f64::EPSILON * 100.0);
+
+    // Trim to target count if way too many
+    while ticks.len() > target * 2 && ticks.len() > 3 {
+        // Remove every other interior tick
+        let mut i = 1;
+        while i < ticks.len() - 1 && ticks.len() > target * 2 {
+            ticks.remove(i);
+            i += 1; // skip one, remove next
+        }
+    }
+
+    if ticks.is_empty() {
+        ticks.push(lo);
+        ticks.push(hi);
+    }
+
+    ticks
 }
 
 // ---------------------------------------------------------------------------
@@ -766,5 +1071,260 @@ mod tests {
         let has_70_ish = ticks.iter().any(|t| (t - 70.0).abs() < 1.0);
         assert!(has_30_ish, "missing ~30 in narrow log ticks: {ticks:?}");
         assert!(has_70_ish, "missing ~70 in narrow log ticks: {ticks:?}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge case tests (Phase 1 hardening)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn nice_step_negative_input() {
+        // Negative rough step (e.g., inverted axis) should produce a positive step
+        let step = nice_step(-5.0);
+        assert!(step > 0.0, "nice_step(-5.0) = {step}");
+        assert!(step.is_finite());
+        assert!((step - 5.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn nice_step_nan() {
+        let step = nice_step(f64::NAN);
+        assert!(step.is_finite(), "nice_step(NaN) = {step}");
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn nice_step_infinity() {
+        let step = nice_step(f64::INFINITY);
+        assert!(step.is_finite(), "nice_step(Inf) = {step}");
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn nice_floor_nan() {
+        let v = nice_floor(f64::NAN);
+        assert!(v.is_nan(), "nice_floor(NaN) should be NaN, got {v}");
+    }
+
+    #[test]
+    fn nice_floor_infinity() {
+        assert_eq!(nice_floor(f64::INFINITY), f64::INFINITY);
+        assert_eq!(nice_floor(f64::NEG_INFINITY), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn nice_ceil_nan() {
+        let v = nice_ceil(f64::NAN);
+        assert!(v.is_nan(), "nice_ceil(NaN) should be NaN, got {v}");
+    }
+
+    #[test]
+    fn nice_ceil_infinity() {
+        assert_eq!(nice_ceil(f64::INFINITY), f64::INFINITY);
+        assert_eq!(nice_ceil(f64::NEG_INFINITY), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn nice_ticks_nan_domain() {
+        let ticks = nice_ticks(f64::NAN, f64::NAN, 5);
+        assert!(!ticks.is_empty());
+        // All output ticks must be finite
+        for t in &ticks {
+            assert!(t.is_finite(), "non-finite tick in NaN domain: {t}");
+        }
+    }
+
+    #[test]
+    fn nice_ticks_inf_domain() {
+        let ticks = nice_ticks(f64::NEG_INFINITY, f64::INFINITY, 5);
+        assert!(!ticks.is_empty());
+        for t in &ticks {
+            assert!(t.is_finite(), "non-finite tick in Inf domain: {t}");
+        }
+    }
+
+    #[test]
+    fn nice_ticks_huge_values() {
+        // Near i64::MAX — should not panic from overflow
+        let ticks = nice_ticks(1e18, 1e18 + 100.0, 5);
+        assert!(!ticks.is_empty());
+        for t in &ticks {
+            assert!(t.is_finite(), "non-finite tick in huge domain: {t}");
+        }
+    }
+
+    #[test]
+    fn nice_ticks_micro_range() {
+        let ticks = nice_ticks(0.001, 0.002, 5);
+        assert!(!ticks.is_empty());
+        assert!(*ticks.first().unwrap() >= 0.0009);
+        assert!(*ticks.last().unwrap() <= 0.0025);
+    }
+
+    #[test]
+    fn format_tick_nan() {
+        let s = format_tick_adaptive(f64::NAN, 0.0, 100.0);
+        assert_eq!(s, "NaN");
+    }
+
+    #[test]
+    fn format_tick_infinity() {
+        let s = format_tick_adaptive(f64::INFINITY, 0.0, 100.0);
+        assert_eq!(s, "∞");
+        let s = format_tick_adaptive(f64::NEG_INFINITY, 0.0, 100.0);
+        assert_eq!(s, "-∞");
+    }
+
+    #[test]
+    fn format_tick_huge_negative() {
+        // Should not panic from i64 overflow
+        let s = format_tick_adaptive(-1e19, -2e19, 0.0);
+        assert!(!s.is_empty());
+        assert!(!s.contains("NaN"));
+    }
+
+    #[test]
+    fn format_tick_trillion() {
+        let s = format_tick_adaptive(1e12, 0.0, 2e12);
+        assert_eq!(s, "1T");
+        let s = format_tick_adaptive(2.5e12, 0.0, 5e12);
+        assert_eq!(s, "2.5T");
+    }
+
+    #[test]
+    fn format_tick_peta() {
+        let s = format_tick_adaptive(1e15, 0.0, 2e15);
+        assert_eq!(s, "1P");
+        let s = format_tick_adaptive(2.5e15, 0.0, 5e15);
+        assert_eq!(s, "2.5P");
+    }
+
+    #[test]
+    fn format_tick_100_trillion() {
+        // 1e14 = 100T (below P threshold)
+        let s = format_tick_adaptive(1e14, 0.0, 2e14);
+        assert_eq!(s, "100T");
+    }
+
+    #[test]
+    fn format_tick_subnormal() {
+        // Smallest positive subnormal float — should not panic
+        let s = format_tick_adaptive(5e-324, 0.0, 1e-320);
+        assert!(!s.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // SymlogScale tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn symlog_transform_zero() {
+        assert!((symlog_transform(0.0, 1.0) - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn symlog_transform_positive() {
+        // symlog(10, 1) = sign(10) * log10(1 + 10/1) = log10(11) ≈ 1.041
+        let v = symlog_transform(10.0, 1.0);
+        assert!((v - 11.0_f64.log10()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn symlog_transform_negative() {
+        // symlog(-10, 1) = -log10(11) ≈ -1.041
+        let v = symlog_transform(-10.0, 1.0);
+        assert!((v + 11.0_f64.log10()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn symlog_round_trip() {
+        let threshold = 1.0;
+        for &val in &[-1000.0, -10.0, -1.0, -0.1, 0.0, 0.1, 1.0, 10.0, 1000.0] {
+            let transformed = symlog_transform(val, threshold);
+            let back = symlog_inverse(transformed, threshold);
+            assert!(
+                (back - val).abs() < 1e-8,
+                "round trip failed for {val}: got {back}"
+            );
+        }
+    }
+
+    #[test]
+    fn symlog_scale_maps_zero() {
+        // Domain [-100, 100], zero should map to the center of pixel range
+        let s = SymlogScale::with_default_threshold((-100.0, 100.0), (0.0, 400.0));
+        let px = s.to_pixel(0.0);
+        assert!(
+            (px - 200.0).abs() < 1.0,
+            "zero should map near center, got {px}"
+        );
+    }
+
+    #[test]
+    fn symlog_scale_round_trip() {
+        let s = SymlogScale::new((-1000.0, 1000.0), (0.0, 800.0), 1.0);
+        for &val in &[-500.0, -1.0, 0.0, 1.0, 500.0] {
+            let px = s.to_pixel(val);
+            let back = s.to_data(px);
+            assert!(
+                (back - val).abs() < 0.5,
+                "round trip: {val} → px={px} → {back}"
+            );
+        }
+    }
+
+    #[test]
+    fn symlog_ticks_cross_zero() {
+        let ticks = symlog_ticks(-1000.0, 1000.0, 1.0, 7);
+        assert!(!ticks.is_empty());
+        // Must include 0
+        assert!(
+            ticks.iter().any(|t| t.abs() < f64::EPSILON),
+            "symlog ticks should include 0: {ticks:?}"
+        );
+        // Should have both positive and negative ticks
+        assert!(ticks.iter().any(|t| *t > 0.0), "should have positive ticks");
+        assert!(ticks.iter().any(|t| *t < 0.0), "should have negative ticks");
+    }
+
+    #[test]
+    fn symlog_ticks_positive_only() {
+        let ticks = symlog_ticks(1.0, 10000.0, 1.0, 5);
+        assert!(!ticks.is_empty());
+        for t in &ticks {
+            assert!(*t > 0.0, "positive-only domain should have no negative ticks");
+        }
+    }
+
+    #[test]
+    fn symlog_nice_bounds() {
+        let s = SymlogScale::nice((-73.0, 850.0), (0.0, 400.0), 1.0);
+        let (lo, hi) = s.domain();
+        assert!(lo <= -73.0, "nice lo {lo} should be <= -73");
+        assert!(hi >= 850.0, "nice hi {hi} should be >= 850");
+    }
+
+    #[test]
+    fn symlog_scale_degenerate_domain() {
+        // Same value for lo and hi
+        let s = SymlogScale::nice((5.0, 5.0), (0.0, 400.0), 1.0);
+        let px = s.to_pixel(5.0);
+        assert!(px.is_finite(), "degenerate domain should produce finite pixel");
+    }
+
+    #[test]
+    fn symlog_ticks_nan_domain() {
+        let ticks = symlog_ticks(f64::NAN, f64::NAN, 1.0, 5);
+        assert!(!ticks.is_empty());
+        for t in &ticks {
+            assert!(t.is_finite(), "symlog ticks should be finite even for NaN domain");
+        }
+    }
+
+    #[test]
+    fn symlog_scale_invalid_threshold() {
+        // Negative threshold should default to 1.0
+        let s = SymlogScale::new((-100.0, 100.0), (0.0, 400.0), -5.0);
+        assert!((s.threshold() - 1.0).abs() < f64::EPSILON);
     }
 }

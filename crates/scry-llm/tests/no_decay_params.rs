@@ -87,11 +87,14 @@ fn adamw_step_respects_no_decay() {
     let no_decay_set: HashSet<TensorId> = [no_decay_id].into();
 
     let mut optimizer = AdamW::<Cpu>::new(config);
+    let decay_shape = param_decay.shape.clone();
+    let no_decay_shape = param_no_decay.shape.clone();
     let mut params = vec![
-        (decay_id, &mut param_decay.data, &param_decay.shape),
-        (no_decay_id, &mut param_no_decay.data, &param_no_decay.shape),
+        (decay_id, param_decay.data_mut(), &decay_shape),
+        (no_decay_id, param_no_decay.data_mut(), &no_decay_shape),
     ];
     optimizer.step(&mut params, &grad_map, &no_decay_set);
+    drop(params);
 
     let after_decay = Cpu::to_vec(&param_decay.data);
     let after_no_decay = Cpu::to_vec(&param_no_decay.data);

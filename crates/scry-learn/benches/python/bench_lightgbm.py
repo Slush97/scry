@@ -104,7 +104,7 @@ def make_lgb(n_classes):
         max_depth=6,
         learning_rate=0.1,
         random_state=42,
-        n_jobs=-1,
+        n_jobs=1,  # FAIRNESS: match Rust single-thread (RAYON_NUM_THREADS=1)
         verbose=-1,
     )
     if n_classes > 2:
@@ -166,7 +166,7 @@ def run_training_benchmarks():
         X, y = gen_classification(n, 10)
         model = lgb.LGBMClassifier(
             n_estimators=100, max_depth=6, learning_rate=0.1,
-            random_state=42, n_jobs=-1, verbose=-1,
+            random_state=42, n_jobs=1, verbose=-1,  # FAIRNESS: single-thread
         )
         median_us = time_fn(lambda X=X, y=y: model.fit(X, y))
         rows_per_sec = n / (median_us / 1e6) if median_us > 0 else 0

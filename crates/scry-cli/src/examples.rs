@@ -28,6 +28,16 @@ pub fn build_example(chart_type: ChartType, theme: Theme) -> Chart {
         ChartType::Funnel => example_funnel(theme),
         ChartType::Gauge => example_gauge(theme),
         ChartType::Lollipop => example_lollipop(theme),
+        ChartType::Gantt => {
+            // Gantt requires specialized data; show a placeholder message.
+            Charts::bar(
+                vec!["(Not available as example)".into()],
+                &[0.0],
+            )
+            .title("Gantt — use JSON input")
+            .theme(theme)
+            .build()
+        }
     }
 }
 
@@ -50,6 +60,7 @@ pub fn all_types() -> &'static [ChartType] {
         ChartType::Funnel,
         ChartType::Gauge,
         ChartType::Lollipop,
+        ChartType::Gantt,
     ]
 }
 

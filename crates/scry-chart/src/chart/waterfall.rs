@@ -21,7 +21,7 @@ use scry_engine::style::Color;
 /// # Examples
 ///
 /// ```
-/// use scry_chart::chart::Chart;
+/// use scry_chart::chart::Charts;
 ///
 /// let chart = Charts::waterfall(
 ///     vec!["Revenue".into(), "COGS".into(), "OpEx".into(), "Tax".into()],

@@ -40,6 +40,7 @@ fn train_steps(
         loss_val = loss.to_vec()[0];
 
         let grads = backward(&tape, loss.id);
+        drop(tape);
 
         let mut params: Vec<_> = model
             .parameters_mut()
@@ -47,7 +48,7 @@ fn train_steps(
             .map(|p| {
                 let id = p.id;
                 let shape = p.shape.clone();
-                (id, &mut p.data, shape)
+                (id, p.data_mut(), shape)
             })
             .collect();
         let mut param_refs: Vec<_> = params

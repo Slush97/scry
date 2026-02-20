@@ -184,7 +184,7 @@ impl MathBackend for CpuBackend {
         }
     }
 
-    fn cross_entropy(logits: &Vec<f32>, targets: &[usize], batch: usize, vocab: usize) -> f32 {
+    fn cross_entropy(logits: &Vec<f32>, targets: &[usize], batch: usize, vocab: usize) -> Vec<f32> {
         let ce_item = |b: usize| -> f64 {
             let start = b * vocab;
             let slice = &logits[start..start + vocab];
@@ -202,7 +202,42 @@ impl MathBackend for CpuBackend {
         } else {
             (0..batch).map(ce_item).sum()
         };
-        (total_loss / batch as f64) as f32
+        vec![(total_loss / batch as f64) as f32]
+    }
+
+    fn cross_entropy_fwd_bwd(
+        logits: &Vec<f32>, targets: &[usize], batch: usize, vocab: usize,
+    ) -> (Vec<f32>, Vec<f32>) {
+        let mut d_logits = vec![0.0f32; batch * vocab];
+        let inv_batch = 1.0 / batch as f64;
+
+        let ce_item = |b: usize, d_row: &mut [f32]| -> f64 {
+            let start = b * vocab;
+            let slice = &logits[start..start + vocab];
+            let target = targets[b];
+
+            let max_val = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let sum_exp: f64 = slice.iter().map(|&x| f64::from((x - max_val).exp())).sum();
+
+            let mut loss = 0.0f64;
+            for j in 0..vocab {
+                let prob = f64::from((slice[j] - max_val).exp()) / sum_exp;
+                let target_val = if j == target { 1.0 } else { 0.0 };
+                d_row[j] = ((prob - target_val) * inv_batch) as f32;
+                if j == target {
+                    loss = -prob.ln() * inv_batch;
+                }
+            }
+            loss
+        };
+
+        let total_loss: f64 = d_logits
+            .chunks_mut(vocab)
+            .enumerate()
+            .map(|(b, d_row)| ce_item(b, d_row))
+            .sum();
+
+        (vec![total_loss as f32], d_logits)
     }
 
     fn embedding(weight: &Vec<f32>, indices: &[usize], vocab: usize, dim: usize) -> Vec<f32> {
@@ -220,9 +255,9 @@ impl MathBackend for CpuBackend {
         output
     }
 
-    fn sum(input: &Vec<f32>) -> f32 {
+    fn sum(input: &Vec<f32>) -> Vec<f32> {
         let s: f64 = input.iter().map(|&x| f64::from(x)).sum();
-        s as f32
+        vec![s as f32]
     }
 
     // ---- Backward ops ----
@@ -384,7 +419,9 @@ impl MathBackend for CpuBackend {
         targets: &[usize],
         batch: usize,
         vocab: usize,
+        d_out_scalar: &Vec<f32>,
     ) -> Vec<f32> {
+        let d_out_s = f64::from(d_out_scalar[0]);
         let mut d_logits = vec![0.0f32; batch * vocab];
 
         let process = |b: usize, d_row: &mut [f32]| {
@@ -398,10 +435,11 @@ impl MathBackend for CpuBackend {
                 sum_exp += f64::from((x - max_val).exp());
             }
 
+            let combined_scale = d_out_s / batch as f64;
             for j in 0..vocab {
                 let prob = f64::from((slice[j] - max_val).exp()) / sum_exp;
                 let target_val = if j == target { 1.0 } else { 0.0 };
-                d_row[j] = ((prob - target_val) / batch as f64) as f32;
+                d_row[j] = ((prob - target_val) * combined_scale) as f32;
             }
         };
 
@@ -440,6 +478,10 @@ impl MathBackend for CpuBackend {
 
     fn scale(a: &Vec<f32>, scalar: f32) -> Vec<f32> {
         a.iter().map(|&x| x * scalar).collect()
+    }
+
+    fn broadcast_scalar(scalar: &Vec<f32>, n: usize) -> Vec<f32> {
+        vec![scalar[0]; n]
     }
 
     fn norm(storage: &Vec<f32>) -> f32 {
@@ -681,7 +723,7 @@ mod tests {
         // logits where correct class has very high score
         let logits = vec![10.0, -10.0, -10.0];
         let targets = vec![0usize];
-        let loss = CpuBackend::cross_entropy(&logits, &targets, 1, 3);
+        let loss = CpuBackend::cross_entropy(&logits, &targets, 1, 3)[0];
         assert!(loss < 0.001);
     }
 }

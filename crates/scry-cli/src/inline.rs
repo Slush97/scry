@@ -7,6 +7,42 @@
 //! to stdout.
 
 use std::io::{self, Write};
+use std::sync::OnceLock;
+
+// ---------------------------------------------------------------------------
+// Terminal cell-size detection
+// ---------------------------------------------------------------------------
+
+/// Cached cell size so we only call the ioctl once.
+static CELL_SIZE: OnceLock<(u16, u16)> = OnceLock::new();
+
+/// Detect the actual terminal cell size in pixels (width, height).
+///
+/// Uses `Picker::detect_font_size()` which queries `TIOCGWINSZ` on Unix.
+/// Falls back to (8, 16) if detection fails.
+pub fn detect_cell_size() -> (u16, u16) {
+    *CELL_SIZE.get_or_init(|| {
+        let font = scry_engine::transport::Picker::detect().font_size();
+        // Font detection returns (0,0) or default (8,16) if the ioctl fails.
+        // Validate and use real values when available.
+        if font.width > 0 && font.height > 0 {
+            (font.width, font.height)
+        } else {
+            (8, 16)
+        }
+    })
+}
+
+/// Compute the terminal's visible pixel dimensions.
+///
+/// Returns `(pixel_width, pixel_height)` based on the number of columns/rows
+/// multiplied by the real cell pixel size.  This tells you how large an image
+/// the terminal can display at 1:1 pixel mapping.
+pub fn terminal_pixel_size() -> (u32, u32) {
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (cw, ch) = detect_cell_size();
+    (u32::from(cols) * u32::from(cw), u32::from(rows) * u32::from(ch))
+}
 
 /// Display a PNG image inline in the terminal using the Kitty graphics protocol.
 ///
@@ -184,8 +220,7 @@ pub fn display_kitty_animation_frame(png_data: &[u8], frame: u64) -> io::Result<
 
     // Figure out how many terminal rows the image will occupy.
     let (term_cols, _term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let cell_w: u16 = 8; // reasonable default cell width in px
-    let cell_h: u16 = 16; // reasonable default cell height in px
+    let (cell_w, cell_h) = detect_cell_size();
     // Read image dimensions from the PNG header (width/height at bytes 16..24).
     let (img_w, img_h) = png_dimensions(png_data).unwrap_or((400, 400));
     // The terminal will scale the image to fit `c` columns and `r` rows.
@@ -217,8 +252,12 @@ pub fn display_kitty_animation_frame(png_data: &[u8], frame: u64) -> io::Result<
 
     let anchor = ANCHOR_ROW.load(Ordering::Relaxed).max(1);
 
-    // Position cursor at the anchor row, column 1.
-    write!(stdout, "\x1b[{anchor};1H")?;
+    // Center the image horizontally in the terminal.
+    let left_pad = (term_cols.saturating_sub(cols_to_use)) / 2;
+    let col = left_pad.max(1); // 1-indexed column
+
+    // Position cursor at the anchor row, centered column.
+    write!(stdout, "\x1b[{anchor};{col}H")?;
 
     const CHUNK_SIZE: usize = 65_536;
     let total = encoded.len();

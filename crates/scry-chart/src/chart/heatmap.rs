@@ -2,7 +2,7 @@
 //! Heatmap chart type.
 
 use crate::chart::config_builder::{
-    chart_config_core, chart_config_margin, chart_config_subtitle_footer,
+    chart_config_margin, chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
 use crate::spec::ChartSpec;
@@ -38,6 +38,8 @@ pub struct Heatmap {
     pub(crate) cell_gap: f32,
     /// Optional colormap (overrides color_lo/color_hi interpolation).
     pub(crate) colormap: Option<Arc<dyn Colormap>>,
+    /// Whether the user explicitly set colors via `.colors()`.
+    pub(crate) colors_explicit: bool,
 }
 
 impl Heatmap {
@@ -46,18 +48,21 @@ impl Heatmap {
         let n_rows = data.len();
         let n_cols = data.first().map_or(0, |r| r.len());
 
+        let config = ChartConfig::default();
+        let (color_lo, color_hi) = derive_heatmap_colors(&config.theme);
         Self {
             data,
             row_labels: (0..n_rows).map(|i| i.to_string()).collect(),
             col_labels: (0..n_cols).map(|i| i.to_string()).collect(),
-            config: ChartConfig::default(),
-            color_lo: Color::from_rgba8(15, 20, 50, 255), // dark blue
-            color_hi: Color::from_rgba8(255, 90, 80, 255), // warm red
+            config,
+            color_lo,
+            color_hi,
             show_values: true,
             value_range: None,
             cell_radius: 2.0,
             cell_gap: 2.0,
             colormap: None,
+            colors_explicit: false,
         }
     }
 
@@ -72,10 +77,35 @@ impl Heatmap {
         hm
     }
 
-    // --- Generated common methods ---
-    chart_config_core!();
+    // --- Generated common methods (except theme, which we override) ---
     chart_config_subtitle_footer!();
     chart_config_margin!();
+
+    /// Set the chart title.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.config.titles.title = Some(title.into());
+        self
+    }
+
+    /// Set the visual theme.
+    ///
+    /// Re-derives the heatmap color gradient from the new theme unless
+    /// the user has explicitly called `.colors()`.
+    pub fn theme(mut self, theme: crate::theme::Theme) -> Self {
+        self.config.theme = theme;
+        if !self.colors_explicit && self.colormap.is_none() {
+            let (lo, hi) = derive_heatmap_colors(&self.config.theme);
+            self.color_lo = lo;
+            self.color_hi = hi;
+        }
+        self
+    }
+
+    /// Set the export DPI (dots per inch).
+    pub fn dpi(mut self, dpi: u32) -> Self {
+        self.config.export.dpi = dpi.max(36);
+        self
+    }
 
     /// Set row labels.
     pub fn row_labels(mut self, labels: Vec<String>) -> Self {
@@ -90,9 +120,12 @@ impl Heatmap {
     }
 
     /// Set the color gradient endpoints.
+    ///
+    /// Marks colors as explicitly set, so `.theme()` won't override them.
     pub fn colors(mut self, lo: Color, hi: Color) -> Self {
         self.color_lo = lo;
         self.color_hi = hi;
+        self.colors_explicit = true;
         self
     }
 
@@ -206,4 +239,20 @@ pub fn lerp_color(a: Color, b: Color, t: f64) -> Color {
         b: a.b + (b.b - a.b) * t,
         a: a.a + (b.a - a.a) * t,
     }
+}
+
+/// Derive heatmap gradient colors from a theme.
+///
+/// Low = theme background (tinted slightly), High = first palette color.
+/// This ensures each theme produces a visually distinct heatmap gradient.
+pub(crate) fn derive_heatmap_colors(theme: &crate::theme::Theme) -> (Color, Color) {
+    let bg = theme.background;
+    let color_lo = Color::from_rgba(
+        (bg.r * 0.6 + 0.1).clamp(0.0, 1.0),
+        (bg.g * 0.6 + 0.1).clamp(0.0, 1.0),
+        (bg.b * 0.6 + 0.15).clamp(0.0, 1.0),
+        1.0,
+    );
+    let color_hi = theme.series_color(0);
+    (color_lo, color_hi)
 }

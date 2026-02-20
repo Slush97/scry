@@ -195,7 +195,7 @@ impl<B: MathBackend> Trainer<B> {
 
         let grad_norm = clip_grad_norm::<B>(&mut accumulated_grads, self.config.max_grad_norm);
 
-        // Optimizer step
+        // Optimizer step — tape is dropped, so Arc::get_mut succeeds.
         let mut params: Vec<_> = self
             .model
             .parameters_mut()
@@ -203,7 +203,7 @@ impl<B: MathBackend> Trainer<B> {
             .map(|p| {
                 let id = p.id;
                 let shape = p.shape.clone();
-                (id, &mut p.data, shape)
+                (id, p.data_mut(), shape)
             })
             .collect();
         let mut param_refs: Vec<_> = params

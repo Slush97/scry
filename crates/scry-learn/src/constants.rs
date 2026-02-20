@@ -86,6 +86,21 @@ pub(crate) const ADAM_EPSILON: f64 = 1e-8;
 /// Learning rate decay constant for Pegasos SGD: lr = 1/(C * (1 + DECAY * epoch)).
 pub(crate) const PEGASOS_LR_DECAY: f64 = 0.01;
 
+// ─── SMO (Kernel SVM) constants ─────────────────────────────────────────────
+
+/// Default convergence tolerance for SMO (KKT violation threshold).
+/// Matches sklearn's `SVC(tol=1e-3)` default.
+pub(crate) const SMO_TOL: f64 = 1e-3;
+
+/// Threshold for treating SMO bounds L and H as equal (skip pair).
+pub(crate) const SMO_BOUNDS_EQ: f64 = 1e-10;
+
+/// Minimum alpha change to consider an SMO step meaningful.
+pub(crate) const SMO_ALPHA_CHANGE_THRESH: f64 = 1e-5;
+
+/// Threshold above which a dual variable counts as a support vector.
+pub(crate) const SV_ALPHA_THRESH: f64 = 1e-8;
+
 // ─── Parallelism thresholds ───────────────────────────────────────────────
 
 /// Minimum n×m product to enable rayon parallelism in logistic regression
@@ -98,4 +113,7 @@ pub(crate) const KNN_PAR_THRESHOLD: usize = 10_000;
 
 /// Minimum n×k product to parallelize K-Means assignment step.
 pub(crate) const KMEANS_PAR_THRESHOLD: usize = 5_000;
+
+/// Minimum n² kernel matrix size to parallelize SVM kernel computation.
+pub(crate) const SVM_KERNEL_PAR_THRESHOLD: usize = 10_000;
 

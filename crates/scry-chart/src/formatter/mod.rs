@@ -365,6 +365,9 @@ fn harmonize_si_labels(labels: Vec<String>) -> Vec<String> {
             }
             // Convert plain number to SI
             l.parse::<f64>().map_or(l, |v| {
+                if !v.is_finite() {
+                    return format!("{v}");
+                }
                 let scaled = v / divisor;
                 if (scaled - scaled.round()).abs() < 0.05 && scaled.round().abs() <= i64::MAX as f64
                 {
@@ -601,4 +604,52 @@ mod tests {
         assert_eq!(fmt.format(999.0), "999.00");
     }
 
+    // --- Phase 3: Formatter edge case hardening ---
+
+    #[test]
+    fn auto_formatter_all_identical_values() {
+        let fmt = AutoFormatter;
+        let labels = fmt.format_batch(&[5.0, 5.0, 5.0], (5.0, 5.0));
+        // All labels should be identical and readable
+        assert!(labels.iter().all(|l| l == &labels[0]),
+            "All-identical values should produce identical labels: {labels:?}");
+        assert!(!labels[0].is_empty(), "Labels should not be empty");
+    }
+
+    #[test]
+    fn si_formatter_boundary_999_5() {
+        let fmt = SiFormatter { decimals: 0 };
+        // 999.5 is right at the K boundary — should round to 1K or stay as 1000
+        let label = fmt.format(999.5);
+        // Either "1K" or "1000" are acceptable — just shouldn't panic or produce garbage
+        assert!(
+            label == "1K" || label == "1000" || label == "999",
+            "SI boundary 999.5 produced unexpected: {label}"
+        );
+    }
+
+    #[test]
+    fn si_formatter_exact_boundaries() {
+        let fmt = SiFormatter { decimals: 1 };
+        assert_eq!(fmt.format(1000.0), "1K");
+        assert_eq!(fmt.format(1_000_000.0), "1M");
+        assert_eq!(fmt.format(1_000_000_000.0), "1G");
+    }
+
+    #[test]
+    fn auto_formatter_large_span_consistency() {
+        let fmt = AutoFormatter;
+        let labels = fmt.format_batch(
+            &[0.0, 100000.0, 200000.0, 300000.0],
+            (0.0, 300000.0),
+        );
+        // All labels should use the same format style (all SI or all plain)
+        let si_count = labels.iter().filter(|l| l.contains('K') || l.contains('M')).count();
+        let non_zero_count = labels.iter().filter(|l| *l != "0" && *l != "0K").count();
+        // Either all SI or all plain — no mixing (except zero)
+        assert!(
+            si_count == 0 || si_count >= non_zero_count,
+            "Mixed SI/plain labels: {labels:?}"
+        );
+    }
 }

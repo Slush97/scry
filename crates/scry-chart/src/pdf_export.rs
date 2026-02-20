@@ -24,7 +24,7 @@
 //! scry_chart::pdf_export::save_pdf(&chart, 800, 500, "chart.pdf")?;
 //! ```
 
-use crate::chart::{Chart, Charts};
+use crate::chart::Chart;
 use crate::export::render_to_rgba;
 use crate::subplot::SubplotGrid;
 use pdf_writer::{Content, Finish, Name, Pdf, Ref, Rect};

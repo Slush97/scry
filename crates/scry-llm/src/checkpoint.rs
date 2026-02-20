@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::backend::MathBackend;
 use crate::error::ScryLlmError;
@@ -165,7 +166,7 @@ pub fn load_checkpoint<B: MathBackend>(
             params[i].shape.clone()
         };
         let mut params = model.parameters_mut();
-        params[i].data = B::from_vec(floats, &shape);
+        params[i].data = Arc::new(B::from_vec(floats, &shape));
     }
 
     // Reconstruct optimizer states
