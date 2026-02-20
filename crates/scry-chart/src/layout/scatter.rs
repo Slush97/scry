@@ -151,6 +151,72 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
         }
     }
 
+    // Legend for multi-series scatter
+    let total_series = 1 + sc.extra_series.len();
+    if total_series > 1 && config.show_legend {
+        use crate::legend::{self, LegendEntry};
+        use super::TextAlign;
+
+        // Collect all marker pixel positions for overlap detection.
+        let mut all_points: Vec<(f32, f32)> = Vec::new();
+        let n0 = sc.x.len().min(sc.y.len());
+        for i in 0..n0 {
+            let xv = sc.x.values()[i];
+            let yv = sc.y.values()[i];
+            if xv.is_finite() && yv.is_finite() {
+                all_points.push((x_scale.to_pixel(xv) as f32, y_scale.to_pixel(yv) as f32));
+            }
+        }
+        for (xs, ys) in &sc.extra_series {
+            let n = xs.len().min(ys.len());
+            for i in 0..n {
+                let xv = xs.values()[i];
+                let yv = ys.values()[i];
+                if xv.is_finite() && yv.is_finite() {
+                    all_points.push((x_scale.to_pixel(xv) as f32, y_scale.to_pixel(yv) as f32));
+                }
+            }
+        }
+
+        let mut entries = Vec::with_capacity(total_series);
+        // Primary series
+        let primary_label = if sc.y.label().is_empty() {
+            "Series 1".to_string()
+        } else {
+            sc.y.label().to_string()
+        };
+        entries.push(LegendEntry {
+            label: primary_label,
+            color: theme.resolve_series_color(0, sc.y.series_style()),
+        });
+        // Extra series
+        for (si, (_, ys)) in sc.extra_series.iter().enumerate() {
+            let label = if ys.label().is_empty() {
+                format!("Series {}", si + 2)
+            } else {
+                ys.label().to_string()
+            };
+            entries.push(LegendEntry {
+                label,
+                color: theme.resolve_series_color(si + 1, ys.series_style()),
+            });
+        }
+
+        let plot = ctx.plot;
+        let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
+        let mut legend_cfg = config.legend.clone();
+        legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
+        // Scatter plots use circle swatches (Cleveland 1985 — match marker shape)
+        legend_cfg.swatch_shape = crate::legend::SwatchShape::Circle;
+        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let legend_text = ctx.draw_with(|c| {
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
+        });
+        for (lx, ly, label) in legend_text {
+            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+        }
+    }
+
     // Error bars on main series (symmetric or asymmetric)
     let has_sym = sc.y.error_values().is_some();
     let has_asym = sc.y.error_low().is_some() && sc.y.error_high().is_some();

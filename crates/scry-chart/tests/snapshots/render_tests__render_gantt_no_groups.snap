@@ -1,0 +1,23 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 1654
+expression: summarize(&rendered)
+---
+canvas: 600x300, 41 commands
+text_labels: 16
+  [0] 0.0
+  [1] 2.5
+  [2] 5.0
+  [3] 7.5
+  [4] 10.0
+  [5] 12.5
+  [6] 15.0
+  [7] 17.5
+  [8] 20.0
+  [9] Task C
+  [10] Task B
+  [11] Task A
+  [12] Task A
+  [13] Task B
+  [14] Task C
+  [15] Simple Gantt

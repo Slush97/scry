@@ -54,11 +54,13 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
     let grid_y = margin + title_h + subtitle_h + col_label_h;
     // Reserve space on the right for the color legend bar
     let legend_bar_w = 16.0;
-    let legend_label_w = tick_fs * 4.0; // space for min/max labels
-    let legend_gap = 12.0;
-    let legend_total_w = legend_gap + legend_bar_w + 4.0 + legend_label_w;
+    let legend_gap = 10.0;
+    // Labels sit above/below the bar, so we only need bar width + gap.
+    let legend_total_w = legend_gap + legend_bar_w + 4.0;
     let grid_w = (w as f32 - grid_x - margin - legend_total_w).max(1.0);
-    let grid_h = (h as f32 - grid_y - margin).max(1.0);
+    // Reserve a small strip above and below the grid for legend labels.
+    let legend_label_strip = data_fs * 1.4;
+    let grid_h = (h as f32 - grid_y - margin - legend_label_strip).max(1.0);
 
     // Override the plot area so add_common_overlays positions elements correctly
     ctx.plot = (grid_x, grid_y, grid_w, grid_h);
@@ -148,7 +150,7 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
             .stroke(bar_outline, 0.5)
             .done()
     });
-    // Min/max value labels
+    // Min/max value labels — positioned above and below the legend bar
     let fmt_hi = if v_hi.abs() < 10.0 {
         format!("{v_hi:.1}")
     } else {
@@ -159,22 +161,23 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
     } else {
         format!("{}", v_lo as i64)
     };
+    let bar_center_x = bar_x + legend_bar_w / 2.0;
     ctx.add_text(
-        bar_x + legend_bar_w + 4.0,
-        bar_y + 2.0,
+        bar_center_x,
+        bar_y - data_fs * 0.6,
         &fmt_hi,
         theme.text_color(),
-        TextAlign::Left,
+        TextAlign::Center,
         data_fs,
         false,
         0.0,
     );
     ctx.add_text(
-        bar_x + legend_bar_w + 4.0,
-        bar_y + bar_h - 2.0,
+        bar_center_x,
+        bar_y + bar_h + data_fs * 0.6,
         &fmt_lo,
         theme.text_color(),
-        TextAlign::Left,
+        TextAlign::Center,
         data_fs,
         false,
         0.0,

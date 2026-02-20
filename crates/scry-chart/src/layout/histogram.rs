@@ -118,7 +118,7 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
                 } else {
                     super::bar::format_value(bin.count)
                 };
-                ctx.add_text(cx, top - 4.0, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
+                ctx.add_text(cx, top - data_fs * 0.8, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
             }
         }
         super::bar::cull_overlapping_value_labels(&mut ctx.overlays, val_start, data_fs, false);
@@ -126,6 +126,25 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
 
     // Legend for multi-series
     if n_total_series > 1 {
+        // Collect bin top-center pixel positions for overlap detection.
+        let mut all_points: Vec<(f32, f32)> = Vec::new();
+        for bin in &primary_bins {
+            if bin.count > 0.0 {
+                let cx = ((x_scale.to_pixel(bin.lo) + x_scale.to_pixel(bin.hi)) / 2.0) as f32;
+                let top = y_scale.to_pixel(bin.count) as f32;
+                all_points.push((cx, top));
+            }
+        }
+        for bins in &extra_bins {
+            for bin in bins {
+                if bin.count > 0.0 {
+                    let cx = ((x_scale.to_pixel(bin.lo) + x_scale.to_pixel(bin.hi)) / 2.0) as f32;
+                    let top = y_scale.to_pixel(bin.count) as f32;
+                    all_points.push((cx, top));
+                }
+            }
+        }
+
         let mut entries = vec![LegendEntry {
             label: if hc.data.label().is_empty() {
                 "Series 1".to_string()
@@ -149,8 +168,9 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
+        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         // Add legend text overlays

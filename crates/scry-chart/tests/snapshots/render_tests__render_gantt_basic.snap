@@ -1,0 +1,31 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 1626
+expression: summarize(&rendered)
+---
+canvas: 800x400, 63 commands
+text_labels: 24
+  [0] 0.0
+  [1] 2.5
+  [2] 5.0
+  [3] 7.5
+  [4] 10.0
+  [5] 12.5
+  [6] 15.0
+  [7] 17.5
+  [8] 20.0
+  [9] Deploy
+  [10] Test
+  [11] Implement
+  [12] Design
+  [13] Research
+  [14] Research
+  [15] Design
+  [16] Implement
+  [17] Test
+  [18] Deploy
+  [19] Phase 1
+  [20] Phase 2
+  [21] Phase 3
+  [22] Project Timeline
+  [23] Day

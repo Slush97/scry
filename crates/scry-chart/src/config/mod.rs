@@ -12,7 +12,7 @@ mod secondary;
 mod tick;
 mod title;
 
-pub use axis::AxisRangeConfig;
+pub use axis::{AspectRatio, AxisRangeConfig};
 pub use data_labels::DataLabelConfig;
 pub use export::ExportConfig;
 pub use overlay::OverlayConfig;

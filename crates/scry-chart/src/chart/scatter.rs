@@ -2,10 +2,10 @@
 //! Scatter plot chart type.
 
 use crate::chart::config_builder::{
-    chart_config_annotations, chart_config_axis_labels, chart_config_core, chart_config_formatters,
-    chart_config_grid, chart_config_h_lines, chart_config_legend, chart_config_locale,
-    chart_config_ranges, chart_config_semantic_zoom, chart_config_tick_rotation,
-    chart_config_tick_steps, chart_config_v_lines,
+    chart_config_annotations, chart_config_aspect_ratio, chart_config_axis_labels,
+    chart_config_core, chart_config_formatters, chart_config_grid, chart_config_h_lines,
+    chart_config_legend, chart_config_locale, chart_config_ranges, chart_config_semantic_zoom,
+    chart_config_tick_rotation, chart_config_tick_steps, chart_config_v_lines,
 };
 use crate::chart::{Chart, ChartConfig};
 use crate::data::Series;
@@ -68,6 +68,7 @@ impl ScatterChart {
     chart_config_core!();
     chart_config_axis_labels!();
     chart_config_ranges!(xy);
+    chart_config_aspect_ratio!();
     chart_config_h_lines!();
     chart_config_v_lines!();
     chart_config_legend!();

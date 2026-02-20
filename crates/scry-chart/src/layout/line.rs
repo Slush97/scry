@@ -238,9 +238,20 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         let sy_scale = LinearScale::nice((sy_lo, sy_hi), ((py + ph) as f64, py as f64));
 
         // Draw secondary (right) Y axis ticks
-        let sy_cfg = super::axis_config_from_theme_secondary(config);
+        let mut sy_cfg = super::axis_config_from_theme_secondary(config);
+        sy_cfg.tick_font_size = tick_fs;
         let plot = ctx.plot;
-        let sy_ticks = ctx.draw_with(|c| crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg));
+        let (sy_ticks, sy_grids, sy_tmarks) = ctx.draw_with(|c| {
+            let (c, ticks, grids, tmarks) = crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg);
+            (c, (ticks, grids, tmarks))
+        });
+        // Draw secondary axis grid + tick marks for proper z-ordering
+        if !sy_grids.is_empty() {
+            ctx.draw(|c| crate::axis::draw_collected_gridlines(c, &sy_grids, &sy_cfg));
+        }
+        if !sy_tmarks.is_empty() {
+            ctx.draw(|c| crate::axis::draw_collected_tick_marks(c, &sy_tmarks));
+        }
 
         // Add right-side tick overlays
         let y_off = super::y_tick_label_offset(w);
@@ -514,6 +525,39 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
 
     // Legend
     if lc.series.len() > 1 && config.show_legend {
+        // Collect all pixel-space data points for overlap detection.
+        let mut all_points: Vec<(f32, f32)> = Vec::new();
+        let mut cum_tmp: Vec<f64> = vec![0.0; x_data.len()];
+        for (si, series) in lc.series.iter().enumerate() {
+            let is_secondary = has_secondary && sec_indices.contains(&si);
+            let active_ys = if is_secondary {
+                secondary_y_scale.as_ref().unwrap()
+            } else {
+                &y_scale
+            };
+            let n = series.len().min(x_data.len());
+            let segs = build_segments(
+                series.values(),
+                &x_data,
+                n,
+                lc.gap_policy,
+                lc.stacked,
+                &cum_tmp,
+                &x_scale,
+                active_ys,
+            );
+            for seg in &segs {
+                all_points.extend_from_slice(&seg.points);
+            }
+            if lc.stacked {
+                for (i, &v) in series.values().iter().enumerate().take(n) {
+                    if v.is_finite() {
+                        cum_tmp[i] += v;
+                    }
+                }
+            }
+        }
+
         let entries: Vec<LegendEntry> = lc
             .series
             .iter()
@@ -532,8 +576,11 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
+        // Line charts use line-segment swatches (Cleveland 1985 — match chart type)
+        legend_cfg.swatch_shape = crate::legend::SwatchShape::Line;
+        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         // Add legend text overlays

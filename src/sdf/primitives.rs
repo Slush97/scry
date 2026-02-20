@@ -168,6 +168,113 @@ pub fn repeat(p: Vec3, period: Vec3) -> Vec3 {
     )
 }
 
+// ── Fractal distance estimators ─────────────────────────────────────
+
+/// Mandelbulb fractal distance estimator.
+///
+/// The classic 3D fractal discovered in 2009. Uses the spherical-coordinate
+/// power formula with analytic derivative tracking for the distance estimate.
+/// `power` of 8.0 produces the iconic bulb shape; lower values morph it.
+pub fn sd_mandelbulb(pos: Vec3, power: f32, max_iter: u32) -> f32 {
+    let mut w = pos;
+    let mut m = w.dot(w);
+    let mut dz = 1.0_f32;
+
+    for _ in 0..max_iter {
+        // derivative: dz = power * |w|^(power-1) * dz + 1
+        let m_sqrt = m.sqrt();
+        dz = power * m_sqrt.powf(power - 1.0) * dz + 1.0;
+
+        // extract spherical coordinates
+        let r = m_sqrt;
+        let theta = w.y.atan2(w.x);
+        let phi = (w.z / r).asin();
+
+        // apply the power map in spherical coords
+        let rp = r.powf(power);
+        let tp = theta * power;
+        let pp = phi * power;
+
+        // convert back to cartesian and add the original point (Julia-style)
+        w = Vec3::new(
+            rp * pp.cos() * tp.cos(),
+            rp * pp.cos() * tp.sin(),
+            rp * pp.sin(),
+        ) + pos;
+
+        m = w.dot(w);
+        if m > 256.0 {
+            break;
+        }
+    }
+
+    // distance estimator: d ≈ 0.25 * |w| * ln(|w|) / |dz|
+    let r = m.sqrt();
+    0.25 * r * r.ln() / dz
+}
+
+/// Menger sponge fractal distance estimator.
+///
+/// Iteratively subtracts cross-shaped holes from a unit box at increasing
+/// resolution, producing the classic self-similar fractal sponge. Each
+/// iteration triples the spatial frequency. 3–5 iterations produce good
+/// visual detail.
+pub fn sd_menger_sponge(p: Vec3, iterations: u32) -> f32 {
+    let mut d = sd_box(p, Vec3::new(1.0, 1.0, 1.0));
+    let mut s = 1.0_f32;
+
+    for _ in 0..iterations {
+        // Center the repetition domain to [-1, 1]
+        let a = Vec3::new(
+            ((p.x * s) % 2.0 + 3.0) % 2.0 - 1.0,
+            ((p.y * s) % 2.0 + 3.0) % 2.0 - 1.0,
+            ((p.z * s) % 2.0 + 3.0) % 2.0 - 1.0,
+        );
+        s *= 3.0;
+
+        // Cross-shaped hole distances
+        let r = Vec3::new(
+            (1.0 - 3.0 * a.x.abs()).abs(),
+            (1.0 - 3.0 * a.y.abs()).abs(),
+            (1.0 - 3.0 * a.z.abs()).abs(),
+        );
+
+        // Crosses in YZ, XZ, XY planes
+        let da = r.y.max(r.z) / s;
+        let db = r.x.max(r.z) / s;
+        let dc = r.x.max(r.y) / s;
+        let c = da.min(db).min(dc);
+
+        d = d.max(c);
+    }
+
+    d
+}
+
+/// Gyroid — triply periodic minimal surface.
+///
+/// The equation `sin(x)cos(y) + sin(y)cos(z) + sin(z)cos(x) = 0` defines
+/// a beautiful minimal surface that tessellates all of 3D space. We thicken
+/// the zero-isosurface into a shell and optionally clip it to a bounding
+/// sphere so it renders as a finite object.
+pub fn sd_gyroid(p: Vec3, scale: f32, thickness: f32, bound: f32) -> f32 {
+    let sp = p * scale;
+    let val = sp.x.sin() * sp.y.cos()
+            + sp.y.sin() * sp.z.cos()
+            + sp.z.sin() * sp.x.cos();
+    // Shell around the zero-isosurface
+    let gyroid_d = (val.abs() - thickness) / scale;
+
+    // Clip to bounding sphere
+    if bound > 0.0 {
+        let sphere_d = p.length() - bound;
+        gyroid_d.max(sphere_d)
+    } else {
+        gyroid_d
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

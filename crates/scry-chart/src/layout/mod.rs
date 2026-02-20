@@ -12,6 +12,7 @@ pub(crate) mod candlestick;
 mod common_overlays;
 pub(crate) mod contour;
 pub(crate) mod funnel;
+pub(crate) mod gantt;
 pub(crate) mod gauge;
 pub(crate) mod heatmap;
 pub(crate) mod histogram;
@@ -46,16 +47,41 @@ const MIN_MARGIN: f32 = 4.0;
 /// Margin as a fraction of the shorter canvas dimension.
 const MARGIN_FRAC: f32 = 0.04;
 
-/// Proportional pixel offset from X-axis spine to X tick labels (downward).
+// ---------------------------------------------------------------------------
+// Tiered layout constants (Cleveland 1993, Matplotlib AutoLocator pattern)
+// ---------------------------------------------------------------------------
+//
+// Font rendering is inherently discrete, so continuous proportional formulas
+// fail at tier boundaries. Instead we use four canvas-height tiers with
+// independently tuned values per tier.
+//
+// | Tier       | Height   | Description                   |
+// |------------|----------|-------------------------------|
+// | Thumbnail  | ≤ 250 px | Minimal chrome, tight spacing |
+// | Small      | ≤ 450 px | Compact academic layout       |
+// | Medium     | ≤ 650 px | Standard publication layout   |
+// | Large      | > 650 px | Full chrome, generous spacing  |
+
+/// Pixel offset from X-axis spine to the top of X tick labels (downward).
+///
+/// Covers outward tick length (~5 px) + a clearance gap (≥ 0.5 em).
 fn x_tick_label_offset(h: u32) -> f32 {
-    let h = h as f32;
-    (h * 0.018).max(7.0).min(16.0)
+    match h {
+        0..=250 => 8.0,
+        251..=450 => 10.0,
+        451..=650 => 12.0,
+        _ => 14.0,
+    }
 }
 
-/// Proportional pixel offset from Y-axis spine to Y tick labels (leftward).
+/// Pixel offset from Y-axis spine to the right edge of Y tick labels (leftward).
 pub(crate) fn y_tick_label_offset(w: u32) -> f32 {
-    let w = w as f32;
-    (w * 0.015).max(7.0).min(16.0)
+    match w {
+        0..=300 => 8.0,
+        301..=500 => 10.0,
+        501..=800 => 12.0,
+        _ => 14.0,
+    }
 }
 
 /// Compute proportional margin based on canvas size.
@@ -232,49 +258,63 @@ fn proportional_title_height(h: u32) -> f32 {
     (h * 0.06).max(14.0).min(30.0)
 }
 
-/// Compute X-axis tick label height based on canvas height and label rotation.
+/// Compute X-axis tick label height based on canvas size and label rotation.
 ///
 /// For rotated labels, the vertical space needed depends on both the angle
 /// and the estimated label length. Uses `max_label_chars` (default 6) for
 /// a reasonable estimate when the actual tick labels aren't known yet.
-fn proportional_x_tick_height(h: u32, rotation: LabelRotation) -> f32 {
-    proportional_x_tick_height_with_chars(h, rotation, 6)
+fn proportional_x_tick_height(w: u32, h: u32, rotation: LabelRotation) -> f32 {
+    proportional_x_tick_height_with_chars(w, h, rotation, 6)
 }
 
 /// Inner implementation that accepts an estimated max label character count.
+///
+/// Uses tiered offsets combined with the actual `scaled_font_size` so the
+/// height reservation matches what the renderer will produce.
 fn proportional_x_tick_height_with_chars(
+    w: u32,
     h: u32,
     rotation: LabelRotation,
     max_label_chars: usize,
 ) -> f32 {
-    let base = h as f32;
-    // Estimated pixel width of the longest label
-    let label_px = max_label_chars as f32 * char_width_for_size(11.0);
+    // Use the real scaled font size for accuracy (base 11px is the tick theme default)
+    let tick_font_h = scaled_font_size(11.0, w, h);
+    let offset = x_tick_label_offset(h);
+    let label_px = max_label_chars as f32 * char_width_for_size(tick_font_h);
+
     match rotation {
-        LabelRotation::Horizontal => (base * 0.05).max(12.0).min(22.0),
+        LabelRotation::Horizontal => {
+            // offset + font_height + 2px breathing gap
+            offset + tick_font_h + 2.0
+        }
         LabelRotation::Diagonal => {
-            // 45° rotation: height ≈ label_width * sin(45°) ≈ 0.71 * label_width.
-            let needed = label_px * 0.71 + 4.0; // +4 for tick gap
-            needed.max(22.0).min(60.0)
+            // 45° rotation: height ≈ label_width * sin(45°) + offset
+            let rotated_h = label_px * 0.71;
+            (offset + rotated_h).max(26.0).min(60.0)
         }
         LabelRotation::Vertical => {
-            // 90° rotation: height = full label width in pixels.
-            let needed = label_px + 4.0;
-            needed.max(30.0).min(80.0)
+            // 90° rotation: height = full label width + offset
+            (offset + label_px).max(34.0).min(80.0)
         }
         LabelRotation::Angle(deg) => {
-            // Height = label_width * sin(angle) + font_height * cos(angle)
             let rad = deg.clamp(0.0, 90.0).to_radians();
-            let needed = label_px * rad.sin() + 14.0 * rad.cos() + 4.0;
-            needed.max(12.0).min(80.0)
+            let needed = label_px * rad.sin() + tick_font_h * rad.cos();
+            (offset + needed).max(16.0).min(80.0)
         }
     }
 }
 
 /// Compute X-axis label height.
+///
+/// Uses tiered values to ensure the label text plus descent fits
+/// within the reserved strip.
 fn proportional_x_label_height(h: u32) -> f32 {
-    let h = h as f32;
-    (h * 0.05).max(12.0).min(22.0)
+    match h {
+        0..=250 => 12.0,
+        251..=450 => 14.0,
+        451..=650 => 18.0,
+        _ => 22.0,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -525,7 +565,7 @@ pub(crate) fn compute_plot_area(
         h,
         config.theme.label_style.font_size,
     );
-    let x_tick_h = proportional_x_tick_height(h, config.ticks.x_tick_rotation);
+    let x_tick_h = proportional_x_tick_height(w, h, config.ticks.x_tick_rotation);
     let x_label_h = if config.titles.x_label.is_some() {
         proportional_x_label_height(h)
     } else {
@@ -550,11 +590,56 @@ pub(crate) fn compute_plot_area(
         0.0
     };
 
+    // Reserve right margin for outside-right legend placement.
+    // At layout time we don't know the actual entries, so use a proportional
+    // estimate. The legend renderer clamps to this reserved space.
+    let legend_right_w = if config.show_legend
+        && config.legend.position == crate::legend::LegendPosition::OutsideRight
+    {
+        (w as f32 * 0.12).max(40.0).min(120.0)
+    } else {
+        0.0
+    };
+
     let x = margin + extra_left + y_label_w + y_axis_w;
     let y = margin + extra_top + title_h + subtitle_h;
-    let pw = w as f32 - x - margin - extra_right - secondary_y_w;
-    let ph = h as f32 - y - x_tick_h - x_label_h - margin - extra_bottom - footer_h;
-    (x, y, pw.max(1.0), ph.max(1.0))
+    let mut pw = w as f32 - x - margin - extra_right - secondary_y_w - legend_right_w;
+    let mut ph = h as f32 - y - x_tick_h - x_label_h - margin - extra_bottom - footer_h;
+
+    // --- AspectRatio enforcement ---
+    // Shrink the oversized dimension to satisfy the constraint, then center
+    // the plot within the freed space so it doesn't stick to one edge.
+    use crate::config::AspectRatio;
+    let mut x_offset = 0.0_f32;
+    let mut y_offset = 0.0_f32;
+    match &config.axes.aspect_ratio {
+        AspectRatio::Auto => {} // fill available space — no constraint
+        AspectRatio::Equal => {
+            // 1:1 pixel ratio: use the smaller dimension for both
+            if pw > ph {
+                x_offset = (pw - ph) / 2.0;
+                pw = ph;
+            } else {
+                y_offset = (ph - pw) / 2.0;
+                ph = pw;
+            }
+        }
+        AspectRatio::Fixed(ratio) => {
+            // ratio = x_units_per_pixel / y_units_per_pixel
+            // desired_pw / desired_ph = ratio
+            let desired_pw = ph * (*ratio as f32);
+            if desired_pw <= pw {
+                x_offset = (pw - desired_pw) / 2.0;
+                pw = desired_pw;
+            } else {
+                let desired_ph = pw / (*ratio as f32);
+                y_offset = (ph - desired_ph) / 2.0;
+                ph = desired_ph;
+            }
+        }
+    }
+
+    (x + x_offset, y + y_offset, pw.max(1.0), ph.max(1.0))
 }
 
 /// Build an axis config from a theme.

@@ -607,7 +607,8 @@ fn build_chart_data_for_type(
                 ..Default::default()
             })
         }
-        ChartType::Radar | ChartType::Candlestick | ChartType::Bubble | ChartType::Gauge => {
+        ChartType::Radar | ChartType::Candlestick | ChartType::Bubble | ChartType::Gauge
+        | ChartType::Gantt | ChartType::Contour => {
             Err(format!(
                 "{ct} chart is not supported for CSV input (requires specialized data shape). \
                  Use JSON input with `scry chart render` instead."

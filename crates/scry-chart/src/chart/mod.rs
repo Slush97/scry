@@ -10,6 +10,7 @@ pub(crate) mod bubble;
 pub(crate) mod candlestick;
 pub(crate) mod config_builder;
 pub(crate) mod contour;
+pub(crate) mod gantt;
 pub(crate) mod funnel;
 pub(crate) mod gauge;
 pub(crate) mod heatmap;
@@ -29,6 +30,7 @@ pub use bubble::BubbleChart;
 pub use candlestick::{CandlestickChart, OhlcEntry};
 pub use contour::ContourChart;
 pub use funnel::FunnelChart;
+pub use gantt::{GanttChart, GanttTask};
 pub use gauge::GaugeChart;
 pub use heatmap::Heatmap;
 pub use histogram::Histogram;
@@ -173,6 +175,11 @@ impl Charts {
     /// Create a contour chart from a 2D grid of values.
     pub fn contour(data: Vec<Vec<f64>>) -> ContourChart {
         ContourChart::new(data)
+    }
+
+    /// Create a Gantt chart from a list of tasks.
+    pub fn gantt(tasks: Vec<GanttTask>) -> GanttChart {
+        GanttChart::new(tasks)
     }
 
     /// Create an area chart (filled + smooth line chart).

@@ -8,7 +8,28 @@ use crate::theme::contrast_text_color;
 use super::{RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
-    let config = &pc.config;
+    // Degenerate canvas — nothing meaningful can be drawn.
+    if w < 4 || h < 4 {
+        let canvas = scry_engine::scene::PixelCanvas::new(w, h);
+        return RenderedChart {
+            canvas,
+            text_overlays: Vec::new(),
+            plot_area: None,
+            x_scale: None,
+            y_scale: None,
+            series_points: Vec::new(),
+        };
+    }
+    // Clone config and force OutsideRight legend *before* computing the plot
+    // area so `compute_plot_area` reserves right-side space for the legend.
+    let config = {
+        let mut cfg = pc.config.clone();
+        if cfg.show_legend {
+            cfg.legend.position = crate::legend::LegendPosition::OutsideRight;
+        }
+        cfg
+    };
+    let config = &config;
     let theme = &config.theme;
     let tick_fs = super::scaled_font_size(theme.tick_style.font_size, w, h);
     let mut ctx = RenderContext::new(config, w, h, None);
@@ -110,7 +131,7 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
         current_angle += sweep;
     }
 
-    // Legend
+    // Legend — pie charts always use OutsideRight to avoid overlapping the circle.
     if config.show_legend {
         let entries: Vec<LegendEntry> = pc
             .labels

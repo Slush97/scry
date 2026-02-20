@@ -3,12 +3,13 @@ source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
 canvas: 400x300, 27 commands
-text_labels: 8
-  [0] 0.8
-  [1] 2.0
-  [2] 4.0
-  [3] 5.0
-  [4] 9
-  [5] 20
-  [6] 30
-  [7] Peak
+text_labels: 9
+  [0] 1
+  [1] 2
+  [2] 3
+  [3] 4
+  [4] 5
+  [5] 10
+  [6] 20
+  [7] 30
+  [8] Peak

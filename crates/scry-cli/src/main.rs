@@ -137,7 +137,8 @@ fn cmd_info() -> Result<(), String> {
     println!("  scry splash          Startup splash animation");
     println!("  scry render          Display image inline");
     println!("  scry stream          Live streaming chart from stdin");
-    println!("  scry play            Interactive TUI animations");
+    println!("  scry play            Interactive TUI animations & illusions");
+    println!("  scry play -p illusion  Render optical illusions inline");
     println!("  scry info            Terminal capabilities");
     println!();
 

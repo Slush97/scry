@@ -148,6 +148,26 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
     // Legend for multi-series
     let total_series = 1 + bc.extra_series.len();
     if total_series > 1 && config.show_legend {
+        // Collect bubble center pixel positions for overlap detection.
+        let mut all_points: Vec<(f32, f32)> = Vec::new();
+        for i in 0..n {
+            let xv = bc.x.values()[i];
+            let yv = bc.y.values()[i];
+            if xv.is_finite() && yv.is_finite() {
+                all_points.push((x_scale.to_pixel(xv) as f32, y_scale.to_pixel(yv) as f32));
+            }
+        }
+        for (xs, ys, sizes) in &bc.extra_series {
+            let sn = xs.len().min(ys.len()).min(sizes.len());
+            for i in 0..sn {
+                let xv = xs.values()[i];
+                let yv = ys.values()[i];
+                if xv.is_finite() && yv.is_finite() {
+                    all_points.push((x_scale.to_pixel(xv) as f32, y_scale.to_pixel(yv) as f32));
+                }
+            }
+        }
+
         let mut entries = Vec::with_capacity(total_series);
         // Primary series
         let primary_label = if bc.y.label().is_empty() {
@@ -176,8 +196,11 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
+        // Bubble charts use circle swatches (match marker shape)
+        legend_cfg.swatch_shape = crate::legend::SwatchShape::Circle;
+        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
         for (lx, ly, label) in legend_text {
             ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);

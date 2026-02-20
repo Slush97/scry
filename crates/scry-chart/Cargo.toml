@@ -20,6 +20,7 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "scry-engine/gpu"]
 sdf = ["scry-engine/sdf"]
 inline = ["dep:base64"]
 pdf = ["dep:pdf-writer", "dep:miniz_oxide"]
+cli = ["dep:clap", "serde"]
 
 [dependencies]
 scry-engine = { version = "0.7.0", path = "../..", features = ["kitty", "text"] }
@@ -35,6 +36,7 @@ pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 pdf-writer = { version = "0.14", optional = true }
 miniz_oxide = { version = "0.8", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
 
 [dev-dependencies]
 insta = { version = "1", features = ["glob"] }

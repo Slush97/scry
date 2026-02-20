@@ -156,6 +156,15 @@ pub enum SdfShape {
         /// Blend radius (higher = smoother).
         k: f32,
     },
+    /// Boolean subtraction: carve shape B from shape A.
+    Subtract {
+        /// Base shape (kept).
+        a: std::boxed::Box<Self>,
+        /// Carving shape (removed from A).
+        b: std::boxed::Box<Self>,
+        /// Offset of shape B relative to the object position.
+        b_offset: Vec3,
+    },
     /// Vertical capsule (line segment swept by radius).
     Capsule {
         /// Radius of the capsule.
@@ -176,6 +185,27 @@ pub enum SdfShape {
         radius: f32,
         /// Height (tip at y = height).
         height: f32,
+    },
+    /// Mandelbulb fractal.
+    Mandelbulb {
+        /// Fractal power (8.0 = classic bulb).
+        power: f32,
+        /// Iteration count (10–15 for good detail).
+        iterations: u32,
+    },
+    /// Menger sponge fractal (unit cube with recursive cross holes).
+    MengerSponge {
+        /// Recursion depth (3–5 iterations).
+        iterations: u32,
+    },
+    /// Gyroid triply periodic minimal surface, clipped to a bounding sphere.
+    Gyroid {
+        /// Spatial frequency scale.
+        scale: f32,
+        /// Surface thickness.
+        thickness: f32,
+        /// Bounding sphere radius (0 = unbounded).
+        bound: f32,
     },
     /// 3D extruded text from TTF font outlines.
     ///
@@ -439,6 +469,7 @@ impl SdfScene {
                 half_height,
             } => Some(radius.hypot(*half_height)),
             SdfShape::SmoothBlend { .. } => Some(3.0), // conservative estimate
+            SdfShape::Subtract { .. } => Some(3.0), // conservative estimate
             SdfShape::Capsule {
                 radius,
                 half_height,
@@ -448,6 +479,9 @@ impl SdfScene {
                 radius,
             } => Some(half_extents.length() + *radius),
             SdfShape::Cone { radius, height } => Some(radius.hypot(*height)),
+            SdfShape::Mandelbulb { .. } => Some(1.5), // bulb fits roughly in r=1.5
+            SdfShape::MengerSponge { .. } => Some(1.8), // unit cube diagonal ≈ 1.73
+            SdfShape::Gyroid { bound, .. } => if *bound > 0.0 { Some(*bound) } else { Some(5.0) },
             #[cfg(feature = "sdf-text")]
             SdfShape::Text3D { layout, depth } => {
                 let half_w = layout.total_width * 0.5;
@@ -495,6 +529,7 @@ impl SdfScene {
                         half_height,
                     } => radius.hypot(*half_height),
                     SdfShape::SmoothBlend { .. } => 3.0,
+                    SdfShape::Subtract { .. } => 3.0,
                     SdfShape::Capsule {
                         radius,
                         half_height,
@@ -504,6 +539,9 @@ impl SdfScene {
                         radius,
                     } => half_extents.length() + *radius,
                     SdfShape::Cone { radius, height } => radius.hypot(*height),
+                    SdfShape::Mandelbulb { .. } => 1.5,
+                    SdfShape::MengerSponge { .. } => 1.8,
+                    SdfShape::Gyroid { bound, .. } => if *bound > 0.0 { *bound } else { 5.0 },
                     #[cfg(feature = "sdf-text")]
                     SdfShape::Text3D { layout, depth } => {
                         let half_w = layout.total_width * 0.5;

@@ -72,6 +72,21 @@ macro_rules! chart_config_ranges {
     };
 }
 
+/// Generate aspect ratio builder method.
+macro_rules! chart_config_aspect_ratio {
+    () => {
+        /// Set the plot-area aspect ratio constraint.
+        ///
+        /// - `Auto` (default): fill available space.
+        /// - `Equal`: 1:1 pixel ratio (square plot).
+        /// - `Fixed(ratio)`: custom `width / height` pixel ratio.
+        pub fn aspect_ratio(mut self, ar: $crate::config::AspectRatio) -> Self {
+            self.config.axes.aspect_ratio = ar;
+            self
+        }
+    };
+}
+
 /// Generate horizontal reference line methods.
 macro_rules! chart_config_h_lines {
     () => {
@@ -425,6 +440,7 @@ macro_rules! chart_config_semantic_zoom {
 
 // Re-export macros for use in sibling modules.
 pub(crate) use chart_config_annotations;
+pub(crate) use chart_config_aspect_ratio;
 pub(crate) use chart_config_axis_labels;
 pub(crate) use chart_config_core;
 pub(crate) use chart_config_formatters;

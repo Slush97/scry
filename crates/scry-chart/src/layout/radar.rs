@@ -38,6 +38,7 @@ pub(crate) fn render_radar(rc: &RadarChart, w: u32, h: u32) -> RenderedChart {
     // Draw concentric rings (grid)
     let n_rings = 4;
     let ring_color = theme.grid_color();
+    let spoke_color = theme.axis_color();
     for r in 1..=n_rings {
         let ring_r = radius * r as f32 / n_rings as f32;
         let ring_pts: Vec<(f32, f32)> = (0..n_axes)
@@ -46,11 +47,16 @@ pub(crate) fn render_radar(rc: &RadarChart, w: u32, h: u32) -> RenderedChart {
                 (cx + ring_r * angle.cos(), cy + ring_r * angle.sin())
             })
             .collect();
-        ctx.draw(|c| c.polygon(ring_pts).stroke(ring_color, 0.5).done());
+        // Outer boundary ring is more prominent than inner grid rings.
+        let (stroke_color, stroke_w) = if r == n_rings {
+            (spoke_color, 1.5)
+        } else {
+            (ring_color, 0.5)
+        };
+        ctx.draw(|c| c.polygon(ring_pts).stroke(stroke_color, stroke_w).done());
     }
 
     // Draw spokes (axes)
-    let spoke_color = theme.axis_color();
     for i in 0..n_axes {
         let angle = start_angle + i as f32 * angle_step;
         let ex = cx + radius * angle.cos();
@@ -58,7 +64,7 @@ pub(crate) fn render_radar(rc: &RadarChart, w: u32, h: u32) -> RenderedChart {
         ctx.draw(|c| c.line(cx, cy, ex, ey).color(spoke_color).width(1.0).done());
 
         // Axis label
-        let label_r = radius + super::scaled_font_size(theme.tick_style.font_size, w, h) * 1.2;
+        let label_r = radius + super::scaled_font_size(theme.tick_style.font_size, w, h) * 1.6;
         let lx = cx + label_r * angle.cos();
         let ly = cy + label_r * angle.sin();
         let align = if angle.cos().abs() < 0.1 {

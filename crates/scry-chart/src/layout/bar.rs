@@ -283,6 +283,45 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 
     // Legend for multi-series
     if bc.series.len() > 1 && config.show_legend {
+        // Collect bar rectangle corners for overlap detection.
+        // Using corners instead of centroids ensures the legend never
+        // overlaps any bar, even at the edges.
+        let mut all_points: Vec<(f32, f32)> = Vec::new();
+        let baseline_px = y_scale.to_pixel(0.0) as f32;
+        for (ci, _label) in bc.labels.iter().enumerate() {
+            let center = cat_scale.center(ci) as f32;
+            if bc.stacked {
+                let total: f64 = bc.series.iter()
+                    .filter_map(|s| if ci < s.len() { let v = s.values()[ci]; if v.is_finite() { Some(v) } else { None } } else { None })
+                    .sum();
+                if total.is_finite() {
+                    let bar_w = inner_band;
+                    let bar_x = center - bar_w / 2.0;
+                    let top_y = y_scale.to_pixel(total) as f32;
+                    all_points.push((bar_x, top_y));
+                    all_points.push((bar_x + bar_w, top_y));
+                    all_points.push((bar_x, baseline_px));
+                    all_points.push((bar_x + bar_w, baseline_px));
+                }
+            } else {
+                let bw = if n_series > 0 { inner_band / n_series as f32 } else { inner_band };
+                let gl = center - inner_band / 2.0;
+                for (si, series) in bc.series.iter().enumerate() {
+                    if ci < series.len() {
+                        let v = series.values()[ci];
+                        if v.is_finite() {
+                            let bar_x = gl + si as f32 * bw;
+                            let top_y = y_scale.to_pixel(v) as f32;
+                            all_points.push((bar_x, top_y));
+                            all_points.push((bar_x + bw, top_y));
+                            all_points.push((bar_x, baseline_px));
+                            all_points.push((bar_x + bw, baseline_px));
+                        }
+                    }
+                }
+            }
+        }
+
         let entries: Vec<LegendEntry> = bc
             .series
             .iter()
@@ -301,8 +340,9 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
+        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         for (lx, ly, label) in legend_text {
@@ -526,6 +566,42 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 
     // Legend for multi-series
     if bc.series.len() > 1 && config.show_legend {
+        // Collect bar rectangle corners for overlap detection.
+        let mut all_points: Vec<(f32, f32)> = Vec::new();
+        for (ci, _label) in bc.labels.iter().enumerate() {
+            let center = cat_scale.center(ci) as f32;
+            if bc.stacked {
+                let total: f64 = bc.series.iter()
+                    .filter_map(|s| if ci < s.len() { let v = s.values()[ci]; if v.is_finite() { Some(v) } else { None } } else { None })
+                    .sum();
+                if total.is_finite() {
+                    let bar_h = inner_band;
+                    let bar_y = center - bar_h / 2.0;
+                    let right_x = x_scale.to_pixel(total) as f32;
+                    all_points.push((baseline_x, bar_y));
+                    all_points.push((right_x, bar_y));
+                    all_points.push((baseline_x, bar_y + bar_h));
+                    all_points.push((right_x, bar_y + bar_h));
+                }
+            } else {
+                let bh = if n_series > 0 { inner_band / n_series as f32 } else { inner_band };
+                let gt = center - inner_band / 2.0;
+                for (si, series) in bc.series.iter().enumerate() {
+                    if ci < series.len() {
+                        let v = series.values()[ci];
+                        if v.is_finite() {
+                            let bar_y = gt + si as f32 * bh;
+                            let right_x = x_scale.to_pixel(v) as f32;
+                            all_points.push((baseline_x, bar_y));
+                            all_points.push((right_x, bar_y));
+                            all_points.push((baseline_x, bar_y + bh));
+                            all_points.push((right_x, bar_y + bh));
+                        }
+                    }
+                }
+            }
+        }
+
         let entries: Vec<LegendEntry> = bc
             .series
             .iter()
@@ -544,8 +620,9 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
+        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
         let legend_text = ctx.draw_with(|c| {
-            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, None)
+            legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         for (lx, ly, label) in legend_text {

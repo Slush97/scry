@@ -278,10 +278,25 @@ impl Default for AutoBackend {
 
 impl RasterBackend for AutoBackend {
     fn rasterize(&self, canvas: &PixelCanvas) -> Result<RasterResult, PixelCanvasError> {
+        // The GPU rasterizer draws all GPU-native commands first, then
+        // composites CPU fallback commands (dashed lines, text, gradients)
+        // on top.  This fixed two-pass order breaks painter's-algorithm
+        // z-ordering whenever a CPU-fallback command should appear *behind*
+        // a GPU-native command (e.g. dashed grid lines behind opaque bars).
+        //
+        // Guard: route to CPU when the scene contains any CPU-fallback
+        // command so that the full command list is drawn in order.
+        if self.inner.kind() == BackendKind::Gpu && !canvas.gpu_suitable() {
+            return CpuBackend.rasterize(canvas);
+        }
         self.inner.rasterize(canvas)
     }
 
     fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterResult {
+        // Same guard as rasterize() — see comment above.
+        if self.inner.kind() == BackendKind::Gpu && !canvas.gpu_suitable() {
+            return CpuBackend.rasterize_into(canvas, pixmap);
+        }
         self.inner.rasterize_into(canvas, pixmap)
     }
 

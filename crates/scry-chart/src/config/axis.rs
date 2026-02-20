@@ -1,5 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Axis range and inversion configuration.
+//! Axis range, inversion, and aspect ratio configuration.
+
+/// Aspect ratio constraint for the plot area.
+///
+/// Controls whether the X and Y axes use the same data-to-pixel ratio,
+/// following Cleveland (1985) and Wilkinson (2005) recommendations
+/// for equal-unit axes.
+#[derive(Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum AspectRatio {
+    /// Fill available space (default). Axes scale independently.
+    #[default]
+    Auto,
+    /// 1:1 data-unit to pixel ratio. Both axes use the same scale factor.
+    Equal,
+    /// Custom ratio: `x_units_per_pixel / y_units_per_pixel`.
+    Fixed(f64),
+}
 
 /// Manual axis domain overrides and axis direction.
 #[derive(Clone, Debug, Default)]
@@ -14,4 +31,6 @@ pub struct AxisRangeConfig {
     pub x_inverted: bool,
     /// Whether to invert (reverse) the Y axis.
     pub y_inverted: bool,
+    /// Aspect ratio constraint for the plot area.
+    pub aspect_ratio: AspectRatio,
 }

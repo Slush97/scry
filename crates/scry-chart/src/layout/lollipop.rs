@@ -81,9 +81,9 @@ fn render_lollipop_vertical(lc: &LollipopChart, w: u32, h: u32) -> RenderedChart
         // Value label
         if lc.show_values {
             let label_y = if value >= 0.0 {
-                vy - lc.dot_radius - 4.0
+                vy - lc.dot_radius - data_fs * 0.8
             } else {
-                vy + lc.dot_radius + 12.0
+                vy + lc.dot_radius + data_fs * 0.6
             };
             ctx.add_text(cx, label_y, &format_value(value), theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
         }

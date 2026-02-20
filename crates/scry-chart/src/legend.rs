@@ -131,12 +131,18 @@ impl Default for LegendConfig {
 
 impl LegendConfig {
     /// Apply theme-derived legend settings (background, border, font size)
-    /// and font-metric-aware char_width from the given font_size.
+    /// and font-metric-aware sizing from the given font_size.
+    ///
+    /// All dimension fields (swatch_size, padding, spacing, char_width) are
+    /// computed relative to the actual rendered font size so the legend
+    /// scales correctly at any canvas resolution — from 200px to 4K.
     pub fn apply_theme_and_font_size(&mut self, theme: &crate::theme::LegendTheme, font_size: f32) {
         self.background = Some(theme.background);
         self.border = theme.border;
         self.char_width = font_size * INTER_ADVANCE_RATIO;
         self.padding = (font_size * 0.6).max(4.0);
+        self.swatch_size = (font_size * 0.85).max(8.0);
+        self.spacing = (font_size * 0.55).max(4.0);
     }
 }
 
@@ -236,6 +242,30 @@ pub fn measure_legend(
     }
 }
 
+/// Estimate the right-side margin needed for an `OutsideRight` legend.
+///
+/// Pre-measures entry count × char_width to predict legend width before
+/// `compute_plot_area` finalises the plot rectangle. Returns 0 if the
+/// legend is not configured for outside-right placement or is hidden.
+#[must_use]
+pub fn estimate_legend_right_margin(
+    config: &LegendConfig,
+    entry_count: usize,
+    max_label_chars: usize,
+) -> f32 {
+    if !config.visible || entry_count == 0 {
+        return 0.0;
+    }
+    if config.position != LegendPosition::OutsideRight {
+        return 0.0;
+    }
+    let swatch_gap = 6.0;
+    let label_width = max_label_chars as f32 * config.char_width;
+    let col_width = config.swatch_size + swatch_gap + label_width;
+    // legend_width + padding on both sides + gap from plot area
+    col_width + config.padding * 2.0 + config.padding
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -317,8 +347,10 @@ pub fn draw_positioned_legend(
 
     // --- E2: Clamp legend to stay within canvas edges ---
     let legend_pad = effective_config.padding;
-    let lx = lx.clamp(legend_pad, canvas_w - legend_w - legend_pad);
-    let ly = ly.clamp(legend_pad, canvas_h - legend_h - legend_pad);
+    let clamp_x_max = (canvas_w - legend_w - legend_pad).max(legend_pad);
+    let clamp_y_max = (canvas_h - legend_h - legend_pad).max(legend_pad);
+    let lx = lx.clamp(legend_pad, clamp_x_max);
+    let ly = ly.clamp(legend_pad, clamp_y_max);
 
     // --- A3/A4: Draw background with proportional padding and near-opaque fill ---
     if let Some(bg) = effective_config.background {
@@ -352,6 +384,7 @@ pub fn draw_positioned_legend(
 
 /// Resolve legend layout: auto-promote columns, switch to horizontal,
 /// or truncate entries when the legend would exceed 40% of plot height.
+/// As a final escape, promotes to `OutsideRight` when all inside layouts overflow.
 fn resolve_legend_layout(
     entries: &[LegendEntry],
     config: &LegendConfig,
@@ -362,16 +395,14 @@ fn resolve_legend_layout(
     let max_h = plot_h * 0.4;
     let max_w = plot_w * 0.5;
 
-    // Try vertical with increasing columns
-    if config.columns == 1
-        && config.orientation == LegendOrientation::Vertical
-        && entries.len() > 4
-    {
-        let single_h = measure_legend(entries, swatch_size, config).1;
-        if single_h <= max_h {
-            return (config.clone(), entries.to_vec());
-        }
+    // Measure at current config
+    let current_dims = measure_legend(entries, swatch_size, config);
+    if current_dims.1 <= max_h && current_dims.0 <= max_w {
+        return (config.clone(), entries.to_vec());
+    }
 
+    // Try vertical with increasing columns (only if currently vertical)
+    if config.orientation == LegendOrientation::Vertical && entries.len() > 2 {
         // Try 2 columns
         let mut c = config.clone();
         c.columns = 2;
@@ -381,48 +412,57 @@ fn resolve_legend_layout(
         }
 
         // Try 3 columns
-        if entries.len() > 8 {
+        if entries.len() > 6 {
             c.columns = 3;
             let three = measure_legend(entries, swatch_size, &c);
             if three.1 <= max_h && three.0 <= max_w {
                 return (c, entries.to_vec());
             }
         }
-
-        // Try horizontal layout
-        let mut horiz = config.clone();
-        horiz.orientation = LegendOrientation::Horizontal;
-        let horiz_dims = measure_legend(entries, swatch_size, &horiz);
-        if horiz_dims.0 <= max_w && horiz_dims.1 <= max_h {
-            return (horiz, entries.to_vec());
-        }
-
-        // Truncate to top-N entries with "+ N more" suffix
-        let mut truncated: Vec<LegendEntry> = Vec::new();
-        let mut best_cfg = config.clone();
-        for n in (3..entries.len()).rev() {
-            truncated = entries[..n].to_vec();
-            let remaining = entries.len() - n;
-            truncated.push(LegendEntry {
-                label: format!("+ {remaining} more"),
-                color: Color::from_rgba8(128, 128, 128, 180),
-            });
-            let dims = measure_legend(&truncated, swatch_size, config);
-            if dims.1 <= max_h {
-                best_cfg = config.clone();
-                break;
-            }
-        }
-        if truncated.is_empty() {
-            truncated = entries.to_vec();
-        }
-        return (best_cfg, truncated);
     }
 
-    (config.clone(), entries.to_vec())
+    // Try horizontal layout
+    let mut horiz = config.clone();
+    horiz.orientation = LegendOrientation::Horizontal;
+    let horiz_dims = measure_legend(entries, swatch_size, &horiz);
+    if horiz_dims.0 <= max_w && horiz_dims.1 <= max_h {
+        return (horiz, entries.to_vec());
+    }
+
+    // Promote to OutsideRight before truncating — preserving all entries
+    // is more important than keeping the legend inside the plot area.
+    let mut outside_cfg = config.clone();
+    outside_cfg.position = LegendPosition::OutsideRight;
+    let outside_dims = measure_legend(entries, swatch_size, &outside_cfg);
+    // OutsideRight has no inside-plot height constraint, but check canvas fit
+    if outside_dims.0 <= max_w {
+        return (outside_cfg, entries.to_vec());
+    }
+
+    // Last resort: truncate to top-N entries with "+ N more" suffix
+    for n in (3..entries.len()).rev() {
+        let mut truncated: Vec<LegendEntry> = entries[..n].to_vec();
+        let remaining = entries.len() - n;
+        truncated.push(LegendEntry {
+            label: format!("+ {remaining} more"),
+            color: Color::from_rgba8(128, 128, 128, 180),
+        });
+        let dims = measure_legend(&truncated, swatch_size, config);
+        if dims.1 <= max_h {
+            return (config.clone(), truncated);
+        }
+    }
+
+    // Absolute fallback: outside + truncated
+    (outside_cfg, entries.to_vec())
 }
 
 /// Compute legend top-left position for a given placement.
+///
+/// For inside positions (TopRight, TopLeft, etc.), if `data_points` are
+/// provided and the computed position would overlap data, automatically
+/// falls through to [`best_corner`] to find a non-overlapping corner or
+/// promote to outside placement.
 #[allow(clippy::too_many_arguments)]
 fn compute_position(
     position: LegendPosition,
@@ -435,7 +475,20 @@ fn compute_position(
     pad: f32,
     data_points: Option<&[(f32, f32)]>,
 ) -> (f32, f32) {
+    // Outside positions are immune to data overlap — always honour them.
     match position {
+        LegendPosition::OutsideRight => return (px + pw + pad, py + pad),
+        LegendPosition::OutsideBottom => return (px + pad, py + ph + pad),
+        _ => {}
+    }
+
+    // For Best, delegate directly.
+    if matches!(position, LegendPosition::Best) {
+        return best_corner(px, py, pw, ph, lw, lh, pad, data_points);
+    }
+
+    // Compute the requested inside position.
+    let (lx, ly) = match position {
         LegendPosition::TopRight => (px + pw - lw - pad, py + pad),
         LegendPosition::TopLeft => (px + pad, py + pad),
         LegendPosition::BottomRight => (px + pw - lw - pad, py + ph - lh - pad),
@@ -444,10 +497,24 @@ fn compute_position(
         LegendPosition::Bottom => (px + (pw - lw) / 2.0, py + ph - lh - pad),
         LegendPosition::Left => (px + pad, py + (ph - lh) / 2.0),
         LegendPosition::Right => (px + pw - lw - pad, py + (ph - lh) / 2.0),
-        LegendPosition::OutsideRight => (px + pw + pad, py + pad),
-        LegendPosition::OutsideBottom => (px + pad, py + ph + pad),
-        LegendPosition::Best => best_corner(px, py, pw, ph, lw, lh, pad, data_points),
+        // Already handled above.
+        LegendPosition::Best | LegendPosition::OutsideRight | LegendPosition::OutsideBottom => {
+            unreachable!()
+        }
+    };
+
+    // If data_points are available, check whether this position overlaps.
+    // If it does, let best_corner find a clear spot (or promote outside).
+    if let Some(pts) = data_points {
+        let overlaps = pts
+            .iter()
+            .any(|&(x, y)| x >= lx - 5.0 && x <= lx + lw + 5.0 && y >= ly - 5.0 && y <= ly + lh + 5.0);
+        if overlaps {
+            return best_corner(px, py, pw, ph, lw, lh, pad, data_points);
+        }
     }
+
+    (lx, ly)
 }
 
 /// Pick the corner with the fewest data-point overlaps.
@@ -456,6 +523,10 @@ fn compute_position(
 /// data points fall inside the legend rectangle. Picks the corner with
 /// the lowest count, breaking ties in the order TR → BL → TL → BR
 /// (TR is the most common default; BL is the second-best for most charts).
+///
+/// **Academic convention (Tufte, Cleveland, matplotlib `loc='best'`):**
+/// If the best inside corner still has ≥ 1 data-point collision, the legend
+/// is promoted to `OutsideRight` placement so it never obscures data.
 #[allow(clippy::too_many_arguments)]
 fn best_corner(
     px: f32,
@@ -488,7 +559,7 @@ fn best_corner(
     for &(_label, (cx, cy)) in &candidates {
         let count = points
             .iter()
-            .filter(|&&(x, y)| x >= cx && x <= cx + lw && y >= cy && y <= cy + lh)
+            .filter(|&&(x, y)| x >= cx - 5.0 && x <= cx + lw + 5.0 && y >= cy - 5.0 && y <= cy + lh + 5.0)
             .count();
         if count < best_count {
             best_count = count;
@@ -497,6 +568,15 @@ fn best_corner(
                 break; // can't do better than zero overlap
             }
         }
+    }
+
+    // Academic convention: never let the legend obscure data.
+    // Promote to outside-right when even the best inside corner collides.
+    if best_count > 0 {
+        return compute_position(
+            LegendPosition::OutsideRight,
+            px, py, pw, ph, lw, lh, pad, None,
+        );
     }
 
     best_pos

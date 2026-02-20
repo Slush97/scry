@@ -52,6 +52,8 @@ pub mod legend;
 pub mod margin;
 pub mod scale;
 pub mod spec;
+#[cfg(feature = "serde")]
+pub mod json_spec;
 pub mod streaming;
 pub mod subplot;
 pub mod svg_export;
@@ -69,9 +71,9 @@ pub mod prelude {
     pub use crate::chart::scatter::Marker;
     pub use crate::chart::{
         BarChart, BoxPlot, BubbleChart, CandlestickChart, Chart, Charts, ChartConfig,
-        ContourChart, FunnelChart, GaugeChart, Heatmap, Histogram, LineChart, LollipopChart,
-        OhlcEntry, PieChart, RadarChart, ReferenceLine, ScatterChart, Sparkline, SparklineKind,
-        ViolinPlot, WaterfallChart,
+        ContourChart, FunnelChart, GanttChart, GanttTask, GaugeChart, Heatmap, Histogram,
+        LineChart, LollipopChart, OhlcEntry, PieChart, RadarChart, ReferenceLine, ScatterChart,
+        Sparkline, SparklineKind, ViolinPlot, WaterfallChart,
     };
     pub use crate::spec::ChartSpec;
     pub use crate::chart3d::camera::Camera3D;

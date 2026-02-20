@@ -143,6 +143,9 @@ pub struct AxisConfig {
     // --- Label rotation ---
     /// Rotation for tick labels (horizontal, diagonal, or vertical).
     pub tick_label_rotation: LabelRotation,
+    /// Font size for tick labels (pixels). Used for accurate label overlap
+    /// detection in `auto_skip_labels`. Default: 11.0.
+    pub tick_font_size: f32,
 }
 
 impl Clone for AxisConfig {
@@ -174,6 +177,7 @@ impl Clone for AxisConfig {
             zero_line_color: self.zero_line_color,
             zero_line_width: self.zero_line_width,
             tick_label_rotation: self.tick_label_rotation,
+            tick_font_size: self.tick_font_size,
         }
     }
 }
@@ -225,6 +229,7 @@ impl Default for AxisConfig {
             zero_line_color: None,
             zero_line_width: 1.5,
             tick_label_rotation: LabelRotation::Horizontal,
+            tick_font_size: 11.0,
         }
     }
 }
@@ -294,22 +299,98 @@ fn generate_step_ticks(domain: (f64, f64), step: f64) -> Vec<f64> {
     }
     ticks
 }
-/// Draw an axis (line + ticks + gridlines + minor ticks) onto a canvas.
+/// A grid line to be drawn at a later pass for proper z-ordering.
+///
+/// Grid lines are collected during axis layout and drawn separately
+/// so they render behind chart data (Tufte 2001, Wilkinson 2005).
+#[derive(Clone, Debug)]
+pub struct GridLine {
+    /// Start X coordinate.
+    pub x0: f32,
+    /// Start Y coordinate.
+    pub y0: f32,
+    /// End X coordinate.
+    pub x1: f32,
+    /// End Y coordinate.
+    pub y1: f32,
+}
+
+/// A tick mark to be drawn at a later pass for proper z-ordering.
+///
+/// Tick marks are collected alongside grid lines during axis layout
+/// so they render above grids but below data (Cleveland 1985).
+#[derive(Clone, Debug)]
+pub struct TickMark {
+    /// Start X coordinate.
+    pub x0: f32,
+    /// Start Y coordinate.
+    pub y0: f32,
+    /// End X coordinate.
+    pub x1: f32,
+    /// End Y coordinate.
+    pub y1: f32,
+    /// Tick mark color.
+    pub color: Color,
+    /// Tick mark width in pixels.
+    pub width: f32,
+}
+
+/// Draw previously collected grid lines onto the canvas.
+///
+/// Call this **before** drawing chart data to ensure proper z-ordering.
+#[must_use]
+pub fn draw_collected_gridlines(
+    mut canvas: PixelCanvas,
+    grid_lines: &[GridLine],
+    config: &AxisConfig,
+) -> PixelCanvas {
+    for g in grid_lines {
+        canvas = draw_gridline(canvas, g.x0, g.y0, g.x1, g.y1, config);
+    }
+    canvas
+}
+
+/// Draw previously collected tick marks onto the canvas.
+///
+/// Call this **after** grid lines and **before** axis spines to ensure
+/// proper z-ordering: grids → ticks → spines → data.
+#[must_use]
+pub fn draw_collected_tick_marks(
+    mut canvas: PixelCanvas,
+    tick_marks: &[TickMark],
+) -> PixelCanvas {
+    for t in tick_marks {
+        canvas = canvas
+            .line(t.x0, t.y0, t.x1, t.y1)
+            .color(t.color)
+            .width(t.width)
+            .done();
+    }
+    canvas
+}
+
+/// Draw an axis (line + ticks + minor ticks) onto a canvas.
 ///
 /// - `plot_area`: The pixel rectangle of the plot area `(x, y, w, h)`.
 /// - `scale`: The linear scale mapping data to pixels.
 /// - `config`: Axis styling.
 ///
-/// Returns tick positions and their formatted labels for text rendering.
+/// Returns tick label positions, collected grid lines, and collected tick marks.
+/// Grid lines and tick marks are **not** drawn — the caller is responsible
+/// for drawing them via [`draw_collected_gridlines`] and
+/// [`draw_collected_tick_marks`] at the appropriate z-layers:
+/// grids → ticks → spines → data.
 #[must_use]
 pub fn draw_axis(
     mut canvas: PixelCanvas,
     plot_area: (f32, f32, f32, f32),
     scale: &LinearScale,
     config: &AxisConfig,
-) -> (PixelCanvas, Vec<(f32, String)>) {
+) -> (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>) {
     let (px, py, pw, ph) = plot_area;
     let mut tick_labels = Vec::new();
+    let mut grid_lines = Vec::new();
+    let mut tick_marks = Vec::new();
 
     // Determine tick count
     let is_horizontal = matches!(config.side, AxisSide::Bottom | AxisSide::Top);
@@ -345,6 +426,7 @@ pub fn draw_axis(
         is_horizontal,
         config.tick_label_rotation,
         scale,
+        config.tick_font_size,
     );
 
     // D3: Final collision verification pass — if any adjacent labels still
@@ -355,6 +437,7 @@ pub fn draw_axis(
         is_horizontal,
         config.tick_label_rotation,
         scale,
+        config.tick_font_size,
     );
 
     // Draw zero line if domain spans zero
@@ -362,12 +445,10 @@ pub fn draw_axis(
 
     match config.side {
         AxisSide::Bottom => {
-            // Axis spine — clipped to first/last tick positions
+            // Axis spine — full plot extent so X/Y spines meet at corners
             if config.visible {
-                let spine_x0 = tick_label_pairs.first().map_or(px, |(t, _)| scale.to_pixel(*t) as f32);
-                let spine_x1 = tick_label_pairs.last().map_or(px + pw, |(t, _)| scale.to_pixel(*t) as f32);
                 canvas = canvas
-                    .line(spine_x0, py + ph, spine_x1, py + ph)
+                    .line(px, py + ph, px + pw, py + ph)
                     .color(config.axis_color)
                     .width(config.axis_width)
                     .done();
@@ -379,18 +460,24 @@ pub fn draw_axis(
                     continue;
                 }
 
-                // Tick mark
-                let (t_start, t_end) =
-                    tick_extents(py + ph, config.tick_length, config.tick_direction, false);
-                canvas = canvas
-                    .line(x, t_start, x, t_end)
-                    .color(config.tick_color)
-                    .width(config.tick_width)
-                    .done();
+                // Skip tick mark at perpendicular spine edges to avoid
+                // visual clutter where axes meet.
+                let at_left_spine = (x - px).abs() < 1.5;
+                let at_right_spine = (x - (px + pw)).abs() < 1.5;
 
-                // Major gridline
-                if config.show_grid {
-                    canvas = draw_gridline(canvas, x, py, x, py + ph, config);
+                if !at_left_spine && !at_right_spine {
+                    // Collect tick mark for later z-ordered drawing
+                    let (t_start, t_end) =
+                        tick_extents(py + ph, config.tick_length, config.tick_direction, false);
+                    tick_marks.push(TickMark {
+                        x0: x, y0: t_start, x1: x, y1: t_end,
+                        color: config.tick_color, width: config.tick_width,
+                    });
+                }
+
+                // Collect gridline for later z-ordered drawing
+                if config.show_grid && !at_left_spine && !at_right_spine {
+                    grid_lines.push(GridLine { x0: x, y0: py, x1: x, y1: py + ph });
                 }
 
                 tick_labels.push((x, label.clone()));
@@ -399,11 +486,12 @@ pub fn draw_axis(
             // Minor ticks (use original tick set, not skipped)
             let orig_ticks: Vec<f64> = tick_label_pairs.iter().map(|(v, _)| *v).collect();
             if config.minor_ticks {
-                canvas = draw_minor_ticks_h(canvas, &orig_ticks, scale, config, plot_area);
+                collect_minor_ticks_h(&mut tick_marks, &orig_ticks, scale, config, plot_area);
             }
         }
 
         AxisSide::Top => {
+            // Axis spine — full plot extent
             if config.visible {
                 canvas = canvas
                     .line(px, py, px + pw, py)
@@ -418,16 +506,20 @@ pub fn draw_axis(
                     continue;
                 }
 
-                let (t_start, t_end) =
-                    tick_extents(py, config.tick_length, config.tick_direction, true);
-                canvas = canvas
-                    .line(x, t_start, x, t_end)
-                    .color(config.tick_color)
-                    .width(config.tick_width)
-                    .done();
+                let at_left_spine = (x - px).abs() < 1.5;
+                let at_right_spine = (x - (px + pw)).abs() < 1.5;
 
-                if config.show_grid {
-                    canvas = draw_gridline(canvas, x, py, x, py + ph, config);
+                if !at_left_spine && !at_right_spine {
+                    let (t_start, t_end) =
+                        tick_extents(py, config.tick_length, config.tick_direction, true);
+                    tick_marks.push(TickMark {
+                        x0: x, y0: t_start, x1: x, y1: t_end,
+                        color: config.tick_color, width: config.tick_width,
+                    });
+                }
+
+                if config.show_grid && !at_left_spine && !at_right_spine {
+                    grid_lines.push(GridLine { x0: x, y0: py, x1: x, y1: py + ph });
                 }
 
                 tick_labels.push((x, label.clone()));
@@ -435,18 +527,15 @@ pub fn draw_axis(
 
             let orig_ticks: Vec<f64> = tick_label_pairs.iter().map(|(v, _)| *v).collect();
             if config.minor_ticks {
-                canvas = draw_minor_ticks_h(canvas, &orig_ticks, scale, config, plot_area);
+                collect_minor_ticks_h(&mut tick_marks, &orig_ticks, scale, config, plot_area);
             }
         }
 
         AxisSide::Left => {
-            // Axis spine — clipped to first/last tick positions
+            // Axis spine — full plot extent so X/Y spines meet at corners
             if config.visible {
-                let spine_y0 = tick_label_pairs.first().map_or(py, |(t, _)| scale.to_pixel(*t) as f32);
-                let spine_y1 = tick_label_pairs.last().map_or(py + ph, |(t, _)| scale.to_pixel(*t) as f32);
-                let (y_top, y_bot) = if spine_y0 < spine_y1 { (spine_y0, spine_y1) } else { (spine_y1, spine_y0) };
                 canvas = canvas
-                    .line(px, y_top, px, y_bot)
+                    .line(px, py, px, py + ph)
                     .color(config.axis_color)
                     .width(config.axis_width)
                     .done();
@@ -458,21 +547,21 @@ pub fn draw_axis(
                     continue;
                 }
 
-                let (t_start, t_end) =
-                    tick_extents(px, config.tick_length, config.tick_direction, true);
-                canvas = canvas
-                    .line(t_start, y, t_end, y)
-                    .color(config.tick_color)
-                    .width(config.tick_width)
-                    .done();
+                // Skip tick mark at perpendicular spine edges
+                let at_top_spine = (y - py).abs() < 1.5;
+                let at_bottom_spine = (y - (py + ph)).abs() < 1.5;
 
-                if config.show_grid {
-                    // Skip gridline when it coincides with the bottom axis spine
-                    // to avoid double-drawing at y=0 on charts where domain starts at 0.
-                    let bottom_spine = py + ph;
-                    if (y - bottom_spine).abs() > 0.5 {
-                        canvas = draw_gridline(canvas, px, y, px + pw, y, config);
-                    }
+                if !at_top_spine && !at_bottom_spine {
+                    let (t_start, t_end) =
+                        tick_extents(px, config.tick_length, config.tick_direction, true);
+                    tick_marks.push(TickMark {
+                        x0: t_start, y0: y, x1: t_end, y1: y,
+                        color: config.tick_color, width: config.tick_width,
+                    });
+                }
+
+                if config.show_grid && !at_top_spine && !at_bottom_spine {
+                    grid_lines.push(GridLine { x0: px, y0: y, x1: px + pw, y1: y });
                 }
 
                 tick_labels.push((y, label.clone()));
@@ -480,11 +569,12 @@ pub fn draw_axis(
 
             let orig_ticks: Vec<f64> = tick_label_pairs.iter().map(|(v, _)| *v).collect();
             if config.minor_ticks {
-                canvas = draw_minor_ticks_v(canvas, &orig_ticks, scale, config, plot_area);
+                collect_minor_ticks_v(&mut tick_marks, &orig_ticks, scale, config, plot_area);
             }
         }
 
         AxisSide::Right => {
+            // Axis spine — full plot extent
             if config.visible {
                 canvas = canvas
                     .line(px + pw, py, px + pw, py + ph)
@@ -499,16 +589,20 @@ pub fn draw_axis(
                     continue;
                 }
 
-                let (t_start, t_end) =
-                    tick_extents(px + pw, config.tick_length, config.tick_direction, false);
-                canvas = canvas
-                    .line(t_start, y, t_end, y)
-                    .color(config.tick_color)
-                    .width(config.tick_width)
-                    .done();
+                let at_top_spine = (y - py).abs() < 1.5;
+                let at_bottom_spine = (y - (py + ph)).abs() < 1.5;
 
-                if config.show_grid {
-                    canvas = draw_gridline(canvas, px, y, px + pw, y, config);
+                if !at_top_spine && !at_bottom_spine {
+                    let (t_start, t_end) =
+                        tick_extents(px + pw, config.tick_length, config.tick_direction, false);
+                    tick_marks.push(TickMark {
+                        x0: t_start, y0: y, x1: t_end, y1: y,
+                        color: config.tick_color, width: config.tick_width,
+                    });
+                }
+
+                if config.show_grid && !at_top_spine && !at_bottom_spine {
+                    grid_lines.push(GridLine { x0: px, y0: y, x1: px + pw, y1: y });
                 }
 
                 tick_labels.push((y, label.clone()));
@@ -516,12 +610,12 @@ pub fn draw_axis(
 
             let orig_ticks: Vec<f64> = tick_label_pairs.iter().map(|(v, _)| *v).collect();
             if config.minor_ticks {
-                canvas = draw_minor_ticks_v(canvas, &orig_ticks, scale, config, plot_area);
+                collect_minor_ticks_v(&mut tick_marks, &orig_ticks, scale, config, plot_area);
             }
         }
     }
 
-    (canvas, tick_labels)
+    (canvas, tick_labels, grid_lines, tick_marks)
 }
 
 // ---------------------------------------------------------------------------
@@ -530,11 +624,14 @@ pub fn draw_axis(
 
 use crate::layout::INTER_ADVANCE_RATIO;
 
-/// Average character width at the reference 11px font size (Inter Regular).
+/// Average character width at a given font size (Inter Regular).
 ///
-/// Derived from [`INTER_ADVANCE_RATIO`] × 11.0 so there is a single
-/// source of truth for the Inter advance-width metric.
-const AVG_CHAR_WIDTH: f32 = INTER_ADVANCE_RATIO * 11.0;
+/// Font-proportional replacement for the old hardcoded `AVG_CHAR_WIDTH`.
+#[inline]
+fn char_width_for_size(font_size: f32) -> f32 {
+    INTER_ADVANCE_RATIO * font_size
+}
+
 /// Minimum gap between adjacent labels in pixels.
 const MIN_LABEL_GAP: f32 = 6.0;
 
@@ -548,30 +645,32 @@ fn auto_skip_labels(
     is_horizontal: bool,
     rotation: LabelRotation,
     scale: &LinearScale,
+    font_size: f32,
 ) -> Vec<(f64, String)> {
     if pairs.len() <= 2 {
         return pairs;
     }
 
+    let char_w = char_width_for_size(font_size);
+    let line_height = font_size * 1.35; // Inter line-height ratio
     let label_span = if is_horizontal {
         // Estimate total label width for horizontal axes.
         // Rotated labels take less horizontal space.
         let max_label_chars = pairs.iter().map(|(_, l)| l.len()).max().unwrap_or(1);
-        let raw_width = max_label_chars as f32 * AVG_CHAR_WIDTH;
+        let raw_width = max_label_chars as f32 * char_w;
         let effective_width = match rotation {
             LabelRotation::Horizontal => raw_width,
             LabelRotation::Diagonal => raw_width * 0.71,
-            LabelRotation::Vertical => 11.0, // ~font height
+            LabelRotation::Vertical => line_height,
             LabelRotation::Angle(deg) => {
                 let rad = deg.clamp(0.0, 90.0).to_radians();
-                (raw_width * rad.cos()).max(11.0)
+                (raw_width * rad.cos()).max(line_height)
             }
         };
         effective_width + MIN_LABEL_GAP
     } else {
-        // Y-axis: spacing is vertical. Each label needs ~15px line height + gap.
-        // Inter Regular at 11px has ~14.4px measured height; we add generous padding.
-        15.0 + MIN_LABEL_GAP + 1.0
+        // Y-axis: spacing is vertical. Each label needs line_height + gap.
+        line_height + MIN_LABEL_GAP + 1.0
     };
 
     // Use actual pixel positions from the scale to determine minimum spacing.
@@ -637,12 +736,14 @@ fn verify_no_overlap(
     is_horizontal: bool,
     rotation: LabelRotation,
     scale: &LinearScale,
+    font_size: f32,
 ) -> Vec<(f64, String)> {
     if pairs.len() <= 2 {
         return pairs;
     }
 
-    let char_w = INTER_ADVANCE_RATIO * 11.0;
+    let char_w = char_width_for_size(font_size);
+    let line_height = font_size * 1.35;
     let gap = MIN_LABEL_GAP;
 
     let label_extent = |label: &str| -> f32 {
@@ -651,14 +752,14 @@ fn verify_no_overlap(
             match rotation {
                 LabelRotation::Horizontal => raw_w + gap,
                 LabelRotation::Diagonal => raw_w * 0.71 + gap,
-                LabelRotation::Vertical => 11.0 + gap,
+                LabelRotation::Vertical => line_height + gap,
                 LabelRotation::Angle(deg) => {
                     let rad = deg.clamp(0.0, 90.0).to_radians();
-                    (raw_w * rad.cos()).max(11.0) + gap
+                    (raw_w * rad.cos()).max(line_height) + gap
                 }
             }
         } else {
-            15.0 + gap + 1.0
+            line_height + gap + 1.0
         }
     };
 
@@ -669,9 +770,9 @@ fn verify_no_overlap(
         .collect();
 
     let mut has_overlap = false;
-    for w in pixel_positions.windows(2) {
+    for (i, w) in pixel_positions.windows(2).enumerate() {
         let spacing = (w[1] - w[0]).abs();
-        let needed = label_extent(&pairs[0].1); // approximate with first label
+        let needed = label_extent(&pairs[i].1); // use actual label at this position
         if spacing < needed {
             has_overlap = true;
             break;
@@ -796,19 +897,21 @@ fn draw_gridline(
     line.done()
 }
 
-/// Draw minor tick marks between major ticks (horizontal axis).
-fn draw_minor_ticks_h(
-    mut canvas: PixelCanvas,
+/// Collect minor tick marks between major ticks (horizontal axis).
+///
+/// Minor ticks are appended to `out` for deferred z-ordered drawing.
+fn collect_minor_ticks_h(
+    out: &mut Vec<TickMark>,
     major_ticks: &[f64],
     scale: &LinearScale,
     config: &AxisConfig,
     plot_area: (f32, f32, f32, f32),
-) -> PixelCanvas {
+) {
     let (px, py, _pw, ph) = plot_area;
     let axis_y = match config.side {
         AxisSide::Bottom => py + ph,
         AxisSide::Top => py,
-        _ => return canvas,
+        _ => return,
     };
     let inward = matches!(config.side, AxisSide::Top);
 
@@ -827,40 +930,39 @@ fn draw_minor_ticks_h(
                 config.tick_direction,
                 inward,
             );
-            canvas = canvas
-                .line(x, t_start, x, t_end)
-                .color(config.minor_tick_color)
-                .width(config.minor_tick_width)
-                .done();
+            out.push(TickMark {
+                x0: x, y0: t_start, x1: x, y1: t_end,
+                color: config.minor_tick_color, width: config.minor_tick_width,
+            });
 
+            // Minor grid lines are also collected as tick marks
+            // (rendered at the same z-layer as ticks, above main grids).
             if config.minor_grid {
-                let mut grid = canvas
-                    .line(x, py, x, py + ph)
-                    .color(config.grid_color.with_alpha(0.3))
-                    .width(config.grid_width * 0.5);
-                if let Some(ref dash) = config.grid_dash {
-                    grid = grid.dash(dash.clone());
-                }
-                canvas = grid.done();
+                out.push(TickMark {
+                    x0: x, y0: py, x1: x, y1: py + ph,
+                    color: config.grid_color.with_alpha(0.3),
+                    width: config.grid_width * 0.5,
+                });
             }
         }
     }
-    canvas
 }
 
-/// Draw minor tick marks between major ticks (vertical axis).
-fn draw_minor_ticks_v(
-    mut canvas: PixelCanvas,
+/// Collect minor tick marks between major ticks (vertical axis).
+///
+/// Minor ticks are appended to `out` for deferred z-ordered drawing.
+fn collect_minor_ticks_v(
+    out: &mut Vec<TickMark>,
     major_ticks: &[f64],
     scale: &LinearScale,
     config: &AxisConfig,
     plot_area: (f32, f32, f32, f32),
-) -> PixelCanvas {
+) {
     let (px, py, pw, _ph) = plot_area;
     let axis_x = match config.side {
         AxisSide::Left => px,
         AxisSide::Right => px + pw,
-        _ => return canvas,
+        _ => return,
     };
     let inward = matches!(config.side, AxisSide::Left);
 
@@ -879,25 +981,20 @@ fn draw_minor_ticks_v(
                 config.tick_direction,
                 inward,
             );
-            canvas = canvas
-                .line(t_start, y, t_end, y)
-                .color(config.minor_tick_color)
-                .width(config.minor_tick_width)
-                .done();
+            out.push(TickMark {
+                x0: t_start, y0: y, x1: t_end, y1: y,
+                color: config.minor_tick_color, width: config.minor_tick_width,
+            });
 
             if config.minor_grid {
-                let mut grid = canvas
-                    .line(px, y, px + pw, y)
-                    .color(config.grid_color.with_alpha(0.3))
-                    .width(config.grid_width * 0.5);
-                if let Some(ref dash) = config.grid_dash {
-                    grid = grid.dash(dash.clone());
-                }
-                canvas = grid.done();
+                out.push(TickMark {
+                    x0: px, y0: y, x1: px + pw, y1: y,
+                    color: config.grid_color.with_alpha(0.3),
+                    width: config.grid_width * 0.5,
+                });
             }
         }
     }
-    canvas
 }
 
 #[cfg(test)]
@@ -939,7 +1036,7 @@ mod tests {
         let pairs: Vec<(f64, String)> = (0..10).map(|i| (i as f64, format!("label_{i}"))).collect();
         // Scale maps domain 0..9 to pixel range 0..200 (evenly spaced)
         let scale = crate::scale::LinearScale::new((0.0, 9.0), (0.0, 200.0));
-        let result = auto_skip_labels(pairs, 200.0, true, LabelRotation::Horizontal, &scale);
+        let result = auto_skip_labels(pairs, 200.0, true, LabelRotation::Horizontal, &scale, 11.0);
         // First label must always be preserved
         assert_eq!(result.first().unwrap().1, "label_0");
     }
@@ -964,7 +1061,7 @@ mod tests {
             .collect();
         // Y-axis scale: domain 0..19, range 200..0 (inverted for screen coords)
         let scale = crate::scale::LinearScale::new((0.0, 19.0), (200.0, 0.0));
-        let result = auto_skip_labels(pairs, 200.0, false, LabelRotation::Horizontal, &scale);
+        let result = auto_skip_labels(pairs, 200.0, false, LabelRotation::Horizontal, &scale, 11.0);
         // With ~22px per label and 200px total, should skip some labels
         assert!(
             result.len() < 20,
@@ -995,8 +1092,9 @@ mod tests {
             true,
             LabelRotation::Horizontal,
             &scale,
+            11.0,
         );
-        let result_angle = auto_skip_labels(pairs, 300.0, true, LabelRotation::Angle(60.0), &scale);
+        let result_angle = auto_skip_labels(pairs, 300.0, true, LabelRotation::Angle(60.0), &scale, 11.0);
         // Angled labels take less horizontal space, so should skip fewer (or equal)
         assert!(
             result_angle.len() >= result_horiz.len(),

@@ -108,6 +108,12 @@ impl RenderContext {
     }
 
     /// Draw X and Y axes, collecting tick labels as text overlays.
+    ///
+    /// Rendering order enforces correct z-layering:
+    ///   1. Grid lines (lowest — behind data)
+    ///   2. Tick marks (on top of grids)
+    ///   3. Axis spines (on top of ticks)
+    ///   4. Data is drawn by the caller after this returns
     pub fn draw_axes(
         &mut self,
         config: &ChartConfig,
@@ -115,15 +121,44 @@ impl RenderContext {
         y_scale: &LinearScale,
     ) {
         let plot = self.plot;
-        let x_cfg = axis_config_from_theme(config, AxisSide::Bottom);
-        let y_cfg = axis_config_from_theme(config, AxisSide::Left);
-
-        let x_ticks = self.draw_with(|c| axis::draw_axis(c, plot, x_scale, &x_cfg));
-        let y_ticks = self.draw_with(|c| axis::draw_axis(c, plot, y_scale, &y_cfg));
-
         let w = self.width();
         let h = self.height();
         let tick_fs = scaled_font_size(config.theme.tick_style.font_size, w, h);
+
+        let mut x_cfg = axis_config_from_theme(config, AxisSide::Bottom);
+        let mut y_cfg = axis_config_from_theme(config, AxisSide::Left);
+        x_cfg.tick_font_size = tick_fs;
+        y_cfg.tick_font_size = tick_fs;
+
+        // Phase 1: collect ticks + grids WITHOUT drawing spines or ticks.
+        let mut x_cfg_no_spine = x_cfg.clone();
+        let mut y_cfg_no_spine = y_cfg.clone();
+        x_cfg_no_spine.visible = false;
+        y_cfg_no_spine.visible = false;
+
+        let (x_ticks, x_grids, x_tick_marks) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, x_scale, &x_cfg_no_spine);
+            (c, (ticks, grids, tmarks))
+        });
+        let (y_ticks, y_grids, y_tick_marks) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, y_scale, &y_cfg_no_spine);
+            (c, (ticks, grids, tmarks))
+        });
+
+        // Phase 2: draw grid lines FIRST (z-layer 1 — behind everything)
+        let all_grids: Vec<axis::GridLine> = x_grids.into_iter().chain(y_grids).collect();
+        if !all_grids.is_empty() {
+            self.draw(|c| axis::draw_collected_gridlines(c, &all_grids, &x_cfg));
+        }
+
+        // Phase 2.5: draw tick marks ON TOP of grids (z-layer 2)
+        let all_ticks: Vec<axis::TickMark> = x_tick_marks.into_iter().chain(y_tick_marks).collect();
+        if !all_ticks.is_empty() {
+            self.draw(|c| axis::draw_collected_tick_marks(c, &all_ticks));
+        }
+
+        // Phase 3: draw axis spines ON TOP of ticks (z-layer 3)
+        self.draw_axis_spines(&x_cfg, &y_cfg);
 
         self.add_tick_overlays(
             &x_ticks,
@@ -134,15 +169,83 @@ impl RenderContext {
         );
     }
 
+    /// Draw axis spines (border lines) for the plot area.
+    ///
+    /// Called after grid lines to ensure spines render on top of grids.
+    fn draw_axis_spines(
+        &mut self,
+        x_cfg: &axis::AxisConfig,
+        y_cfg: &axis::AxisConfig,
+    ) {
+        let (px, py, pw, ph) = self.plot;
+
+        // Bottom spine (X axis)
+        if x_cfg.visible {
+            self.draw(|c| {
+                c.line(px, py + ph, px + pw, py + ph)
+                    .color(x_cfg.axis_color)
+                    .width(x_cfg.axis_width)
+                    .done()
+            });
+        }
+
+        // Left spine (Y axis)
+        if y_cfg.visible {
+            self.draw(|c| {
+                c.line(px, py, px, py + ph)
+                    .color(y_cfg.axis_color)
+                    .width(y_cfg.axis_width)
+                    .done()
+            });
+        }
+    }
+
     /// Draw only the Y axis (for categorical X charts like bar/boxplot).
+    ///
+    /// Uses the same z-ordering as `draw_axes`: grids → ticks → spine.
     pub fn draw_y_axis(
         &mut self,
         config: &ChartConfig,
         y_scale: &LinearScale,
     ) -> Vec<(f32, String)> {
         let plot = self.plot;
-        let cfg = axis_config_from_theme(config, AxisSide::Left);
-        self.draw_with(|c| axis::draw_axis(c, plot, y_scale, &cfg))
+        let w = self.width();
+        let h = self.height();
+        let tick_fs = scaled_font_size(config.theme.tick_style.font_size, w, h);
+        let mut cfg = axis_config_from_theme(config, AxisSide::Left);
+        cfg.tick_font_size = tick_fs;
+
+        // Suppress spine drawing during draw_axis
+        let mut cfg_no_spine = cfg.clone();
+        cfg_no_spine.visible = false;
+
+        let (ticks, grids, tmarks) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, y_scale, &cfg_no_spine);
+            (c, (ticks, grids, tmarks))
+        });
+
+        // Grids first
+        if !grids.is_empty() {
+            self.draw(|c| axis::draw_collected_gridlines(c, &grids, &cfg));
+        }
+
+        // Tick marks on top of grids
+        if !tmarks.is_empty() {
+            self.draw(|c| axis::draw_collected_tick_marks(c, &tmarks));
+        }
+
+        // Then spine
+        if cfg.visible {
+            let (px, py, _pw, ph) = self.plot;
+            self.draw(|c| {
+                c.line(px, py, px, py + ph)
+                    .color(cfg.axis_color)
+                    .width(cfg.axis_width)
+                    .done()
+            });
+        }
+
+        ticks
     }
 
     /// Draw the X axis line (for categorical charts).
@@ -160,12 +263,44 @@ impl RenderContext {
 
     /// Draw only the X value-axis on the bottom (for horizontal bar charts).
     ///
-    /// Uses the shared `draw_axis` / `axis_config_from_theme` infrastructure
-    /// so tick marks, gridlines, and label offsets are consistent with other charts.
+    /// Uses the same z-ordering as `draw_axes`: grids → ticks → spine.
     pub fn draw_x_value_axis(&mut self, config: &ChartConfig, x_scale: &LinearScale) {
         let plot = self.plot;
-        let cfg = axis_config_from_theme(config, AxisSide::Bottom);
-        let x_ticks = self.draw_with(|c| axis::draw_axis(c, plot, x_scale, &cfg));
+        let w = self.width();
+        let h = self.height();
+        let tick_fs = scaled_font_size(config.theme.tick_style.font_size, w, h);
+        let mut cfg = axis_config_from_theme(config, AxisSide::Bottom);
+        cfg.tick_font_size = tick_fs;
+
+        // Suppress spine drawing during draw_axis
+        let mut cfg_no_spine = cfg.clone();
+        cfg_no_spine.visible = false;
+
+        let (x_ticks, x_grids, x_tmarks) = self.draw_with(|c| {
+            let (c, ticks, grids, tmarks) = axis::draw_axis(c, plot, x_scale, &cfg_no_spine);
+            (c, (ticks, grids, tmarks))
+        });
+
+        // Grids first
+        if !x_grids.is_empty() {
+            self.draw(|c| axis::draw_collected_gridlines(c, &x_grids, &cfg));
+        }
+
+        // Tick marks on top of grids
+        if !x_tmarks.is_empty() {
+            self.draw(|c| axis::draw_collected_tick_marks(c, &x_tmarks));
+        }
+
+        // Then spine
+        if cfg.visible {
+            let (px, py, pw, ph) = self.plot;
+            self.draw(|c| {
+                c.line(px, py + ph, px + pw, py + ph)
+                    .color(cfg.axis_color)
+                    .width(cfg.axis_width)
+                    .done()
+            });
+        }
 
         let (_px, py, _pw, ph) = self.plot;
         let rot_deg = config.ticks.x_tick_rotation.degrees();

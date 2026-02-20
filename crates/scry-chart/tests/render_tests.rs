@@ -1513,3 +1513,143 @@ fn render_line_gap_stacked() {
 
     insta::assert_snapshot!(summarize(&rendered));
 }
+
+// ===========================================================================
+// Legend overlap avoidance
+// ===========================================================================
+
+/// Regression test: when data fills the default top-right legend position,
+/// `best_corner` should either pick a clear corner or promote to outside
+/// placement so the legend never obscures data.
+#[test]
+fn legend_avoids_data_overlap() {
+    // Create two series whose values rise steeply toward the right,
+    // filling the top-right corner (the default legend position).
+    let xs: Vec<f64> = (0..20).map(|i| i as f64).collect();
+    let ys_a: Vec<f64> = xs.iter().map(|x| x * x).collect(); // quadratic rise
+    let ys_b: Vec<f64> = xs.iter().map(|x| x * x * 0.8 + 10.0).collect();
+
+    let chart = LineChart::new(vec![
+        Series::new("Alpha", ys_a),
+        Series::new("Beta", ys_b),
+    ])
+    .title("Overlap Test")
+    .build();
+
+    let rendered = layout::render_chart(&chart, 500, 350);
+
+    // Extract plot area to determine "inside" vs "outside" boundary.
+    let plot_area = rendered.plot_area.expect("plot_area should be set");
+    let (px, py, pw, ph) = plot_area;
+
+    // Find legend text positions (Alpha, Beta labels).
+    let text_positions = rendered.text_positions();
+    let legend_labels: Vec<(f32, f32, &str)> = text_positions
+        .iter()
+        .filter(|(_, _, t)| *t == "Alpha" || *t == "Beta")
+        .copied()
+        .collect();
+
+    assert!(
+        legend_labels.len() >= 2,
+        "Expected at least 2 legend labels, found {}",
+        legend_labels.len()
+    );
+
+    // Legend is either outside the plot area (x > px + pw) or
+    // positioned in a corner that doesn't overlap the data.
+    // The key assertion: legend labels should NOT be in the top-right
+    // quadrant where our rising data lives.
+    let top_right_quadrant = (
+        px + pw * 0.5, // x threshold (right half)
+        py,            // y min (top)
+        py + ph * 0.4, // y max (upper 40%)
+    );
+
+    let legend_in_data_zone = legend_labels.iter().any(|(lx, ly, _)| {
+        *lx >= top_right_quadrant.0
+            && *ly >= top_right_quadrant.1
+            && *ly <= top_right_quadrant.2
+    });
+
+    assert!(
+        !legend_in_data_zone,
+        "Legend should NOT be in the top-right data zone. Legend positions: {:?}, \
+         plot area: ({px}, {py}, {pw}, {ph})",
+        legend_labels
+    );
+}
+
+// ===========================================================================
+// Gantt chart tests
+// ===========================================================================
+
+use scry_chart::chart::GanttTask;
+
+#[test]
+fn render_gantt_basic() {
+    let chart = Charts::gantt(vec![
+        GanttTask::new("Research", 0.0, 3.0).group("Phase 1").progress(1.0),
+        GanttTask::new("Design", 2.0, 6.0).group("Phase 1").progress(0.8),
+        GanttTask::new("Implement", 5.0, 12.0).group("Phase 2").progress(0.4),
+        GanttTask::new("Test", 10.0, 14.0).group("Phase 2"),
+        GanttTask::new("Deploy", 14.0, 15.0).group("Phase 3"),
+    ])
+    .title("Project Timeline")
+    .x_label("Day")
+    .build();
+
+    let rendered = layout::render_chart(&chart, 800, 400);
+
+    // Title present
+    assert!(
+        rendered.text_labels().contains(&"Project Timeline"),
+        "should have title"
+    );
+
+    // Task labels should be in Y axis labels
+    assert!(
+        rendered.text_labels().contains(&"Research"),
+        "should have task label"
+    );
+    assert!(
+        rendered.text_labels().contains(&"Deploy"),
+        "should have task label"
+    );
+
+    // Should have bar rects (at least 5 task bars)
+    assert!(
+        rendered.canvas.commands().len() >= 5,
+        "should have task bar rects"
+    );
+
+    insta::assert_snapshot!(summarize(&rendered));
+}
+
+#[test]
+fn render_gantt_empty() {
+    let chart = Charts::gantt(vec![]).build();
+    let rendered = layout::render_chart(&chart, 400, 300);
+    // Should not panic
+    assert_eq!(rendered.canvas.width(), 400);
+    assert_eq!(rendered.canvas.height(), 300);
+    insta::assert_snapshot!(summarize(&rendered));
+}
+
+#[test]
+fn render_gantt_no_groups() {
+    let chart = Charts::gantt(vec![
+        GanttTask::new("Task A", 0.0, 5.0),
+        GanttTask::new("Task B", 3.0, 8.0),
+        GanttTask::new("Task C", 7.0, 10.0),
+    ])
+    .title("Simple Gantt")
+    .build();
+
+    let rendered = layout::render_chart(&chart, 600, 300);
+    assert!(
+        rendered.text_labels().contains(&"Simple Gantt"),
+        "should have title"
+    );
+    insta::assert_snapshot!(summarize(&rendered));
+}

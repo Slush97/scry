@@ -103,12 +103,20 @@ impl SdfRenderer {
                     } else {
                         (color.r, color.g, color.b)
                     };
-                    *pixel = tiny_skia::PremultipliedColorU8::from_rgba(
-                        gamma_encode(r),
-                        gamma_encode(g),
-                        gamma_encode(b),
-                        255,
-                    )
+                    let a = (color.a.clamp(0.0, 1.0) * 255.0) as u8;
+                    // Premultiplied constraint: R,G,B must not exceed A.
+                    // Scale RGB by alpha so transparent pixels don't
+                    // violate the invariant (glass + transparent sky
+                    // can produce non-zero RGB with near-zero alpha).
+                    let r8 = gamma_encode(r);
+                    let g8 = gamma_encode(g);
+                    let b8 = gamma_encode(b);
+                    let (r8, g8, b8) = if a < 255 {
+                        (r8.min(a), g8.min(a), b8.min(a))
+                    } else {
+                        (r8, g8, b8)
+                    };
+                    *pixel = tiny_skia::PremultipliedColorU8::from_rgba(r8, g8, b8, a)
                     .unwrap();
                 }
             });
@@ -167,12 +175,16 @@ impl SdfRenderer {
                         } else {
                             (color.r, color.g, color.b)
                         };
-                        tiny_skia::PremultipliedColorU8::from_rgba(
-                            gamma_encode(r),
-                            gamma_encode(g),
-                            gamma_encode(b),
-                            255,
-                        )
+                        let a = (color.a.clamp(0.0, 1.0) * 255.0) as u8;
+                        let r8 = gamma_encode(r);
+                        let g8 = gamma_encode(g);
+                        let b8 = gamma_encode(b);
+                        let (r8, g8, b8) = if a < 255 {
+                            (r8.min(a), g8.min(a), b8.min(a))
+                        } else {
+                            (r8, g8, b8)
+                        };
+                        tiny_skia::PremultipliedColorU8::from_rgba(r8, g8, b8, a)
                         .unwrap()
                     })
                     .collect();
@@ -309,11 +321,12 @@ impl SdfRenderer {
                     } else {
                         (color.r, color.g, color.b)
                     };
+                    let a = (color.a.clamp(0.0, 1.0) * 255.0) as u8;
                     let off = x * 4;
                     row[off] = gamma_encode(r);
                     row[off + 1] = gamma_encode(g);
                     row[off + 2] = gamma_encode(b);
-                    row[off + 3] = 255;
+                    row[off + 3] = a;
                 }
             });
 
@@ -560,6 +573,11 @@ fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
             let db = shape_sdf(b, p - *b_offset);
             primitives::smooth_min(da, db, *k)
         }
+        SdfShape::Subtract { a, b, b_offset } => {
+            let da = shape_sdf(a, p);
+            let db = shape_sdf(b, p - *b_offset);
+            primitives::op_subtract(da, db)
+        }
         SdfShape::Capsule {
             radius,
             half_height,
@@ -569,6 +587,15 @@ fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
             radius,
         } => primitives::sd_rounded_box(p, *half_extents, *radius),
         SdfShape::Cone { radius, height } => primitives::sd_cone(p, *radius, *height),
+        SdfShape::Mandelbulb { power, iterations } => {
+            primitives::sd_mandelbulb(p, *power, *iterations)
+        }
+        SdfShape::MengerSponge { iterations } => {
+            primitives::sd_menger_sponge(p, *iterations)
+        }
+        SdfShape::Gyroid { scale, thickness, bound } => {
+            primitives::sd_gyroid(p, *scale, *thickness, *bound)
+        }
         #[cfg(feature = "sdf-text")]
         SdfShape::Text3D { layout, depth } => super::glyph::sd_text3d(layout, p, *depth),
     }

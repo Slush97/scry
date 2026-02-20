@@ -17,10 +17,11 @@ name = "scry"
 path = "src/main.rs"
 
 [dependencies]
-scry-chart = { version = "0.7.0", path = "../scry-chart", features = ["widget"] }
-scry-engine = { version = "0.7.0", path = "../..", features = ["kitty", "text"] }
+scry-chart = { version = "0.7.0", path = "../scry-chart", features = ["widget", "cli"] }
+scry-engine = { version = "0.7.0", path = "../..", features = ["kitty", "text", "sdf"] }
 
 clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

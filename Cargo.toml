@@ -108,6 +108,9 @@ name = "chart_integration"
 required-features = ["widget"]
 
 [[example]]
+name = "chart_showcase"
+
+[[example]]
 name = "test_masonic"
 required-features = ["sdf-gpu"]
 

@@ -412,13 +412,15 @@ pub(crate) fn nice_ticks(lo: f64, hi: f64, target_count: usize) -> Vec<f64> {
 
     // M1: Guarantee domain endpoints are included so readers always
     // see the data range, even if nice rounding missed them.
+    // Use 0.3×step threshold to avoid near-overlapping labels when
+    // endpoints are close to nice ticks (e.g., 0.95 next to 1.0).
     if let Some(&first) = ticks.first() {
-        if (first - lo).abs() > step * 0.01 && lo < first {
+        if (first - lo).abs() > step * 0.3 && lo < first {
             ticks.insert(0, lo);
         }
     }
     if let Some(&last) = ticks.last() {
-        if (last - hi).abs() > step * 0.01 && hi > last {
+        if (last - hi).abs() > step * 0.3 && hi > last {
             ticks.push(hi);
         }
     }

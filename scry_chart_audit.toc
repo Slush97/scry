@@ -1,0 +1,45 @@
+\contentsline {section}{\numberline {1}Scope, Methodology \& Standards Referenced}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Scope}{3}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Academic Standards Referenced}{3}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Grading Rubric}{3}{subsection.1.3}%
+\contentsline {section}{\numberline {2}Architecture Overview}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Module Dependency Graph}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Rendering Pipeline (Sequence)}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Data Flow: Scale {$\to $} Axis {$\to $} Pixel}{4}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Bug \#1: X/Y Axis Spine Non-Convergence}{4}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Problem Statement}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Root Cause (Code Analysis)}{5}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Bottom X-Axis Spine (\texttt {axis.rs:367--373})}{5}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2}Left Y-Axis Spine (\texttt {axis.rs:443--452})}{5}{subsubsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.3}Convergence Failure Diagram}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Academic Standard Violated}{6}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Required Fix}{6}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Bug \#2: Grid Z-Order Violation}{6}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Problem Statement}{7}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Root Cause}{7}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Academic Standard Violated}{7}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Required Architecture: Z-Layer System}{8}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Bug \#3: Legend Formatting Non-Compliance}{8}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Problem Statement}{8}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Deficiency Matrix}{8}{subsection.5.2}%
+\contentsline {section}{\numberline {6}Bug \#4: Axis Base Normalization Failure}{9}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Problem Statement}{9}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Root Cause}{9}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Academic Standards}{9}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Required: \texttt {AspectRatio} Config}{10}{subsection.6.4}%
+\contentsline {section}{\numberline {7}Bug \#5: Tick Formatting Standards Violations}{10}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Autoformatting Report Card}{10}{subsection.7.1}%
+\contentsline {section}{\numberline {8}Working Code Highlights}{11}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Scale System (\texttt {scale.rs})}{11}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Theme System (\texttt {theme.rs})}{11}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Colormap System (\texttt {colormap.rs})}{12}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}SVG Export (\texttt {svg\_export.rs})}{12}{subsection.8.4}%
+\contentsline {section}{\numberline {9}Comprehensive Grading Summary}{12}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Autoformatting Report Card}{12}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Score Distribution}{13}{subsection.9.2}%
+\contentsline {section}{\numberline {10}Proposed Cutting-Edge Architecture}{13}{section.10}%
+\contentsline {subsection}{\numberline {10.1}Architecture Diagram}{13}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}Constraint System Formalization}{13}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Axis Normalization Algorithm}{14}{subsection.10.3}%
+\contentsline {section}{\numberline {11}Priority Remediation Roadmap}{14}{section.11}%
+\contentsline {section}{\numberline {12}Conclusion}{15}{section.12}%

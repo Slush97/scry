@@ -32,7 +32,7 @@ impl RenderContext {
         // Extra user margins for positioning
         let extra_top = config.margin.as_ref().map_or(0.0, |m| m.top);
 
-        let title_h = if config.titles.title.is_some() {
+        let _title_h = if config.titles.title.is_some() {
             proportional_title_height(h)
         } else {
             0.0
@@ -57,7 +57,7 @@ impl RenderContext {
 
         // Subtitle: positioned below the title, smaller and not bold.
         if let Some(ref subtitle) = config.titles.subtitle {
-            let sub_y = margin + extra_top + title_h + subtitle_gap;
+            let sub_y = margin + extra_top + title_gap + title_fs + subtitle_gap;
             self.add_text(
                 px + pw / 2.0,
                 sub_y,
@@ -71,11 +71,13 @@ impl RenderContext {
         }
 
         if let Some(ref label) = config.titles.x_label {
-            let x_tick_h = proportional_x_tick_height(h, config.ticks.x_tick_rotation);
+            let x_tick_h = proportional_x_tick_height(w, h, config.ticks.x_tick_rotation);
             let x_label_h = proportional_x_label_height(h);
+            // Center the label within the reserved x-label strip.
+            // 0.45× positions the baseline within bounds, leaving room.
             self.add_text(
                 px + pw / 2.0,
-                py + ph + x_tick_h + x_label_h,
+                py + ph + x_tick_h + x_label_h * 0.45,
                 label,
                 config.theme.label_style.color,
                 TextAlign::Center,
@@ -380,6 +382,15 @@ impl RenderContext {
         let px2 = x_scale.to_pixel(x_hi) as f32;
         let py2 = y_scale.to_pixel(y_hi) as f32;
 
+        // Clamp to plot area so the trend line never bleeds outside axes.
+        let (plot_x, plot_y, plot_w, plot_h) = self.plot;
+        let Some((px1, py1, px2, py2)) = clip_line_to_rect(
+            px1, py1, px2, py2,
+            plot_x, plot_y, plot_x + plot_w, plot_y + plot_h,
+        ) else {
+            return; // entirely outside
+        };
+
         let trend_color = color.with_alpha(0.6);
         self.draw(|c| {
             c.line(px1, py1, px2, py2)
@@ -389,4 +400,66 @@ impl RenderContext {
                 .done()
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Cohen-Sutherland line clipping
+// ---------------------------------------------------------------------------
+
+const INSIDE: u8 = 0;
+const LEFT: u8 = 1;
+const RIGHT: u8 = 2;
+const BOTTOM: u8 = 4;
+const TOP: u8 = 8;
+
+fn outcode(x: f32, y: f32, xmin: f32, ymin: f32, xmax: f32, ymax: f32) -> u8 {
+    let mut code = INSIDE;
+    if x < xmin { code |= LEFT; }
+    else if x > xmax { code |= RIGHT; }
+    if y < ymin { code |= TOP; }
+    else if y > ymax { code |= BOTTOM; }
+    code
+}
+
+/// Clip a line segment `(x0,y0)→(x1,y1)` to the rectangle
+/// `[xmin,xmax] × [ymin,ymax]`.  Returns `None` if the entire segment
+/// is outside.
+fn clip_line_to_rect(
+    mut x0: f32, mut y0: f32, mut x1: f32, mut y1: f32,
+    xmin: f32, ymin: f32, xmax: f32, ymax: f32,
+) -> Option<(f32, f32, f32, f32)> {
+    let mut code0 = outcode(x0, y0, xmin, ymin, xmax, ymax);
+    let mut code1 = outcode(x1, y1, xmin, ymin, xmax, ymax);
+
+    for _ in 0..20 {
+        if (code0 | code1) == 0 {
+            return Some((x0, y0, x1, y1)); // both inside
+        }
+        if (code0 & code1) != 0 {
+            return None; // both outside same side
+        }
+        let out = if code0 != 0 { code0 } else { code1 };
+        let (x, y);
+        if out & TOP != 0 {
+            x = x0 + (x1 - x0) * (ymin - y0) / (y1 - y0);
+            y = ymin;
+        } else if out & BOTTOM != 0 {
+            x = x0 + (x1 - x0) * (ymax - y0) / (y1 - y0);
+            y = ymax;
+        } else if out & RIGHT != 0 {
+            y = y0 + (y1 - y0) * (xmax - x0) / (x1 - x0);
+            x = xmax;
+        } else {
+            y = y0 + (y1 - y0) * (xmin - x0) / (x1 - x0);
+            x = xmin;
+        }
+        if out == code0 {
+            x0 = x; y0 = y;
+            code0 = outcode(x0, y0, xmin, ymin, xmax, ymax);
+        } else {
+            x1 = x; y1 = y;
+            code1 = outcode(x1, y1, xmin, ymin, xmax, ymax);
+        }
+    }
+    Some((x0, y0, x1, y1))
 }

@@ -1,0 +1,7 @@
+---
+source: crates/scry-chart/tests/render_tests.rs
+assertion_line: 1636
+expression: summarize(&rendered)
+---
+canvas: 400x300, 0 commands
+text_labels: 0

@@ -3454,6 +3454,7 @@ version = "0.7.0"
 dependencies = [
  "base64",
  "bytemuck",
+ "clap",
  "criterion",
  "crossterm",
  "fontdue",
@@ -3477,6 +3478,7 @@ version = "0.7.0"
 dependencies = [
  "base64",
  "clap",
+ "crossterm",
  "csv",
  "flate2",
  "scry-chart",
