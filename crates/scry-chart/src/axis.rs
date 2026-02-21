@@ -389,13 +389,16 @@ pub fn draw_collected_tick_marks(
 /// for drawing them via [`draw_collected_gridlines`] and
 /// [`draw_collected_tick_marks`] at the appropriate z-layers:
 /// grids → ticks → spines → data.
+/// Return type for [`draw_axis`]: canvas, tick labels, grid lines, tick marks, effective rotation.
+pub type DrawAxisResult = (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>, LabelRotation);
+
 #[must_use]
 pub fn draw_axis(
     mut canvas: PixelCanvas,
     plot_area: (f32, f32, f32, f32),
     scale: &LinearScale,
     config: &AxisConfig,
-) -> (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>, LabelRotation) {
+) -> DrawAxisResult {
     let (px, py, pw, ph) = plot_area;
     let mut tick_labels = Vec::new();
     let mut grid_lines = Vec::new();

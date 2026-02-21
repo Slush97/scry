@@ -27,10 +27,13 @@
 pub mod backend;
 pub mod batch;
 pub mod cache;
+pub mod error;
 pub mod pipeline;
 pub mod profiler;
 pub mod skia;
 
+#[cfg(feature = "gpu")]
+mod gpu_commands;
 #[cfg(feature = "gpu")]
 mod tessellate;
 #[cfg(feature = "gpu")]
@@ -39,7 +42,8 @@ pub mod wgpu;
 mod wgpu_context;
 
 pub use backend::{
-    AutoBackend, BackendKind, CpuBackend, GpuFallbackWarning, RasterBackend, RasterResult,
+    AutoBackend, BackendKind, CpuBackend, GpuFallbackWarning, RasterBackend, RasterMeta,
+    RasterResult,
 };
 pub use cache::{DirtyTile, RasterCache, TILE_SIZE};
 pub use profiler::{

@@ -81,6 +81,7 @@ impl FunnelChart {
     }
 
     /// Build into a Chart.
+    #[must_use]
     pub fn build(self) -> Chart {
         Box::new(self) as Chart
     }

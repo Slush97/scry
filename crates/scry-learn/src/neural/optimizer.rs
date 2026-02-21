@@ -48,12 +48,51 @@ impl OptimizerKind {
     }
 }
 
+/// Learning rate schedule for neural network training.
+///
+/// Controls how the learning rate changes over epochs.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum LearningRateSchedule {
+    /// Fixed learning rate throughout training. Default.
+    #[default]
+    Constant,
+    /// Reduce learning rate by `factor` when loss plateaus for `patience` epochs.
+    ///
+    /// Matches sklearn's `learning_rate='adaptive'` behavior.
+    Adaptive {
+        /// Multiplicative factor to reduce LR (default: 0.2).
+        factor: f64,
+        /// Number of plateau epochs before reducing (default: 10).
+        patience: usize,
+    },
+    /// Inverse scaling: `lr(t) = initial_lr / t^power`.
+    InvScaling {
+        /// Exponent for inverse scaling (default: 0.5).
+        power: f64,
+    },
+}
+
+
+
+impl LearningRateSchedule {
+    /// Adaptive schedule with sklearn-like defaults (factor=0.2, patience=10).
+    pub fn adaptive() -> Self {
+        Self::Adaptive {
+            factor: 0.2,
+            patience: 10,
+        }
+    }
+}
+
 /// Per-parameter optimizer state.
 ///
 /// Tracks the moving averages needed by each optimizer algorithm.
 pub(crate) struct OptimizerState {
     kind: OptimizerKind,
     lr: f64,
+    initial_lr: f64,
     t: u64,
     // SGD momentum buffers (one per parameter group)
     velocity: Vec<Vec<f64>>,
@@ -61,12 +100,27 @@ pub(crate) struct OptimizerState {
     m: Vec<Vec<f64>>,
     // Adam second moment (variance)
     v: Vec<Vec<f64>>,
+    // ── Learning rate schedule state ──
+    schedule: LearningRateSchedule,
+    best_loss: f64,
+    plateau_count: usize,
+    epoch_count: usize,
 }
 
 impl OptimizerState {
     /// Create a new optimizer state for `n_groups` parameter groups,
     /// each with the given sizes.
     pub fn new(kind: OptimizerKind, lr: f64, group_sizes: &[usize]) -> Self {
+        Self::new_with_schedule(kind, lr, group_sizes, LearningRateSchedule::Constant)
+    }
+
+    /// Create a new optimizer state with a learning rate schedule.
+    pub fn new_with_schedule(
+        kind: OptimizerKind,
+        lr: f64,
+        group_sizes: &[usize],
+        schedule: LearningRateSchedule,
+    ) -> Self {
         let n = group_sizes.len();
         let zeros =
             |sizes: &[usize]| -> Vec<Vec<f64>> { sizes.iter().map(|&s| vec![0.0; s]).collect() };
@@ -74,6 +128,7 @@ impl OptimizerState {
         Self {
             kind,
             lr,
+            initial_lr: lr,
             t: 0,
             velocity: zeros(group_sizes),
             m: if matches!(kind, OptimizerKind::Adam { .. }) {
@@ -86,6 +141,10 @@ impl OptimizerState {
             } else {
                 Vec::with_capacity(n)
             },
+            schedule,
+            best_loss: f64::INFINITY,
+            plateau_count: 0,
+            epoch_count: 0,
         }
     }
 
@@ -113,6 +172,38 @@ impl OptimizerState {
     /// Increment the global step counter. Call once per mini-batch.
     pub fn tick(&mut self) {
         self.t += 1;
+    }
+
+    /// Current learning rate (may differ from initial after scheduling).
+    pub fn current_lr(&self) -> f64 {
+        self.lr
+    }
+
+    /// Adjust learning rate based on the schedule after each epoch.
+    ///
+    /// Call this at the end of each epoch with the epoch's average loss.
+    pub fn adjust_lr(&mut self, epoch_loss: f64) {
+        self.epoch_count += 1;
+
+        match self.schedule {
+            LearningRateSchedule::Constant => {}
+            LearningRateSchedule::Adaptive { factor, patience } => {
+                if epoch_loss < self.best_loss - 1e-10 {
+                    self.best_loss = epoch_loss;
+                    self.plateau_count = 0;
+                } else {
+                    self.plateau_count += 1;
+                    if self.plateau_count >= patience {
+                        self.lr *= factor;
+                        self.plateau_count = 0;
+                        self.best_loss = epoch_loss;
+                    }
+                }
+            }
+            LearningRateSchedule::InvScaling { power } => {
+                self.lr = self.initial_lr / (self.epoch_count as f64).powf(power);
+            }
+        }
     }
 
     fn step_sgd(

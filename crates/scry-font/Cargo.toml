@@ -1,0 +1,41 @@
+[package]
+name = "scry-font"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Sigil Mono — programmatic monospace font generator for the scry terminal"
+authors = ["esoc"]
+repository = "https://github.com/Slush97/scry"
+
+[dependencies]
+write-fonts = { version = "0.45", features = ["read"] }
+kurbo = "0.13"
+
+[[bin]]
+name = "generate-font"
+path = "src/main.rs"
+
+[dev-dependencies]
+ttf-parser = "0.21"
+
+[lints.rust]
+missing_docs = "warn"
+unreachable_pub = "warn"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+cast_possible_wrap = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+similar_names = "allow"
+many_single_char_names = "allow"
+too_many_lines = "allow"
+unreadable_literal = "allow"

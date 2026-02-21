@@ -33,6 +33,8 @@ use crate::PixelCanvasError;
 /// terminal session, so we use an atomic counter.
 static NEXT_IMAGE_ID: AtomicU32 = AtomicU32::new(1);
 
+use super::kitty_encode;
+
 /// Maximum bytes to send in a single Kitty protocol chunk.
 /// The protocol spec suggests 4096 as a guideline, but modern terminals
 /// (kitty, `WezTerm`, Ghostty) handle much larger chunks efficiently.
@@ -198,9 +200,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
 
     /// Encode a pixmap as PNG bytes.
     fn encode_png(pixmap: &Pixmap) -> Result<Vec<u8>, PixelCanvasError> {
-        pixmap
-            .encode_png()
-            .map_err(|e| PixelCanvasError::Rasterization(e.to_string()))
+        kitty_encode::encode_png(pixmap)
     }
 
     /// Build chunked Kitty escape sequences into `send_buf` from already-encoded
@@ -213,74 +213,23 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         first_chunk_params: &str,
         position: TerminalPosition,
     ) -> Result<(), PixelCanvasError> {
-        let total = self.encode_buf.len();
-        let n_chunks = total.div_ceil(CHUNK_SIZE).max(1);
-
-        self.send_buf.clear();
-
-        // Begin synchronized update
-        write!(self.send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
-        write!(
-            self.send_buf,
-            "\x1b[{};{}H",
-            position.row + 1,
-            position.col + 1
+        kitty_encode::send_encoded(
+            &mut self.writer,
+            &self.encode_buf,
+            &mut self.send_buf,
+            first_chunk_params,
+            position,
         )
-        .map_err(PixelCanvasError::Transmission)?;
-
-        for i in 0..n_chunks {
-            let start = i * CHUNK_SIZE;
-            let end = (start + CHUNK_SIZE).min(total);
-            let chunk = &self.encode_buf[start..end];
-            let more = i32::from(i != n_chunks - 1);
-
-            if i == 0 {
-                write!(
-                    self.send_buf,
-                    "\x1b_G{first_chunk_params},c={},r={},m={more};{chunk}\x1b\\",
-                    position.width_cells, position.height_cells,
-                )
-                .map_err(PixelCanvasError::Transmission)?;
-            } else {
-                write!(self.send_buf, "\x1b_Gm={more};{chunk}\x1b\\")
-                    .map_err(PixelCanvasError::Transmission)?;
-            }
-        }
-
-        // End synchronized update
-        write!(self.send_buf, "\x1b[?2026l").map_err(PixelCanvasError::Transmission)?;
-
-        self.writer
-            .write_all(&self.send_buf)
-            .map_err(PixelCanvasError::Transmission)?;
-        self.writer
-            .flush()
-            .map_err(PixelCanvasError::Transmission)?;
-
-        Ok(())
     }
 
     /// Zlib-compress raw pixel data into `compress_buf`, then base64-encode
     /// the result into `encode_buf`.
     fn compress_and_encode(&mut self, raw_data: &[u8]) -> Result<(), PixelCanvasError> {
-        use base64::Engine;
-
-        self.compress_buf.clear();
-        {
-            let mut encoder = ZlibEncoder::new(&mut self.compress_buf, Compression::fast());
-            encoder.write_all(raw_data).map_err(|e| {
-                PixelCanvasError::Rasterization(format!("zlib compress failed: {e}"))
-            })?;
-            encoder
-                .finish()
-                .map_err(|e| PixelCanvasError::Rasterization(format!("zlib finish failed: {e}")))?;
-        }
-
-        self.encode_buf.clear();
-        base64::engine::general_purpose::STANDARD
-            .encode_string(&self.compress_buf, &mut self.encode_buf);
-
-        Ok(())
+        kitty_encode::compress_and_encode(
+            raw_data,
+            &mut self.compress_buf,
+            &mut self.encode_buf,
+        )
     }
 
     /// Send a Kitty graphics command with PNG payload.
@@ -291,13 +240,16 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         position: TerminalPosition,
         z_index: i32,
     ) -> Result<(), PixelCanvasError> {
-        use base64::Engine;
-        self.encode_buf.clear();
-        base64::engine::general_purpose::STANDARD.encode_string(png_data, &mut self.encode_buf);
-
-        let placement_id = self.placement_id;
-        let params = format!("a=T,q=2,f=100,i={image_id},p={placement_id},z={z_index}");
-        self.send_encoded(&params, position)
+        kitty_encode::send_chunked(
+            &mut self.writer,
+            &mut self.encode_buf,
+            &mut self.send_buf,
+            image_id,
+            self.placement_id,
+            png_data,
+            position,
+            z_index,
+        )
     }
 
     /// Send a delete command for a specific image ID.

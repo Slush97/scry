@@ -20,7 +20,7 @@ use crate::neural::callback::{
 };
 use crate::neural::layer::FastRng;
 use crate::neural::network::{self, Network};
-use crate::neural::optimizer::{OptimizerKind, OptimizerState};
+use crate::neural::optimizer::{LearningRateSchedule, OptimizerKind, OptimizerState};
 use crate::partial_fit::PartialFit;
 
 /// Multi-layer perceptron regressor.
@@ -45,6 +45,10 @@ pub struct MLPRegressor {
     validation_fraction: f64,
     n_iter_no_change: usize,
     seed: u64,
+    /// Dropout probability applied between hidden layers (0.0 = no dropout).
+    dropout_rate: f64,
+    /// Learning rate schedule.
+    lr_schedule: LearningRateSchedule,
     // ── Fitted state ──
     fitted: bool,
     n_features: usize,
@@ -76,6 +80,8 @@ impl Clone for MLPRegressor {
             validation_fraction: self.validation_fraction,
             n_iter_no_change: self.n_iter_no_change,
             seed: self.seed,
+            dropout_rate: self.dropout_rate,
+            lr_schedule: self.lr_schedule,
             fitted: self.fitted,
             n_features: self.n_features,
             network_weights: self.network_weights.clone(),
@@ -104,6 +110,8 @@ impl MLPRegressor {
             validation_fraction: 0.1,
             n_iter_no_change: 10,
             seed: 42,
+            dropout_rate: 0.0,
+            lr_schedule: LearningRateSchedule::Constant,
             fitted: false,
             n_features: 0,
             network_weights: Vec::new(),
@@ -192,6 +200,24 @@ impl MLPRegressor {
         self
     }
 
+    /// Set learning rate schedule. Default: [`LearningRateSchedule::Constant`].
+    ///
+    /// Use [`LearningRateSchedule::adaptive()`] for reduce-on-plateau behavior.
+    pub fn learning_rate_schedule(mut self, schedule: LearningRateSchedule) -> Self {
+        self.lr_schedule = schedule;
+        self
+    }
+
+    /// Set dropout probability applied between hidden layers.
+    ///
+    /// `p` is the fraction of activations to zero out (e.g. 0.5 for 50%).
+    /// Applied only during training; inference is unaffected.
+    /// Default: 0.0 (no dropout).
+    pub fn dropout(mut self, p: f64) -> Self {
+        self.dropout_rate = p;
+        self
+    }
+
     /// Add a training callback (invoked after each epoch).
     pub fn callback(mut self, cb: Box<dyn TrainingCallback>) -> Self {
         self.callbacks.push(cb);
@@ -246,10 +272,10 @@ impl MLPRegressor {
         sizes.extend_from_slice(&self.hidden_layers);
         sizes.push(1);
 
-        let mut net = Network::new(&sizes, self.activation, self.seed);
+        let mut net = Network::new_with_dropout(&sizes, self.activation, self.seed, self.dropout_rate);
         let param_sizes = net.param_group_sizes();
         let mut optimizer =
-            OptimizerState::new(self.optimizer_kind, self.learning_rate, &param_sizes);
+            OptimizerState::new_with_schedule(self.optimizer_kind, self.learning_rate, &param_sizes, self.lr_schedule);
 
         let batch_size = self.batch_size.min(train_n);
         let mut rng = FastRng::new(self.seed.wrapping_add(1));
@@ -313,6 +339,9 @@ impl MLPRegressor {
             let avg_loss = epoch_loss / n_batches as f64;
             self.loss_curve.push(avg_loss);
 
+            // Adjust learning rate based on schedule.
+            optimizer.adjust_lr(avg_loss);
+
             let train_r2 = if epoch_ss_tot > 0.0 {
                 Some(1.0 - epoch_ss_res / epoch_ss_tot)
             } else {
@@ -369,7 +398,7 @@ impl MLPRegressor {
                 val_loss: val_loss_epoch,
                 train_metric: train_r2,
                 val_metric: val_metric_epoch,
-                learning_rate: self.learning_rate,
+                learning_rate: optimizer.current_lr(),
                 grad_norm: last_grad_norm,
                 elapsed_ms: elapsed.as_millis() as u64,
             };
@@ -481,7 +510,7 @@ impl MLPRegressor {
         for &(_, out) in &self.network_dims {
             sizes.push(out);
         }
-        let mut net = Network::new(&sizes, self.activation, 0);
+        let mut net = Network::new_with_dropout(&sizes, self.activation, 0, self.dropout_rate);
         net.restore_weights(&self.network_weights);
         net
     }
@@ -508,7 +537,7 @@ impl PartialFit for MLPRegressor {
             sizes.extend_from_slice(&self.hidden_layers);
             sizes.push(1);
 
-            let net = Network::new(&sizes, self.activation, self.seed);
+            let net = Network::new_with_dropout(&sizes, self.activation, self.seed, self.dropout_rate);
             self.network_weights = net.save_weights();
             self.network_dims = net.layer_dims();
             self.n_features = n_features;

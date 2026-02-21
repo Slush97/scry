@@ -1,0 +1,50 @@
+[package]
+name = "scry-stt"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83.0"
+authors = ["esoc"]
+description = "Native Rust speech-to-text engine — Whisper inference with zero-copy model loading"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = []
+cuda = ["scry-llm/cuda"]
+blas = ["scry-llm/blas"]
+wgpu = ["scry-llm/wgpu"]
+auto = ["scry-llm/auto"]
+safetensors = ["dep:safetensors", "dep:memmap2", "dep:half"]
+
+[dependencies]
+scry-llm = { path = "../scry-llm", default-features = false }
+rustfft = "6"
+thiserror = "2"
+fastrand = "2"
+safetensors = { version = "0.4", optional = true }
+memmap2 = { version = "0.9", optional = true }
+half = { version = "2", optional = true }
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# audio DSP code uses f64→f32 casts everywhere
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# standard DSP variable names: n, k, f, etc.
+many_single_char_names = "allow"
+# mel spectrogram functions are inherently complex
+too_many_lines = "allow"
+must_use_candidate = "allow"
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+similar_names = "allow"
+needless_range_loop = "allow"
+items_after_statements = "allow"
+return_self_not_must_use = "allow"
+doc_markdown = "allow"
+type_complexity = "allow"

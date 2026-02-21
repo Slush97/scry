@@ -13,46 +13,17 @@
 //! This module is only available when the `gpu` feature is enabled (default).
 
 use super::skia::Rasterizer;
-use super::tessellate;
 use super::wgpu_context::{
-    create_frame_resources, GpuGradientStop, GradientUniforms, LineVertex, MeshVertex,
-    ShapeInstance, WgpuContext2D,
+    BufferPool, LineVertex, MeshVertex, ShapeInstance, WgpuContext2D,
 };
-use crate::scene::command::DrawCommand;
-use crate::scene::style::{FillStyle, GradientKind};
+use super::gpu_commands::{
+    GradientDraw, ImageOverlay, LineBatch, MeshBatch, ShapeBatch, process_commands,
+};
 use crate::scene::PixelCanvas;
 use crate::PixelCanvasError;
-use tiny_skia::Pixmap;
+use std::cell::RefCell;
 use wgpu::util::DeviceExt;
-
-// ---------------------------------------------------------------------------
-// Deferred draw batches
-// ---------------------------------------------------------------------------
-
-struct ShapeBatch {
-    instances: Vec<ShapeInstance>,
-}
-
-struct LineBatch {
-    vertices: Vec<LineVertex>,
-}
-
-struct MeshBatch {
-    vertices: Vec<MeshVertex>,
-}
-
-struct GradientDraw {
-    uniforms: GradientUniforms,
-}
-
-/// CPU-rasterized overlay to blit onto the GPU output.
-struct ImageOverlay {
-    x: i32,
-    y: i32,
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-}
+use tiny_skia::Pixmap;
 
 // ---------------------------------------------------------------------------
 // WgpuRasterizer
@@ -62,14 +33,21 @@ struct ImageOverlay {
 ///
 /// Provides the same top-level API as the CPU [`Rasterizer`] but uses GPU
 /// shaders for shapes, lines, and gradients. Complex commands (Path, Arc,
-/// Text, composited Group) fall back to CPU rasterization.
+/// Text) are rasterized on the CPU and blitted as image overlays.
+///
+/// # Architecture
+///
+/// 1. Walk the canvas display list, sorting commands into GPU-compatible
+///    batches (shapes, lines, meshes, gradients) or CPU fallback overlays.
+/// 2. Upload batch data to GPU, submit a render pass.
+/// 3. Copy from the render target to a staging buffer, read back.
+/// 4. Composite CPU-rasterized overlays on top and return the final pixmap.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use scry_engine::scene::PixelCanvas;
-/// use scry_engine::scene::style::Color;
-/// use scry_engine::rasterize::WgpuRasterizer;
+/// use scry_engine::scene::{PixelCanvas, Color};
+/// use scry_engine::rasterize::wgpu::{WgpuRasterizer, WgpuContext2D};
 ///
 /// let canvas = PixelCanvas::new(1920, 1080)
 ///     .background(Color::BLACK)
@@ -80,23 +58,25 @@ struct ImageOverlay {
 /// let pixmap = WgpuRasterizer::rasterize(&canvas).unwrap();
 /// ```
 pub struct WgpuRasterizer<'ctx> {
-    device: &'ctx wgpu::Device,
-    queue: &'ctx wgpu::Queue,
+    pub(super) device: &'ctx wgpu::Device,
+    pub(super) queue: &'ctx wgpu::Queue,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
-    width: u32,
-    height: u32,
+    pub(super) width: u32,
+    pub(super) height: u32,
     shape_pipeline: &'ctx wgpu::RenderPipeline,
     line_pipeline: &'ctx wgpu::RenderPipeline,
     gradient_pipeline: &'ctx wgpu::RenderPipeline,
     mesh_pipeline: &'ctx wgpu::RenderPipeline,
     gradient_bgl: &'ctx wgpu::BindGroupLayout,
     uniform_bind_group: wgpu::BindGroup,
-    shape_batches: Vec<ShapeBatch>,
-    line_batches: Vec<LineBatch>,
-    mesh_batches: Vec<MeshBatch>,
-    gradient_draws: Vec<GradientDraw>,
-    image_overlays: Vec<ImageOverlay>,
+    pub(super) shape_batches: Vec<ShapeBatch>,
+    pub(super) line_batches: Vec<LineBatch>,
+    pub(super) mesh_batches: Vec<MeshBatch>,
+    pub(super) gradient_draws: Vec<GradientDraw>,
+    pub(super) image_overlays: Vec<ImageOverlay>,
+    /// Shared buffer pool for cross-frame GPU buffer reuse.
+    buffer_pool: &'ctx RefCell<BufferPool>,
 }
 
 impl WgpuRasterizer<'_> {
@@ -113,7 +93,8 @@ impl WgpuRasterizer<'_> {
     pub fn rasterize(canvas: &PixelCanvas) -> Result<Pixmap, PixelCanvasError> {
         let gpu = crate::gpu::GpuDevice::global()
             .ok_or_else(|| PixelCanvasError::Rasterization("GPU not available".to_string()))?;
-        let ctx = WgpuContext2D::with_device(gpu).map_err(PixelCanvasError::Rasterization)?;
+        let ctx = WgpuContext2D::with_device(gpu)
+            .map_err(|e| PixelCanvasError::Rasterization(e.to_string()))?;
         Self::rasterize_with_context(&ctx, canvas)
     }
 
@@ -135,7 +116,7 @@ impl WgpuRasterizer<'_> {
         }
 
         let mut rast = WgpuRasterizer::with_context(ctx, w, h);
-        rast.process_commands(canvas);
+        process_commands(&mut rast, canvas);
         let rgba = rast.finish(canvas)?;
 
         Pixmap::from_vec(
@@ -151,7 +132,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
     /// Create a GPU rasterizer that borrows from an existing [`WgpuContext2D`].
     fn with_context(ctx: &'ctx WgpuContext2D, width: u32, height: u32) -> Self {
         let (texture, texture_view, uniform_bind_group) =
-            create_frame_resources(&ctx.device, &ctx.pipelines.uniform_bgl, width, height);
+            super::wgpu_context::create_frame_resources(&ctx.device, &ctx.pipelines.uniform_bgl, width, height);
 
         Self {
             device: &ctx.device,
@@ -171,327 +152,8 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             mesh_batches: Vec::new(),
             gradient_draws: Vec::new(),
             image_overlays: Vec::new(),
+            buffer_pool: &ctx.buffer_pool,
         }
-    }
-
-    /// Walk canvas commands and batch them for GPU submission.
-    fn process_commands(&mut self, canvas: &PixelCanvas) {
-        let mut shapes = Vec::new();
-        let mut lines = Vec::new();
-        let mut meshes: Vec<Vec<MeshVertex>> = Vec::new();
-
-        for cmd in canvas.commands() {
-            self.process_command(cmd, &mut shapes, &mut lines, &mut meshes);
-        }
-
-        if !shapes.is_empty() {
-            self.shape_batches.push(ShapeBatch { instances: shapes });
-        }
-        if !lines.is_empty() {
-            self.line_batches.push(LineBatch { vertices: lines });
-        }
-        if !meshes.is_empty() {
-            let vertices = meshes.into_iter().flatten().collect();
-            self.mesh_batches.push(MeshBatch { vertices });
-        }
-    }
-
-    /// Process a single draw command, accumulating into shape/line batches
-    /// or creating gradient draws / CPU fallback overlays.
-    #[allow(clippy::too_many_lines)]
-    fn process_command(
-        &mut self,
-        cmd: &DrawCommand,
-        shapes: &mut Vec<ShapeInstance>,
-        lines: &mut Vec<LineVertex>,
-        meshes: &mut Vec<Vec<MeshVertex>>,
-    ) {
-        match cmd {
-            DrawCommand::Clear { .. } => {
-                // Handled by render pass clear color
-            }
-
-            DrawCommand::Circle {
-                cx,
-                cy,
-                radius,
-                style,
-            } => {
-                let (fill_color, stroke_color, stroke_width) = extract_style(style);
-                shapes.push(ShapeInstance {
-                    pos: [*cx, *cy],
-                    size: [*radius, *radius, 0.0, 0.0],
-                    fill_color,
-                    stroke_color,
-                    stroke_width_type: [stroke_width, 0.0], // type 0 = circle
-                });
-            }
-
-            DrawCommand::Rectangle {
-                rect,
-                corner_radius,
-                style,
-            } => {
-                let (fill_color, stroke_color, stroke_width) = extract_style(style);
-                shapes.push(ShapeInstance {
-                    pos: [rect.x, rect.y],
-                    size: [rect.width, rect.height, *corner_radius, 0.0],
-                    fill_color,
-                    stroke_color,
-                    stroke_width_type: [stroke_width, 1.0], // type 1 = rect
-                });
-            }
-
-            DrawCommand::Ellipse {
-                cx,
-                cy,
-                rx,
-                ry,
-                rotation,
-                style,
-            } => {
-                let (fill_color, stroke_color, stroke_width) = extract_style(style);
-                shapes.push(ShapeInstance {
-                    pos: [*cx, *cy],
-                    size: [*rx, *ry, *rotation, 0.0],
-                    fill_color,
-                    stroke_color,
-                    stroke_width_type: [stroke_width, 2.0], // type 2 = ellipse
-                });
-            }
-
-            DrawCommand::Line {
-                x1,
-                y1,
-                x2,
-                y2,
-                stroke,
-                ..
-            } => {
-                let color = [
-                    stroke.color.r,
-                    stroke.color.g,
-                    stroke.color.b,
-                    stroke.color.a,
-                ];
-                emit_line_segment(lines, *x1, *y1, *x2, *y2, stroke.width, color);
-            }
-
-            DrawCommand::Polyline {
-                points,
-                style,
-                closed,
-            } => {
-                if points.len() < 2 {
-                    return;
-                }
-
-                // Stroke the polyline segments
-                if let Some(stroke) = &style.stroke {
-                    let color = [
-                        stroke.color.r,
-                        stroke.color.g,
-                        stroke.color.b,
-                        stroke.color.a,
-                    ];
-                    let width = stroke.width;
-
-                    for window in points.windows(2) {
-                        emit_line_segment(
-                            lines,
-                            window[0].0,
-                            window[0].1,
-                            window[1].0,
-                            window[1].1,
-                            width,
-                            color,
-                        );
-                    }
-                    if *closed && points.len() > 2 {
-                        let first = points[0];
-                        let last = points[points.len() - 1];
-                        emit_line_segment(lines, last.0, last.1, first.0, first.1, width, color);
-                    }
-                }
-
-                // Fill the polygon via GPU tessellation if solid, else CPU fallback
-                if let Some(color) = solid_fill_color(style) {
-                    let verts = tessellate::tessellate_polygon(points, color);
-                    if !verts.is_empty() {
-                        meshes.push(verts);
-                    }
-                } else if style.fill.is_some() {
-                    self.cpu_fallback_command(cmd);
-                }
-            }
-
-            DrawCommand::Gradient { rect, gradient, .. } => {
-                let mut stops = [GpuGradientStop {
-                    color: [0.0; 4],
-                    position: 0.0,
-                    _pad1: 0.0,
-                    _pad2: 0.0,
-                    _pad3: 0.0,
-                }; 8];
-
-                let num_stops = gradient.stops.len().min(8);
-                for (i, s) in gradient.stops.iter().take(8).enumerate() {
-                    stops[i] = GpuGradientStop {
-                        color: [s.color.r, s.color.g, s.color.b, s.color.a],
-                        position: s.position,
-                        _pad1: 0.0,
-                        _pad2: 0.0,
-                        _pad3: 0.0,
-                    };
-                }
-
-                let (grad_start, grad_end, grad_type) = match &gradient.kind {
-                    GradientKind::Linear { start, end } => {
-                        ([start.x, start.y], [end.x, end.y], 0.0)
-                    }
-                    GradientKind::Radial { center, radius } => {
-                        ([center.x, center.y], [*radius, 0.0], 1.0)
-                    }
-                };
-
-                #[allow(clippy::cast_precision_loss)]
-                self.gradient_draws.push(GradientDraw {
-                    uniforms: GradientUniforms {
-                        viewport: [self.width as f32, self.height as f32],
-                        rect_pos: [rect.x, rect.y],
-                        rect_size: [rect.width, rect.height],
-                        grad_start,
-                        grad_end,
-                        grad_type,
-                        num_stops: num_stops as f32,
-                        _pad: [0.0, 0.0],
-                        _pre_stops_pad: [0.0, 0.0],
-                        stops,
-                    },
-                });
-            }
-
-            DrawCommand::Image { image, x, y, .. } => {
-                // Images are always CPU-side data → overlay
-                self.image_overlays.push(ImageOverlay {
-                    x: *x as i32,
-                    y: *y as i32,
-                    rgba: image.data().to_vec(),
-                    width: image.width(),
-                    height: image.height(),
-                });
-            }
-
-            DrawCommand::Path { path, style } => {
-                if let Some(color) = solid_fill_color(style) {
-                    let verts = tessellate::tessellate_path(path.path(), color);
-                    if !verts.is_empty() {
-                        meshes.push(verts);
-                    }
-                }
-                // Gradient fills / strokes still fall back to CPU
-                if has_non_solid_fill(style) || style.stroke.is_some() {
-                    self.cpu_fallback_command(cmd);
-                }
-            }
-
-            DrawCommand::Arc {
-                cx,
-                cy,
-                radius,
-                start_angle,
-                sweep_angle,
-                style,
-            } => {
-                if let Some(color) = solid_fill_color(style) {
-                    let verts = tessellate::tessellate_arc(
-                        *cx,
-                        *cy,
-                        *radius,
-                        *start_angle,
-                        *sweep_angle,
-                        color,
-                    );
-                    if !verts.is_empty() {
-                        meshes.push(verts);
-                    }
-                }
-                if has_non_solid_fill(style) || style.stroke.is_some() {
-                    self.cpu_fallback_command(cmd);
-                }
-            }
-
-            #[cfg(feature = "text")]
-            DrawCommand::Text { .. } => {
-                self.cpu_fallback_command(cmd);
-            }
-
-            #[cfg(feature = "sdf")]
-            DrawCommand::Sdf3D { .. } => {
-                self.cpu_fallback_command(cmd);
-            }
-
-            DrawCommand::Group {
-                commands,
-                opacity,
-                blend_mode,
-                clip,
-                transform,
-            } => {
-                let needs_compositing = *opacity < 1.0
-                    || clip.is_some()
-                    || *blend_mode != crate::scene::style::BlendMode::SrcOver;
-
-                if needs_compositing || *transform != crate::scene::style::Transform::IDENTITY {
-                    // Complex group: fall back to CPU
-                    self.cpu_fallback_command(cmd);
-                } else {
-                    // Simple group: recurse
-                    for child in commands {
-                        self.process_command(child, shapes, lines, meshes);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Rasterize a command via CPU (tiny-skia) and add as image overlay.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn cpu_fallback_command(&mut self, cmd: &DrawCommand) {
-        // Estimate bounds to create a tight temp pixmap
-        let (min_x, min_y, max_x, max_y) = Rasterizer::estimate_command_bounds(cmd);
-        if min_x >= max_x || min_y >= max_y {
-            return;
-        }
-
-        let margin = 4.0;
-        let x0 = (min_x - margin).max(0.0).floor();
-        let y0 = (min_y - margin).max(0.0).floor();
-        let x1 = (max_x + margin).min(self.width as f32).ceil();
-        let y1 = (max_y + margin).min(self.height as f32).ceil();
-        let w = (x1 - x0) as u32;
-        let h = (y1 - y0) as u32;
-        if w == 0 || h == 0 {
-            return;
-        }
-
-        let Some(mut pixmap) = Pixmap::new(w, h) else {
-            return;
-        };
-
-        // Offset transform so command renders at (0,0) in the temp pixmap
-        let offset = tiny_skia::Transform::from_translate(-x0, -y0);
-        let mut pool = Vec::new();
-        let mut grad_cache = std::collections::HashMap::new();
-        Rasterizer::render_command(&mut pixmap, cmd, offset, &mut pool, &mut grad_cache, &mut None, 0);
-
-        self.image_overlays.push(ImageOverlay {
-            x: x0 as i32,
-            y: y0 as i32,
-            rgba: pixmap.data().to_vec(),
-            width: w,
-            height: h,
-        });
     }
 
     /// Submit GPU work, read back pixels, and apply image overlays.
@@ -511,6 +173,65 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 label: Some("render_encoder_2d"),
             });
 
+        // --- Flatten batch data and upload to pooled buffers (before render pass) ---
+        let shape_buf;
+        let mesh_buf;
+        let line_buf;
+        {
+            let mut pool = self.buffer_pool.borrow_mut();
+
+            // Flatten all shape instances into a contiguous byte slice
+            let all_shapes: Vec<ShapeInstance> = self.shape_batches.iter()
+                .flat_map(|b| b.instances.iter().copied())
+                .collect();
+            shape_buf = if all_shapes.is_empty() {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("shape_empty"), size: 16,
+                    usage: wgpu::BufferUsages::VERTEX, mapped_at_creation: false,
+                })
+            } else {
+                BufferPool::ensure_and_upload(
+                    self.device, self.queue, &mut pool.shape,
+                    bytemuck::cast_slice(&all_shapes),
+                    wgpu::BufferUsages::VERTEX, "shape_instances_pooled",
+                )
+            };
+
+            // Flatten all mesh vertices
+            let all_mesh: Vec<MeshVertex> = self.mesh_batches.iter()
+                .flat_map(|b| b.vertices.iter().copied())
+                .collect();
+            mesh_buf = if all_mesh.is_empty() {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("mesh_empty"), size: 16,
+                    usage: wgpu::BufferUsages::VERTEX, mapped_at_creation: false,
+                })
+            } else {
+                BufferPool::ensure_and_upload(
+                    self.device, self.queue, &mut pool.mesh,
+                    bytemuck::cast_slice(&all_mesh),
+                    wgpu::BufferUsages::VERTEX, "mesh_vertices_pooled",
+                )
+            };
+
+            // Flatten all line vertices
+            let all_lines: Vec<LineVertex> = self.line_batches.iter()
+                .flat_map(|b| b.vertices.iter().copied())
+                .collect();
+            line_buf = if all_lines.is_empty() {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("line_empty"), size: 16,
+                    usage: wgpu::BufferUsages::VERTEX, mapped_at_creation: false,
+                })
+            } else {
+                BufferPool::ensure_and_upload(
+                    self.device, self.queue, &mut pool.line,
+                    bytemuck::cast_slice(&all_lines),
+                    wgpu::BufferUsages::VERTEX, "line_vertices_pooled",
+                )
+            };
+        }
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main_pass_2d"),
@@ -528,6 +249,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             });
 
             // 1. Draw gradients first (background layer)
+            // (Gradient uniforms are small + per-gradient, kept as individual buffers)
             if !self.gradient_draws.is_empty() {
                 render_pass.set_pipeline(self.gradient_pipeline);
                 for gd in &self.gradient_draws {
@@ -551,60 +273,45 @@ impl<'ctx> WgpuRasterizer<'ctx> {
                 }
             }
 
-            // 2. Draw shapes (circles, rects, ellipses)
+            // 2. Draw shapes — flatten all batches into one pooled buffer
             if !self.shape_batches.is_empty() {
                 render_pass.set_pipeline(self.shape_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
+                render_pass.set_vertex_buffer(0, shape_buf.slice(..));
+                let mut offset = 0u32;
                 for batch in &self.shape_batches {
-                    let instance_buf =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("shape_instances"),
-                                contents: bytemuck::cast_slice(&batch.instances),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
-                    let inst_count = batch.instances.len() as u32;
-                    render_pass.set_vertex_buffer(0, instance_buf.slice(..));
-                    render_pass.draw(0..6, 0..inst_count);
+                    let count = batch.instances.len() as u32;
+                    render_pass.draw(0..6, offset..offset + count);
+                    offset += count;
                 }
             }
 
-            // 2.5. Draw tessellated meshes (paths, arcs, polygons)
+            // 2.5. Draw tessellated meshes — flatten all batches into one pooled buffer
             if !self.mesh_batches.is_empty() {
                 render_pass.set_pipeline(self.mesh_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
+                render_pass.set_vertex_buffer(0, mesh_buf.slice(..));
+                let mut vert_offset = 0u32;
                 for batch in &self.mesh_batches {
-                    let vbuf = self
-                        .device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("mesh_vertices"),
-                            contents: bytemuck::cast_slice(&batch.vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                    let vert_count = batch.vertices.len() as u32;
-                    render_pass.set_vertex_buffer(0, vbuf.slice(..));
-                    render_pass.draw(0..vert_count, 0..1);
+                    let count = batch.vertices.len() as u32;
+                    render_pass.draw(vert_offset..vert_offset + count, 0..1);
+                    vert_offset += count;
                 }
             }
 
-            // 3. Draw lines
+            // 3. Draw lines — flatten all batches into one pooled buffer
             if !self.line_batches.is_empty() {
                 render_pass.set_pipeline(self.line_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
+                render_pass.set_vertex_buffer(0, line_buf.slice(..));
+                let mut vert_offset = 0u32;
                 for batch in &self.line_batches {
-                    let vertex_buf =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("line_vertices"),
-                                contents: bytemuck::cast_slice(&batch.vertices),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
-                    let vert_count = batch.vertices.len() as u32;
-                    render_pass.set_vertex_buffer(0, vertex_buf.slice(..));
-                    render_pass.draw(0..vert_count, 0..1);
+                    let count = batch.vertices.len() as u32;
+                    render_pass.draw(vert_offset..vert_offset + count, 0..1);
+                    vert_offset += count;
                 }
             }
         }
@@ -729,121 +436,10 @@ pub fn rasterize_auto(canvas: &PixelCanvas) -> Result<Pixmap, PixelCanvasError> 
         Ok(pixmap) => Ok(pixmap),
         Err(e) => {
             // Log the GPU error for diagnostics, then fall back to CPU
-            eprintln!("[scry] GPU rasterization failed, falling back to CPU: {e}");
+            crate::scry_warn!("[scry] GPU rasterization failed, falling back to CPU: {e}");
             Rasterizer::rasterize(canvas)
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Extract fill/stroke color and stroke width from a `ShapeStyle`.
-fn extract_style(style: &crate::scene::style::ShapeStyle) -> ([f32; 4], [f32; 4], f32) {
-    let fill_color = match &style.fill {
-        Some(FillStyle::Solid(c)) => [c.r, c.g, c.b, c.a],
-        Some(FillStyle::LinearGradient(_) | FillStyle::RadialGradient(_)) => {
-            // Gradient fills on shapes: use transparent fill, handle separately
-            // (would need a more complex shader — for now, CPU fallback)
-            [0.0, 0.0, 0.0, 0.0]
-        }
-        None => [0.0, 0.0, 0.0, 0.0],
-    };
-
-    let (stroke_color, stroke_width) = match &style.stroke {
-        Some(s) => ([s.color.r, s.color.g, s.color.b, s.color.a], s.width),
-        None => ([0.0, 0.0, 0.0, 0.0], 0.0),
-    };
-
-    (fill_color, stroke_color, stroke_width)
-}
-
-/// Extract the solid fill color from a shape style, applying opacity.
-fn solid_fill_color(style: &crate::scene::style::ShapeStyle) -> Option<[f32; 4]> {
-    match &style.fill {
-        Some(FillStyle::Solid(c)) => Some([c.r, c.g, c.b, c.a * style.opacity]),
-        _ => None,
-    }
-}
-
-/// Returns `true` if the style has a non-solid (gradient) fill.
-fn has_non_solid_fill(style: &crate::scene::style::ShapeStyle) -> bool {
-    matches!(
-        &style.fill,
-        Some(FillStyle::LinearGradient(_) | FillStyle::RadialGradient(_))
-    )
-}
-
-/// Emit 6 vertices (2 triangles) for one line segment.
-fn emit_line_segment(
-    vertices: &mut Vec<LineVertex>,
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
-    width: f32,
-    color: [f32; 4],
-) {
-    let dx = x2 - x1;
-    let dy = y2 - y1;
-    let len = dx.hypot(dy);
-    if len < 1e-6 {
-        return;
-    }
-
-    let half_width = width * 0.5;
-    let nx = -dy / len;
-    let ny = dx / len;
-    let normal = [nx, ny];
-
-    let s = [x1, y1];
-    let e = [x2, y2];
-
-    // Triangle 1: p0, p1, p2
-    vertices.push(LineVertex {
-        position: s,
-        normal,
-        color,
-        line_width: half_width,
-        edge_dist: 1.0,
-    });
-    vertices.push(LineVertex {
-        position: s,
-        normal,
-        color,
-        line_width: half_width,
-        edge_dist: -1.0,
-    });
-    vertices.push(LineVertex {
-        position: e,
-        normal,
-        color,
-        line_width: half_width,
-        edge_dist: 1.0,
-    });
-    // Triangle 2: p1, p3, p2
-    vertices.push(LineVertex {
-        position: s,
-        normal,
-        color,
-        line_width: half_width,
-        edge_dist: -1.0,
-    });
-    vertices.push(LineVertex {
-        position: e,
-        normal,
-        color,
-        line_width: half_width,
-        edge_dist: -1.0,
-    });
-    vertices.push(LineVertex {
-        position: e,
-        normal,
-        color,
-        line_width: half_width,
-        edge_dist: 1.0,
-    });
 }
 
 // ---------------------------------------------------------------------------

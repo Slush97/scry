@@ -189,7 +189,7 @@ impl Rasterizer {
                 };
                 if rotation.abs() > 0.01 {
                     // Conservative: use the diagonal of the unrotated bbox
-                    let diag = (est_w * est_w + est_h * est_h).sqrt() + pad * 2.0;
+                    let diag = est_w.hypot(est_h) + pad * 2.0;
                     let cx = left_x + est_w / 2.0;
                     let cy = *y - font_size / 2.0;
                     (cx - diag / 2.0, cy - diag / 2.0, cx + diag / 2.0, cy + diag / 2.0)

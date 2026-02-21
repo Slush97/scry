@@ -15,6 +15,8 @@
 //! ```
 
 use std::sync::Arc;
+use super::error::GpuError;
+use super::health::SharedHealthMonitor;
 use super::pipeline_registry::PipelineRegistry;
 
 /// Diagnostic information about the GPU adapter.
@@ -49,6 +51,8 @@ pub struct GpuDevice {
     info: GpuInfo,
     /// Lazy pipeline registry — pipelines are compiled on first access.
     registry: PipelineRegistry,
+    /// Shared GPU health monitor for coordinated GPU/CPU decisions.
+    health: SharedHealthMonitor,
 }
 
 impl GpuDevice {
@@ -57,9 +61,22 @@ impl GpuDevice {
     /// # Errors
     ///
     /// Returns an error string if no compatible GPU adapter is found.
-    pub fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self, GpuError> {
+        // Try primary native backends first (Vulkan, Metal, DX12).
+        // GL/GLES backends can panic with EGL BadDisplay on headless/SSH
+        // systems, and since try_new wraps us in catch_unwind, that panic
+        // would prevent Vulkan from ever being tried.
+        let primary_backends = wgpu::Backends::VULKAN
+            | wgpu::Backends::METAL
+            | wgpu::Backends::DX12;
+
+        Self::new_with_backends(primary_backends)
+            .or_else(|_| Self::new_with_backends(wgpu::Backends::all()))
+    }
+
+    fn new_with_backends(backends: wgpu::Backends) -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             ..Default::default()
         });
 
@@ -68,7 +85,7 @@ impl GpuDevice {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
-        .ok_or("wgpu: no compatible GPU adapter found")?;
+        .ok_or(GpuError::NoAdapter)?;
 
         let adapter_info = adapter.get_info();
         let info = GpuInfo {
@@ -93,13 +110,19 @@ impl GpuDevice {
             },
             None,
         ))
-        .map_err(|e| format!("wgpu: device creation failed: {e}"))?;
+        .map_err(|e| GpuError::DeviceCreation(e.to_string()))?;
 
         if crate::scry_debug_enabled() {
-            eprintln!(
+            crate::scry_info!(
                 "[scry-gpu] Initialized: {} ({}, {})",
                 info.adapter_name, info.backend, info.device_type,
             );
+        }
+
+        let health = super::health::shared_health_monitor();
+        {
+            let mut h = health.lock().unwrap();
+            h.mark_initialized();
         }
 
         Ok(Self {
@@ -107,6 +130,7 @@ impl GpuDevice {
             queue: Arc::new(queue),
             info,
             registry: PipelineRegistry::new(),
+            health,
         })
     }
 
@@ -119,7 +143,16 @@ impl GpuDevice {
     pub fn try_new(timeout: std::time::Duration) -> Option<Self> {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(Self::new());
+            // Suppress panic output from wgpu backend probes (e.g. EGL
+            // BadDisplay on headless/SSH systems). The panic is harmless —
+            // Vulkan still works — but the message alarms users.
+            let prev_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(Self::new));
+            std::panic::set_hook(prev_hook);
+            let _ = tx.send(
+                result.unwrap_or_else(|_| Err(GpuError::InitPanicked)),
+            );
         });
         match rx.recv_timeout(timeout) {
             Ok(Ok(gpu)) => Some(gpu),
@@ -154,10 +187,12 @@ impl GpuDevice {
         static GLOBAL_GPU: OnceLock<Option<GpuDevice>> = OnceLock::new();
         GLOBAL_GPU
             .get_or_init(|| {
-                // Use a 3-second timeout to avoid blocking forever on broken drivers
-                let result = Self::try_new(std::time::Duration::from_secs(3));
+                // Use an 8-second timeout to avoid blocking forever on broken drivers.
+                // Must exceed the outer GpuRenderCtx timeout (10s) to prevent
+                // the OnceLock from permanently caching None on slow compilers.
+                let result = Self::try_new(std::time::Duration::from_secs(8));
                 if result.is_none() && crate::scry_debug_enabled() {
-                    eprintln!("[scry-gpu] Global GPU init failed: no adapter found or init timed out");
+                    crate::scry_warn!("[scry-gpu] Global GPU init failed: no adapter found or init timed out");
                 }
                 result
             })
@@ -174,9 +209,9 @@ impl GpuDevice {
     ///
     /// Returns an error string if no compatible GPU adapter is found or
     /// initialization timed out.
-    pub fn global_or_init() -> Result<&'static Self, String> {
+    pub fn global_or_init() -> Result<&'static Self, GpuError> {
         Self::global()
-            .ok_or_else(|| "GPU not available: no compatible adapter found or init timed out".to_string())
+            .ok_or(GpuError::Unavailable)
     }
 
     /// Check whether a GPU is available without initialising one.
@@ -191,6 +226,11 @@ impl GpuDevice {
     /// Wrap an existing device and queue.
     #[must_use]
     pub fn from_existing(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        let health = super::health::shared_health_monitor();
+        {
+            let mut h = health.lock().unwrap();
+            h.mark_initialized();
+        }
         Self {
             device,
             queue,
@@ -200,6 +240,7 @@ impl GpuDevice {
                 device_type: "unknown".to_string(),
             },
             registry: PipelineRegistry::new(),
+            health,
         }
     }
 
@@ -243,6 +284,15 @@ impl GpuDevice {
     #[must_use]
     pub fn pipelines(&self) -> &PipelineRegistry {
         &self.registry
+    }
+
+    /// Get the shared GPU health monitor.
+    ///
+    /// Both the SDF pipeline and 2D rasterizer consult this to make
+    /// coordinated GPU/CPU decisions.
+    #[must_use]
+    pub fn health(&self) -> SharedHealthMonitor {
+        Arc::clone(&self.health)
     }
 }
 

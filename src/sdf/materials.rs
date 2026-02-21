@@ -79,6 +79,21 @@ pub enum Material {
         /// Specular highlight power.
         specular: f32,
     },
+    /// Translucent material with subsurface scattering (jade, wax, marble, skin).
+    ///
+    /// Light bleeds through thin parts of the geometry, creating a warm
+    /// back-illumination effect. Uses SDF thickness estimation — cheap and
+    /// effective for any shape.
+    Subsurface {
+        /// Surface color.
+        color: Color,
+        /// Subsurface scatter color (light bleeding through thin areas).
+        scatter_color: Color,
+        /// Thickness scale factor (higher = more translucency, default 0.5).
+        thickness: f32,
+        /// Specular highlight power.
+        specular: f32,
+    },
 }
 
 impl Material {
@@ -166,6 +181,18 @@ impl Material {
             saturation: 0.9,
             lightness: 0.55,
             hue_offset,
+            specular: 32.0,
+        }
+    }
+
+    /// Convenience: translucent subsurface scattering material.
+    ///
+    /// Great for jade, wax, marble, or skin-like surfaces.
+    pub fn subsurface(color: Color, scatter_color: Color) -> Self {
+        Self::Subsurface {
+            color,
+            scatter_color,
+            thickness: 0.5,
             specular: 32.0,
         }
     }

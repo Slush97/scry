@@ -54,6 +54,18 @@ pub struct RasterResult {
     pub gpu_fallbacks: Vec<GpuFallbackWarning>,
 }
 
+/// Lightweight metadata from [`RasterBackend::rasterize_into`].
+///
+/// Unlike [`RasterResult`], this does not contain a pixmap — callers already
+/// have the target pixmap and don't need a duplicate.
+#[derive(Clone, Debug)]
+pub struct RasterMeta {
+    /// Which backend produced this result.
+    pub backend: BackendKind,
+    /// GPU commands that fell back to CPU (empty for pure-CPU rendering).
+    pub gpu_fallbacks: Vec<GpuFallbackWarning>,
+}
+
 /// Backend-agnostic rasterization interface.
 ///
 /// Implement this trait to add alternative rendering backends (e.g. Vulkan,
@@ -71,13 +83,15 @@ pub trait RasterBackend: Send {
 
     /// Rasterize into an existing pixmap, avoiding allocation.
     ///
-    /// The pixmap is cleared and fully redrawn.
+    /// The pixmap is cleared and fully redrawn. Returns lightweight
+    /// metadata (backend kind + fallback warnings) without allocating
+    /// a duplicate pixmap.
     ///
     /// # Panics
     ///
     /// Implementations should panic if `pixmap` dimensions don't match the
     /// canvas dimensions.
-    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterResult;
+    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta;
 
     /// Which backend kind this is.
     fn kind(&self) -> BackendKind;
@@ -114,10 +128,9 @@ impl RasterBackend for CpuBackend {
         })
     }
 
-    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterResult {
+    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta {
         super::skia::Rasterizer::rasterize_into(canvas, pixmap);
-        RasterResult {
-            pixmap: Pixmap::new(1, 1).unwrap(), // placeholder — callers use pixmap directly
+        RasterMeta {
             backend: BackendKind::Cpu,
             gpu_fallbacks: Vec::new(),
         }
@@ -157,9 +170,9 @@ impl GpuBackend {
     /// # Errors
     ///
     /// Returns an error string if GPU adapter/device creation fails.
-    pub fn try_new() -> Result<Self, String> {
+    pub fn try_new() -> Result<Self, crate::gpu::GpuError> {
         let gpu = crate::gpu::GpuDevice::global()
-            .ok_or_else(|| "GPU not available".to_string())?;
+            .ok_or(crate::gpu::GpuError::Unavailable)?;
         let ctx = super::wgpu_context::WgpuContext2D::with_device(gpu)?;
         Ok(Self { ctx })
     }
@@ -191,24 +204,19 @@ impl RasterBackend for GpuBackend {
         })
     }
 
-    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterResult {
-        match super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas) {
-            Ok(gpu_pixmap) => {
-                pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
-                RasterResult {
-                    pixmap: Pixmap::new(1, 1).unwrap(),
-                    backend: BackendKind::Gpu,
-                    gpu_fallbacks: Vec::new(),
-                }
+    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta {
+        if let Ok(gpu_pixmap) = super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas) {
+            pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
+            RasterMeta {
+                backend: BackendKind::Gpu,
+                gpu_fallbacks: Vec::new(),
             }
-            Err(_) => {
-                // GPU failed for this frame — fall back to CPU for this call
-                super::skia::Rasterizer::rasterize_into(canvas, pixmap);
-                RasterResult {
-                    pixmap: Pixmap::new(1, 1).unwrap(),
-                    backend: BackendKind::Cpu,
-                    gpu_fallbacks: Vec::new(),
-                }
+        } else {
+            // GPU failed for this frame — fall back to CPU for this call
+            super::skia::Rasterizer::rasterize_into(canvas, pixmap);
+            RasterMeta {
+                backend: BackendKind::Cpu,
+                gpu_fallbacks: Vec::new(),
             }
         }
     }
@@ -233,6 +241,7 @@ impl RasterBackend for GpuBackend {
 /// transparently uses CPU rendering for all subsequent calls.
 pub struct AutoBackend {
     inner: Box<dyn RasterBackend>,
+    health: crate::gpu::SharedHealthMonitor,
 }
 
 impl AutoBackend {
@@ -244,22 +253,37 @@ impl AutoBackend {
     pub fn new() -> Self {
         #[cfg(feature = "gpu")]
         {
+            // Try to get the health monitor from the global device
+            let health = crate::gpu::GpuDevice::global()
+                .map_or_else(
+                    crate::gpu::health::shared_cpu_only_monitor,
+                    crate::gpu::GpuDevice::health,
+                );
+
             match GpuBackend::try_new() {
                 Ok(gpu) => {
                     return Self {
                         inner: Box::new(gpu),
+                        health,
                     };
                 }
                 Err(e) => {
                     if crate::scry_debug_enabled() {
-                        eprintln!("[scry] GPU init failed, using CPU backend: {e}");
+                        crate::scry_warn!("[scry] GPU init failed, using CPU backend: {e}");
                     }
                 }
             }
+
+            Self {
+                inner: Box::new(CpuBackend),
+                health,
+            }
         }
 
+        #[cfg(not(feature = "gpu"))]
         Self {
             inner: Box::new(CpuBackend),
+            health: crate::gpu::health::shared_cpu_only_monitor(),
         }
     }
 
@@ -278,24 +302,26 @@ impl Default for AutoBackend {
 
 impl RasterBackend for AutoBackend {
     fn rasterize(&self, canvas: &PixelCanvas) -> Result<RasterResult, PixelCanvasError> {
-        // The GPU rasterizer draws all GPU-native commands first, then
-        // composites CPU fallback commands (dashed lines, text, gradients)
-        // on top.  This fixed two-pass order breaks painter's-algorithm
-        // z-ordering whenever a CPU-fallback command should appear *behind*
-        // a GPU-native command (e.g. dashed grid lines behind opaque bars).
-        //
-        // Guard: route to CPU when the scene contains any CPU-fallback
-        // command so that the full command list is drawn in order.
-        if self.inner.kind() == BackendKind::Gpu && !canvas.gpu_suitable() {
-            return CpuBackend.rasterize(canvas);
+        // Use the health monitor's sticky CPU hold logic instead of
+        // checking gpu_suitable() per-frame (prevents backend flipping).
+        if self.inner.kind() == BackendKind::Gpu {
+            let use_gpu = self.health.lock()
+                .is_ok_and(|mut h| h.should_use_gpu_raster(canvas.gpu_suitable()));
+            if !use_gpu {
+                return CpuBackend.rasterize(canvas);
+            }
         }
         self.inner.rasterize(canvas)
     }
 
-    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterResult {
-        // Same guard as rasterize() — see comment above.
-        if self.inner.kind() == BackendKind::Gpu && !canvas.gpu_suitable() {
-            return CpuBackend.rasterize_into(canvas, pixmap);
+    fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta {
+        // Same sticky guard as rasterize().
+        if self.inner.kind() == BackendKind::Gpu {
+            let use_gpu = self.health.lock()
+                .is_ok_and(|mut h| h.should_use_gpu_raster(canvas.gpu_suitable()));
+            if !use_gpu {
+                return CpuBackend.rasterize_into(canvas, pixmap);
+            }
         }
         self.inner.rasterize_into(canvas, pixmap)
     }

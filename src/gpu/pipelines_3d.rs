@@ -23,9 +23,9 @@ pub struct Pipelines3D {
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub struct PointInstance3D {
-    /// (screen_x, screen_y, radius, depth)
+    /// (`screen_x`, `screen_y`, radius, depth)
     pub pos_size: [f32; 4],
-    /// (r, g, b, a) in [0, 1]
+    /// (r, g, b, a) in \[0, 1\]
     pub color: [f32; 4],
 }
 
@@ -52,7 +52,7 @@ pub struct Uniforms3D {
     /// Viewport width and height in pixels.
     pub viewport: [f32; 2],
     /// Padding to align to 16 bytes.
-    pub _pad: [f32; 2],
+    pub pad: [f32; 2],
 }
 
 impl Pipelines3D {

@@ -473,6 +473,7 @@ impl PixelCanvas {
     /// ```
     #[cfg(feature = "sdf")]
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn sdf_scene(
         self,
         scene: std::sync::Arc<crate::sdf::SdfScene>,
@@ -501,6 +502,7 @@ impl PixelCanvas {
     /// - `0.25` — quarter resolution (~16× faster)
     #[cfg(feature = "sdf")]
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn sdf_scene_scaled(
         self,
         scene: std::sync::Arc<crate::sdf::SdfScene>,
@@ -531,6 +533,33 @@ impl PixelCanvas {
         self.height.hash(&mut hasher);
         self.commands.hash(&mut hasher);
         hasher.finish()
+    }
+
+    /// Rasterize this canvas and save the result as a PNG file.
+    ///
+    /// Convenience for `Rasterizer::rasterize(self)` → `pixmap.save_png()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PixelCanvasError`] if rasterization or file I/O fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use scry_engine::scene::{PixelCanvas, Color};
+    ///
+    /// PixelCanvas::new(200, 200)
+    ///     .background(Color::BLACK)
+    ///     .circle(100.0, 100.0, 50.0)
+    ///         .fill(Color::RED)
+    ///         .done()
+    ///     .save_png("output.png")
+    ///     .unwrap();
+    /// ```
+    pub fn save_png(&self, path: impl AsRef<std::path::Path>) -> Result<(), crate::PixelCanvasError> {
+        let pixmap = crate::rasterize::skia::Rasterizer::rasterize(self)?;
+        pixmap.save_png(path.as_ref())
+            .map_err(|e| crate::PixelCanvasError::Rasterization(e.to_string()))
     }
 
     /// Tag the most recently added command for hit-testing.
@@ -1333,7 +1362,7 @@ impl TextBuilder {
     /// Apply a pre-built [`TextStyle`] (font, size, color, alignment).
     #[must_use]
     pub fn style(mut self, style: &TextStyle) -> Self {
-        self.font_data = style.font_data.clone();
+        self.font_data.clone_from(&style.font_data);
         self.font_size = style.font_size;
         self.color = style.color;
         self.align = style.align;

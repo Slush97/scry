@@ -158,6 +158,7 @@ impl BubbleChart {
     }
 
     /// Build into a Chart.
+    #[must_use]
     pub fn build(self) -> Chart {
         Box::new(self) as Chart
     }
@@ -187,8 +188,14 @@ impl ChartSpec for BubbleChart {
         let mut x_max = f64::NEG_INFINITY;
         let mut y_min = f64::INFINITY;
         let mut y_max = f64::NEG_INFINITY;
-        for &v in xs { if v < x_min { x_min = v; } if v > x_max { x_max = v; } }
-        for &v in ys { if v < y_min { y_min = v; } if v > y_max { y_max = v; } }
+        for &v in xs {
+            x_min = x_min.min(v);
+            x_max = x_max.max(v);
+        }
+        for &v in ys {
+            y_min = y_min.min(v);
+            y_max = y_max.max(v);
+        }
         Some((x_min, x_max, y_min, y_max))
     }
     fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }

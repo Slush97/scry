@@ -57,12 +57,14 @@ impl GanttTask {
     }
 
     /// Set the group for color-coding.
+    #[must_use]
     pub fn group(mut self, group: impl Into<String>) -> Self {
         self.group = Some(group.into());
         self
     }
 
     /// Set the progress fraction (0.0–1.0).
+    #[must_use]
     pub fn progress(mut self, pct: f32) -> Self {
         self.progress = Some(pct.clamp(0.0, 1.0));
         self
@@ -92,6 +94,7 @@ impl GanttTask {
 /// ```
 #[derive(Clone, Debug)]
 #[must_use]
+#[allow(clippy::struct_excessive_bools)]
 pub struct GanttChart {
     /// Task list.
     pub(crate) tasks: Vec<GanttTask>,
@@ -179,6 +182,7 @@ impl GanttChart {
     }
 
     /// Build into a Chart.
+    #[must_use]
     pub fn build(self) -> Chart {
         Box::new(self) as Chart
     }

@@ -80,7 +80,16 @@
 //! ## MSRV
 //!
 //! 1.83.0
-
+//!
+//! ## Thread Safety
+//!
+//! | Type | `Send` | `Sync` | Notes |
+//! |------|--------|--------|-------|
+//! | [`PixelCanvas`](scene::PixelCanvas) | ✅ | ✅ | Immutable display list, safe to share |
+//! | [`RasterPipeline`](rasterize::RasterPipeline) | ✅ | ❌ | Holds `Box<dyn RasterBackend>` |
+//! | [`IncrementalRenderer`](render::IncrementalRenderer) | ✅ | ❌ | Mutable protocol state |
+//! | [`GpuDevice`](gpu::GpuDevice) | ✅ | ✅ | `Arc`-wrapped internals |
+//! | [`SdfPipeline`](sdf::pipeline::SdfPipeline) | ✅ | ❌ | Mutable GPU/readback state |
 // Strict lints for production quality
 #![warn(missing_docs)]
 #![warn(unreachable_pub)]
@@ -119,6 +128,61 @@ pub fn scry_debug_enabled() -> bool {
     use std::sync::OnceLock;
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("SCRY_DEBUG").is_ok())
+}
+
+/// Log a warning-level diagnostic message.
+///
+/// When the `logging` feature is enabled, emits a `tracing::warn!` event.
+/// Otherwise, falls back to `eprintln!` when `SCRY_DEBUG` is set.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! scry_warn {
+    ($($arg:tt)*) => {
+        {
+            #[cfg(feature = "logging")]
+            ::tracing::warn!($($arg)*);
+            #[cfg(not(feature = "logging"))]
+            if $crate::scry_debug_enabled() {
+                eprintln!($($arg)*);
+            }
+        }
+    };
+}
+
+/// Log an info-level diagnostic message.
+///
+/// When the `logging` feature is enabled, emits a `tracing::info!` event.
+/// Otherwise, falls back to `eprintln!` when `SCRY_DEBUG` is set.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! scry_info {
+    ($($arg:tt)*) => {
+        {
+            #[cfg(feature = "logging")]
+            ::tracing::info!($($arg)*);
+            #[cfg(not(feature = "logging"))]
+            if $crate::scry_debug_enabled() {
+                eprintln!($($arg)*);
+            }
+        }
+    };
+}
+
+/// Log an error-level diagnostic message.
+///
+/// When the `logging` feature is enabled, emits a `tracing::error!` event.
+/// Otherwise, always prints to stderr (errors should never be silenced).
+#[macro_export]
+#[doc(hidden)]
+macro_rules! scry_error {
+    ($($arg:tt)*) => {
+        {
+            #[cfg(feature = "logging")]
+            ::tracing::error!($($arg)*);
+            #[cfg(not(feature = "logging"))]
+            eprintln!($($arg)*);
+        }
+    };
 }
 
 // ---------------------------------------------------------------------------

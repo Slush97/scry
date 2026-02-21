@@ -212,6 +212,7 @@ const FONT_8X8: [[u8; 8]; 95] = [
 ];
 
 /// Draw a single character onto a pixmap at (px, py) in the given RGBA color.
+#[allow(clippy::too_many_arguments, clippy::cast_possible_wrap)]
 fn draw_char(pixmap: &mut Pixmap, px: i32, py: i32, ch: char, r: u8, g: u8, b: u8, a: u8) {
     let idx = ch as u32;
     if !(0x20..=0x7E).contains(&idx) {
@@ -256,6 +257,7 @@ fn draw_char(pixmap: &mut Pixmap, px: i32, py: i32, ch: char, r: u8, g: u8, b: u
 }
 
 /// Draw a text string onto a pixmap. Returns the width drawn in pixels.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_text(
     pixmap: &mut Pixmap,
     x: i32,
@@ -275,6 +277,7 @@ pub fn draw_text(
 }
 
 /// Draw a filled rectangle onto a pixmap with alpha blending.
+#[allow(clippy::too_many_arguments, clippy::cast_possible_wrap)]
 pub fn draw_rect(pixmap: &mut Pixmap, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8) {
     let pw = pixmap.width() as i32;
     let ph = pixmap.height() as i32;

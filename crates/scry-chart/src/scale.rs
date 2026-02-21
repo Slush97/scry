@@ -416,12 +416,17 @@ pub(crate) fn nice_ticks(lo: f64, hi: f64, target_count: usize) -> Vec<f64> {
     // endpoints are close to nice ticks (e.g., 0.95 next to 1.0).
     if let Some(&first) = ticks.first() {
         if (first - lo).abs() > step * 0.3 && lo < first {
-            ticks.insert(0, lo);
+            // Round to same decimal precision as step for visual consistency.
+            let decimals = if step >= 1.0 { 0 } else { (-step.log10().floor()).max(0.0) as u32 };
+            let factor = 10.0_f64.powi(decimals as i32);
+            ticks.insert(0, (lo * factor).round() / factor);
         }
     }
     if let Some(&last) = ticks.last() {
         if (last - hi).abs() > step * 0.3 && hi > last {
-            ticks.push(hi);
+            let decimals = if step >= 1.0 { 0 } else { (-step.log10().floor()).max(0.0) as u32 };
+            let factor = 10.0_f64.powi(decimals as i32);
+            ticks.push((hi * factor).round() / factor);
         }
     }
 
@@ -520,13 +525,15 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
         };
     }
     // Canonicalize negative zero so no tick ever displays as "-0".
-    // Use abs() < epsilon to also catch -0.0 from float arithmetic.
-    let value = if value == 0.0 || value.abs() < f64::EPSILON * 100.0 {
+    // Use a span-relative threshold to catch near-zero residuals from
+    // float arithmetic (e.g. -1e-10 on a [0, 100] domain).
+    let span = (domain_max - domain_min).abs();
+    let zero_threshold = if span > 0.0 { span * 1e-12 } else { 1e-10 };
+    let value = if value == 0.0 || value.abs() <= zero_threshold {
         0.0
     } else {
         value
     };
-    let span = (domain_max - domain_min).abs();
     let abs = value.abs();
 
     // SI suffix formatting for large numbers
@@ -563,7 +570,7 @@ pub(crate) fn format_tick_adaptive(value: f64, domain_min: f64, domain_max: f64)
                 format!("{v:.1}M")
             };
         }
-        if abs >= 1e4 {
+        if abs >= 1e5 {
             let v = value / 1e3;
             return if (v - v.round()).abs() < 0.05 && v.round().abs() <= i64::MAX as f64 {
                 format!("{}K", v.round() as i64)
@@ -1326,5 +1333,31 @@ mod tests {
         // Negative threshold should default to 1.0
         let s = SymlogScale::new((-100.0, 100.0), (0.0, 400.0), -5.0);
         assert!((s.threshold() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn format_tick_adaptive_negative_zero() {
+        // Values near zero should never display as "-0" or "-0.0"
+        let label = format_tick_adaptive(-1e-10, 0.0, 100.0);
+        assert_eq!(label, "0", "got '{label}' for -1e-10 on [0,100]");
+        let label = format_tick_adaptive(-1e-13, 0.0, 1.0);
+        assert_eq!(label, "0", "got '{label}' for -1e-13 on [0,1]");
+        // Actual negative values should still show negative sign
+        let label = format_tick_adaptive(-5.0, -10.0, 10.0);
+        assert!(label.starts_with('-'), "got '{label}' for -5 on [-10,10]");
+    }
+
+    #[test]
+    fn format_tick_adaptive_no_mixed_si() {
+        // Domain [0, 10000]: ticks shouldn't mix plain and SI formats
+        let labels: Vec<String> = [0.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0]
+            .iter()
+            .map(|&v| format_tick_adaptive(v, 0.0, 10000.0))
+            .collect();
+        // None should have "K" suffix since max is only 10000
+        assert!(
+            labels.iter().all(|l| !l.contains('K')),
+            "Mixed SI: {labels:?}"
+        );
     }
 }

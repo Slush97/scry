@@ -154,6 +154,7 @@ impl ShmBuffer {
     }
 
     /// Total capacity in bytes.
+    #[cfg(test)]
     pub(crate) const fn capacity(&self) -> usize {
         self.capacity
     }
@@ -169,6 +170,7 @@ impl ShmBuffer {
     /// Resize the shared memory buffer if `new_capacity` differs.
     ///
     /// This unmaps the old region, resizes with `ftruncate`, and remaps.
+    #[allow(dead_code)] // Kept for future SHM buffer growth; exercised in tests.
     pub(crate) fn resize(&mut self, new_capacity: usize) -> io::Result<()> {
         if new_capacity == self.capacity {
             return Ok(());

@@ -13,11 +13,18 @@ cuda = ["dep:cudarc"]
 bf16 = ["cuda", "cudarc/f16", "dep:half"]
 safetensors = ["dep:safetensors"]
 tokenizer = ["dep:serde_json"]
+blas = ["dep:cblas-sys"]
+wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+auto = ["blas", "wgpu"]
 
 [dependencies]
 cudarc = { version = "0.19", features = ["cublas", "nvrtc", "cuda-13010"], optional = true }
 half = { version = "2", optional = true }
 safetensors = { version = "0.4", optional = true }
+cblas-sys = { version = "0.1", optional = true }
+wgpu = { version = "24", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
 arrayvec = "0.7"
 thiserror = "2"
 fastrand = "2"

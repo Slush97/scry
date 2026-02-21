@@ -113,7 +113,7 @@ fn create_frame_resources(
 
     let uniform_data = Uniforms3D {
         viewport: [width as f32, height as f32],
-        _pad: [0.0, 0.0],
+        pad: [0.0, 0.0],
     };
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("uniforms_3d"),
@@ -144,7 +144,8 @@ impl WgpuRasterizer3D {
     ///
     /// Returns an error string if no compatible GPU adapter is found.
     pub fn new(width: u32, height: u32, background: Color) -> Result<Self, String> {
-        let gpu = scry_engine::gpu::GpuDevice::global_or_init()?;
+        let gpu = scry_engine::gpu::GpuDevice::global_or_init()
+            .map_err(|e| e.to_string())?;
         Ok(Self::with_device(gpu, width, height, background))
     }
 

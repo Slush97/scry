@@ -25,6 +25,8 @@
 //! assert_eq!(pixmap.width(), 200);
 //! ```
 
+pub mod error;
+mod lighting;
 pub mod materials;
 pub mod math;
 pub mod noise;
@@ -32,12 +34,19 @@ pub mod overlay;
 pub mod pipeline;
 pub mod primitives;
 pub mod profiler;
+mod ray_march;
 pub mod renderer;
 pub mod scene;
+mod shading;
 pub mod upscale;
 
 #[cfg(feature = "sdf-gpu")]
+mod gpu_flatten;
+#[cfg(feature = "sdf-gpu")]
 pub mod gpu_renderer;
+
+#[cfg(feature = "sdf-gpu")]
+mod frame_graph;
 
 #[cfg(feature = "sdf-text")]
 pub mod glyph;

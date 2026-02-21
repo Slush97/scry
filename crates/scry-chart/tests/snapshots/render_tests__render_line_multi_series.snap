@@ -2,18 +2,17 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 500x350, 34 commands
-text_labels: 13
-  [0] 0
-  [1] 1
-  [2] 2
-  [3] 3
-  [4] 4
-  [5] 0.8
-  [6] 2.0
-  [7] 4.0
-  [8] 6.0
-  [9] Alpha
-  [10] Beta
-  [11] Gamma
-  [12] Multi-Series
+canvas: 500x350, 35 commands
+text_labels: 12
+  [0] 1
+  [1] 2
+  [2] 3
+  [3] 4
+  [4] 1
+  [5] 2
+  [6] 4
+  [7] 6
+  [8] Alpha
+  [9] Beta
+  [10] Gamma
+  [11] Multi-Series

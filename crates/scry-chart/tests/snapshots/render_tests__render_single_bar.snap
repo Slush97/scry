@@ -2,7 +2,7 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 16 commands
+canvas: 400x300, 17 commands
 text_labels: 6
   [0] 0
   [1] 50

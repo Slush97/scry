@@ -2,23 +2,22 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 600x400, 75 commands
-text_labels: 18
-  [0] 0
-  [1] 2
-  [2] 4
-  [3] 6
-  [4] 8
-  [5] 10
-  [6] 0
-  [7] 2
-  [8] 4
-  [9] 6
-  [10] 8
-  [11] 10
-  [12] Series 1
-  [13] Extra Y
-  [14] Peak
-  [15] Full Feature Test
-  [16] X Axis
-  [17] Y Axis
+canvas: 600x400, 74 commands
+text_labels: 17
+  [0] 2
+  [1] 4
+  [2] 6
+  [3] 8
+  [4] 10
+  [5] 0
+  [6] 2
+  [7] 4
+  [8] 6
+  [9] 8
+  [10] 10
+  [11] Series 1
+  [12] Extra Y
+  [13] Peak
+  [14] Full Feature Test
+  [15] X Axis
+  [16] Y Axis

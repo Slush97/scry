@@ -53,6 +53,13 @@ pub enum PlayPreset {
     NeuralNet,
     /// K-Means clustering with converging centroids
     KMeans,
+    /// Volumetric god rays through Menger sponge
+    #[value(name = "godrays")]
+    GodRays,
+    /// Translucent subsurface scattering demo (jade / wax)
+    Sss,
+    /// Animated SDF shape morphing (sphere ↔ torus)
+    Morph,
 }
 
 impl std::fmt::Display for PlayPreset {
@@ -75,6 +82,9 @@ impl std::fmt::Display for PlayPreset {
             Self::GradientDescent => write!(f, "gradient-descent"),
             Self::NeuralNet => write!(f, "neural-net"),
             Self::KMeans => write!(f, "kmeans"),
+            Self::GodRays => write!(f, "godrays"),
+            Self::Sss => write!(f, "sss"),
+            Self::Morph => write!(f, "morph"),
         }
     }
 }
@@ -83,7 +93,7 @@ impl std::fmt::Display for PlayPreset {
 #[derive(Debug, clap::Args)]
 pub struct PlayArgs {
     /// Animation preset to play
-    #[arg(short, long, default_value = "geometry")]
+    #[arg(default_value = "geometry")]
     pub preset: PlayPreset,
 
     /// Auto-exit after this many seconds (0 = run until 'q')
@@ -144,74 +154,28 @@ impl PlayArgs {
     }
 }
 
-// ---------------------------------------------------------------------------
-// GPU-accelerated SDF render context (with CPU fallback)
-// ---------------------------------------------------------------------------
-
-/// Wrapper that tries GPU rendering first, falls back to CPU if unavailable.
+/// Wrapper that uses `SdfPipeline` for GPU-accelerated rendering with
+/// automatic CPU fallback.
 ///
-/// GPU initialization (shader compilation) runs on a background thread so
-/// construction returns instantly. The first frames use rayon-parallelized
-/// CPU rendering; if the GPU becomes ready within 5 seconds it switches
-/// automatically. This prevents hangs on drivers with slow shader compilers
-/// (e.g. Intel ANV with the 48 KB SDF compute shader).
+/// Previous implementation directly managed `SdfGpuContext` and made
+/// its own GPU/CPU decision — now delegates everything to the unified
+/// `SdfPipeline` which uses `GpuHealthMonitor` for coordinated decisions.
 pub(crate) struct GpuRenderCtx {
-    gpu: Option<scry_engine::sdf::gpu_renderer::SdfGpuContext>,
-    /// Background GPU init thread — `None` once resolved or timed out.
-    init_handle: Option<std::thread::JoinHandle<Option<scry_engine::sdf::gpu_renderer::SdfGpuContext>>>,
-    /// When the init started — used for the timeout check.
-    init_start: std::time::Instant,
+    pipeline: scry_engine::sdf::SdfPipeline,
 }
 
-/// Maximum time to wait for GPU shader compilation before giving up.
-const GPU_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
 impl GpuRenderCtx {
-    /// Start GPU init on a background thread; returns instantly.
+    /// Create a new render context backed by `SdfPipeline`.
     pub fn new() -> Self {
-        let handle = std::thread::spawn(|| {
-            let dev = scry_engine::gpu::GpuDevice::global_or_init().ok()?;
-            scry_engine::sdf::gpu_renderer::SdfGpuContext::with_device(dev).ok()
-        });
-        Self {
-            gpu: None,
-            init_handle: Some(handle),
-            init_start: std::time::Instant::now(),
-        }
-    }
-
-    /// Poll the background init thread (non-blocking).
-    fn ensure_gpu(&mut self) {
-        if self.gpu.is_some() {
-            return; // already resolved
-        }
-        let Some(handle) = self.init_handle.take() else {
-            return; // already resolved (no GPU)
-        };
-        if handle.is_finished() {
-            // Thread done — take the result
-            if let Ok(Some(ctx)) = handle.join() {
-                self.gpu = Some(ctx);
-            }
-            // init_handle stays None either way
-        } else if self.init_start.elapsed() > GPU_INIT_TIMEOUT {
-            // Timed out — detach the thread and give up on GPU.
-            // The thread will eventually finish and be cleaned up.
-            if scry_engine::scry_debug_enabled() {
-                eprintln!(
-                    "[scry-gpu] GPU shader compilation timed out after {:.1}s, using CPU",
-                    self.init_start.elapsed().as_secs_f64(),
-                );
-            }
-            // Drop the handle (detach the thread)
-            // init_handle stays None — we won't poll again
-        } else {
-            // Still compiling — put the handle back, use CPU this frame
-            self.init_handle = Some(handle);
-        }
+        let pipeline = scry_engine::sdf::SdfPipeline::new();
+        Self { pipeline }
     }
 
     /// Render a scene, using GPU if available, otherwise CPU.
+    ///
+    /// Uses the double-buffered pipeline: first frame renders on CPU while
+    /// GPU shader compiles in the background, then switches to GPU
+    /// automatically once ready.
     pub fn render(
         &mut self,
         scene: &scry_engine::sdf::SdfScene,
@@ -219,14 +183,22 @@ impl GpuRenderCtx {
         height: u32,
         time: f32,
     ) -> Result<scry_engine::Pixmap, scry_engine::PixelCanvasError> {
-        self.ensure_gpu();
-        if let Some(ctx) = &mut self.gpu {
-            scry_engine::sdf::gpu_renderer::SdfGpuRenderer::render_to_pixmap(
-                ctx, scene, width, height, time,
-            )
-        } else {
-            scry_engine::sdf::SdfRenderer::render_to_pixmap(scene, width, height, time)
-        }
+        let result = self.pipeline.render(scene, width, height, time);
+        let w = result.width;
+        let h = result.height;
+        let mut pixmap = scry_engine::Pixmap::new(w, h).ok_or_else(|| {
+            scry_engine::PixelCanvasError::PixmapCreation(format!(
+                "failed to create {w}x{h} pixmap"
+            ))
+        })?;
+        pixmap.data_mut().copy_from_slice(result.image.data());
+        Ok(pixmap)
+    }
+
+    /// Flush pending GPU work. Call after displaying a frame so GPU
+    /// compute overlaps with terminal I/O.
+    pub fn flush(&mut self) {
+        self.pipeline.flush();
     }
 }
 
@@ -250,6 +222,9 @@ pub fn run(args: &PlayArgs) -> Result<(), String> {
         PlayPreset::GradientDescent => run_gradient_descent(&params),
         PlayPreset::NeuralNet => run_neural_net(&params),
         PlayPreset::KMeans => run_kmeans(&params),
+        PlayPreset::GodRays => run_godrays(&params),
+        PlayPreset::Sss => run_sss(&params),
+        PlayPreset::Morph => run_morph(&params),
         preset => {
             eprintln!("scry play: interactive TUI animations");
             eprintln!();
@@ -347,17 +322,18 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
 
             let cube = SdfObject::new(
                 SdfShape::Box {
-                    half_extents: Vec3::new(1.0, 1.0, 1.0),
+                    half_extents: Vec3::new(0.85, 0.85, 0.85),
                 },
                 Material::rainbow_animated(t * 0.5),
             )
             .at(Vec3::ZERO)
             .orient(orientation);
 
-            // Orbiting camera — positioned so the full rotating cube fits in frame
+            // Orbiting camera — pulled back so the full rotating cube fits
+            // comfortably with margin on all sides.
             let cam_angle = t * 0.3;
-            let cam_radius = 4.0;
-            let cam_y = 1.5 + (t * 0.2).sin() * 0.3;
+            let cam_radius = 5.0;
+            let cam_y = 2.0 + (t * 0.2).sin() * 0.3;
             let eye = Vec3::new(
                 cam_angle.cos() * cam_radius,
                 cam_y,
@@ -379,7 +355,7 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
                     Color::from_rgba8(100, 150, 255, 255),
                     0.6,
                 ))
-                .camera(SdfCamera::new(eye, Vec3::ZERO, 50.0))
+                .camera(SdfCamera::new(eye, Vec3::ZERO, 45.0))
                 .sky_color(transparent)
                 .ambient(0.08)
                 .max_bounces(1);
@@ -2415,7 +2391,7 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
                 .camera(SdfCamera::new(eye, Vec3::ZERO, 45.0))
                 .sky_color(transparent)
                 .ambient(0.08)
-                .max_bounces(0);
+                .max_bounces(1);
 
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
@@ -2713,17 +2689,18 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
     // Load the bundled Inter-Bold font (same font the chart library uses).
     const FONT: &[u8] = include_bytes!("../../scry-chart/src/fonts/Inter-Bold.ttf");
 
-    // Auto-scale font size based on string length so the text fits the view.
-    let base_font_size = 1.4_f32;
-    let font_size = if text.len() <= 4 {
-        base_font_size
-    } else {
-        (base_font_size * 4.0 / text.len() as f32).max(0.4)
-    };
+    // Fixed font size — camera distance adapts to the text's actual width.
+    let font_size = 1.4_f32;
 
     // Build the Text3D shape.
     let text_shape = SdfShape::text_3d(FONT, &text, font_size, font_size * 0.4)
         .ok_or_else(|| format!("Failed to build 3D text for \"{text}\" — font may not support these characters"))?;
+
+    // Extract actual bounding-box width from the layout for camera framing.
+    let text_width = match &text_shape {
+        SdfShape::Text3D { layout, .. } => layout.total_width,
+        _ => unreachable!(),
+    };
 
     let w = args.width;
     let h = args.height;
@@ -2766,15 +2743,11 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         let mut obj = SdfObject::new(text_shape.clone(), mat)
             .at(Vec3::new(0.0, 1.0, 0.0));
 
-        // Base rotation: flip text 180° around Y so it faces the +Z camera.
-        // The text SDF's readable face points toward -Z by default.
-        let base_rot = scry_engine::math3d::Quaternion::from_axis_angle(
-            Vec3::new(0.0, 1.0, 0.0),
-            std::f32::consts::PI,
+        // No base rotation needed — the text SDF faces -Z by default,
+        // and we place the camera at -Z so it reads left-to-right.
+        let mut q = scry_engine::math3d::Quaternion::from_axis_angle(
+            Vec3::new(0.0, 1.0, 0.0), 0.0,
         );
-
-        // Compose user yaw/pitch on top of base rotation
-        let mut q = base_rot;
 
         if yaw.abs() > 0.001 || pitch.abs() > 0.001 {
             let qy = scry_engine::math3d::Quaternion::from_axis_angle(
@@ -2797,8 +2770,12 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
 
         obj = obj.orient(q);
 
-        // Camera distance adapts to text length
-        let cam_r = 5.0 + (text.len() as f32 - 4.0).max(0.0) * 0.5;
+        // Base distance gives consistent letter height; only pull back if
+        // the text is too wide to fit the horizontal FOV.
+        let base_cam_r = 5.0_f32;
+        let half_fov = (50.0_f32 / 2.0).to_radians();
+        let min_cam_for_width = (text_width * 0.5) / half_fov.tan() * 1.3;
+        let cam_r = base_cam_r.max(min_cam_for_width);
         let cam_y = 2.2;
 
         let mut scene = SdfScene::new()
@@ -2821,6 +2798,7 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
                 Color::from_rgba8(255, 200, 160, 255),
                 0.3,
             ))
+            // Camera at +Z so the right vector is +X, matching glyph layout direction
             .camera(SdfCamera::new(
                 Vec3::new(0.0, cam_y, cam_r),
                 Vec3::new(0.0, 0.8, 0.0),
@@ -2979,4 +2957,423 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
         ((g1 + m) * 255.0) as u8,
         ((b1 + m) * 255.0) as u8,
     )
+}
+
+// ---------------------------------------------------------------------------
+// GodRays preset — volumetric light shafts through Menger sponge
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
+    use crossterm::event::{self, Event, KeyEventKind};
+    use scry_engine::scene::style::Color;
+    use scry_engine::sdf::{
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
+    };
+    use std::time::{Duration, Instant};
+
+    let w = args.width;
+    let h = args.height;
+
+    let fps = args.fps.max(1);
+    let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
+    let deadline = if args.duration > 0 {
+        Some(Instant::now() + Duration::from_secs(args.duration))
+    } else {
+        None
+    };
+
+    let mut gpu_ctx = GpuRenderCtx::new();
+    let mut frame_count: u64 = 0;
+    let start = Instant::now();
+
+    eprint!("\x1b[?25l"); // hide cursor
+    eprintln!("godrays: rendering first frame ({w}x{h})… press any key to quit");
+
+    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+
+    let result = (|| -> Result<(), String> {
+        loop {
+            let frame_start = Instant::now();
+            let t = start.elapsed().as_secs_f32();
+
+            // Drain all pending input events — break on any key press
+            while event::poll(Duration::ZERO).unwrap_or(false) {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.kind == KeyEventKind::Press {
+                        return Ok(());
+                    }
+                } else {
+                    let _ = event::read(); // consume non-key events
+                }
+            }
+
+            if let Some(dl) = deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
+
+            // Slowly rotating Menger sponge — light shafts stream through the holes
+            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
+                Vec3::new(0.0, 1.0, 0.0),
+                t * 0.15,
+            );
+            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
+                Vec3::new(1.0, 0.0, 0.0),
+                t * 0.08,
+            );
+            let orientation = qy * qx;
+
+            let sponge = SdfObject::new(
+                SdfShape::MengerSponge { iterations: 2 },
+                Material::matte(Color::from_rgba8(180, 170, 160, 255)),
+            )
+            .at(Vec3::ZERO)
+            .orient(orientation);
+
+            // Bright point light positioned behind the sponge
+            let light_angle = t * 0.3;
+            let light_pos = Vec3::new(
+                light_angle.sin() * 6.0,
+                3.0,
+                -4.0 + light_angle.cos() * 2.0,
+            );
+
+            // Camera orbiting in front
+            let cam_angle = t * 0.12;
+            let cam_r = 5.0;
+            let eye = Vec3::new(
+                cam_angle.cos() * cam_r,
+                2.0 + (t * 0.2).sin() * 0.5,
+                cam_angle.sin() * cam_r,
+            );
+
+            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+
+            let scene = SdfScene::new()
+                .object(sponge)
+                .light(SdfLight::new(
+                    light_pos,
+                    Color::from_rgba8(255, 240, 200, 255),
+                    2.5,
+                ))
+                .light(SdfLight::new(
+                    Vec3::new(-3.0, 5.0, 3.0),
+                    Color::from_rgba8(100, 140, 255, 255),
+                    0.4,
+                ))
+                .camera(SdfCamera::new(eye, Vec3::ZERO, 45.0))
+                .sky_color(transparent)
+                .ambient(0.04)
+                .max_bounces(1)
+                .god_rays(0.4, 12);
+
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
+                .map_err(|e| format!("SDF render failed: {e}"))?;
+
+            let png_data = pixmap
+                .encode_png()
+                .map_err(|e| format!("PNG encoding failed: {e}"))?;
+
+            inline::display_kitty_animation_frame(&png_data, frame_count)
+                .map_err(|e| format!("inline display failed: {e}"))?;
+
+            gpu_ctx.flush(); // overlap GPU compute with terminal I/O
+            frame_count += 1;
+
+            let elapsed = frame_start.elapsed();
+            if elapsed < frame_dur {
+                std::thread::sleep(frame_dur - elapsed);
+            }
+        }
+        Ok(())
+    })();
+
+    let _ = crossterm::terminal::disable_raw_mode();
+    eprint!("\x1b[?25h"); // restore cursor
+
+    result?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// SSS preset — translucent subsurface scattering demo (jade + wax)
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
+    use crossterm::event::{self, Event, KeyEventKind};
+    use scry_engine::scene::style::Color;
+    use scry_engine::sdf::{
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
+    };
+    use std::time::{Duration, Instant};
+
+    let w = args.width;
+    let h = args.height;
+
+    let fps = args.fps.max(1);
+    let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
+    let deadline = if args.duration > 0 {
+        Some(Instant::now() + Duration::from_secs(args.duration))
+    } else {
+        None
+    };
+
+    let mut gpu_ctx = GpuRenderCtx::new();
+    let mut frame_count: u64 = 0;
+    let start = Instant::now();
+
+    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+
+    let result = (|| -> Result<(), String> {
+        loop {
+            let frame_start = Instant::now();
+            let t = start.elapsed().as_secs_f32();
+
+            if event::poll(Duration::ZERO).unwrap_or(false) {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.kind == KeyEventKind::Press {
+                        break;
+                    }
+                }
+            }
+
+            if let Some(dl) = deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
+
+            // Jade sphere — green surface, warm yellow-green back-illumination
+            let jade = SdfObject::new(
+                SdfShape::Sphere { radius: 1.0 },
+                Material::Subsurface {
+                    color: Color::from_rgba8(30, 120, 60, 255),
+                    scatter_color: Color::from_rgba8(180, 255, 100, 255),
+                    thickness: 0.8,
+                    specular: 48.0,
+                },
+            )
+            .at(Vec3::new(-1.5, 1.0, 0.0));
+
+            // Wax capsule — warm amber body, bright orange scatter
+            let wax = SdfObject::new(
+                SdfShape::Capsule {
+                    radius: 0.6,
+                    half_height: 0.8,
+                },
+                Material::Subsurface {
+                    color: Color::from_rgba8(220, 180, 100, 255),
+                    scatter_color: Color::from_rgba8(255, 120, 40, 255),
+                    thickness: 0.6,
+                    specular: 24.0,
+                },
+            )
+            .at(Vec3::new(1.5, 1.0, 0.0));
+
+            // Marble torus — cool white with pinkish scatter
+            let qr = scry_engine::math3d::Quaternion::from_axis_angle(
+                Vec3::new(1.0, 0.0, 0.0),
+                t * 0.3,
+            );
+            let marble = SdfObject::new(
+                SdfShape::Torus {
+                    major: 0.8,
+                    minor: 0.25,
+                },
+                Material::Subsurface {
+                    color: Color::from_rgba8(230, 220, 210, 255),
+                    scatter_color: Color::from_rgba8(255, 180, 160, 255),
+                    thickness: 0.4,
+                    specular: 64.0,
+                },
+            )
+            .at(Vec3::new(0.0, 1.0, -2.0))
+            .orient(qr);
+
+            // Dark ground plane
+            let ground = SdfObject::new(
+                SdfShape::Plane,
+                Material::matte(Color::from_rgba8(40, 40, 45, 255)),
+            );
+
+            // Strong back-light to show off SSS + fill light
+            let cam_angle = t * 0.15;
+            let cam_r = 6.0;
+            let eye = Vec3::new(
+                cam_angle.cos() * cam_r,
+                3.0 + (t * 0.2).sin() * 0.3,
+                cam_angle.sin() * cam_r,
+            );
+
+            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+
+            let scene = SdfScene::new()
+                .object(jade)
+                .object(wax)
+                .object(marble)
+                .object(ground)
+                .light(SdfLight::new(
+                    Vec3::new(0.0, 4.0, -5.0),
+                    Color::from_rgba8(255, 240, 220, 255),
+                    2.0,
+                ))
+                .light(SdfLight::new(
+                    Vec3::new(4.0, 6.0, 4.0),
+                    Color::WHITE,
+                    0.8,
+                ))
+                .camera(SdfCamera::new(eye, Vec3::new(0.0, 1.0, 0.0), 45.0))
+                .sky_color(transparent)
+                .ambient(0.06)
+                .max_bounces(1);
+
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
+                .map_err(|e| format!("SDF render failed: {e}"))?;
+
+            let png_data = pixmap
+                .encode_png()
+                .map_err(|e| format!("PNG encoding failed: {e}"))?;
+
+            inline::display_kitty_animation_frame(&png_data, frame_count)
+                .map_err(|e| format!("inline display failed: {e}"))?;
+
+            frame_count += 1;
+
+            let elapsed = frame_start.elapsed();
+            if elapsed < frame_dur {
+                std::thread::sleep(frame_dur - elapsed);
+            }
+        }
+        Ok(())
+    })();
+
+    let _ = crossterm::terminal::disable_raw_mode();
+
+    result?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Morph preset — animated sphere ↔ torus shape morphing
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
+    use crossterm::event::{self, Event, KeyEventKind};
+    use scry_engine::scene::style::Color;
+    use scry_engine::sdf::{
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
+    };
+    use std::time::{Duration, Instant};
+
+    let w = args.width;
+    let h = args.height;
+
+    let fps = args.fps.max(1);
+    let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
+    let deadline = if args.duration > 0 {
+        Some(Instant::now() + Duration::from_secs(args.duration))
+    } else {
+        None
+    };
+
+    let mut gpu_ctx = GpuRenderCtx::new();
+    let mut frame_count: u64 = 0;
+    let start = Instant::now();
+
+    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+
+    let result = (|| -> Result<(), String> {
+        loop {
+            let frame_start = Instant::now();
+            let t = start.elapsed().as_secs_f32();
+
+            if event::poll(Duration::ZERO).unwrap_or(false) {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.kind == KeyEventKind::Press {
+                        break;
+                    }
+                }
+            }
+
+            if let Some(dl) = deadline {
+                if Instant::now() >= dl {
+                    break;
+                }
+            }
+
+            // Morph factor: smooth oscillation between 0 and 1
+            let morph_t = ((t * 0.5).sin() + 1.0) * 0.5;
+
+            // Sphere ↔ torus morph with rainbow material
+            let morph = SdfObject::new(
+                SdfShape::Morph {
+                    a: std::boxed::Box::new(SdfShape::Sphere { radius: 1.2 }),
+                    b: std::boxed::Box::new(SdfShape::Torus {
+                        major: 1.0,
+                        minor: 0.4,
+                    }),
+                    t: morph_t,
+                },
+                Material::rainbow_animated(t * 0.4),
+            )
+            .at(Vec3::ZERO)
+            .rotate_y(t * 0.3);
+
+            // Camera orbiting
+            let cam_angle = t * 0.2;
+            let cam_r = 5.0;
+            let cam_y = 2.5 + (t * 0.15).sin() * 0.5;
+            let eye = Vec3::new(
+                cam_angle.cos() * cam_r,
+                cam_y,
+                cam_angle.sin() * cam_r,
+            );
+
+            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+
+            let scene = SdfScene::new()
+                .object(morph)
+                .light(SdfLight::new(
+                    Vec3::new(5.0, 8.0, 5.0),
+                    Color::WHITE,
+                    1.3,
+                ))
+                .light(SdfLight::new(
+                    Vec3::new(-4.0, 3.0, -3.0),
+                    Color::from_rgba8(100, 150, 255, 255),
+                    0.6,
+                ))
+                .camera(SdfCamera::new(eye, Vec3::ZERO, 45.0))
+                .sky_color(transparent)
+                .ambient(0.08)
+                .max_bounces(1);
+
+            let pixmap = gpu_ctx.render(&scene, w, h, t)
+                .map_err(|e| format!("SDF render failed: {e}"))?;
+
+            let png_data = pixmap
+                .encode_png()
+                .map_err(|e| format!("PNG encoding failed: {e}"))?;
+
+            inline::display_kitty_animation_frame(&png_data, frame_count)
+                .map_err(|e| format!("inline display failed: {e}"))?;
+
+            frame_count += 1;
+
+            let elapsed = frame_start.elapsed();
+            if elapsed < frame_dur {
+                std::thread::sleep(frame_dur - elapsed);
+            }
+        }
+        Ok(())
+    })();
+
+    let _ = crossterm::terminal::disable_raw_mode();
+
+    result?;
+    Ok(())
 }

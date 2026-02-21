@@ -163,7 +163,7 @@ pub fn stratified_k_fold(data: &Dataset, k: usize, seed: u64) -> Vec<(Dataset, D
 ///     &data, 5, accuracy as ScoringFn, 42,
 /// ).unwrap();
 /// ```
-pub fn cross_val_score<M: PipelineModel + Clone>(
+pub fn cross_val_score<M: PipelineModel + Clone + Send + Sync>(
     model: &M,
     data: &Dataset,
     k: usize,
@@ -175,7 +175,7 @@ pub fn cross_val_score<M: PipelineModel + Clone>(
 }
 
 /// Stratified k-fold cross-validation — preserves class balance in each fold.
-pub fn cross_val_score_stratified<M: PipelineModel + Clone>(
+pub fn cross_val_score_stratified<M: PipelineModel + Clone + Send + Sync>(
     model: &M,
     data: &Dataset,
     k: usize,
@@ -187,20 +187,29 @@ pub fn cross_val_score_stratified<M: PipelineModel + Clone>(
 }
 
 /// Shared implementation: fit + predict + score for each fold.
-fn run_cv<M: PipelineModel + Clone>(
+///
+/// Folds are evaluated in parallel using rayon when multiple cores are
+/// available. Each fold clones the model independently.
+fn run_cv<M: PipelineModel + Clone + Send + Sync>(
     model: &M,
     folds: &[(Dataset, Dataset)],
     scorer: ScoringFn,
 ) -> Result<Vec<f64>> {
-    let mut scores = Vec::with_capacity(folds.len());
-    for (train, test) in folds {
-        let mut m = model.clone();
-        m.fit(train)?;
-        let features = test.feature_matrix();
-        let preds = m.predict(&features)?;
-        scores.push(scorer(&test.target, &preds));
-    }
-    Ok(scores)
+    use rayon::prelude::*;
+
+    let results: Vec<Result<f64>> = folds
+        .par_iter()
+        .map(|(train, test)| {
+            let mut m = model.clone();
+            m.fit(train)?;
+            let features = test.feature_matrix();
+            let preds = m.predict(&features)?;
+            Ok(scorer(&test.target, &preds))
+        })
+        .collect();
+
+    // Collect results, propagating the first error if any fold failed.
+    results.into_iter().collect()
 }
 
 /// Fisher-Yates shuffle with a seeded RNG.
@@ -262,7 +271,7 @@ impl RepeatedKFold {
 /// Convenience: run repeated k-fold CV on a clonable model.
 ///
 /// Returns per-fold scores across all `n_splits × n_repeats` folds.
-pub fn repeated_cross_val_score<M: PipelineModel + Clone>(
+pub fn repeated_cross_val_score<M: PipelineModel + Clone + Send + Sync>(
     model: &M,
     data: &Dataset,
     n_splits: usize,

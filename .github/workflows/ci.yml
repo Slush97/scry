@@ -65,6 +65,10 @@ jobs:
             cmd: "cargo test -p scry-chart"
           - name: "scry-pipe"
             cmd: "cargo test -p scry-pipe"
+          - name: "scry-terminal"
+            cmd: "cargo test -p scry-terminal"
+          - name: "scry-llm"
+            cmd: "cargo test -p scry-llm"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -118,6 +122,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo publish --dry-run
 
+  test-macos:
+    name: Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (non-GPU features)
+        run: cargo check --no-default-features --features "kitty,widget,text,sdf,logging"
+      - name: Test (non-GPU features)
+        run: cargo test --lib --no-default-features --features "kitty,widget" -- --skip gpu --skip sdf
+
   miri:
     name: Miri
     runs-on: ubuntu-latest
@@ -149,3 +165,17 @@ jobs:
         run: cargo install cargo-fuzz
       - name: Build all fuzz targets
         run: cargo +nightly fuzz build
+      - name: Run core fuzz targets (30s each)
+        run: |
+          for target in fuzz_rasterize fuzz_kitty_escape fuzz_scene_hash; do
+            echo "::group::$target"
+            cargo +nightly fuzz run "$target" -- -max_total_time=30
+            echo "::endgroup::"
+          done
+      - name: Run chart fuzz targets (30s each)
+        run: |
+          for target in fuzz_scale fuzz_chart_render fuzz_chart_builder; do
+            echo "::group::$target"
+            cargo +nightly fuzz run "$target" -- -max_total_time=30
+            echo "::endgroup::"
+          done

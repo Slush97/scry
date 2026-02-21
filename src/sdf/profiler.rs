@@ -218,6 +218,7 @@ const RESET: &str = "\x1b[0m";
 ///
 /// `bar_width` is the number of block characters available for the bar.
 pub fn render_profile_bar(profile: &SmoothedSdfProfile, bar_width: usize) -> String {
+    use std::fmt::Write;
     let stage_total: u64 = profile.stage_us.iter().sum();
     if stage_total == 0 {
         return String::new();
@@ -260,16 +261,17 @@ pub fn render_profile_bar(profile: &SmoothedSdfProfile, bar_width: usize) -> Str
     // Legend
     for (stage, us) in &active {
         let ms = *us as f64 / 1000.0;
-        bar.push_str(&format!(
+        let _ = write!(
+            bar,
             " {}{}{} {:.1}ms",
             stage.ansi_color(),
             stage.label(),
             RESET,
             ms
-        ));
+        );
     }
 
-    bar.push_str(&format!(" | {total_ms:.1}ms total"));
+    let _ = write!(bar, " | {total_ms:.1}ms total");
 
     bar
 }

@@ -44,7 +44,7 @@ pub fn sd_cylinder(p: Vec3, radius: f32, half_height: f32) -> f32 {
     outside + inside
 }
 
-/// Vertical capsule (line segment from −half_height to +half_height, swept by radius).
+/// Vertical capsule (line segment from −`half_height` to +`half_height`, swept by radius).
 #[inline]
 pub fn sd_capsule(p: Vec3, radius: f32, half_height: f32) -> f32 {
     let py = p.y - p.y.clamp(-half_height, half_height);
@@ -83,14 +83,14 @@ pub fn sd_cone(p: Vec3, radius: f32, height: f32) -> f32 {
     let closest = (tip.0 + cb.0 * t, tip.1 + cb.1 * t);
     let dx = q.0 - closest.0;
     let dy = q.1 - closest.1;
-    let dist_to_edge = (dx * dx + dy * dy).sqrt();
+    let dist_to_edge = dx.hypot(dy);
 
     // Also check distance to the base cap
     let base_dist = {
         let dy_base = -q.1; // distance below y=0
         let dr_base = (q.0 - radius).max(0.0);
         if q.1 < 0.0 {
-            (dy_base * dy_base + dr_base * dr_base).sqrt()
+            dy_base.hypot(dr_base)
         } else if q.0 > radius && q.1 < 0.01 {
             dr_base
         } else {

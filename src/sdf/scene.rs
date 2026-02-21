@@ -21,13 +21,13 @@ use crate::scene::command::FontData;
 #[cfg(feature = "text")]
 use crate::scene::style::FillStyle;
 
-use std::sync::Arc;
-
 use super::materials::Material;
 use super::math::Vec3;
 
 #[cfg(feature = "sdf-text")]
 use super::glyph::{self, TextSdfLayout};
+#[cfg(feature = "sdf-text")]
+use std::sync::Arc;
 
 use crate::math3d::Quaternion;
 
@@ -207,6 +207,18 @@ pub enum SdfShape {
         /// Bounding sphere radius (0 = unbounded).
         bound: f32,
     },
+    /// Animated morph (linear interpolation) between two SDF shapes.
+    ///
+    /// `t = 0.0` yields shape A, `t = 1.0` yields shape B. Values between
+    /// produce smooth organic transitions. Works with any material.
+    Morph {
+        /// Source shape.
+        a: std::boxed::Box<Self>,
+        /// Target shape.
+        b: std::boxed::Box<Self>,
+        /// Blend factor (0.0 = shape A, 1.0 = shape B).
+        t: f32,
+    },
     /// 3D extruded text from TTF font outlines.
     ///
     /// The text is centered at the object's position and extruded along the
@@ -228,9 +240,9 @@ impl SdfShape {
     ///
     /// `font_size` controls the world-space height of the text.
     /// `depth` controls how far the text is extruded along Z.
-    /// Uses a 64×64 SDF grid per glyph and zero letter spacing.
+    /// Uses a 1024×1024 SDF grid per glyph and zero letter spacing.
     pub fn text_3d(font_data: &[u8], text: &str, font_size: f32, depth: f32) -> Option<Self> {
-        let layout = glyph::layout_text(font_data, text, font_size, 0.0, 64)?;
+        let layout = glyph::layout_text(font_data, text, font_size, 0.0, 1024)?;
         Some(Self::Text3D { layout, depth })
     }
 
@@ -388,6 +400,7 @@ impl Default for SdfCamera {
 /// [`SdfRenderer::render_to_pixmap`](super::SdfRenderer::render_to_pixmap).
 #[derive(Clone, Debug)]
 #[non_exhaustive]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SdfScene {
     /// Objects in the scene.
     pub objects: Vec<SdfObject>,
@@ -417,6 +430,12 @@ pub struct SdfScene {
     pub fog_color: Color,
     /// Enable Reinhard tone mapping before gamma.
     pub tone_map: bool,
+    /// Enable volumetric god rays / light shafts.
+    pub god_rays: bool,
+    /// God ray density (0.0–1.0, default 0.3).
+    pub god_ray_density: f32,
+    /// Number of volumetric samples per ray (default 32).
+    pub god_ray_samples: u32,
     /// Billboard text labels composited after ray marching.
     #[cfg(feature = "text")]
     pub text_labels: Vec<SdfTextLabel>,
@@ -440,6 +459,9 @@ impl SdfScene {
             fog_density: 0.0,
             fog_color: Color::from_rgba8(40, 50, 70, 255),
             tone_map: false,
+            god_rays: false,
+            god_ray_density: 0.3,
+            god_ray_samples: 32,
             #[cfg(feature = "text")]
             text_labels: Vec::new(),
         }
@@ -482,6 +504,7 @@ impl SdfScene {
             SdfShape::Mandelbulb { .. } => Some(1.5), // bulb fits roughly in r=1.5
             SdfShape::MengerSponge { .. } => Some(1.8), // unit cube diagonal ≈ 1.73
             SdfShape::Gyroid { bound, .. } => if *bound > 0.0 { Some(*bound) } else { Some(5.0) },
+            SdfShape::Morph { .. } => Some(3.0), // conservative estimate
             #[cfg(feature = "sdf-text")]
             SdfShape::Text3D { layout, depth } => {
                 let half_w = layout.total_width * 0.5;
@@ -542,6 +565,7 @@ impl SdfScene {
                     SdfShape::Mandelbulb { .. } => 1.5,
                     SdfShape::MengerSponge { .. } => 1.8,
                     SdfShape::Gyroid { bound, .. } => if *bound > 0.0 { *bound } else { 5.0 },
+                    SdfShape::Morph { .. } => 3.0,
                     #[cfg(feature = "sdf-text")]
                     SdfShape::Text3D { layout, depth } => {
                         let half_w = layout.total_width * 0.5;
@@ -589,6 +613,17 @@ impl SdfScene {
     /// Set ambient light level.
     pub fn ambient(mut self, a: f32) -> Self {
         self.ambient = a;
+        self
+    }
+
+    /// Enable volumetric god rays / light shafts.
+    ///
+    /// `density` controls visibility (0.0–1.0, typical 0.2–0.5).
+    /// `samples` is the number of volumetric march steps per ray (default 32).
+    pub fn god_rays(mut self, density: f32, samples: u32) -> Self {
+        self.god_rays = true;
+        self.god_ray_density = density;
+        self.god_ray_samples = samples;
         self
     }
 

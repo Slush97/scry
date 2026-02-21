@@ -343,6 +343,7 @@ impl RenderedChart {
     ///
     /// Returns the text strings in command order. Useful for testing that
     /// expected labels (titles, tick values, data labels) are present.
+    #[must_use]
     pub fn text_labels(&self) -> Vec<&str> {
         use scry_engine::scene::command::DrawCommand;
         self.canvas
@@ -362,6 +363,7 @@ impl RenderedChart {
     ///
     /// Useful for tests that need to verify label positions (e.g.
     /// overlap detection).
+    #[must_use]
     pub fn text_positions(&self) -> Vec<(f32, f32, &str)> {
         use scry_engine::scene::command::DrawCommand;
         self.canvas
@@ -385,6 +387,7 @@ impl RenderedChart {
     /// Returns full text metadata (position, color, alignment, font_size,
     /// rotation) extracted from the canvas scene graph. This is the
     /// canonical way for tests and tooling to inspect text after rendering.
+    #[must_use]
     pub fn text_overlays_from_canvas(&self) -> Vec<TextOverlay> {
         use scry_engine::scene::command::{DrawCommand, TextAlign as EngineTextAlign};
         self.canvas

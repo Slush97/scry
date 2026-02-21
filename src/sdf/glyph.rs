@@ -43,9 +43,9 @@ impl ttf_parser::OutlineBuilder for OutlineCollector {
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        // De Casteljau flattening — 8 segments for quadratic Bézier
+        // De Casteljau flattening — 16 segments for quadratic Bézier
         let (x0, y0) = self.cursor;
-        let steps = 8;
+        let steps = 16;
         let mut prev = (x0, y0);
         for i in 1..=steps {
             let t = i as f32 / steps as f32;
@@ -59,9 +59,9 @@ impl ttf_parser::OutlineBuilder for OutlineCollector {
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        // De Casteljau flattening — 16 segments for cubic Bézier
+        // De Casteljau flattening — 32 segments for cubic Bézier
         let (x0, y0) = self.cursor;
-        let steps = 16;
+        let steps = 32;
         let mut prev = (x0, y0);
         for i in 1..=steps {
             let t = i as f32 / steps as f32;
@@ -93,6 +93,7 @@ impl ttf_parser::OutlineBuilder for OutlineCollector {
 // ── Scanline rasterization ──────────────────────────────────────────
 
 /// Rasterize edges into a binary bitmap using even-odd fill rule.
+#[cfg(test)]
 fn rasterize_bitmap(
     edges: &[(f32, f32, f32, f32)],
     width: usize,
@@ -148,6 +149,7 @@ fn rasterize_bitmap(
 ///
 /// Input: `f[0..n]` — function values (0 for boundary, large for non-boundary).
 /// Output: `dt[0..n]` — squared distance to nearest boundary.
+#[cfg(test)]
 fn edt_1d(f: &[f32], dt: &mut [f32]) {
     let n = f.len();
     if n == 0 {
@@ -196,6 +198,7 @@ fn edt_1d(f: &[f32], dt: &mut [f32]) {
 }
 
 /// Intersection point of two parabolas in the EDT lower envelope.
+#[cfg(test)]
 #[inline]
 fn intersection(q: usize, r: usize, f: &[f32]) -> f32 {
     let q_f = q as f32;
@@ -207,6 +210,7 @@ fn intersection(q: usize, r: usize, f: &[f32]) -> f32 {
 ///
 /// Returns a grid of signed distances: negative inside, positive outside.
 /// Values are in pixel units (grid cells).
+#[cfg(test)]
 fn compute_sdf(bitmap: &[bool], width: usize, height: usize) -> Vec<f32> {
     let inf = (width * width + height * height) as f32;
 
@@ -238,6 +242,7 @@ fn compute_sdf(bitmap: &[bool], width: usize, height: usize) -> Vec<f32> {
 }
 
 /// Apply 2D EDT by separable 1D passes (rows then columns).
+#[cfg(test)]
 fn edt_2d(grid: &mut [f32], width: usize, height: usize) {
     let mut temp = vec![0.0_f32; width.max(height)];
     let mut dt = vec![0.0_f32; width.max(height)];
@@ -281,10 +286,11 @@ pub struct GlyphSdf {
 }
 
 impl GlyphSdf {
-    /// Sample the SDF at world-space (x, y) with bilinear interpolation.
+    /// Sample the SDF at world-space (x, y) with Catmull-Rom bicubic interpolation.
     ///
     /// Returns the signed distance in world units. Points outside the grid
-    /// return a large positive distance.
+    /// return a large positive distance. Bicubic (C1) interpolation produces
+    /// smooth values AND smooth gradients, eliminating staircase artifacts.
     pub fn sample(&self, x: f32, y: f32) -> f32 {
         let (min_x, min_y, max_x, max_y) = self.bounds;
         let bw = max_x - min_x;
@@ -300,7 +306,6 @@ impl GlyphSdf {
 
         // Return large distance outside bounds (with some margin)
         if gx < -1.0 || gy < -1.0 || gx > self.width as f32 || gy > self.height as f32 {
-            // Approximate distance to bounding box
             let dx = if x < min_x {
                 min_x - x
             } else if x > max_x {
@@ -318,31 +323,143 @@ impl GlyphSdf {
             return dx.hypot(dy) + 0.01;
         }
 
-        // Bilinear interpolation
+        // Catmull-Rom bicubic interpolation (C1 continuous)
         let gx = gx.clamp(0.0, (self.width - 1) as f32);
         let gy = gy.clamp(0.0, (self.height - 1) as f32);
 
-        let ix = gx as usize;
-        let iy = gy as usize;
+        let ix = gx as i32;
+        let iy = gy as i32;
         let fx = gx - ix as f32;
         let fy = gy - iy as f32;
 
-        let ix1 = (ix + 1).min(self.width - 1);
-        let iy1 = (iy + 1).min(self.height - 1);
+        // Catmull-Rom basis weights
+        let fx2 = fx * fx;
+        let fx3 = fx2 * fx;
+        let wx = [
+            -0.5 * fx3 + fx2 - 0.5 * fx,
+             1.5 * fx3 - 2.5 * fx2 + 1.0,
+            -1.5 * fx3 + 2.0 * fx2 + 0.5 * fx,
+             0.5 * fx3 - 0.5 * fx2,
+        ];
 
-        let d00 = self.grid[iy * self.width + ix];
-        let d10 = self.grid[iy * self.width + ix1];
-        let d01 = self.grid[iy1 * self.width + ix];
-        let d11 = self.grid[iy1 * self.width + ix1];
+        let fy2 = fy * fy;
+        let fy3 = fy2 * fy;
+        let wy = [
+            -0.5 * fy3 + fy2 - 0.5 * fy,
+             1.5 * fy3 - 2.5 * fy2 + 1.0,
+            -1.5 * fy3 + 2.0 * fy2 + 0.5 * fy,
+             0.5 * fy3 - 0.5 * fy2,
+        ];
 
-        let d0 = d00 + (d10 - d00) * fx;
-        let d1 = d01 + (d11 - d01) * fx;
-        let grid_dist = d0 + (d1 - d0) * fy;
+        let w = self.width as i32;
+        let h = self.height as i32;
+
+        // 4×4 separable convolution with clamped boundary access
+        let mut grid_dist = 0.0_f32;
+        for jj in 0..4 {
+            let sy = (iy + jj - 1).clamp(0, h - 1) as usize;
+            let mut row_val = 0.0_f32;
+            for ii in 0..4 {
+                let sx = (ix + ii - 1).clamp(0, w - 1) as usize;
+                row_val += self.grid[sy * self.width + sx] * wx[ii as usize];
+            }
+            grid_dist += row_val * wy[jj as usize];
+        }
 
         // Convert from grid-cell units to world units
         let pixels_per_world = self.width as f32 / bw;
         grid_dist / pixels_per_world
     }
+
+    /// Sample the SDF and compute the 2D gradient at world-space (x, y).
+    ///
+    /// Returns `(distance, ∂d/∂x, ∂d/∂y)` in world units. Uses central
+    /// finite differences on the Catmull-Rom bicubic `sample()` with a
+    /// half-grid-cell step, matching the GPU shader. This produces C1-smooth
+    /// gradients without grid-stepping artifacts.
+    pub fn sample_gradient(&self, x: f32, y: f32) -> (f32, f32, f32) {
+        let d = self.sample(x, y);
+        let (min_x, min_y, max_x, max_y) = self.bounds;
+        let bw = max_x - min_x;
+        let bh = max_y - min_y;
+        if bw < 1e-10 || bh < 1e-10 {
+            return (d, 0.0, 0.0);
+        }
+        // Half-grid-cell step in world units — matches GPU shader exactly.
+        let hx = 0.5 * bw / self.width as f32;
+        let hy = 0.5 * bh / self.height as f32;
+        let dx = self.sample(x + hx, y) - self.sample(x - hx, y);
+        let dy = self.sample(x, y + hy) - self.sample(x, y - hy);
+        (d, dx / (2.0 * hx), dy / (2.0 * hy))
+    }
+}
+
+// ── Direct edge-distance SDF ────────────────────────────────────────
+
+/// Squared distance from point `(px, py)` to the closest point on
+/// segment `(ax, ay)-(bx, by)`.
+#[inline]
+fn point_to_segment_dist_sq(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
+    let dx = bx - ax;
+    let dy = by - ay;
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 1e-12 {
+        // Degenerate segment — distance to point A
+        let ex = px - ax;
+        let ey = py - ay;
+        return ex * ex + ey * ey;
+    }
+    let t = ((px - ax) * dx + (py - ay) * dy) / len_sq;
+    let t = t.clamp(0.0, 1.0);
+    let cx = ax + t * dx - px;
+    let cy = ay + t * dy - py;
+    cx * cx + cy * cy
+}
+
+/// Compute the SDF grid directly from outline edges — no binary rasterization.
+///
+/// For each grid cell center, finds the minimum Euclidean distance to any
+/// edge segment and determines inside/outside via ray casting (even-odd rule).
+/// The result is sub-pixel-accurate: distances reflect the true outline
+/// geometry, not jagged pixel boundaries.
+///
+/// Rows are computed in parallel via rayon for performance — a 1024² grid
+/// with hundreds of edges per glyph is O(1M × edges) work.
+fn compute_sdf_from_edges(
+    edges: &[(f32, f32, f32, f32)],
+    width: usize,
+    height: usize,
+) -> Vec<f32> {
+    use rayon::prelude::*;
+    let sdf: Vec<f32> = (0..height)
+        .into_par_iter()
+        .flat_map(|y| {
+            let py = y as f32 + 0.5;
+            (0..width)
+                .map(move |x| {
+                    let px = x as f32 + 0.5;
+                    let mut min_dist_sq = f32::INFINITY;
+                    let mut crossings = 0u32;
+                    for &(ax, ay, bx, by) in edges {
+                        let d = point_to_segment_dist_sq(px, py, ax, ay, bx, by);
+                        if d < min_dist_sq {
+                            min_dist_sq = d;
+                        }
+                        if (ay < py) != (by < py) {
+                            let t = (py - ay) / (by - ay);
+                            if px < ax + t * (bx - ax) {
+                                crossings += 1;
+                            }
+                        }
+                    }
+                    let inside = (crossings & 1) == 1;
+                    let dist = min_dist_sq.sqrt();
+                    if inside { -dist } else { dist }
+                })
+                .collect::<Vec<f32>>()
+        })
+        .collect();
+    sdf
 }
 
 // ── Cache ───────────────────────────────────────────────────────────
@@ -404,46 +521,50 @@ fn build_glyph_sdf(
         return None;
     }
 
-    // Determine bitmap dimensions (maintain aspect ratio)
+    // Determine bitmap dimensions (maintain aspect ratio) with 2px padding
+    // on each side so the EDT computes accurate distances near glyph edges.
+    let pad = 2_usize;
     let res = resolution as usize;
-    let (bmp_w, bmp_h) = if font_w >= font_h {
+    let (inner_w, inner_h) = if font_w >= font_h {
         (res, ((font_h / font_w) * res as f32).ceil() as usize)
     } else {
         (((font_w / font_h) * res as f32).ceil() as usize, res)
     };
-    let bmp_w = bmp_w.max(2);
-    let bmp_h = bmp_h.max(2);
+    let inner_w = inner_w.max(2);
+    let inner_h = inner_h.max(2);
+    let bmp_w = inner_w + pad * 2;
+    let bmp_h = inner_h + pad * 2;
 
-    // Scale from font units to bitmap coordinates
-    let bitmap_scale = bmp_w as f32 / font_w;
-    let offset_x = -font_min_x * bitmap_scale;
-    let offset_y = -font_min_y * bitmap_scale;
+    // Scale from font units to bitmap coordinates (based on inner area)
+    let bitmap_scale = inner_w as f32 / font_w;
+    let offset_x = -font_min_x * bitmap_scale + pad as f32;
+    let offset_y = -font_min_y * bitmap_scale + pad as f32;
 
-    // Rasterize
-    let bitmap = rasterize_bitmap(
-        &collector.edges,
-        bmp_w,
-        bmp_h,
-        offset_x,
-        offset_y,
-        bitmap_scale,
-    );
+    // Transform edges from font coordinates to bitmap coordinates
+    let bmp_edges: Vec<(f32, f32, f32, f32)> = collector
+        .edges
+        .iter()
+        .map(|&(x0, y0, x1, y1)| {
+            (
+                x0 * bitmap_scale + offset_x,
+                y0 * bitmap_scale + offset_y,
+                x1 * bitmap_scale + offset_x,
+                y1 * bitmap_scale + offset_y,
+            )
+        })
+        .collect();
 
-    // Compute SDF (note: TTF Y-axis is up, bitmap Y-axis is down, so we flip)
-    let mut flipped = vec![false; bmp_w * bmp_h];
-    for y in 0..bmp_h {
-        for x in 0..bmp_w {
-            flipped[(bmp_h - 1 - y) * bmp_w + x] = bitmap[y * bmp_w + x];
-        }
-    }
+    // Compute SDF directly from outline edges — sub-pixel accurate,
+    // no binary rasterization staircase artifacts.
+    let sdf_grid = compute_sdf_from_edges(&bmp_edges, bmp_w, bmp_h);
 
-    let sdf_grid = compute_sdf(&flipped, bmp_w, bmp_h);
-
-    // World-space bounds
-    let world_min_x = font_min_x * scale_to_world;
-    let world_min_y = font_min_y * scale_to_world;
-    let world_max_x = font_max_x * scale_to_world;
-    let world_max_y = font_max_y * scale_to_world;
+    // World-space bounds — expanded by the padding so that sample()
+    // maps world coords correctly into the padded grid.
+    let pad_world = pad as f32 / bitmap_scale * scale_to_world;
+    let world_min_x = font_min_x * scale_to_world - pad_world;
+    let world_min_y = font_min_y * scale_to_world - pad_world;
+    let world_max_x = font_max_x * scale_to_world + pad_world;
+    let world_max_y = font_max_y * scale_to_world + pad_world;
 
     let glyph_sdf = Arc::new(GlyphSdf {
         grid: sdf_grid,
@@ -550,6 +671,71 @@ pub fn sd_text3d(layout: &TextSdfLayout, p: Vec3, depth: f32) -> f32 {
     // IQ extrusion formula
     let w = Vec2::new(d2d, dz).max_comp(Vec2::ZERO);
     w.length() + d2d.max(dz).min(0.0)
+}
+
+/// Estimate the analytical surface normal for an extruded `Text3D` shape.
+///
+/// Uses central finite differences on the bilinear-interpolated 2D SDF
+/// with a step size of ~2 grid cells. This naturally smooths across cell
+/// boundaries, avoiding the moiré from bilinear gradient discontinuities.
+pub fn estimate_text3d_normal(layout: &TextSdfLayout, p: Vec3, depth: f32) -> Vec3 {
+    let center_x = layout.total_width * 0.5;
+    let center_y = (layout.ascent - layout.descent) * 0.5;
+    let sample_x = p.x + center_x;
+    let sample_y = p.y + center_y;
+
+    // Find closest glyph
+    let mut d2d = f32::MAX;
+    let mut best_glyph: Option<&GlyphSdf> = None;
+    let mut best_gx = 0.0_f32;
+    for (glyph, x_offset) in &layout.glyphs {
+        let gx = sample_x - x_offset;
+        let d = glyph.sample(gx, sample_y);
+        if d < d2d {
+            d2d = d;
+            best_glyph = Some(glyph);
+            best_gx = gx;
+        }
+    }
+
+    let dz = p.z.abs() - depth * 0.5;
+    let sign_z = if p.z >= 0.0 { 1.0 } else { -1.0 };
+
+    // Central differences on the closest glyph's interpolated SDF
+    let (dx, dy) = if let Some(glyph) = best_glyph {
+        let (min_x, _, max_x, _) = glyph.bounds;
+        let bw = max_x - min_x;
+        // Step size: half grid cell in world units (matches GPU shader)
+        let h = 0.5 * bw / glyph.width as f32;
+        let dx = glyph.sample(best_gx + h, sample_y) - glyph.sample(best_gx - h, sample_y);
+        let dy = glyph.sample(best_gx, sample_y + h) - glyph.sample(best_gx, sample_y - h);
+        (dx, dy)
+    } else {
+        (0.0, 1.0)
+    };
+
+    // Normalize the 2D gradient direction
+    let grad_len = dx.hypot(dy);
+    let grad_dir = if grad_len > 1e-6 {
+        (dx / grad_len, dy / grad_len)
+    } else {
+        (0.0, 1.0)
+    };
+
+    // Smooth blend between face normal and side normal
+    let diff = d2d - dz;
+    let t = ((diff + 0.03) / 0.06).clamp(0.0, 1.0);
+    let blend = t * t * (3.0 - 2.0 * t); // smoothstep
+
+    let face_n = Vec3::new(grad_dir.0, grad_dir.1, 0.0);
+    let side_n = Vec3::new(0.0, 0.0, sign_z);
+
+    let n = Vec3::new(
+        side_n.x + (face_n.x - side_n.x) * blend,
+        side_n.y + (face_n.y - side_n.y) * blend,
+        side_n.z + (face_n.z - side_n.z) * blend,
+    );
+    n.normalize()
 }
 
 // ── Tests ───────────────────────────────────────────────────────────

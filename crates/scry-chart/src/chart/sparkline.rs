@@ -92,6 +92,7 @@ impl Sparkline {
     }
 
     /// Build into a Chart enum variant.
+    #[must_use]
     pub fn build(self) -> Chart {
         Box::new(self) as Chart
     }

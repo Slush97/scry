@@ -89,9 +89,8 @@ pub fn parse_xtversion(response: &[u8]) -> Option<(String, String)> {
 /// Returns the list of attribute numbers.
 #[must_use]
 pub fn parse_da1(response: &[u8]) -> Vec<u32> {
-    let response_str = match std::str::from_utf8(response) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
+    let Ok(response_str) = std::str::from_utf8(response) else {
+        return Vec::new();
     };
 
     // Find CSI ? ... c pattern
@@ -144,9 +143,8 @@ pub fn parse_da2(response: &[u8]) -> Option<(u32, u32)> {
 /// Expected: `\x1b_Gi=31;OK\x1b\\` for success.
 #[must_use]
 pub fn parse_kitty_graphics_response(response: &[u8]) -> bool {
-    let response_str = match std::str::from_utf8(response) {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Ok(response_str) = std::str::from_utf8(response) else {
+        return false;
     };
     response_str.contains("OK")
 }
@@ -185,54 +183,44 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
     let fd = stdin.as_raw_fd();
 
     // Save terminal state and switch to raw mode
-    let old_termios = match get_termios(fd) {
-        Some(t) => t,
-        None => return Vec::new(),
+    let Some(old_termios) = get_termios(fd) else {
+        return Vec::new();
     };
 
     let mut raw = old_termios;
-    // cfmakeraw equivalent — using raw numeric constants from POSIX
-    // These are standard across Linux/macOS/BSD.
-    raw.c_iflag &= !(0o000_001   // IGNBRK
-        | 0o000_002               // BRKINT
-        | 0o000_010               // PARMRK (Linux)
-        | 0o000_040               // ISTRIP
-        | 0o000_100               // INLCR
-        | 0o000_200               // IGNCR
-        | 0o000_400               // ICRNL
-        | 0o002_000); // IXON
-    raw.c_oflag &= !(0o000_001); // OPOST
-    raw.c_lflag &= !(0o000_010   // ECHO
-        | 0o000_100               // ECHONL
-        | 0o000_002               // ICANON
-        | 0o000_001               // ISIG
-        | 0o100_000); // IEXTEN (Linux; macOS may differ but safe to clear)
-    raw.c_cflag &= !(0o000_060   // CSIZE
-        | 0o000_400); // PARENB
-    raw.c_cflag |= 0o000_060; // CS8
-                              // VMIN=0, VTIME=0: non-blocking reads
-    raw.c_cc[VMIN_IDX] = 0;
-    raw.c_cc[VTIME_IDX] = 0;
+    // cfmakeraw equivalent using libc constants
+    raw.c_iflag &= !(libc::IGNBRK
+        | libc::BRKINT
+        | libc::PARMRK
+        | libc::ISTRIP
+        | libc::INLCR
+        | libc::IGNCR
+        | libc::ICRNL
+        | libc::IXON);
+    raw.c_oflag &= !libc::OPOST;
+    raw.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::ISIG | libc::IEXTEN);
+    raw.c_cflag &= !(libc::CSIZE | libc::PARENB);
+    raw.c_cflag |= libc::CS8;
+    // VMIN=0, VTIME=0: non-blocking reads
+    raw.c_cc[libc::VMIN] = 0;
+    raw.c_cc[libc::VTIME] = 0;
 
     // SAFETY: tcsetattr is a well-defined POSIX call.
     #[allow(unsafe_code)]
-    if unsafe {
-        tcsetattr(fd, 0 /* TCSANOW */, &raw const raw)
-    } != 0
-    {
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) } != 0 {
         return Vec::new();
     }
 
     // RAII guard to restore terminal
     struct TermRestore {
         fd: std::ffi::c_int,
-        termios: Termios,
+        termios: libc::termios,
     }
     impl Drop for TermRestore {
         fn drop(&mut self) {
             #[allow(unsafe_code)]
             unsafe {
-                tcsetattr(self.fd, 0, &raw const self.termios);
+                libc::tcsetattr(self.fd, libc::TCSANOW, &self.termios);
             }
         }
     }
@@ -251,9 +239,9 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
     let mut response = vec![0u8; 256];
     let mut total = 0;
 
-    let mut pfd = PollFd {
+    let mut pfd = libc::pollfd {
         fd,
-        events: 0x001, // POLLIN
+        events: libc::POLLIN,
         revents: 0,
     };
 
@@ -267,7 +255,8 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
 
         // SAFETY: poll is a well-defined POSIX call.
         #[allow(unsafe_code)]
-        let ready = unsafe { poll(&raw mut pfd, 1, remaining.as_millis() as std::ffi::c_int) };
+        let ready =
+            unsafe { libc::poll(&mut pfd, 1, remaining.as_millis() as std::ffi::c_int) };
 
         if ready <= 0 {
             break;
@@ -297,77 +286,14 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
     response
 }
 
-// ---------------------------------------------------------------------------
-// Raw FFI bindings (avoids libc dependency)
-// ---------------------------------------------------------------------------
-
-/// Minimal termios struct matching the kernel ABI.
+/// Get terminal attributes via `libc::tcgetattr`.
 #[cfg(unix)]
-#[repr(C)]
-#[derive(Clone, Copy)]
-#[allow(clippy::struct_field_names)]
-struct Termios {
-    c_iflag: u32,
-    c_oflag: u32,
-    c_cflag: u32,
-    c_lflag: u32,
-    // Linux: c_line (u8) + c_cc[32]; macOS: c_cc[20] with different layout.
-    // We use an opaque tail large enough for both.
-    c_line: u8,
-    c_cc: [u8; 32],
-    // Padding to cover macOS's larger struct (cfr. __darwin_termios)
-    _pad: [u8; 64],
-}
-
-/// VMIN index in `c_cc` (Linux).
-#[cfg(all(unix, target_os = "linux"))]
-const VMIN_IDX: usize = 6;
-/// VTIME index in `c_cc` (Linux).
-#[cfg(all(unix, target_os = "linux"))]
-const VTIME_IDX: usize = 5;
-
-/// VMIN index in c_cc (macOS).
-#[cfg(all(unix, target_os = "macos"))]
-const VMIN_IDX: usize = 16;
-/// VTIME index in c_cc (macOS).
-#[cfg(all(unix, target_os = "macos"))]
-const VTIME_IDX: usize = 17;
-
-/// Fallback for other Unix platforms.
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-const VMIN_IDX: usize = 6;
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-const VTIME_IDX: usize = 5;
-
-/// Minimal pollfd struct.
-#[cfg(unix)]
-#[repr(C)]
-struct PollFd {
-    fd: std::ffi::c_int,
-    events: std::ffi::c_short,
-    revents: std::ffi::c_short,
-}
-
-#[cfg(unix)]
-extern "C" {
-    fn tcgetattr(fd: std::ffi::c_int, termios: *mut Termios) -> std::ffi::c_int;
-    fn tcsetattr(
-        fd: std::ffi::c_int,
-        action: std::ffi::c_int,
-        termios: *const Termios,
-    ) -> std::ffi::c_int;
-    fn poll(fds: *mut PollFd, nfds: u64, timeout: std::ffi::c_int) -> std::ffi::c_int;
-    fn isatty(fd: std::ffi::c_int) -> std::ffi::c_int;
-}
-
-/// Get terminal attributes.
-#[cfg(unix)]
-fn get_termios(fd: std::ffi::c_int) -> Option<Termios> {
+fn get_termios(fd: std::ffi::c_int) -> Option<libc::termios> {
     // SAFETY: tcgetattr is a well-defined POSIX call that initializes the struct.
     #[allow(unsafe_code)]
-    let mut termios = unsafe { std::mem::zeroed::<Termios>() };
+    let mut termios = unsafe { std::mem::zeroed::<libc::termios>() };
     #[allow(unsafe_code)]
-    if unsafe { tcgetattr(fd, &raw mut termios) } == 0 {
+    if unsafe { libc::tcgetattr(fd, &mut termios) } == 0 {
         Some(termios)
     } else {
         None
@@ -410,7 +336,7 @@ pub fn probe_capabilities(config: &ProbeConfig) -> TerminalCapabilities {
     {
         // SAFETY: isatty is a well-defined POSIX call.
         #[allow(unsafe_code)]
-        let is_tty = unsafe { isatty(1) } == 1;
+        let is_tty = unsafe { libc::isatty(1) } == 1;
         caps.is_tty = is_tty;
     }
     #[cfg(not(unix))]

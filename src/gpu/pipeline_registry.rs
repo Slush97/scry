@@ -43,8 +43,10 @@ pub(crate) struct ShapeInstance {
     pub fill_color: [f32; 4],
     /// Stroke RGBA \[0,1\].
     pub stroke_color: [f32; 4],
-    /// (`stroke_width`, `shape_type`) — type: 0=circle, 1=rect, 2=ellipse.
-    pub stroke_width_type: [f32; 2],
+    /// Stroke width in pixels.
+    pub stroke_width: f32,
+    /// Shape type discriminant: 0=circle, 1=rect, 2=ellipse.
+    pub shape_type: u32,
 }
 
 /// Per-vertex data for line rendering.
@@ -122,7 +124,8 @@ impl Pipelines2D {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: None,
+                    // vec2<f32> viewport size = 8 bytes
+                    min_binding_size: std::num::NonZeroU64::new(8),
                 },
                 count: None,
             }],
@@ -136,7 +139,9 @@ impl Pipelines2D {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: None,
+                    min_binding_size: std::num::NonZeroU64::new(
+                        std::mem::size_of::<GradientUniforms>() as u64
+                    ),
                 },
                 count: None,
             }],
@@ -180,7 +185,8 @@ impl Pipelines2D {
                         wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
                         wgpu::VertexAttribute { offset: 24, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
                         wgpu::VertexAttribute { offset: 40, shader_location: 3, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 56, shader_location: 4, format: wgpu::VertexFormat::Float32x2 },
+                        wgpu::VertexAttribute { offset: 56, shader_location: 4, format: wgpu::VertexFormat::Float32 },   // stroke_width
+                        wgpu::VertexAttribute { offset: 60, shader_location: 5, format: wgpu::VertexFormat::Uint32 },    // shape_type
                     ],
                 }],
             },
@@ -344,6 +350,12 @@ impl PipelinesSdf {
     fn load_cache(device: &wgpu::Device) -> Option<wgpu::PipelineCache> {
         let path = Self::cache_path()?;
         let data = std::fs::read(&path).ok()?;
+        // Integrity check: reject truncated or obviously corrupt cache files.
+        // Valid pipeline caches have at least a header; anything under 16 bytes
+        // is certainly not a usable cache blob.
+        if data.len() < 16 {
+            return Some(Self::empty_cache(device));
+        }
         // SAFETY: fallback=true ensures an empty cache on invalid data.
         Some(unsafe {
             device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
@@ -381,31 +393,22 @@ impl PipelinesSdf {
         }
     }
 
-    /// Whether the device supports pipeline caching.
-    fn supports_cache(device: &wgpu::Device) -> bool {
-        device.features().contains(wgpu::Features::PIPELINE_CACHE)
-    }
 
     /// Compile the SDF compute pipeline for the given device.
     pub(crate) fn compile(device: &wgpu::Device) -> Self {
-        use std::io::Write;
-        let mut log = std::fs::OpenOptions::new()
-            .create(true).append(true)
-            .open("/tmp/scry_gpu_init.log").ok();
-        macro_rules! slog {
-            ($($arg:tt)*) => {
-                if let Some(f) = log.as_mut() { let _ = writeln!(f, $($arg)*); let _ = f.flush(); }
-            };
-        }
         let t0 = std::time::Instant::now();
-        slog!("[compile] creating shader module ({} bytes WGSL)...", include_str!("../sdf/shaders/sdf_compute.wgsl").len());
+        if crate::scry_debug_enabled() {
+            crate::scry_info!("[scry-gpu] Compiling SDF shader module ({} bytes WGSL)...",
+                include_str!("../sdf/shaders/sdf_compute.wgsl").len());
+        }
 
         let shader_source = include_str!("../sdf/shaders/sdf_compute.wgsl");
+        eprintln!("[scry-gpu] compiling SDF shader ({} lines)…", shader_source.lines().count());
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sdf-compute-shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
-        slog!("[compile] shader module created in {:?}", t0.elapsed());
+        eprintln!("[scry-gpu] shader module ready in {:?}", t0.elapsed());
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sdf-compute-bgl"),
@@ -416,7 +419,8 @@ impl PipelinesSdf {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: None,
+                        // Must fit GpuUniforms — 128 bytes (see sdf/gpu_renderer.rs)
+                        min_binding_size: std::num::NonZeroU64::new(128),
                     },
                     count: None,
                 },
@@ -487,9 +491,13 @@ impl PipelinesSdf {
         let had_cache = Self::cache_path()
             .as_ref()
             .is_some_and(|p| p.exists());
-        slog!("[compile] layout created in {:?}, creating compute pipeline (cache={})...",
-            t0.elapsed(), if had_cache { "loaded" } else { "cold" });
+        if crate::scry_debug_enabled() {
+            crate::scry_info!("[scry-gpu] Layout created in {:?}, creating compute pipeline (cache={})...",
+                t0.elapsed(), if had_cache { "loaded" } else { "cold" });
+        }
 
+        eprintln!("[scry-gpu] creating compute pipeline (cache={})…",
+            if had_cache { "warm" } else { "cold" });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("sdf-compute-pipeline"),
             layout: Some(&pipeline_layout),
@@ -498,7 +506,7 @@ impl PipelinesSdf {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: Some(&cache),
         });
-        slog!("[compile] compute pipeline created in {:?} — done!", t0.elapsed());
+        eprintln!("[scry-gpu] compute pipeline ready in {:?}", t0.elapsed());
 
         // Persist cache to disk for next run
         Self::save_cache(&cache);
@@ -521,6 +529,7 @@ impl PipelinesSdf {
 /// are only compiled when a `WgpuContext2D` is first created, and the SDF
 /// pipeline is only compiled when `SdfGpuContext` is first created.
 #[derive(Clone)]
+#[allow(clippy::struct_field_names)]
 pub struct PipelineRegistry {
     pipelines_2d: std::sync::Arc<OnceLock<Pipelines2D>>,
     pipelines_sdf: std::sync::Arc<OnceLock<PipelinesSdf>>,
@@ -541,7 +550,7 @@ impl PipelineRegistry {
     pub fn get_2d(&self, device: &wgpu::Device) -> &Pipelines2D {
         self.pipelines_2d.get_or_init(|| {
             if crate::scry_debug_enabled() {
-                eprintln!("[scry-gpu] Compiling 2D pipelines...");
+                crate::scry_info!("[scry-gpu] Compiling 2D pipelines...");
             }
             Pipelines2D::compile(device)
         })
@@ -551,7 +560,7 @@ impl PipelineRegistry {
     pub fn get_sdf(&self, device: &wgpu::Device) -> &PipelinesSdf {
         self.pipelines_sdf.get_or_init(|| {
             if crate::scry_debug_enabled() {
-                eprintln!("[scry-gpu] Compiling SDF pipeline...");
+                crate::scry_info!("[scry-gpu] Compiling SDF pipeline...");
             }
             PipelinesSdf::compile(device)
         })
@@ -561,7 +570,7 @@ impl PipelineRegistry {
     pub fn get_3d(&self, device: &wgpu::Device) -> &Pipelines3D {
         self.pipelines_3d.get_or_init(|| {
             if crate::scry_debug_enabled() {
-                eprintln!("[scry-gpu] Compiling 3D pipelines...");
+                crate::scry_info!("[scry-gpu] Compiling 3D pipelines...");
             }
             Pipelines3D::compile(device)
         })

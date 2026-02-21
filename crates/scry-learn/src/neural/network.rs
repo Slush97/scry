@@ -72,6 +72,51 @@ impl Network {
         }
     }
 
+    /// Build an MLP network with dropout layers between hidden layers.
+    ///
+    /// Interleaves `DropoutLayer(p)` after every hidden `DenseLayer`.
+    /// The output layer does NOT have dropout applied.
+    ///
+    /// Falls back to `Network::new()` if `dropout_p` is 0.0 or negative.
+    pub fn new_with_dropout(
+        sizes: &[usize],
+        activation: Activation,
+        seed: u64,
+        dropout_p: f64,
+    ) -> Self {
+        if dropout_p <= 0.0 {
+            return Self::new(sizes, activation, seed);
+        }
+
+        assert!(sizes.len() >= 2, "need at least input and output sizes");
+        let mut rng = FastRng::new(seed);
+        let n_layers = sizes.len() - 1;
+
+        let mut layers: Vec<Box<dyn Layer>> = Vec::new();
+        for i in 0..n_layers {
+            let act = if i < n_layers - 1 {
+                activation
+            } else {
+                Activation::Identity
+            };
+            layers.push(Box::new(DenseLayer::new(sizes[i], sizes[i + 1], act, &mut rng)));
+
+            // Insert dropout after every hidden layer (not after the output layer).
+            if i < n_layers - 1 && dropout_p > 0.0 {
+                layers.push(Box::new(
+                    crate::neural::dropout::DropoutLayer::new(dropout_p, sizes[i + 1], seed.wrapping_add(i as u64 + 100)),
+                ));
+            }
+        }
+
+        Self {
+            layers,
+            dense_layers: Vec::new(),
+            is_mlp: false,
+            backend: accel::auto(),
+        }
+    }
+
     /// Forward pass through all layers.
     ///
     /// `input` is row-major `[batch, n_features]`.

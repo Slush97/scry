@@ -79,6 +79,7 @@ impl ContourChart {
     }
 
     /// Build as a [`Chart`].
+    #[must_use]
     pub fn build(self) -> Chart {
         Box::new(self) as Chart
     }
@@ -99,6 +100,7 @@ impl ContourChart {
     }
 
     /// Get the (min, max) of all finite values in the grid.
+    #[must_use]
     pub fn data_extent(&self) -> Option<(f64, f64)> {
         let mut lo = f64::INFINITY;
         let mut hi = f64::NEG_INFINITY;

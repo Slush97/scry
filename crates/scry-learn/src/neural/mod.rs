@@ -34,6 +34,7 @@ pub mod activation;
 pub mod callback;
 pub mod classifier;
 pub mod conv;
+pub mod dropout;
 pub mod flatten;
 pub(crate) mod layer;
 #[cfg(feature = "live-plot")]
@@ -48,10 +49,11 @@ pub use activation::Activation;
 pub use callback::{CallbackAction, EpochMetrics, TrainingCallback, TrainingHistory};
 pub use classifier::MLPClassifier;
 pub use conv::Conv2D;
+pub use dropout::DropoutLayer;
 pub use flatten::Flatten;
 #[cfg(feature = "live-plot")]
 pub use live_plot::{LivePlotCallback, LivePlotConfig};
-pub use optimizer::OptimizerKind;
+pub use optimizer::{LearningRateSchedule, OptimizerKind};
 pub use pool::MaxPool2D;
 pub use regressor::MLPRegressor;
 pub use traits::{BackwardOutput, Layer};

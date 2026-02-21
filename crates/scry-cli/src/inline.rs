@@ -218,22 +218,45 @@ pub fn display_kitty_animation_frame(png_data: &[u8], frame: u64) -> io::Result<
     let encoded = base64::engine::general_purpose::STANDARD.encode(png_data);
     let mut stdout = io::stdout().lock();
 
-    // Figure out how many terminal rows the image will occupy.
-    let (term_cols, _term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (cell_w, cell_h) = detect_cell_size();
+    // Figure out how many terminal cells the image should occupy.
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     // Read image dimensions from the PNG header (width/height at bytes 16..24).
     let (img_w, img_h) = png_dimensions(png_data).unwrap_or((400, 400));
-    // The terminal will scale the image to fit `c` columns and `r` rows.
-    // We want the image to fit within the terminal width.
-    // Use ceiling division so the cell grid is always large enough to
-    // contain the full image — floor division truncates and clips edges.
-    let img_cols = (img_w.div_ceil(u32::from(cell_w))).max(1) as u16;
-    let cols_to_use = img_cols.min(term_cols);
-    let scale = f64::from(cols_to_use) / f64::from(img_cols);
-    let img_rows = ((f64::from(img_h) / f64::from(cell_h)) * scale).ceil() as u16;
+    let aspect = img_h as f64 / img_w as f64;
+    let (cw, ch) = detect_cell_size();
+
+    // Compute how many columns the image would occupy at 1:1 pixel
+    // mapping, then cap at 90% of terminal width so there's margin.
+    // This prevents Kitty from rescaling the image (which can cause
+    // overflow / clipping when the render is larger than the display).
+    let max_rows = term_rows.saturating_sub(2).max(1);
+    let native_cols = (img_w as f64 / cw as f64).ceil() as u16;
+    let max_cols = ((term_cols as f64) * 0.9).round() as u16;
+    let mut cols_to_use = native_cols.min(max_cols).max(20).min(term_cols);
+
+    // Compute how many rows this would require at the given aspect ratio.
+    let display_px_w = cols_to_use as f64 * cw as f64;
+    let display_px_h = display_px_w * aspect;
+    let mut img_rows = (display_px_h / ch as f64).ceil() as u16;
+
+    // If it overflows vertically, shrink columns proportionally to fit.
+    if img_rows > max_rows {
+        img_rows = max_rows;
+        // Back-compute columns from the row budget.
+        let fitted_px_h = img_rows as f64 * ch as f64;
+        let fitted_px_w = fitted_px_h / aspect;
+        cols_to_use = (fitted_px_w / cw as f64).floor() as u16;
+        cols_to_use = cols_to_use.max(20).min(term_cols);
+    }
     let img_rows = img_rows.max(1);
 
     if frame == 0 {
+        // Query current cursor row (works reliably in raw mode).
+        // Falls back to bottom-of-terminal if query fails (piped output).
+        let cursor_row = crossterm::cursor::position()
+            .map(|(_, row)| row + 1) // 0-indexed → 1-indexed
+            .unwrap_or(term_rows.saturating_sub(img_rows).max(1));
+
         // Print enough newlines to force the terminal to scroll and
         // allocate vertical space for the image.
         for _ in 0..img_rows {
@@ -241,11 +264,15 @@ pub fn display_kitty_animation_frame(png_data: &[u8], frame: u64) -> io::Result<
         }
         // Move cursor back up to the top of the reserved area.
         write!(stdout, "\x1b[{}A", img_rows)?;
-        // Query where we are now (use crossterm if available, else estimate).
-        // We'll use a simple heuristic: read cursor position via crossterm.
-        let anchor = crossterm::cursor::position()
-            .map(|(_, row)| row + 1) // convert 0-indexed to 1-indexed
-            .unwrap_or(1);
+
+        // If near the bottom, the terminal scrolled — anchor shifts up.
+        let space_below = term_rows.saturating_sub(cursor_row);
+        let anchor = if space_below >= img_rows {
+            cursor_row // enough room, place right at cursor
+        } else {
+            // terminal scrolled by (img_rows - space_below) lines
+            cursor_row.saturating_sub(img_rows.saturating_sub(space_below)).max(1)
+        };
         ANCHOR_ROW.store(anchor, Ordering::Relaxed);
     } else {
         // Delete the old placement before drawing the new one.

@@ -105,12 +105,14 @@ fn discover_fallback_fonts() -> Vec<FallbackFont> {
         }
         let walker = walkdir(dir);
         for path in walker {
-            let name = match path.file_name().and_then(|n| n.to_str()) {
-                Some(n) => n,
-                None => continue,
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
             };
-            let lower = name.to_ascii_lowercase();
-            if !(lower.ends_with(".ttf") || lower.ends_with(".otf")) {
+            let ext = std::path::Path::new(name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if !ext.eq_ignore_ascii_case("ttf") && !ext.eq_ignore_ascii_case("otf") {
                 continue;
             }
             // Check priority
@@ -130,7 +132,7 @@ fn discover_fallback_fonts() -> Vec<FallbackFont> {
     let candidates = priority
         .into_iter()
         .map(|(_, p)| p)
-        .chain(others.into_iter())
+        .chain(others)
         .take(12);
 
     for path in candidates {
@@ -195,18 +197,19 @@ pub fn measure_text(text: &str, font_data: Option<&FontData>, font_size: f32) ->
 
     FONT_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if !cache.contains_key(&font_key) {
-            if let Ok(font) =
-                fontdue::Font::from_bytes(fd.bytes(), fontdue::FontSettings::default())
-            {
-                cache.insert(font_key, font);
-            } else {
-                return TextMetrics {
-                    width: 0.0,
-                    height: 0.0,
-                    ascent: 0.0,
-                    descent: 0.0,
-                };
+        if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(font_key) {
+            match fontdue::Font::from_bytes(fd.bytes(), fontdue::FontSettings::default()) {
+                Ok(font) => {
+                    e.insert(font);
+                }
+                Err(_) => {
+                    return TextMetrics {
+                        width: 0.0,
+                        height: 0.0,
+                        ascent: 0.0,
+                        descent: 0.0,
+                    };
+                }
             }
         }
 
@@ -238,8 +241,7 @@ pub fn measure_text(text: &str, font_data: Option<&FontData>, font_size: f32) ->
 
         let line_metrics = font.horizontal_line_metrics(font_size);
         let (ascent, descent) = line_metrics
-            .map(|lm| (lm.ascent, -lm.descent))
-            .unwrap_or((font_size * 0.8, font_size * 0.2));
+            .map_or((font_size * 0.8, font_size * 0.2), |lm| (lm.ascent, -lm.descent));
 
         TextMetrics {
             width,

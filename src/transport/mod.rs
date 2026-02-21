@@ -30,6 +30,9 @@
 
 pub mod backend;
 pub mod capabilities;
+pub mod error;
+#[cfg(feature = "kitty")]
+mod kitty_encode;
 #[cfg(feature = "kitty")]
 pub mod kitty;
 

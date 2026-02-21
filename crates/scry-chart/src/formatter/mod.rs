@@ -93,6 +93,7 @@ impl TickFormatter for AutoFormatter {
 /// and format them as `XX.X%`.
 ///
 /// Returns `None` if the values don't look like percentages.
+#[must_use]
 pub fn try_format_as_percent(values: &[f64], domain: (f64, f64)) -> Option<Vec<String>> {
     if values.is_empty() {
         return None;
@@ -251,7 +252,7 @@ pub(crate) fn uniform_precision(labels: Vec<String>) -> Vec<String> {
         .iter()
         .filter_map(|l| {
             // Skip labels with suffixes (K, M, G, %, $, e, etc.)
-            if l.bytes().any(|b| b.is_ascii_alphabetic() || b == b'%') {
+            if l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
                 return None;
             }
             l.find('.').map(|dot| l.len() - dot - 1)
@@ -267,7 +268,7 @@ pub(crate) fn uniform_precision(labels: Vec<String>) -> Vec<String> {
         .into_iter()
         .map(|l| {
             // Only pad plain-number labels
-            if l.bytes().any(|b| b.is_ascii_alphabetic() || b == b'%') {
+            if l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
                 return l;
             }
 
@@ -291,6 +292,7 @@ pub(crate) fn uniform_precision(labels: Vec<String>) -> Vec<String> {
 /// Useful when tick values span different magnitudes (e.g., 0.1, 0.2, 0.30000000000000004).
 /// Formats each value to `sig_digits` significant figures, then pads to uniform
 /// decimal precision.
+#[must_use]
 pub fn uniform_significant_digits(values: &[f64], sig_digits: usize) -> Vec<String> {
     if values.is_empty() {
         return Vec::new();
@@ -331,7 +333,7 @@ fn harmonize_si_labels(labels: Vec<String>) -> Vec<String> {
             si_count += 1;
             let suffix = trimmed.chars().last().unwrap();
             dominant_suffix = Some(suffix);
-        } else if !l.is_empty() && !l.bytes().any(|b| b.is_ascii_alphabetic() || b == b'%') {
+        } else if !l.is_empty() && !l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
             plain_count += 1;
         }
     }
@@ -360,7 +362,7 @@ fn harmonize_si_labels(labels: Vec<String>) -> Vec<String> {
                 return l;
             }
             // Not a plain number — keep as-is
-            if l.bytes().any(|b| b.is_ascii_alphabetic() || b == b'%') {
+            if l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
                 return l;
             }
             // Convert plain number to SI

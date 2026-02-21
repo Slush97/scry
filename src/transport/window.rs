@@ -290,7 +290,7 @@ impl ApplicationHandler for App {
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
-                eprintln!("scry: failed to create window: {e}");
+                crate::scry_error!("scry: failed to create window: {e}");
                 event_loop.exit();
                 return;
             }
@@ -302,7 +302,7 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             Err(e) => {
-                eprintln!("scry: failed to create window backend: {e}");
+                crate::scry_error!("scry: failed to create window backend: {e}");
                 event_loop.exit();
             }
         }
@@ -412,7 +412,7 @@ impl ApplicationHandler for ContinuousApp {
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
-                eprintln!("scry: failed to create window: {e}");
+                crate::scry_error!("scry: failed to create window: {e}");
                 event_loop.exit();
                 return;
             }
@@ -424,7 +424,7 @@ impl ApplicationHandler for ContinuousApp {
                 window.request_redraw();
             }
             Err(e) => {
-                eprintln!("scry: failed to create window backend: {e}");
+                crate::scry_error!("scry: failed to create window backend: {e}");
                 event_loop.exit();
             }
         }

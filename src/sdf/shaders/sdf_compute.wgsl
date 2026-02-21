@@ -32,9 +32,9 @@ struct Uniforms {
     num_objects: u32,
     num_lights: u32,
     has_water: u32,
-    _pad3a: u32,
-    _pad3b: u32,
-    _pad3c: u32,
+    god_rays: u32,
+    god_ray_density: f32,
+    god_ray_samples: u32,
 };
 
 // Object shape types (discriminant)
@@ -52,6 +52,7 @@ const SHAPE_SUBTRACT: u32 = 10u;
 const SHAPE_MANDELBULB: u32 = 11u;
 const SHAPE_MENGER: u32 = 12u;
 const SHAPE_GYROID: u32 = 13u;
+const SHAPE_MORPH: u32 = 14u;
 
 // Material types (discriminant)
 const MAT_SOLID: u32 = 0u;
@@ -60,6 +61,7 @@ const MAT_FIRE: u32 = 2u;
 const MAT_CHECKER: u32 = 3u;
 const MAT_GLASS: u32 = 4u;
 const MAT_RAINBOW: u32 = 5u;
+const MAT_SUBSURFACE: u32 = 6u;
 
 struct GpuObject {
     position: vec3<f32>,
@@ -112,9 +114,9 @@ struct GpuGlyphMeta {
 
 const MAX_DIST: f32 = 50.0;
 const SURF_DIST: f32 = 0.002;
-const NORMAL_EPS: f32 = 0.002;
+const NORMAL_EPS: f32 = 0.005;
 const OMEGA: f32 = 1.6;
-const RELAX_DIST: f32 = 0.1;
+const RELAX_DIST: f32 = 0.02;
 const SHADOW_K: f32 = 16.0;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -391,30 +393,121 @@ fn sample_glyph_sdf(glyph: GpuGlyphMeta, x: f32, y: f32) -> f32 {
         return sqrt(dx * dx + dy * dy) + 0.01;
     }
 
-    // Bilinear interpolation
+    // Catmull-Rom bicubic interpolation (C1 continuous — smooth surface AND gradient)
     let cgx = clamp(gx, 0.0, f32(glyph.grid_width - 1u));
     let cgy = clamp(gy, 0.0, f32(glyph.grid_height - 1u));
-    let ix = u32(cgx);
-    let iy = u32(cgy);
+    let ix = i32(cgx);
+    let iy = i32(cgy);
     let fx = cgx - f32(ix);
     let fy = cgy - f32(iy);
-    let ix1 = min(ix + 1u, glyph.grid_width - 1u);
-    let iy1 = min(iy + 1u, glyph.grid_height - 1u);
+
+    // Catmull-Rom basis weights
+    let fx2 = fx * fx;
+    let fx3 = fx2 * fx;
+    let wx0 = -0.5 * fx3 + fx2 - 0.5 * fx;
+    let wx1 =  1.5 * fx3 - 2.5 * fx2 + 1.0;
+    let wx2 = -1.5 * fx3 + 2.0 * fx2 + 0.5 * fx;
+    let wx3 =  0.5 * fx3 - 0.5 * fx2;
+
+    let fy2 = fy * fy;
+    let fy3 = fy2 * fy;
+    let wy0 = -0.5 * fy3 + fy2 - 0.5 * fy;
+    let wy1 =  1.5 * fy3 - 2.5 * fy2 + 1.0;
+    let wy2 = -1.5 * fy3 + 2.0 * fy2 + 0.5 * fy;
+    let wy3 =  0.5 * fy3 - 0.5 * fy2;
 
     let base = glyph.grid_offset;
-    let w = glyph.grid_width;
-    let d00 = glyph_grids[base + iy * w + ix];
-    let d10 = glyph_grids[base + iy * w + ix1];
-    let d01 = glyph_grids[base + iy1 * w + ix];
-    let d11 = glyph_grids[base + iy1 * w + ix1];
+    let w = i32(glyph.grid_width);
+    let h = i32(glyph.grid_height);
 
-    let d0 = d00 + (d10 - d00) * fx;
-    let d1 = d01 + (d11 - d01) * fx;
-    let grid_dist = d0 + (d1 - d0) * fy;
+    // 4×4 separable convolution with clamped boundary access
+    var grid_dist = 0.0;
+    let wy = array<f32, 4>(wy0, wy1, wy2, wy3);
+    let wx = array<f32, 4>(wx0, wx1, wx2, wx3);
+    for (var jj = 0; jj < 4; jj++) {
+        let sy = clamp(iy + jj - 1, 0, h - 1);
+        var row_val = 0.0;
+        for (var ii = 0; ii < 4; ii++) {
+            let sx = clamp(ix + ii - 1, 0, w - 1);
+            row_val += glyph_grids[u32(i32(base) + sy * w + sx)] * wx[ii];
+        }
+        grid_dist += row_val * wy[jj];
+    }
 
     // Convert from grid-cell units to world units
     let pixels_per_world = f32(glyph.grid_width) / bw;
     return grid_dist / pixels_per_world;
+}
+
+// Gradient of the Catmull-Rom interpolated SDF via central finite differences.
+// Returns vec3(distance, ∂d/∂x, ∂d/∂y) in world units.
+// Uses a half-grid-cell step — since Catmull-Rom is C1 continuous, this gives
+// smooth gradients equivalent to analytical derivatives without the code bloat.
+fn sample_glyph_sdf_gradient(glyph: GpuGlyphMeta, x: f32, y: f32) -> vec3<f32> {
+    let bw = glyph.max_x - glyph.min_x;
+    let bh = glyph.max_y - glyph.min_y;
+    if bw < 1e-10 || bh < 1e-10 {
+        return vec3<f32>(1e6, 0.0, 0.0);
+    }
+    let d = sample_glyph_sdf(glyph, x, y);
+    // Half-grid-cell step in world units — small enough for accuracy,
+    // large enough to span the C1 interpolation smoothly.
+    let hx = 0.5 * bw / f32(glyph.grid_width);
+    let hy = 0.5 * bh / f32(glyph.grid_height);
+    let dx = sample_glyph_sdf(glyph, x + hx, y)
+           - sample_glyph_sdf(glyph, x - hx, y);
+    let dy = sample_glyph_sdf(glyph, x, y + hy)
+           - sample_glyph_sdf(glyph, x, y - hy);
+    return vec3<f32>(d, dx / (2.0 * hx), dy / (2.0 * hy));
+}
+
+
+
+// Analytical normal for extruded Text3D shapes.
+// Uses exact Catmull-Rom bicubic gradient derivatives for C1-smooth normals
+// with zero grid artifacts, regardless of curve tightness.
+fn estimate_text3d_normal(p: vec3<f32>, obj: GpuObject) -> vec3<f32> {
+    let depth = obj.shape_params.x;
+    let total_width = obj.shape_params.y;
+    let ascent = obj.shape_params.z;
+    let descent = obj.shape_params.w;
+
+    let glyph_start = u32(obj.blend_a_params.x);
+    let glyph_count = u32(obj.blend_a_params.y);
+
+    let center_x = total_width * 0.5;
+    let center_y = (ascent - descent) * 0.5;
+    let sample_x = p.x + center_x;
+    let sample_y = p.y + center_y;
+
+    // Find the closest glyph and get its analytical gradient in one pass.
+    var d2d = 1e6;
+    var best_grad = vec2<f32>(0.0, 1.0);
+    for (var i = 0u; i < glyph_count; i++) {
+        let glyph = glyph_meta[glyph_start + i];
+        let gx = sample_x - glyph.x_offset;
+        let result = sample_glyph_sdf_gradient(glyph, gx, sample_y);
+        if result.x < d2d {
+            d2d = result.x;
+            best_grad = result.yz;  // (∂d/∂x, ∂d/∂y)
+        }
+    }
+
+    let dz = abs(p.z) - depth * 0.5;
+    let sign_z = select(-1.0, 1.0, p.z >= 0.0);
+
+    // Normalize the analytical 2D gradient (fallback to +Y if degenerate)
+    let grad_len = length(best_grad);
+    let grad_dir = select(vec2<f32>(0.0, 1.0), best_grad / grad_len, grad_len > 1e-6);
+
+    // Smooth blend between face normal (2D gradient) and cap normal (±Z).
+    // ±0.06 gives a wide enough transition to hide any residual artifacts
+    // at the front-face-to-side-face crease.
+    let blend = smoothstep(-0.06, 0.06, d2d - dz);
+    let face_n = vec3<f32>(grad_dir.x, grad_dir.y, 0.0);
+    let side_n = vec3<f32>(0.0, 0.0, sign_z);
+
+    return normalize(mix(side_n, face_n, blend));
 }
 
 fn sd_text3d(p: vec3<f32>, obj: GpuObject) -> f32 {
@@ -516,6 +609,14 @@ fn shape_sdf(obj: GpuObject, local: vec3<f32>) -> f32 {
         let db = eval_sub_shape(sub_b_type, obj.blend_b_params, local - obj.blend_b_offset);
         return max(da, -db);
     }
+    if obj.shape_type == SHAPE_MORPH {
+        let t = obj.shape_params.x;
+        let sub_a_type = u32(obj.shape_params.y);
+        let sub_b_type = u32(obj.shape_params.z);
+        let da = eval_sub_shape(sub_a_type, obj.blend_a_params, local);
+        let db = eval_sub_shape(sub_b_type, obj.blend_b_params, local);
+        return mix(da, db, t);
+    }
     return eval_sub_shape(obj.shape_type, obj.shape_params, local);
 }
 
@@ -583,6 +684,18 @@ fn estimate_normal(point: vec3<f32>, obj_idx: u32) -> vec3<f32> {
         return water_normal(point.x, point.z, obj.material_params.y, obj.material_params.z);
     }
 
+    // Text3D: use analytical normals from bilinear-interpolated SDF gradient.
+    // This completely avoids finite-difference artifacts on the discrete grid.
+    if obj.shape_type == SHAPE_TEXT3D {
+        // Transform hit point to object-local space
+        var local = point - obj.position;
+        local = quat_rotate(obj.orientation, local);
+        let local_n = estimate_text3d_normal(local, obj);
+        // Rotate the local normal back to world space (inverse of conjugated quat = original quat)
+        let inv_q = vec4<f32>(-obj.orientation.xyz, obj.orientation.w);
+        return normalize(quat_rotate(inv_q, local_n));
+    }
+
     // Tetrahedron technique (4 scene_sdf evals)
     let e = NORMAL_EPS;
     let k0 = vec3<f32>(1.0, -1.0, -1.0);
@@ -628,7 +741,25 @@ fn ray_march(origin: vec3<f32>, dir: vec3<f32>, bounce: u32) -> HitResult {
         let p = origin + dir * t;
         let res = scene_sdf(p);
         if res.dist < SURF_DIST {
-            return HitResult(true, p, res.idx, t);
+            // Bisection refinement: binary search between prev and current t
+            // for sub-grid-cell precision (8 iterations ≈ 1/256 step accuracy)
+            var lo = t - prev_step;
+            var hi = t;
+            var mid_idx = res.idx;
+            for (var b = 0u; b < 8u; b++) {
+                let mid = (lo + hi) * 0.5;
+                let mp = origin + dir * mid;
+                let mr = scene_sdf(mp);
+                mid_idx = mr.idx;
+                if mr.dist < SURF_DIST {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                }
+            }
+            let final_t = (lo + hi) * 0.5;
+            let final_p = origin + dir * final_t;
+            return HitResult(true, final_p, mid_idx, final_t);
         }
         if !always_relax {
             omega = select(1.0, OMEGA, res.dist > RELAX_DIST);
@@ -655,7 +786,7 @@ fn ray_march(origin: vec3<f32>, dir: vec3<f32>, bounce: u32) -> HitResult {
 // Soft shadow using IQ's penumbra technique
 // Returns 1.0 (fully lit) to 0.0 (fully shadowed)
 fn soft_shadow(origin: vec3<f32>, dir: vec3<f32>, max_t: f32, shadow_steps: u32) -> f32 {
-    var t = SURF_DIST * 4.0;
+    var t = SURF_DIST * 16.0;
     var res = 1.0;
     for (var i = 0u; i < shadow_steps; i++) {
         let p = origin + dir * t;
@@ -676,16 +807,21 @@ fn soft_shadow(origin: vec3<f32>, dir: vec3<f32>, max_t: f32, shadow_steps: u32)
 // Ambient occlusion
 // ═══════════════════════════════════════════════════════════════════
 
-fn ambient_occlusion(hit: vec3<f32>, normal: vec3<f32>) -> f32 {
+fn ambient_occlusion(hit: vec3<f32>, normal: vec3<f32>, ao_scale: f32) -> f32 {
     var occ = 0.0;
-    var scale = 1.0;
+    var weight = 1.0;
+    // ao_scale > 1 widens the sampling hemisphere (reduces false occlusion on
+    // thin features like text edges); values < 1 tighten it.
+    let step_base = 0.02 * ao_scale;
     for (var i = 1; i <= 5; i++) {
-        let dist = 0.02 * f32(i);
+        let dist = step_base * f32(i);
         let d = scene_sdf(hit + normal * dist).dist;
-        occ += (dist - d) * scale;
-        scale *= 0.75;
+        occ += (dist - d) * weight;
+        weight *= 0.75;
     }
-    return max(1.0 - clamp(occ, 0.0, 1.0), 0.0);
+    // Dampen the occlusion contribution proportionally to ao_scale so that
+    // larger step radii don't over-darken flat areas.
+    return max(1.0 - clamp(occ / ao_scale, 0.0, 1.0), 0.0);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -738,9 +874,19 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> vec3<f32> {
 
 fn phong_full(hit: vec3<f32>, normal: vec3<f32>, ray_dir: vec3<f32>,
               base_color: vec3<f32>, spec_power: f32, do_shadows: bool) -> vec3<f32> {
+    return phong_full_ex(hit, normal, ray_dir, base_color, spec_power, do_shadows, SURF_DIST * 8.0, 1.0, false);
+}
+
+// Extended Phong with configurable shadow bias, AO scale, and shadow skip.
+// `shadow_bias`    — distance along the normal to offset the shadow ray origin.
+// `ao_scale`       — multiplier for AO sampling radius (>1 = softer).
+// `skip_shadows`   — if true, skip shadow rays entirely (for Text3D self-shadow avoidance).
+fn phong_full_ex(hit: vec3<f32>, normal: vec3<f32>, ray_dir: vec3<f32>,
+                 base_color: vec3<f32>, spec_power: f32, do_shadows: bool,
+                 shadow_bias: f32, ao_scale: f32, skip_shadows: bool) -> vec3<f32> {
     var ao = 1.0;
     if do_shadows {
-        ao = ambient_occlusion(hit, normal);
+        ao = ambient_occlusion(hit, normal, ao_scale);
     }
     var r = base_color.x * u.ambient * ao;
     var g = base_color.y * u.ambient * ao;
@@ -758,8 +904,8 @@ fn phong_full(hit: vec3<f32>, normal: vec3<f32>, ray_dir: vec3<f32>,
         }
 
         var shadow = 1.0;
-        if do_shadows {
-            let shadow_origin = hit + normal * (SURF_DIST * 4.0);
+        if do_shadows && !skip_shadows {
+            let shadow_origin = hit + normal * shadow_bias;
             shadow = soft_shadow(shadow_origin, to_light, light_dist, 32u);
             if shadow < 0.001 {
                 continue;
@@ -923,13 +1069,19 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
         let obj = objects[hit.obj_idx];
         let normal = estimate_normal(hit.point, hit.obj_idx);
         let do_shadows = bounce == 0u;
+        // Text3D shapes: skip self-shadowing entirely (exclude the text
+        // object from shadow rays), use much wider AO sampling to avoid
+        // false darkening at the front-face-to-side-face transition.
+        let is_text = obj.shape_type == SHAPE_TEXT3D;
+        let shadow_bias = select(SURF_DIST * 8.0, SURF_DIST * 64.0, is_text);
+        let ao_scale    = select(1.0, 5.0, is_text);
 
         if obj.material_type == MAT_SOLID {
             let reflectivity = obj.material_params.x;
             let spec_power = obj.material_params.y;
             let base_color = obj.material_color.xyz;
 
-            let shaded = phong_full(hit.point, normal, ray_dir, base_color, spec_power, do_shadows);
+            let shaded = phong_full_ex(hit.point, normal, ray_dir, base_color, spec_power, do_shadows, shadow_bias, ao_scale, is_text);
 
             if reflectivity > 0.01 && bounce < u.max_bounces {
                 // Add (1 - reflectivity) contribution now, continue with reflection
@@ -977,7 +1129,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                                             rrobj.material_color.xyz,
                                             rrobj.material_params.y, false) * tint;
                 } else {
-                    refr_color = u.sky_color.xyz * tint;
+                    refr_color = max(u.sky_color.xyz, vec3<f32>(u.ambient)) * tint;
                 }
             } else {
                 refr_color = refl_color;
@@ -1006,7 +1158,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                 base_color = color_b;
             }
 
-            let shaded = phong_full(hit.point, normal, ray_dir, base_color, spec_power, do_shadows);
+            let shaded = phong_full_ex(hit.point, normal, ray_dir, base_color, spec_power, do_shadows, shadow_bias, ao_scale, is_text);
 
             if reflectivity > 0.01 && bounce < u.max_bounces {
                 accumulated_color += shaded * (1.0 - reflectivity) * attenuation;
@@ -1053,7 +1205,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                 refl_color_g = phong_full(refl_hit_g.point, rn, refl_dir_g,
                                           rbase, robj.material_params.y, false);
             } else {
-                refl_color_g = u.sky_color.xyz;
+                refl_color_g = max(u.sky_color.xyz, vec3<f32>(u.ambient));
             }
 
             // Refraction (with optional chromatic dispersion)
@@ -1086,7 +1238,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                         }
                         let sc = phong_full(rh.point, rn2, rd_r, rb, ro2.material_params.y, false);
                         cr = sc.x * tint.x;
-                    } else { cr = u.sky_color.x * tint.x; }
+                    } else { cr = max(u.sky_color.x, u.ambient) * tint.x; }
                 } else { cr = refl_color_g.x; }
 
                 // Green channel
@@ -1104,7 +1256,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                         }
                         let sc = phong_full(rh.point, rn2, rd_gg, rb, ro2.material_params.y, false);
                         cg = sc.y * tint.y;
-                    } else { cg = u.sky_color.y * tint.y; }
+                    } else { cg = max(u.sky_color.y, u.ambient) * tint.y; }
                 } else { cg = refl_color_g.y; }
 
                 // Blue channel
@@ -1122,7 +1274,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                         }
                         let sc = phong_full(rh.point, rn2, rd_b, rb, ro2.material_params.y, false);
                         cb = sc.z * tint.z;
-                    } else { cb = u.sky_color.z * tint.z; }
+                    } else { cb = max(u.sky_color.z, u.ambient) * tint.z; }
                 } else { cb = refl_color_g.z; }
 
                 refr_color_g = vec3<f32>(cr, cg, cb);
@@ -1140,7 +1292,7 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
                                                   rrobj.material_color.xyz,
                                                   rrobj.material_params.y, false) * tint;
                     } else {
-                        refr_color_g = u.sky_color.xyz * tint;
+                        refr_color_g = max(u.sky_color.xyz, vec3<f32>(u.ambient)) * tint;
                     }
                 } else {
                     refr_color_g = refl_color_g;
@@ -1159,16 +1311,49 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
             accumulated_color += glass_color * attenuation;
             break;
         } else if obj.material_type == MAT_RAINBOW {
-            // Rainbow: angular HSL mapping from local object space
+            // Rainbow: HSL mapping from local object space
             let local_r = hit.point - obj.position;
-            let angle = atan2(local_r.z, local_r.x);
             let hue_offset = obj.material_params.z;
-            let hue = angle / 6.283185 + 0.5 + hue_offset / 6.283185;
+            var hue: f32;
+            if obj.shape_type == SHAPE_TEXT3D {
+                // Text3D: use x-position for smooth left-to-right gradient
+                let text_width = obj.shape_params.y;
+                let half_w = text_width * 0.5;
+                hue = clamp((local_r.x + half_w) / max(text_width, 0.001), 0.0, 1.0) + hue_offset / 6.283185;
+            } else {
+                // Other shapes: angular mapping
+                let angle = atan2(local_r.z, local_r.x);
+                hue = angle / 6.283185 + 0.5 + hue_offset / 6.283185;
+            }
             let base_color = hsl_to_rgb(hue, obj.material_params.x, obj.material_params.y);
             let spec_power = obj.material_params.w;
 
-            let shaded = phong_full(hit.point, normal, ray_dir, base_color, spec_power, do_shadows);
+            let shaded = phong_full_ex(hit.point, normal, ray_dir, base_color, spec_power, do_shadows, shadow_bias, ao_scale, is_text);
             accumulated_color += shaded * attenuation;
+            break;
+        } else if obj.material_type == MAT_SUBSURFACE {
+            // Subsurface scattering: Phong front-lighting + SDF thickness back-illumination
+            let sss_thickness = obj.material_params.x;
+            let spec_power = obj.material_params.y;
+            let surface_color = obj.material_color.xyz;
+            let scatter_color = obj.blend_a_params.xyz;
+
+            let front_shaded = phong_full_ex(hit.point, normal, ray_dir, surface_color, spec_power, do_shadows, shadow_bias, ao_scale, is_text);
+
+            // SSS: for each light, estimate thickness via SDF and add back-illumination
+            var sss_accum = vec3<f32>(0.0);
+            for (var li = 0u; li < u.num_lights; li++) {
+                let light = lights[li];
+                let to_light = normalize(light.position - hit.point);
+                let sample_pt = hit.point + to_light * sss_thickness;
+                let thickness_d = scene_sdf(sample_pt).dist;
+                let sss_factor = exp(-abs(thickness_d) * 3.0);
+                let n_dot_l_inv = max(dot(-normal, to_light), 0.0);
+                let contribution = sss_factor * n_dot_l_inv * light.intensity;
+                sss_accum += scatter_color * light.color.xyz * contribution;
+            }
+
+            accumulated_color += min(front_shaded + sss_accum, vec3<f32>(1.0)) * attenuation;
             break;
         } else {
             // Fire surface hit — faint glow
@@ -1182,6 +1367,33 @@ fn shade_pixel(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
     if fire_color.w > 0.01 {
         let inv_a = 1.0 - fire_color.w;
         accumulated_color = fire_color.xyz + accumulated_color * inv_a;
+    }
+
+    // Volumetric god rays (primary ray only)
+    if u.god_rays != 0u {
+        var god_ray_accum = vec3<f32>(0.0);
+        let max_march_t = 20.0; // don't march beyond reasonable distance
+        let gr_step = max_march_t / f32(u.god_ray_samples);
+        for (var gi = 0u; gi < u.god_ray_samples; gi++) {
+            let gt = gr_step * (f32(gi) + 0.5);
+            let gp = origin + dir * gt;
+            let gd = scene_sdf(gp).dist;
+            if gd < 0.0 {
+                continue; // inside geometry
+            }
+            for (var li = 0u; li < u.num_lights; li++) {
+                let light = lights[li];
+                let to_light = light.position - gp;
+                let light_dist = length(to_light);
+                let light_dir = to_light / light_dist;
+                let shadow = soft_shadow(gp, light_dir, light_dist, 8u);
+                if shadow > 0.01 {
+                    let contribution = u.god_ray_density * gr_step * shadow * light.intensity * 0.02;
+                    god_ray_accum += light.color.xyz * contribution;
+                }
+            }
+        }
+        accumulated_color = min(accumulated_color + god_ray_accum, vec3<f32>(1.0));
     }
 
     return vec4<f32>(accumulated_color, alpha);

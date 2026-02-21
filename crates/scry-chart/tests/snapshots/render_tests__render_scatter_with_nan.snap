@@ -2,17 +2,16 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 32 commands
-text_labels: 12
-  [0] 1
-  [1] 2
-  [2] 3
-  [3] 4
-  [4] 5
-  [5] 1
-  [6] 2
-  [7] 4
-  [8] 6
-  [9] 8
-  [10] 9
-  [11] NaN Data
+canvas: 400x300, 31 commands
+text_labels: 11
+  [0] 2
+  [1] 3
+  [2] 4
+  [3] 5
+  [4] 1
+  [5] 2
+  [6] 4
+  [7] 6
+  [8] 8
+  [9] 9
+  [10] NaN Data

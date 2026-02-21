@@ -504,10 +504,225 @@ fn main() -> Result<(), String> {
         eprintln!("  ✓ Theme: {theme_name} — {idx} charts");
     }
 
+    // =============================================================
+    // FEATURE SHOWCASE (dark theme only — demonstrates builder APIs)
+    // =============================================================
+    {
+        let theme = Theme::dark();
+        let mut fidx = 0u32;
+        let mut femit = |label: &str, chart: Chart, w: u32, h: u32| -> Result<(), String> {
+            fidx += 1;
+            let name = format!("showcase_{fidx:02}_{}", label.replace(' ', "_").replace('—', "-").replace('±', "pm").to_lowercase());
+            save_png(&chart, w, h, format!("{dir}/{name}.png"))?;
+            html_entries.push(ChartEntry {
+                name: name.clone(),
+                label: label.to_string(),
+                width: w,
+                height: h,
+            });
+            count += 1;
+            Ok(())
+        };
+
+        // F1. Annotations
+        femit("Annotations",
+            Charts::line(&[2.0, 5.0, 3.0, 8.0, 6.0, 4.0, 9.0, 7.0])
+                .title("Line with Annotations")
+                .x_label("Time").y_label("Value")
+                .annotate(3.0, 8.0, "Peak")
+                .annotate(6.0, 9.0, "New Peak")
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F2. Trend line
+        femit("Trend Line",
+            Charts::scatter(
+                &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+                &[2.5, 3.8, 3.0, 5.2, 4.8, 6.1, 5.5, 7.3, 7.0, 8.5],
+            )
+                .title("Scatter with Trend Line")
+                .x_label("X").y_label("Y")
+                .trend_line()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F3. Reference lines
+        femit("Reference Lines",
+            Charts::line(&[10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 30.0])
+                .title("Line with Reference Lines")
+                .x_label("Month").y_label("Revenue ($K)")
+                .h_line(30.0)
+                .h_line_styled(20.0, scry_engine::style::Color::from_rgba8(255, 100, 100, 180))
+                .v_line(3.0)
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F4. Secondary Y axis
+        femit("Secondary Y Axis",
+            LineChart::new(vec![
+                Series::new("Temperature (°C)", vec![22.0, 24.0, 28.0, 26.0, 23.0, 25.0, 27.0]),
+                Series::new("Humidity (%)", vec![60.0, 55.0, 45.0, 50.0, 65.0, 58.0, 48.0]),
+            ])
+                .title("Dual Axis — Temperature vs Humidity")
+                .x_label("Day").y_label("Temperature (°C)")
+                .secondary_y_label("Humidity (%)")
+                .secondary_axis(&[1])
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F5. Stepped line
+        femit("Stepped Line",
+            Charts::line(&[1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 5.0, 5.0, 4.0, 4.0])
+                .title("Stepped Line Chart")
+                .x_label("Time").y_label("State")
+                .step()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F6. Stacked area
+        femit("Stacked Area",
+            LineChart::new(vec![
+                Series::new("Backend", vec![10.0, 12.0, 15.0, 14.0, 18.0, 20.0, 22.0]),
+                Series::new("Frontend", vec![8.0, 10.0, 12.0, 15.0, 14.0, 16.0, 18.0]),
+                Series::new("DevOps", vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0]),
+            ])
+                .title("Team Headcount — Stacked Area")
+                .x_label("Quarter").y_label("People")
+                .filled().stacked()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F7. Smooth + filled + points
+        femit("Smooth Filled Points",
+            Charts::line(&[3.0, 7.0, 5.0, 11.0, 8.0, 14.0, 10.0])
+                .title("Smooth + Filled + Points")
+                .x_label("X").y_label("Y")
+                .smooth().filled().with_points()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F8. Grouped bar with values
+        femit("Grouped Bar Values",
+            BarChart::new(
+                vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
+                vec![
+                    Series::new("2024", vec![45.0, 52.0, 48.0, 60.0]),
+                    Series::new("2025", vec![50.0, 58.0, 55.0, 68.0]),
+                ],
+            )
+                .title("Revenue by Quarter — Grouped")
+                .y_label("Revenue ($K)")
+                .show_values()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F9. Stacked bar
+        femit("Stacked Bar",
+            BarChart::new(
+                vec!["Jan".into(), "Feb".into(), "Mar".into(), "Apr".into(), "May".into()],
+                vec![
+                    Series::new("Product A", vec![20.0, 25.0, 22.0, 28.0, 30.0]),
+                    Series::new("Product B", vec![15.0, 18.0, 20.0, 22.0, 25.0]),
+                    Series::new("Product C", vec![8.0, 10.0, 12.0, 14.0, 16.0]),
+                ],
+            )
+                .title("Monthly Sales — Stacked")
+                .y_label("Units Sold")
+                .stacked()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F10. Donut pie
+        femit("Donut Chart",
+            Charts::pie(
+                vec!["Mobile".into(), "Desktop".into(), "Tablet".into(), "Other".into()],
+                &[55.0, 30.0, 10.0, 5.0],
+            )
+                .title("Traffic Source — Donut")
+                .donut(0.5)
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F11. Legend customization
+        femit("Legend Outside Right",
+            LineChart::new(vec![
+                Series::new("Alpha", vec![1.0, 3.0, 2.0, 5.0, 4.0]),
+                Series::new("Beta", vec![2.0, 1.0, 4.0, 3.0, 6.0]),
+                Series::new("Gamma", vec![3.0, 2.0, 1.0, 4.0, 5.0]),
+                Series::new("Delta", vec![1.5, 2.5, 3.5, 2.0, 3.0]),
+                Series::new("Epsilon", vec![4.0, 3.0, 2.0, 1.0, 2.5]),
+                Series::new("Zeta", vec![2.0, 4.0, 3.0, 5.0, 4.5]),
+            ])
+                .title("6-Series — Legend Outside Right")
+                .x_label("Time").y_label("Value")
+                .legend_outside_right()
+                .legend_columns(2)
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F12. SI formatter on large values
+        femit("SI Formatter",
+            Charts::line(&[1_500_000.0, 2_300_000.0, 1_800_000.0, 3_100_000.0, 2_700_000.0])
+                .title("Revenue — SI Formatted Axis")
+                .x_label("Quarter").y_label("Revenue")
+                .y_formatter(scry_chart::formatter::SiFormatter::default())
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F13. Tick rotation
+        femit("Tick Rotation 45°",
+            Charts::bar(
+                (0..15).map(|i| format!("Category_{i}")).collect(),
+                &(0..15).map(|i| 10.0 + (i as f64 * 0.7).sin() * 8.0).collect::<Vec<_>>(),
+            )
+                .title("Bar Chart — Diagonal Tick Labels")
+                .y_label("Value")
+                .x_ticks_diagonal()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F14. European locale
+        femit("European Locale",
+            Charts::line(&[1234.5, 2567.8, 1890.3, 3456.7, 2789.1])
+                .title("Line — European Number Format")
+                .x_label("Year").y_label("Umsatz (€)")
+                .european_locale()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F15. Error bars on scatter
+        femit("Error Bars",
+            ScatterChart::new(
+                Series::from_values(vec![1.0, 2.0, 3.0, 4.0, 5.0]),
+                Series::from_values(vec![2.3, 4.1, 3.5, 7.2, 5.8])
+                    .with_error(vec![0.5, 0.8, 0.3, 1.0, 0.6]),
+            )
+                .title("Scatter with Error Bars")
+                .x_label("Experiment").y_label("Result ± σ")
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        // F16. Dashed multi-series
+        femit("Dashed Lines",
+            LineChart::new(vec![
+                Series::new("Actual", vec![10.0, 15.0, 12.0, 20.0, 18.0, 25.0]),
+                Series::new("Forecast", vec![11.0, 14.0, 16.0, 19.0, 22.0, 24.0]),
+            ])
+                .title("Actual vs Forecast — Dashed")
+                .x_label("Month").y_label("Sales")
+                .dash_lines()
+                .theme(theme.clone()).build(),
+            800, 500)?;
+
+        eprintln!("  ✓ Feature Showcase — {fidx} charts");
+    }
+
     // ---------------------------------------------------------------
     // Generate HTML gallery with feedback
     // ---------------------------------------------------------------
-    let charts_per_theme = html_entries.len() / themes.len();
+    // Theme entries are 40 charts × 9 themes; showcase entries come after.
+    let charts_per_theme = 40_usize;
+    let theme_entry_count = charts_per_theme * themes.len();
     let theme_names = ["dark", "light", "pastel", "ocean", "forest", "colorblind", "academic", "presentation", "monochrome"];
 
     let mut html = String::with_capacity(256 * 1024);
@@ -651,11 +866,12 @@ fn main() -> Result<(), String> {
 </head>
 <body>
 <h1>Scry Chart Gallery</h1>
-<p class="meta">{count} charts — {themes} themes × {per} chart types + edge cases</p>
+<p class="meta">{count} charts — {themes} themes × {per} chart types + edge cases + {showcase} feature demos</p>
 "#,
     themes = theme_names.len(),
     per = charts_per_theme,
     count = count,
+    showcase = if html_entries.len() > theme_entry_count { html_entries.len() - theme_entry_count } else { 0 },
     ));
 
     // Filter buttons
@@ -667,6 +883,7 @@ fn main() -> Result<(), String> {
             capitalize(tn)
         ));
     }
+    html.push_str("<button onclick=\"filterTheme('showcase')\">✨ Feature Showcase</button>\n");
     html.push_str("</div>\n");
 
     // Group entries by theme
@@ -679,6 +896,33 @@ fn main() -> Result<(), String> {
         html.push_str(&format!("<h2>Theme: {}</h2>\n<div class=\"grid\">\n", capitalize(tn)));
 
         for entry in entries {
+            let chart_id = &entry.name;
+            html.push_str(&format!(
+                r#"<div class="card">
+<img src="{chart_id}.png" loading="lazy" alt="{label}">
+<div class="card-info">
+  <span class="label">{label}</span>
+  <span class="size">{w}×{h}</span>
+</div>
+<div class="feedback">
+  <textarea id="fb_{chart_id}" placeholder="Feedback for this chart…" oninput="onFeedback(this)"></textarea>
+</div>
+</div>
+"#,
+                label = entry.label,
+                w = entry.width,
+                h = entry.height,
+            ));
+        }
+        html.push_str("</div>\n</div>\n");
+    }
+
+    // Showcase entries (after theme entries)
+    if html_entries.len() > theme_entry_count {
+        let showcase_entries = &html_entries[theme_entry_count..];
+        html.push_str("<div class=\"theme-section\" data-theme=\"showcase\">\n");
+        html.push_str("<h2>✨ Feature Showcase</h2>\n<div class=\"grid\">\n");
+        for entry in showcase_entries {
             let chart_id = &entry.name;
             html.push_str(&format!(
                 r#"<div class="card">

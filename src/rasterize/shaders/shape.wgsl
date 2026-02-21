@@ -14,7 +14,8 @@ struct InstanceInput {
     @location(1) size: vec4<f32>,          // shape-type-dependent params
     @location(2) fill_color: vec4<f32>,    // RGBA [0,1]
     @location(3) stroke_color: vec4<f32>,  // RGBA [0,1]
-    @location(4) stroke_width_type: vec2<f32>, // (stroke_width, shape_type)
+    @location(4) stroke_width: f32,        // stroke width in pixels
+    @location(5) shape_type: u32,          // 0=circle, 1=rect, 2=ellipse
 };
 
 struct VertexOutput {
@@ -23,7 +24,8 @@ struct VertexOutput {
     @location(1) fill_color: vec4<f32>,
     @location(2) stroke_color: vec4<f32>,
     @location(3) half_size: vec2<f32>,     // half-width, half-height of bounding box
-    @location(4) params: vec4<f32>,        // (corner_radius, stroke_width, shape_type, rotation)
+    @location(4) params: vec3<f32>,        // (corner_radius, stroke_width, rotation)
+    @location(5) @interpolate(flat) shape_type: u32,
 };
 
 struct Uniforms {
@@ -49,31 +51,35 @@ fn vs_main(
     );
 
     let uv = positions[vertex_index];
-    let shape_type = inst.stroke_width_type.y;
-    let stroke_width = inst.stroke_width_type.x;
+    let shape_type = inst.shape_type;
+    let stroke_width = inst.stroke_width;
 
     var center: vec2<f32>;
     var half_size: vec2<f32>;
     var corner_radius: f32 = 0.0;
     var rotation: f32 = 0.0;
 
-    if shape_type < 0.5 {
-        // Circle: pos = center, size.x = radius
-        center = inst.pos;
-        let r = inst.size.x;
-        half_size = vec2<f32>(r, r);
-    } else if shape_type < 1.5 {
-        // Rectangle: pos = top-left, size = (w, h, corner_radius, 0)
-        let w = inst.size.x;
-        let h = inst.size.y;
-        center = inst.pos + vec2<f32>(w * 0.5, h * 0.5);
-        half_size = vec2<f32>(w * 0.5, h * 0.5);
-        corner_radius = inst.size.z;
-    } else {
-        // Ellipse: pos = center, size = (rx, ry, rotation, 0)
-        center = inst.pos;
-        half_size = vec2<f32>(inst.size.x, inst.size.y);
-        rotation = inst.size.z;
+    switch shape_type {
+        case 0u: {
+            // Circle: pos = center, size.x = radius
+            center = inst.pos;
+            let r = inst.size.x;
+            half_size = vec2<f32>(r, r);
+        }
+        case 1u: {
+            // Rectangle: pos = top-left, size = (w, h, corner_radius, 0)
+            let w = inst.size.x;
+            let h = inst.size.y;
+            center = inst.pos + vec2<f32>(w * 0.5, h * 0.5);
+            half_size = vec2<f32>(w * 0.5, h * 0.5);
+            corner_radius = inst.size.z;
+        }
+        default: {
+            // Ellipse: pos = center, size = (rx, ry, rotation, 0)
+            center = inst.pos;
+            half_size = vec2<f32>(inst.size.x, inst.size.y);
+            rotation = inst.size.z;
+        }
     }
 
     // Expand quad by half_size + stroke + 1px for AA
@@ -104,7 +110,8 @@ fn vs_main(
     out.fill_color = inst.fill_color;
     out.stroke_color = inst.stroke_color;
     out.half_size = half_size;
-    out.params = vec4<f32>(corner_radius, stroke_width, shape_type, rotation);
+    out.params = vec3<f32>(corner_radius, stroke_width, rotation);
+    out.shape_type = shape_type;
     return out;
 }
 
@@ -116,10 +123,10 @@ fn sd_round_rect(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let shape_type = in.params.z;
+    let shape_type = in.shape_type;
     let corner_radius = in.params.x;
     let stroke_width = in.params.y;
-    let rotation = in.params.w;
+    let rotation = in.params.z;
 
     // Compute local position (undo rotation if applied)
     var lp = in.local_pos;
@@ -134,18 +141,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var dist: f32;
 
-    if shape_type < 0.5 {
-        // Circle SDF
-        dist = length(lp) - in.half_size.x;
-    } else if shape_type < 1.5 {
-        // Rounded rectangle SDF
-        dist = sd_round_rect(lp, in.half_size, corner_radius);
-    } else {
-        // Ellipse SDF (approximation via normalized-space circle)
-        let normalized = lp / in.half_size;
-        let norm_dist = length(normalized) - 1.0;
-        // Scale back to pixel space using average radius for AA
-        dist = norm_dist * min(in.half_size.x, in.half_size.y);
+    switch shape_type {
+        case 0u: {
+            // Circle SDF
+            dist = length(lp) - in.half_size.x;
+        }
+        case 1u: {
+            // Rounded rectangle SDF
+            dist = sd_round_rect(lp, in.half_size, corner_radius);
+        }
+        default: {
+            // Ellipse SDF (approximation via normalized-space circle)
+            let normalized = lp / in.half_size;
+            let norm_dist = length(normalized) - 1.0;
+            dist = norm_dist * min(in.half_size.x, in.half_size.y);
+        }
     }
 
     // Outside shape + stroke: discard

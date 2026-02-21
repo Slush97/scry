@@ -2,18 +2,17 @@
 source: crates/scry-chart/tests/render_tests.rs
 expression: summarize(&rendered)
 ---
-canvas: 400x300, 34 commands
-text_labels: 13
-  [0] 0
-  [1] 1
-  [2] 2
-  [3] 3
-  [4] 4
-  [5] 5
-  [6] 6
-  [7] 0.0
-  [8] 2.5
-  [9] 5.0
-  [10] 7.5
-  [11] 9.0
-  [12] Diagonal Ticks
+canvas: 400x300, 33 commands
+text_labels: 12
+  [0] 1
+  [1] 2
+  [2] 3
+  [3] 4
+  [4] 5
+  [5] 6
+  [6] 0.0
+  [7] 2.5
+  [8] 5.0
+  [9] 7.5
+  [10] 9.0
+  [11] Diagonal Ticks

@@ -99,32 +99,14 @@ impl RasterPipeline {
         }
 
         // Get or allocate the pixmap
-        let (pixmap_opt, gc) = self
+        let (pixmap_opt, _gc) = self
             .cache
             .get_or_insert_with_grad_cache(canvas.width(), canvas.height());
         let pixmap = pixmap_opt?;
 
-        // Use the backend to rasterize
-        match self.backend.rasterize(canvas) {
-            Ok(result) => {
-                // Copy GPU/CPU result into the cache pixmap
-                if result.pixmap.width() == pixmap.width()
-                    && result.pixmap.height() == pixmap.height()
-                {
-                    pixmap.data_mut().copy_from_slice(result.pixmap.data());
-                } else {
-                    // Dimension mismatch (shouldn't happen), fall back to CPU
-                    crate::rasterize::Rasterizer::rasterize_into_cached(canvas, pixmap, gc);
-                }
-            }
-            Err(_e) => {
-                // Backend error — CPU fallback (always works)
-                if crate::scry_debug_enabled() {
-                    eprintln!("[scry] rasterize failed, using CPU fallback: {_e}");
-                }
-                crate::rasterize::Rasterizer::rasterize_into_cached(canvas, pixmap, gc);
-            }
-        }
+        // Render directly into the cache pixmap (avoids throwaway Pixmap allocation).
+        // `rasterize_into` handles GPU→CPU fallback internally.
+        self.backend.rasterize_into(canvas, pixmap);
 
         let store_hash = Self::compute_store_hash(skip_cache, content_hash);
         self.cache.mark_valid(store_hash);

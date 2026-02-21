@@ -79,30 +79,16 @@ pub struct SdfRenderResult {
 pub struct SdfPipeline {
     /// GPU context (None = not yet tried, Some(None) = tried and failed).
     #[cfg(feature = "sdf-gpu")]
+    #[allow(clippy::option_option)]
     gpu_ctx: Option<Option<super::gpu_renderer::SdfGpuContext>>,
-    /// Whether GPU is currently active.
-    gpu_active: bool,
+    /// GPU health monitor for coordinated GPU/CPU decisions.
+    health: crate::gpu::SharedHealthMonitor,
     /// Render scale factor (0.0..=1.0). Below 1.0, renders at reduced
     /// resolution and upscales with bicubic interpolation.
     render_scale: f32,
-    /// Previous frame's GPU result (for the double-buffer pipeline).
-    prev_image: Option<ImageData>,
-    /// Whether a GPU submission is in-flight.
+    /// Frame state machine for double-buffered GPU rendering.
     #[cfg(feature = "sdf-gpu")]
-    gpu_submitted: bool,
-    /// Dimensions of the in-flight GPU render.
-    #[cfg(feature = "sdf-gpu")]
-    pending_render_w: u32,
-    #[cfg(feature = "sdf-gpu")]
-    pending_render_h: u32,
-    /// Full output dimensions (before render scale).
-    #[cfg(feature = "sdf-gpu")]
-    pending_full_w: u32,
-    #[cfg(feature = "sdf-gpu")]
-    pending_full_h: u32,
-    /// Reusable readback buffer.
-    #[cfg(feature = "sdf-gpu")]
-    readback_buf: Vec<u8>,
+    frame_graph: super::frame_graph::SdfFrameGraph,
     /// Background thread handle for async GPU init.
     #[cfg(feature = "sdf-gpu")]
     gpu_init_handle: Option<std::thread::JoinHandle<Option<super::gpu_renderer::SdfGpuContext>>>,
@@ -130,12 +116,9 @@ impl SdfPipeline {
             glog!("[gpu-thread] thread started");
             let t0 = std::time::Instant::now();
             glog!("[gpu-thread] calling GpuDevice::global()...");
-            let gpu = match GpuDevice::global() {
-                Some(g) => g,
-                None => {
-                    glog!("[gpu-thread] GpuDevice::global() returned None after {:?}", t0.elapsed());
-                    return None;
-                }
+            let Some(gpu) = GpuDevice::global() else {
+                glog!("[gpu-thread] GpuDevice::global() returned None after {:?}", t0.elapsed());
+                return None;
             };
             glog!("[gpu-thread] device ready in {:?}: {} ({} {})",
                 t0.elapsed(), gpu.info().adapter_name, gpu.info().backend, gpu.info().device_type);
@@ -156,21 +139,10 @@ impl SdfPipeline {
         Self {
             #[cfg(feature = "sdf-gpu")]
             gpu_ctx: None,
-            gpu_active: false,
+            health: crate::gpu::health::shared_health_monitor(),
             render_scale: 1.0,
-            prev_image: None,
             #[cfg(feature = "sdf-gpu")]
-            gpu_submitted: false,
-            #[cfg(feature = "sdf-gpu")]
-            pending_render_w: 0,
-            #[cfg(feature = "sdf-gpu")]
-            pending_render_h: 0,
-            #[cfg(feature = "sdf-gpu")]
-            pending_full_w: 0,
-            #[cfg(feature = "sdf-gpu")]
-            pending_full_h: 0,
-            #[cfg(feature = "sdf-gpu")]
-            readback_buf: Vec::new(),
+            frame_graph: super::frame_graph::SdfFrameGraph::new(),
             #[cfg(feature = "sdf-gpu")]
             gpu_init_handle,
         }
@@ -189,18 +161,58 @@ impl SdfPipeline {
             return;
         };
         if handle.is_finished() {
-            match handle.join() {
-                Ok(Some(ctx)) => {
-                    self.gpu_ctx = Some(Some(ctx));
-                    self.gpu_active = true;
+            if let Ok(Some(ctx)) = handle.join() {
+                self.gpu_ctx = Some(Some(ctx));
+                // Report GPU init success to health monitor
+                if let Ok(mut h) = self.health.lock() {
+                    h.mark_initialized();
                 }
-                _ => {
-                    self.gpu_ctx = Some(None);
+            } else {
+                self.gpu_ctx = Some(None);
+                // Report GPU init failure to health monitor
+                if let Ok(mut h) = self.health.lock() {
+                    h.mark_init_failed();
                 }
             }
         } else {
             // Still compiling — put the handle back, use CPU this frame
             self.gpu_init_handle = Some(handle);
+        }
+    }
+
+    /// Block-wait for the background GPU init thread to finish (with timeout).
+    ///
+    /// Unlike `ensure_gpu()` which returns immediately if the thread is still
+    /// running, this waits up to 10 seconds for GPU shader compilation.
+    /// Falls back to CPU if the timeout expires.
+    #[cfg(feature = "sdf-gpu")]
+    #[allow(dead_code)] // Synchronous counterpart of ensure_gpu(); kept for future CLI/batch use.
+    fn await_gpu(&mut self) {
+        if self.gpu_ctx.is_some() {
+            return;
+        }
+        let Some(handle) = self.gpu_init_handle.take() else {
+            return;
+        };
+        // Wait up to 10s for shader compilation, then fall back to CPU
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !handle.is_finished() {
+            if std::time::Instant::now() >= deadline {
+                self.gpu_init_handle = Some(handle);
+                return; // CPU fallback; next call to ensure_gpu may pick it up
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if let Ok(Some(ctx)) = handle.join() {
+            self.gpu_ctx = Some(Some(ctx));
+            if let Ok(mut h) = self.health.lock() {
+                h.mark_initialized();
+            }
+        } else {
+            self.gpu_ctx = Some(None);
+            if let Ok(mut h) = self.health.lock() {
+                h.mark_init_failed();
+            }
         }
     }
 
@@ -210,21 +222,10 @@ impl SdfPipeline {
         Self {
             #[cfg(feature = "sdf-gpu")]
             gpu_ctx: Some(None),
-            gpu_active: false,
+            health: crate::gpu::health::shared_cpu_only_monitor(),
             render_scale: 1.0,
-            prev_image: None,
             #[cfg(feature = "sdf-gpu")]
-            gpu_submitted: false,
-            #[cfg(feature = "sdf-gpu")]
-            pending_render_w: 0,
-            #[cfg(feature = "sdf-gpu")]
-            pending_render_h: 0,
-            #[cfg(feature = "sdf-gpu")]
-            pending_full_w: 0,
-            #[cfg(feature = "sdf-gpu")]
-            pending_full_h: 0,
-            #[cfg(feature = "sdf-gpu")]
-            readback_buf: Vec::new(),
+            frame_graph: super::frame_graph::SdfFrameGraph::new(),
             #[cfg(feature = "sdf-gpu")]
             gpu_init_handle: None,
         }
@@ -254,7 +255,7 @@ impl SdfPipeline {
     /// Whether the GPU backend is active.
     #[must_use]
     pub fn is_gpu_active(&self) -> bool {
-        self.gpu_active
+        self.health.lock().is_ok_and(|h| h.is_gpu_available())
     }
 
     /// Human-readable name of the active SDF backend.
@@ -264,7 +265,7 @@ impl SdfPipeline {
         if self.gpu_ctx.is_none() {
             return "pending (GPU init deferred)";
         }
-        if self.gpu_active {
+        if self.health.lock().is_ok_and(|h| h.is_gpu_available()) {
             "wgpu SDF compute"
         } else {
             "CPU ray march"
@@ -290,15 +291,16 @@ impl SdfPipeline {
                 }
             }
             if active && self.gpu_ctx.as_ref().and_then(|o| o.as_ref()).is_some() {
-                self.gpu_active = true;
-            } else {
-                self.gpu_active = false;
+                if let Ok(mut h) = self.health.lock() {
+                    h.mark_initialized();
+                }
+            } else if let Ok(mut h) = self.health.lock() {
+                h.mark_init_failed();
             }
         }
         #[cfg(not(feature = "sdf-gpu"))]
         {
             let _ = active;
-            self.gpu_active = false;
         }
     }
 
@@ -343,83 +345,36 @@ impl SdfPipeline {
         };
 
         // ── Phase 1: Readback previous GPU frame (if any) ──
-        self.readback_pending();
+        #[cfg(feature = "sdf-gpu")]
+        if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
+            self.frame_graph.readback_pending(ctx, &self.health);
+        }
 
         // ── Phase 2: Submit new GPU work ──
         #[cfg(feature = "sdf-gpu")]
-        if self.gpu_active {
-            if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
-                if super::gpu_renderer::SdfGpuRenderer::submit(
-                    ctx, scene, render_w, render_h, time,
-                )
-                .is_ok()
-                {
-                    self.gpu_submitted = true;
-                    self.pending_render_w = render_w;
-                    self.pending_render_h = render_h;
-                    self.pending_full_w = width;
-                    self.pending_full_h = height;
+        {
+            let use_gpu = self.health.lock().is_ok_and(|mut h| h.should_use_gpu_sdf());
+            if use_gpu {
+                if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
+                    self.frame_graph.submit(
+                        ctx, scene, render_w, render_h, width, height, time, &self.health,
+                    );
                 }
             }
         }
 
-        // ── Phase 3: Return previous frame, GPU sync, or CPU fallback ──
-        if let Some(image) = self.prev_image.take() {
-            SdfRenderResult {
+        // ── Phase 3: Return previous frame or CPU fallback ──
+        #[cfg(feature = "sdf-gpu")]
+        if let Some(image) = self.frame_graph.take_prev_result() {
+            return SdfRenderResult {
                 width: image.width(),
                 height: image.height(),
                 image,
                 backend: SdfBackend::Gpu,
-            }
-        } else {
-            // First frame: use synchronous GPU render if available,
-            // otherwise fall back to CPU.
-            #[cfg(feature = "sdf-gpu")]
-            if self.gpu_submitted {
-                // We just submitted GPU work above — do a blocking readback
-                // instead of wasting time on a CPU render.
-                self.gpu_submitted = false;
-                if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
-                    if render_w == width && render_h == height {
-                        if super::gpu_renderer::SdfGpuRenderer::readback_into(
-                            ctx,
-                            render_w,
-                            render_h,
-                            &mut self.readback_buf,
-                        )
-                        .is_ok()
-                        {
-                            let data = std::mem::take(&mut self.readback_buf);
-                            let image = ImageData::new(width, height, data);
-                            return SdfRenderResult {
-                                width,
-                                height,
-                                image,
-                                backend: SdfBackend::Gpu,
-                            };
-                        }
-                    } else if let Ok(pm) =
-                        super::gpu_renderer::SdfGpuRenderer::readback(ctx, render_w, render_h)
-                    {
-                        let upscaled = crate::sdf::upscale::upscale_bicubic(
-                            pm.data(),
-                            render_w,
-                            render_h,
-                            width,
-                            height,
-                        );
-                        let image = ImageData::new(width, height, upscaled);
-                        return SdfRenderResult {
-                            width,
-                            height,
-                            image,
-                            backend: SdfBackend::Gpu,
-                        };
-                    }
-                }
-            }
-            self.render_cpu(scene, width, height, render_w, render_h, time)
+            };
         }
+
+        self.render_cpu(scene, width, height, render_w, render_h, time)
     }
 
     /// Render synchronously (blocking), without the double-buffer pipeline.
@@ -450,29 +405,37 @@ impl SdfPipeline {
 
         // Try GPU first (blocking submit + readback)
         #[cfg(feature = "sdf-gpu")]
-        if self.gpu_active {
-            if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
-                if let Ok(pixmap) = super::gpu_renderer::SdfGpuRenderer::render_to_pixmap(
-                    ctx, scene, render_w, render_h, time,
-                ) {
-                    let image = if render_w != width || render_h != height {
-                        let upscaled = crate::sdf::upscale::upscale_bicubic(
-                            pixmap.data(),
-                            render_w,
-                            render_h,
+        {
+            let use_gpu = self.health.lock().is_ok_and(|h| h.is_gpu_available());
+            if use_gpu {
+                if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
+                    if let Ok(pixmap) = super::gpu_renderer::SdfGpuRenderer::render_to_pixmap(
+                        ctx, scene, render_w, render_h, time,
+                    ) {
+                        let image = if render_w != width || render_h != height {
+                            let upscaled = crate::sdf::upscale::upscale_bicubic(
+                                pixmap.data(),
+                                render_w,
+                                render_h,
+                                width,
+                                height,
+                            );
+                            ImageData::new(width, height, upscaled)
+                        } else {
+                            ImageData::new(width, height, pixmap.data().to_vec())
+                        };
+                        if let Ok(mut h) = self.health.lock() {
+                            h.report_success();
+                        }
+                        return SdfRenderResult {
                             width,
                             height,
-                        );
-                        ImageData::new(width, height, upscaled)
-                    } else {
-                        ImageData::new(width, height, pixmap.data().to_vec())
-                    };
-                    return SdfRenderResult {
-                        width,
-                        height,
-                        image,
-                        backend: SdfBackend::Gpu,
-                    };
+                            image,
+                            backend: SdfBackend::Gpu,
+                        };
+                    } else if let Ok(mut h) = self.health.lock() {
+                        h.report_failure();
+                    }
                 }
             }
         }
@@ -486,50 +449,17 @@ impl SdfPipeline {
     /// Call this after your terminal draw/flush to overlap GPU compute
     /// with terminal I/O. The result will be available via `render()` next frame.
     pub fn flush(&mut self) {
-        self.readback_pending();
+        #[cfg(feature = "sdf-gpu")]
+        if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
+            self.frame_graph.readback_pending(ctx, &self.health);
+        }
     }
 
     // ── Internal helpers ──
 
-    fn readback_pending(&mut self) {
-        #[cfg(feature = "sdf-gpu")]
-        if self.gpu_submitted {
-            if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
-                let rw = self.pending_render_w;
-                let rh = self.pending_render_h;
-                let fw = self.pending_full_w;
-                let fh = self.pending_full_h;
 
-                if rw == fw && rh == fh {
-                    // No upscale needed
-                    if super::gpu_renderer::SdfGpuRenderer::readback_into(
-                        ctx,
-                        rw,
-                        rh,
-                        &mut self.readback_buf,
-                    )
-                    .is_ok()
-                    {
-                        let data = std::mem::take(&mut self.readback_buf);
-                        self.prev_image = Some(ImageData::new(fw, fh, data));
-                    }
-                } else if let Ok(pm) =
-                    super::gpu_renderer::SdfGpuRenderer::readback(ctx, rw, rh)
-                {
-                    let upscaled = crate::sdf::upscale::upscale_bicubic(
-                        pm.data(),
-                        rw,
-                        rh,
-                        fw,
-                        fh,
-                    );
-                    self.prev_image = Some(ImageData::new(fw, fh, upscaled));
-                }
-            }
-            self.gpu_submitted = false;
-        }
-    }
 
+    #[allow(clippy::unused_self)]
     fn render_cpu(
         &self,
         scene: &SdfScene,
@@ -562,7 +492,7 @@ impl SdfPipeline {
             }
             Err(e) => {
                 if crate::scry_debug_enabled() {
-                    eprintln!("[scry] CPU SDF render failed: {e}");
+                    crate::scry_error!("[scry] CPU SDF render failed: {e}");
                 }
                 // Return a blank image rather than crashing
                 SdfRenderResult {
@@ -578,11 +508,11 @@ impl SdfPipeline {
 
 impl Drop for SdfPipeline {
     fn drop(&mut self) {
-        // Join the background GPU init thread to avoid heap corruption
-        // from wgpu resources being freed during process teardown.
+        // If GPU init is still running, detach the thread rather than
+        // blocking — the process is exiting anyway.
         #[cfg(feature = "sdf-gpu")]
-        if let Some(handle) = self.gpu_init_handle.take() {
-            let _ = handle.join();
+        {
+            self.gpu_init_handle.take(); // drop handle without joining
         }
     }
 }
@@ -596,9 +526,8 @@ impl Default for SdfPipeline {
 impl std::fmt::Debug for SdfPipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SdfPipeline")
-            .field("gpu_active", &self.gpu_active)
+            .field("gpu_available", &self.health.lock().is_ok_and(|h| h.is_gpu_available()))
             .field("render_scale", &self.render_scale)
-            .field("has_prev_image", &self.prev_image.is_some())
             .finish_non_exhaustive()
     }
 }
