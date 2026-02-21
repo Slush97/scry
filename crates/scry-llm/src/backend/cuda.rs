@@ -81,7 +81,7 @@ pub struct GpuStorage {
     pub(crate) inner: CudaSlice<f32>,
     pub(crate) len: usize,
     #[cfg(feature = "bf16")]
-    pub(crate) bf16_shadow: std::cell::RefCell<Option<CudaSlice<half::bf16>>>,
+    pub(crate) bf16_data: std::cell::OnceCell<CudaSlice<half::bf16>>,
 }
 
 impl Clone for GpuStorage {
@@ -94,7 +94,7 @@ impl Clone for GpuStorage {
             inner: cloned,
             len: self.len,
             #[cfg(feature = "bf16")]
-            bf16_shadow: std::cell::RefCell::new(None),
+            bf16_data: std::cell::OnceCell::new(),
         }
     }
 }
@@ -105,20 +105,32 @@ impl GpuStorage {
             inner,
             len,
             #[cfg(feature = "bf16")]
-            bf16_shadow: std::cell::RefCell::new(None),
+            bf16_data: std::cell::OnceCell::new(),
         }
     }
 
+    /// Return a reference to the bf16 GPU buffer, lazily casting from f32 on first access.
     #[cfg(feature = "bf16")]
-    fn ensure_bf16_shadow(&self) -> CudaSlice<half::bf16> {
-        let mut shadow = self.bf16_shadow.borrow_mut();
-        if let Some(ref s) = *shadow {
-            return s.try_clone().expect("failed to clone bf16 shadow");
-        }
-        let s = with_gpu(|gpu| bf16_ops::cast_f32_to_bf16(gpu, &self.inner, self.len));
-        let cloned = s.try_clone().expect("failed to clone bf16 shadow");
-        *shadow = Some(s);
-        cloned
+    pub(crate) fn bf16_ref(&self) -> &CudaSlice<half::bf16> {
+        self.bf16_data.get_or_init(|| {
+            with_gpu(|gpu| bf16_ops::cast_f32_to_bf16(gpu, &self.inner, self.len))
+        })
+    }
+
+    /// Upload bf16 data directly from host, skipping f32→bf16 GPU conversion.
+    #[cfg(feature = "bf16")]
+    pub(crate) fn from_bf16_host(bf16_bytes: &[u8], f32_data: &[f32], len: usize) -> GpuStorage {
+        let bf16_vec: Vec<half::bf16> = bf16_bytes
+            .chunks_exact(2)
+            .map(|c| half::bf16::from_bits(u16::from_le_bytes([c[0], c[1]])))
+            .collect();
+        with_gpu(|gpu| {
+            let bf16_gpu = gpu.stream.clone_htod(&bf16_vec).unwrap();
+            let f32_gpu = gpu.stream.clone_htod(f32_data).unwrap();
+            let storage = GpuStorage::new(f32_gpu, len);
+            storage.bf16_data.set(bf16_gpu).ok();
+            storage
+        })
     }
 }
 
@@ -159,6 +171,19 @@ impl DeviceBackend for CudaBackend {
             let inner = gpu.stream.clone_htod(&data).unwrap();
             GpuStorage::new(inner, len)
         })
+    }
+
+    #[cfg(feature = "bf16")]
+    fn from_vec_with_bf16(data: Vec<f32>, bf16_bytes: &[u8], _shape: &Shape) -> GpuStorage {
+        let len = data.len();
+        if bf16_enabled() {
+            GpuStorage::from_bf16_host(bf16_bytes, &data, len)
+        } else {
+            with_gpu(|gpu| {
+                let inner = gpu.stream.clone_htod(&data).unwrap();
+                GpuStorage::new(inner, len)
+            })
+        }
     }
 
     fn to_vec(storage: &GpuStorage) -> Vec<f32> {
@@ -532,6 +557,46 @@ impl MathBackend for CudaBackend {
         })
     }
 
+    #[cfg(feature = "bf16")]
+    fn rmsnorm_with_bf16(
+        input: &GpuStorage,
+        weight: &GpuStorage,
+        shape: &Shape,
+        eps: f32,
+    ) -> GpuStorage {
+        if !bf16_enabled() {
+            return Self::rmsnorm(input, weight, shape, eps);
+        }
+        let dims = shape.dims();
+        let d = *dims.last().unwrap();
+        let rows = input.len / d;
+        with_gpu(|gpu| {
+            let mut out = gpu.stream.alloc_zeros::<f32>(input.len).unwrap();
+            let mut out_bf16 = gpu.stream.alloc_zeros::<half::bf16>(input.len).unwrap();
+            let threads = ROW_BLOCK.min(d.next_power_of_two() as u32);
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.rmsnorm_fwd_with_bf16)
+                    .arg(&mut out)
+                    .arg(&mut out_bf16)
+                    .arg(&input.inner)
+                    .arg(&weight.inner)
+                    .arg(&rows)
+                    .arg(&d)
+                    .arg(&eps)
+                    .launch(LaunchConfig {
+                        grid_dim: (rows as u32, 1, 1),
+                        block_dim: (threads, 1, 1),
+                        shared_mem_bytes: threads * 4,
+                    })
+                    .unwrap();
+            }
+            let storage = GpuStorage::new(out, input.len);
+            storage.bf16_data.set(out_bf16).ok();
+            storage
+        })
+    }
+
     fn rope(
         input: &GpuStorage,
         shape: &Shape,
@@ -605,6 +670,45 @@ impl MathBackend for CudaBackend {
         })
     }
 
+    fn rope_with_freqs_scaled(
+        input: &GpuStorage,
+        seq: usize,
+        n_heads: usize,
+        head_dim: usize,
+        start_pos: usize,
+        freqs: &[f64],
+        scale: f32,
+    ) -> GpuStorage {
+        let n = input.len;
+        let half_hd = head_dim / 2;
+        let total_pairs = seq * n_heads * half_hd;
+        with_gpu(|gpu| {
+            let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
+            let freqs_dev = gpu.stream.clone_htod(&freqs_f32).unwrap();
+
+            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.rope_with_freqs_scaled_fwd)
+                    .arg(&mut out)
+                    .arg(&input.inner)
+                    .arg(&freqs_dev)
+                    .arg(&total_pairs)
+                    .arg(&n_heads)
+                    .arg(&head_dim)
+                    .arg(&start_pos)
+                    .arg(&scale)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(total_pairs, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(out, n)
+        })
+    }
+
     fn swiglu(gate: &GpuStorage, up: &GpuStorage) -> GpuStorage {
         let n = gate.len;
         with_gpu(|gpu| {
@@ -624,6 +728,36 @@ impl MathBackend for CudaBackend {
                     .unwrap();
             }
             GpuStorage::new(out, n)
+        })
+    }
+
+    #[cfg(feature = "bf16")]
+    fn swiglu_with_bf16(gate: &GpuStorage, up: &GpuStorage) -> GpuStorage {
+        if !bf16_enabled() {
+            return Self::swiglu(gate, up);
+        }
+        let n = gate.len;
+        with_gpu(|gpu| {
+            let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+            let mut out_bf16 = gpu.stream.alloc_zeros::<half::bf16>(n).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.swiglu_fwd_with_bf16)
+                    .arg(&mut out)
+                    .arg(&mut out_bf16)
+                    .arg(&gate.inner)
+                    .arg(&up.inner)
+                    .arg(&n)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(n, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            let storage = GpuStorage::new(out, n);
+            storage.bf16_data.set(out_bf16).ok();
+            storage
         })
     }
 
@@ -670,6 +804,17 @@ impl MathBackend for CudaBackend {
         col_start: usize,
         col_count: usize,
     ) -> GpuStorage {
+        // Fast path: rows=1 means columns are contiguous — memcpy instead of kernel launch
+        if rows == 1 {
+            let n = col_count;
+            return with_gpu(|gpu| {
+                let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
+                gpu.stream
+                    .memcpy_dtod(&storage.inner.slice(col_start..col_start + n), &mut out)
+                    .unwrap();
+                GpuStorage::new(out, n)
+            });
+        }
         let n = rows * col_count;
         with_gpu(|gpu| {
             let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
@@ -789,6 +934,10 @@ impl MathBackend for CudaBackend {
         n_heads: usize,
         d_head: usize,
     ) -> GpuStorage {
+        // When B=1, S=1 the reshape is an identity permutation — skip the kernel launch.
+        if batch == 1 && seq == 1 {
+            return storage.clone();
+        }
         let total = batch * n_heads * seq * d_head;
         with_gpu(|gpu| {
             let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
@@ -819,6 +968,10 @@ impl MathBackend for CudaBackend {
         n_heads: usize,
         d_head: usize,
     ) -> GpuStorage {
+        // When B=1, S=1 the reshape is an identity permutation — skip the kernel launch.
+        if batch == 1 && seq == 1 {
+            return storage.clone();
+        }
         let total = batch * seq * n_heads * d_head;
         with_gpu(|gpu| {
             let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
@@ -852,12 +1005,10 @@ impl MathBackend for CudaBackend {
         trans_a: bool,
         trans_b: bool,
     ) -> GpuStorage {
-        #[cfg(feature = "bf16")]
-        if bf16_enabled() {
-            return bf16_ops::matmul_strided_batched_bf16(
-                a, b, batch_count, m, k, n, trans_a, trans_b,
-            );
-        }
+        // NOTE: bf16 is intentionally NOT used here. Strided batched matmuls are
+        // attention-only (Q@K^T, attn@V) where both operands are fresh activations.
+        // Casting both to bf16 adds 4 kernel launches per layer with zero bandwidth
+        // benefit — the f32 SGEMM path is faster for these small activation tensors.
         let total = batch_count * m * n;
         with_gpu_mut(|gpu| {
             let mut c = gpu.stream.alloc_zeros::<f32>(total).unwrap();
@@ -982,8 +1133,8 @@ mod bf16_ops {
         trans_a: bool,
         trans_b: bool,
     ) -> GpuStorage {
-        let a_bf16 = a.ensure_bf16_shadow();
-        let b_bf16 = b.ensure_bf16_shadow();
+        let a_bf16 = a.bf16_ref();
+        let b_bf16 = b.bf16_ref();
 
         with_gpu_mut(|gpu| {
             let mut c_f32 = gpu.stream.alloc_zeros::<f32>(m * n).unwrap();
@@ -1040,80 +1191,4 @@ mod bf16_ops {
         })
     }
 
-    pub fn matmul_strided_batched_bf16(
-        a: &GpuStorage,
-        b: &GpuStorage,
-        batch_count: usize,
-        m: usize,
-        k: usize,
-        n: usize,
-        trans_a: bool,
-        trans_b: bool,
-    ) -> GpuStorage {
-        let a_bf16 = a.ensure_bf16_shadow();
-        let b_bf16 = b.ensure_bf16_shadow();
-        let total = batch_count * m * n;
-
-        with_gpu_mut(|gpu| {
-            let mut c_f32 = gpu.stream.alloc_zeros::<f32>(total).unwrap();
-
-            let (transa, lda) = if trans_b {
-                (cublasOperation_t::CUBLAS_OP_T, k as i32)
-            } else {
-                (cublasOperation_t::CUBLAS_OP_N, n as i32)
-            };
-            let (transb, ldb) = if trans_a {
-                (cublasOperation_t::CUBLAS_OP_T, m as i32)
-            } else {
-                (cublasOperation_t::CUBLAS_OP_N, k as i32)
-            };
-
-            let stride_a = if trans_a { k * m } else { m * k };
-            let stride_b = if trans_b { n * k } else { k * n };
-            let stride_c = m * n;
-
-            let alpha: f32 = 1.0;
-            let beta: f32 = 0.0;
-
-            unsafe {
-                use cudarc::cublas::sys::{
-                    cublasComputeType_t, cublasGemmAlgo_t, cudaDataType_t,
-                };
-                use cudarc::driver::{DevicePtr, DevicePtrMut};
-
-                let (a_ptr, _a_rec) = a_bf16.device_ptr(&gpu.stream);
-                let (b_ptr, _b_rec) = b_bf16.device_ptr(&gpu.stream);
-                let (c_ptr, _c_rec) = c_f32.device_ptr_mut(&gpu.stream);
-
-                cudarc::cublas::result::gemm_strided_batched_ex(
-                    *gpu.blas.handle(),
-                    transa,
-                    transb,
-                    n as i32,
-                    m as i32,
-                    k as i32,
-                    (&alpha) as *const f32 as *const _,
-                    b_ptr as *const _,
-                    cudaDataType_t::CUDA_R_16BF,
-                    lda,
-                    stride_b as i64,
-                    a_ptr as *const _,
-                    cudaDataType_t::CUDA_R_16BF,
-                    ldb,
-                    stride_a as i64,
-                    (&beta) as *const f32 as *const _,
-                    c_ptr as *mut _,
-                    cudaDataType_t::CUDA_R_32F,
-                    n as i32,
-                    stride_c as i64,
-                    batch_count as i32,
-                    cublasComputeType_t::CUBLAS_COMPUTE_32F,
-                    cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,
-                )
-                .expect("cublasGemmStridedBatchedEx bf16→f32 failed");
-            }
-
-            GpuStorage::new(c_f32, total)
-        })
-    }
 }

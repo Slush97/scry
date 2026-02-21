@@ -64,13 +64,24 @@ pub fn embedding<B: MathBackend>(
 
 /// RMS normalization along the last axis.
 /// `out[i] = (x[i] / sqrt(mean(x^2) + eps)) * weight[i]`
+///
+/// When `bf16` feature is enabled, uses fused RMSNorm+bf16 cast to avoid
+/// a separate f32→bf16 conversion kernel before the subsequent matmul.
 pub fn rmsnorm<B: MathBackend>(
     input: &Tensor<B>,
     weight: &Tensor<B>,
     eps: f32,
 ) -> Tensor<B> {
-    let data = B::rmsnorm(&input.data, &weight.data, &input.shape, eps);
-    Tensor::new(data, input.shape.clone())
+    #[cfg(feature = "bf16")]
+    {
+        let data = B::rmsnorm_with_bf16(&input.data, &weight.data, &input.shape, eps);
+        return Tensor::new(data, input.shape.clone());
+    }
+    #[cfg(not(feature = "bf16"))]
+    {
+        let data = B::rmsnorm(&input.data, &weight.data, &input.shape, eps);
+        Tensor::new(data, input.shape.clone())
+    }
 }
 
 /// Rotary position embeddings.

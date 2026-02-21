@@ -14,6 +14,13 @@ pub trait DeviceBackend: Sized {
     fn zeros(shape: &Shape) -> Self::Storage;
     fn ones(shape: &Shape) -> Self::Storage;
     fn from_vec(data: Vec<f32>, shape: &Shape) -> Self::Storage;
+    /// Create storage from f32 data with optional raw bf16 bytes for direct upload.
+    /// Default ignores the bf16 bytes and falls back to `from_vec`.
+    #[cfg(feature = "bf16")]
+    fn from_vec_with_bf16(data: Vec<f32>, bf16_bytes: &[u8], shape: &Shape) -> Self::Storage {
+        let _ = bf16_bytes;
+        Self::from_vec(data, shape)
+    }
     fn to_vec(storage: &Self::Storage) -> Vec<f32>;
     fn clone_storage(storage: &Self::Storage) -> Self::Storage;
 }
@@ -94,6 +101,19 @@ pub trait MathBackend: DeviceBackend {
         eps: f32,
     ) -> Self::Storage;
 
+    /// Fused RMS normalization + bf16 cast.
+    /// Returns f32 output with bf16 shadow pre-populated (avoids a separate f32→bf16 kernel).
+    /// Default falls back to `rmsnorm` (no bf16 fusion).
+    #[cfg(feature = "bf16")]
+    fn rmsnorm_with_bf16(
+        input: &Self::Storage,
+        weight: &Self::Storage,
+        shape: &Shape,
+        eps: f32,
+    ) -> Self::Storage {
+        Self::rmsnorm(input, weight, shape, eps)
+    }
+
     /// Rotary position embeddings.
     fn rope(
         input: &Self::Storage,
@@ -117,8 +137,33 @@ pub trait MathBackend: DeviceBackend {
         freqs: &[f64],
     ) -> Self::Storage;
 
+    /// Rotary position embeddings with pre-computed frequencies and output scaling.
+    ///
+    /// Fuses RoPE and scalar multiply into a single kernel: `out = RoPE(input) * scale`.
+    /// Default implementation calls `rope_with_freqs` then `scale`.
+    fn rope_with_freqs_scaled(
+        input: &Self::Storage,
+        seq: usize,
+        n_heads: usize,
+        head_dim: usize,
+        start_pos: usize,
+        freqs: &[f64],
+        scale: f32,
+    ) -> Self::Storage {
+        let out = Self::rope_with_freqs(input, seq, n_heads, head_dim, start_pos, freqs);
+        Self::scale(&out, scale)
+    }
+
     /// `SwiGLU`: `silu(gate) * up` where `silu(x) = x / (1 + exp(-x))`
     fn swiglu(gate: &Self::Storage, up: &Self::Storage) -> Self::Storage;
+
+    /// Fused SwiGLU + bf16 cast.
+    /// Returns f32 output with bf16 shadow pre-populated.
+    /// Default falls back to `swiglu` (no bf16 fusion).
+    #[cfg(feature = "bf16")]
+    fn swiglu_with_bf16(gate: &Self::Storage, up: &Self::Storage) -> Self::Storage {
+        Self::swiglu(gate, up)
+    }
 
     /// Repeat KV heads for GQA: expand `[n_kv_heads, seq, d_head]` to `[n_q_heads, seq, d_head]`.
     fn repeat_kv(
@@ -227,6 +272,10 @@ pub trait MathBackend: DeviceBackend {
         n_heads: usize,
         d_head: usize,
     ) -> Self::Storage {
+        // When B=1, S=1 the reshape is an identity permutation — skip the transpose.
+        if batch == 1 && seq == 1 {
+            return Self::clone_storage(storage);
+        }
         let data = Self::to_vec(storage);
         let d_model = n_heads * d_head;
         let total = batch * n_heads * seq * d_head;
@@ -252,6 +301,10 @@ pub trait MathBackend: DeviceBackend {
         n_heads: usize,
         d_head: usize,
     ) -> Self::Storage {
+        // When B=1, S=1 the reshape is an identity permutation — skip the transpose.
+        if batch == 1 && seq == 1 {
+            return Self::clone_storage(storage);
+        }
         let data = Self::to_vec(storage);
         let d_model = n_heads * d_head;
         let total = batch * seq * d_model;

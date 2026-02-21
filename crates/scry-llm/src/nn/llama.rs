@@ -140,10 +140,11 @@ impl LlamaConfig {
 
 /// Llama attention with GQA and RoPE.
 pub struct LlamaAttention<B: MathBackend> {
-    pub q_proj: Tensor<B>, // [hidden, n_heads * head_dim]
-    pub k_proj: Tensor<B>, // [hidden, n_kv_heads * head_dim]
-    pub v_proj: Tensor<B>, // [hidden, n_kv_heads * head_dim]
-    pub o_proj: Tensor<B>, // [n_heads * head_dim, hidden]
+    pub q_proj: Tensor<B>,   // [hidden, n_heads * head_dim]
+    pub k_proj: Tensor<B>,   // [hidden, n_kv_heads * head_dim]
+    pub v_proj: Tensor<B>,   // [hidden, n_kv_heads * head_dim]
+    pub o_proj: Tensor<B>,   // [n_heads * head_dim, hidden]
+    pub qkv_proj: Tensor<B>, // [hidden, q_dim + k_dim + v_dim] — fused for single-GEMM projection
     pub n_heads: usize,
     pub n_kv_heads: usize,
     pub head_dim: usize,
@@ -163,19 +164,25 @@ impl<B: MathBackend> LlamaAttention<B> {
         let n_kv = self.n_kv_heads;
         let hd = self.head_dim;
 
-        // Q/K/V projections — 3 matmuls
-        let q_all = ops::matmul(input, &self.q_proj, seq_len, hidden, n_heads * hd, false, false);
-        let k_all = ops::matmul(input, &self.k_proj, seq_len, hidden, n_kv * hd, false, false);
-        let v_all = ops::matmul(input, &self.v_proj, seq_len, hidden, n_kv * hd, false, false);
+        // Fused QKV projection — 1 matmul instead of 3
+        let q_dim = n_heads * hd;
+        let k_dim = n_kv * hd;
+        let qkv_dim = q_dim + k_dim + k_dim;
+        let qkv = ops::matmul(input, &self.qkv_proj, seq_len, hidden, qkv_dim, false, false);
+
+        // Split Q, K, V via column slicing
+        let q_data = B::gather_columns(&qkv.data, seq_len, qkv_dim, 0, q_dim);
+        let k_data = B::gather_columns(&qkv.data, seq_len, qkv_dim, q_dim, k_dim);
+        let v_data = B::gather_columns(&qkv.data, seq_len, qkv_dim, q_dim + k_dim, k_dim);
 
         // Apply RoPE to all Q and K heads at once (entirely on-device, no GPU sync)
-        let q_rope = B::rope_with_freqs(&q_all.data, seq_len, n_heads, hd, start_pos, &self.rope_freqs);
-        let k_rope = B::rope_with_freqs(&k_all.data, seq_len, n_kv, hd, start_pos, &self.rope_freqs);
+        let q_rope = B::rope_with_freqs(&q_data, seq_len, n_heads, hd, start_pos, &self.rope_freqs);
+        let k_rope = B::rope_with_freqs(&k_data, seq_len, n_kv, hd, start_pos, &self.rope_freqs);
 
         // Reshape: [seq, H*d] → [H, seq, d]
         let q_heads = B::reshape_for_heads(&q_rope, 1, seq_len, n_heads, hd);
         let k_heads = B::reshape_for_heads(&k_rope, 1, seq_len, n_kv, hd);
-        let v_heads = B::reshape_for_heads(&v_all.data, 1, seq_len, n_kv, hd);
+        let v_heads = B::reshape_for_heads(&v_data, 1, seq_len, n_kv, hd);
 
         // Expand KV for GQA: [n_kv, seq, d] → [n_heads, seq, d]
         let k_expanded = B::repeat_kv(&k_heads, n_kv, n_heads, seq_len, hd);
@@ -220,22 +227,26 @@ impl<B: MathBackend> LlamaAttention<B> {
         let n_kv = self.n_kv_heads;
         let hd = self.head_dim;
 
-        let q_all = ops::matmul(input, &self.q_proj, 1, hidden, n_heads * hd, false, false);
-        let k_all = ops::matmul(input, &self.k_proj, 1, hidden, n_kv * hd, false, false);
-        let v_all = ops::matmul(input, &self.v_proj, 1, hidden, n_kv * hd, false, false);
+        // Fused QKV projection — 1 matmul instead of 3
+        let q_dim = n_heads * hd;
+        let k_dim = n_kv * hd;
+        let qkv_dim = q_dim + k_dim + k_dim;
+        let qkv = ops::matmul(input, &self.qkv_proj, 1, hidden, qkv_dim, false, false);
 
-        let q_rope = B::rope_with_freqs(&q_all.data, 1, n_heads, hd, pos, &self.rope_freqs);
-        let k_rope = B::rope_with_freqs(&k_all.data, 1, n_kv, hd, pos, &self.rope_freqs);
+        let q_data = B::gather_columns(&qkv.data, 1, qkv_dim, 0, q_dim);
+        let k_data = B::gather_columns(&qkv.data, 1, qkv_dim, q_dim, k_dim);
+        let v_all_data = B::gather_columns(&qkv.data, 1, qkv_dim, q_dim + k_dim, k_dim);
 
-        // Pre-scale Q by 1/√d — eliminates a separate scale kernel on the growing scores tensor
+        // Pre-scale Q by 1/√d fused into RoPE — eliminates a separate scale kernel
         let scale = (1.0 / (hd as f64).sqrt()) as f32;
-        let q_scaled = B::scale(&q_rope, scale);
+        let q_scaled = B::rope_with_freqs_scaled(&q_data, 1, n_heads, hd, pos, &self.rope_freqs, scale);
+        let k_rope = B::rope_with_freqs(&k_data, 1, n_kv, hd, pos, &self.rope_freqs);
 
         let mut new_k: Vec<B::Storage> = Vec::with_capacity(n_kv);
         let mut new_v: Vec<B::Storage> = Vec::with_capacity(n_kv);
         for kv_h in 0..n_kv {
             let k_h = B::gather_columns(&k_rope, 1, n_kv * hd, kv_h * hd, hd);
-            let v_h = B::gather_columns(&v_all.data, 1, n_kv * hd, kv_h * hd, hd);
+            let v_h = B::gather_columns(&v_all_data, 1, n_kv * hd, kv_h * hd, hd);
             new_k.push(k_h);
             new_v.push(v_h);
         }
@@ -287,21 +298,24 @@ impl<B: MathBackend> LlamaAttention<B> {
         let n_kv = self.n_kv_heads;
         let hd = self.head_dim;
 
-        // Q, K, V projections for single token => [1, dim]
-        let q_all = ops::matmul(input, &self.q_proj, 1, hidden, n_heads * hd, false, false);
-        let k_all = ops::matmul(input, &self.k_proj, 1, hidden, n_kv * hd, false, false);
-        let v_all = ops::matmul(input, &self.v_proj, 1, hidden, n_kv * hd, false, false);
+        // Fused QKV projection — 1 matmul instead of 3
+        let q_dim = n_heads * hd;
+        let k_dim = n_kv * hd;
+        let qkv_dim = q_dim + k_dim + k_dim;
+        let qkv = ops::matmul(input, &self.qkv_proj, 1, hidden, qkv_dim, false, false);
 
-        // Apply RoPE to all Q and K heads at once (entirely on-device, no GPU sync)
-        let q_rope = B::rope_with_freqs(&q_all.data, 1, n_heads, hd, pos, &self.rope_freqs);
-        let k_rope = B::rope_with_freqs(&k_all.data, 1, n_kv, hd, pos, &self.rope_freqs);
+        // Split Q, K, V via column slicing
+        let q_data = B::gather_columns(&qkv.data, 1, qkv_dim, 0, q_dim);
+        let k_data = B::gather_columns(&qkv.data, 1, qkv_dim, q_dim, k_dim);
+        let v_data = B::gather_columns(&qkv.data, 1, qkv_dim, q_dim + k_dim, k_dim);
 
-        // Pre-scale Q by 1/√d — eliminates a separate scale kernel on the growing scores tensor
+        // Apply RoPE — fuse Q pre-scaling (1/√d) into RoPE to eliminate a separate scale kernel
         let scale = (1.0 / (hd as f64).sqrt()) as f32;
-        let q_scaled = B::scale(&q_rope, scale);
+        let q_scaled = B::rope_with_freqs_scaled(&q_data, 1, n_heads, hd, pos, &self.rope_freqs, scale);
+        let k_rope = B::rope_with_freqs(&k_data, 1, n_kv, hd, pos, &self.rope_freqs);
 
         // Append [1, n_kv*hd] directly — 2 scatter_rows total (vs 2*n_kv before)
-        cache.append(&k_rope, &v_all.data);
+        cache.append(&k_rope, &v_data);
         let cached_len = cache.seq_len;
 
         // Read cached K/V: [cached_len, n_kv*hd] — 2 gather_rows total
@@ -363,7 +377,16 @@ impl<B: MathBackend> LlamaMLP<B> {
 
         let gate = ops::matmul(input, &self.gate_proj, seq, hidden, inter, false, false);
         let up = ops::matmul(input, &self.up_proj, seq, hidden, inter, false, false);
+
+        // Use fused SwiGLU+bf16 when available to avoid a separate f32→bf16 cast kernel
+        #[cfg(feature = "bf16")]
+        let activated = {
+            let data = B::swiglu_with_bf16(&gate.data, &up.data);
+            Tensor::new(data, gate.shape.clone())
+        };
+        #[cfg(not(feature = "bf16"))]
         let activated = ops::swiglu(&gate, &up);
+
         ops::matmul(&activated, &self.down_proj, seq, inter, hidden, false, false)
     }
 }
@@ -464,27 +487,28 @@ impl<B: MathBackend> LlamaModel<B> {
         for _ in 0..config.n_layers {
             let layer = LlamaDecoderLayer {
                 input_layernorm: RMSNorm::new(h),
-                self_attn: LlamaAttention {
-                    q_proj: Tensor::from_vec(
-                        init::normal_vec(rng, h * config.n_heads * hd, 0.0, std),
-                        Shape::new(&[h, config.n_heads * hd]),
-                    ),
-                    k_proj: Tensor::from_vec(
-                        init::normal_vec(rng, h * config.n_kv_heads * hd, 0.0, std),
-                        Shape::new(&[h, config.n_kv_heads * hd]),
-                    ),
-                    v_proj: Tensor::from_vec(
-                        init::normal_vec(rng, h * config.n_kv_heads * hd, 0.0, std),
-                        Shape::new(&[h, config.n_kv_heads * hd]),
-                    ),
-                    o_proj: Tensor::from_vec(
-                        init::normal_vec(rng, config.n_heads * hd * h, 0.0, std),
-                        Shape::new(&[config.n_heads * hd, h]),
-                    ),
-                    n_heads: config.n_heads,
-                    n_kv_heads: config.n_kv_heads,
-                    head_dim: hd,
-                    rope_freqs: compute_rope_freqs(hd, config.rope_theta, config.rope_scaling.as_ref()),
+                self_attn: {
+                    let q_dim = config.n_heads * hd;
+                    let k_dim = config.n_kv_heads * hd;
+                    let v_dim = k_dim;
+                    let q_w = init::normal_vec(rng, h * q_dim, 0.0, std);
+                    let k_w = init::normal_vec(rng, h * k_dim, 0.0, std);
+                    let v_w = init::normal_vec(rng, h * v_dim, 0.0, std);
+                    let qkv_w = fuse_qkv_weights(&q_w, &k_w, &v_w, h, q_dim, k_dim, v_dim);
+                    LlamaAttention {
+                        q_proj: Tensor::from_vec(q_w, Shape::new(&[h, q_dim])),
+                        k_proj: Tensor::from_vec(k_w, Shape::new(&[h, k_dim])),
+                        v_proj: Tensor::from_vec(v_w, Shape::new(&[h, v_dim])),
+                        o_proj: Tensor::from_vec(
+                            init::normal_vec(rng, q_dim * h, 0.0, std),
+                            Shape::new(&[q_dim, h]),
+                        ),
+                        qkv_proj: Tensor::from_vec(qkv_w, Shape::new(&[h, q_dim + k_dim + v_dim])),
+                        n_heads: config.n_heads,
+                        n_kv_heads: config.n_kv_heads,
+                        head_dim: hd,
+                        rope_freqs: compute_rope_freqs(hd, config.rope_theta, config.rope_scaling.as_ref()),
+                    }
                 },
                 post_attention_layernorm: RMSNorm::new(h),
                 mlp: LlamaMLP {
@@ -632,13 +656,17 @@ impl<B: MathBackend> LlamaModel<B> {
             all_tensors.push(tensors);
         }
 
-        let load = |name: &str| -> crate::error::Result<Vec<f32>> {
+        // Returns (f32_data, Option<raw_bf16_bytes>) — the bf16 bytes are passed through
+        // when the source dtype is bf16, enabling direct GPU upload without f32→bf16 conversion.
+        let load = |name: &str| -> crate::error::Result<(Vec<f32>, Option<Vec<u8>>)> {
             for tensors in &all_tensors {
                 if let Ok(t) = tensors.tensor(name) {
                     return match t.dtype() {
-                        safetensors::Dtype::F32 => Ok(bytes_to_f32(t.data())),
-                        safetensors::Dtype::BF16 => Ok(bf16_bytes_to_f32(t.data())),
-                        safetensors::Dtype::F16 => Ok(f16_bytes_to_f32(t.data())),
+                        safetensors::Dtype::F32 => Ok((bytes_to_f32(t.data()), None)),
+                        safetensors::Dtype::BF16 => {
+                            Ok((bf16_bytes_to_f32(t.data()), Some(t.data().to_vec())))
+                        }
+                        safetensors::Dtype::F16 => Ok((f16_bytes_to_f32(t.data()), None)),
                         other => Err(ScryLlmError::WeightLoadError(format!(
                             "unsupported dtype {other:?} for tensor '{name}'"
                         ))),
@@ -651,53 +679,79 @@ impl<B: MathBackend> LlamaModel<B> {
         };
 
         let load_and_transpose =
-            |name: &str, rows: usize, cols: usize| -> crate::error::Result<Vec<f32>> {
-                let data = load(name)?;
+            |name: &str, rows: usize, cols: usize| -> crate::error::Result<(Vec<f32>, Option<Vec<u8>>)> {
+                let (data, bf16_raw) = load(name)?;
                 // HF stores as [out, in], we want [in, out]
-                Ok(transpose(&data, rows, cols))
+                let transposed = transpose(&data, rows, cols);
+                // bf16 bytes must also be transposed to match the f32 layout
+                let bf16_transposed = bf16_raw.map(|raw| transpose_bf16_bytes(&raw, rows, cols));
+                Ok((transposed, bf16_transposed))
             };
 
         let h = config.hidden_size;
         let inter = config.intermediate_size;
         let hd = config.head_dim();
 
-        let embed = load("model.embed_tokens.weight")?;
-        let embed_tokens = Tensor::from_vec(embed, Shape::new(&[config.vocab_size, h]));
+        // Helper: construct a Tensor, using direct bf16 upload when bf16 bytes are available.
+        #[cfg(feature = "bf16")]
+        let make_tensor = |data: Vec<f32>, bf16_raw: Option<Vec<u8>>, shape: Shape| -> Tensor<B> {
+            if let Some(raw) = bf16_raw {
+                Tensor::new(B::from_vec_with_bf16(data, &raw, &shape), shape)
+            } else {
+                Tensor::from_vec(data, shape)
+            }
+        };
+        #[cfg(not(feature = "bf16"))]
+        let make_tensor = |data: Vec<f32>, _bf16_raw: Option<Vec<u8>>, shape: Shape| -> Tensor<B> {
+            Tensor::from_vec(data, shape)
+        };
+
+        let (embed, embed_bf16) = load("model.embed_tokens.weight")?;
+        let embed_tokens = make_tensor(embed, embed_bf16, Shape::new(&[config.vocab_size, h]));
 
         let mut layers = Vec::with_capacity(config.n_layers);
         for i in 0..config.n_layers {
             let p = format!("model.layers.{i}");
 
-            let q_w = load_and_transpose(
+            let (q_w, q_bf16) = load_and_transpose(
                 &format!("{p}.self_attn.q_proj.weight"),
                 config.n_heads * hd,
                 h,
             )?;
-            let k_w = load_and_transpose(
+            let (k_w, k_bf16) = load_and_transpose(
                 &format!("{p}.self_attn.k_proj.weight"),
                 config.n_kv_heads * hd,
                 h,
             )?;
-            let v_w = load_and_transpose(
+            let (v_w, v_bf16) = load_and_transpose(
                 &format!("{p}.self_attn.v_proj.weight"),
                 config.n_kv_heads * hd,
                 h,
             )?;
-            let o_w = load_and_transpose(
+            let (o_w, o_bf16) = load_and_transpose(
                 &format!("{p}.self_attn.o_proj.weight"),
                 h,
                 config.n_heads * hd,
             )?;
 
-            let gate_w =
+            let (gate_w, gate_bf16) =
                 load_and_transpose(&format!("{p}.mlp.gate_proj.weight"), inter, h)?;
-            let up_w =
+            let (up_w, up_bf16) =
                 load_and_transpose(&format!("{p}.mlp.up_proj.weight"), inter, h)?;
-            let down_w =
+            let (down_w, down_bf16) =
                 load_and_transpose(&format!("{p}.mlp.down_proj.weight"), h, inter)?;
 
-            let input_ln_w = load(&format!("{p}.input_layernorm.weight"))?;
-            let post_ln_w = load(&format!("{p}.post_attention_layernorm.weight"))?;
+            let (input_ln_w, _) = load(&format!("{p}.input_layernorm.weight"))?;
+            let (post_ln_w, _) = load(&format!("{p}.post_attention_layernorm.weight"))?;
+
+            let q_dim = config.n_heads * hd;
+            let k_dim = config.n_kv_heads * hd;
+            let v_dim = k_dim;
+            let qkv_w = fuse_qkv_weights(&q_w, &k_w, &v_w, h, q_dim, k_dim, v_dim);
+            let qkv_bf16 = match (&q_bf16, &k_bf16, &v_bf16) {
+                (Some(q), Some(k), Some(v)) => Some(fuse_qkv_bf16_bytes(q, k, v, h, q_dim, k_dim, v_dim)),
+                _ => None,
+            };
 
             let layer = LlamaDecoderLayer {
                 input_layernorm: RMSNorm {
@@ -705,10 +759,11 @@ impl<B: MathBackend> LlamaModel<B> {
                     eps: config.rms_norm_eps,
                 },
                 self_attn: LlamaAttention {
-                    q_proj: Tensor::from_vec(q_w, Shape::new(&[h, config.n_heads * hd])),
-                    k_proj: Tensor::from_vec(k_w, Shape::new(&[h, config.n_kv_heads * hd])),
-                    v_proj: Tensor::from_vec(v_w, Shape::new(&[h, config.n_kv_heads * hd])),
-                    o_proj: Tensor::from_vec(o_w, Shape::new(&[config.n_heads * hd, h])),
+                    q_proj: make_tensor(q_w, q_bf16, Shape::new(&[h, q_dim])),
+                    k_proj: make_tensor(k_w, k_bf16, Shape::new(&[h, k_dim])),
+                    v_proj: make_tensor(v_w, v_bf16, Shape::new(&[h, v_dim])),
+                    o_proj: make_tensor(o_w, o_bf16, Shape::new(&[q_dim, h])),
+                    qkv_proj: make_tensor(qkv_w, qkv_bf16, Shape::new(&[h, q_dim + k_dim + v_dim])),
                     n_heads: config.n_heads,
                     n_kv_heads: config.n_kv_heads,
                     head_dim: hd,
@@ -719,15 +774,15 @@ impl<B: MathBackend> LlamaModel<B> {
                     eps: config.rms_norm_eps,
                 },
                 mlp: LlamaMLP {
-                    gate_proj: Tensor::from_vec(gate_w, Shape::new(&[h, inter])),
-                    up_proj: Tensor::from_vec(up_w, Shape::new(&[h, inter])),
-                    down_proj: Tensor::from_vec(down_w, Shape::new(&[inter, h])),
+                    gate_proj: make_tensor(gate_w, gate_bf16, Shape::new(&[h, inter])),
+                    up_proj: make_tensor(up_w, up_bf16, Shape::new(&[h, inter])),
+                    down_proj: make_tensor(down_w, down_bf16, Shape::new(&[inter, h])),
                 },
             };
             layers.push(layer);
         }
 
-        let norm_w = load("model.norm.weight")?;
+        let (norm_w, _) = load("model.norm.weight")?;
         let norm = RMSNorm {
             weight: Tensor::from_vec(norm_w, Shape::new(&[h])),
             eps: config.rms_norm_eps,
@@ -736,9 +791,9 @@ impl<B: MathBackend> LlamaModel<B> {
         let lm_head = if config.tie_word_embeddings {
             None
         } else {
-            let lm_w = load("lm_head.weight")?;
+            let (lm_w, lm_bf16) = load("lm_head.weight")?;
             // lm_head is [vocab, hidden] — used as logits = hidden @ lm_head^T
-            Some(Tensor::from_vec(lm_w, Shape::new(&[config.vocab_size, h])))
+            Some(make_tensor(lm_w, lm_bf16, Shape::new(&[config.vocab_size, h])))
         };
 
         Ok(Self {
@@ -797,6 +852,24 @@ impl<B: MathBackend> crate::generate::CausalLM<B> for LlamaModel<B> {
 }
 
 // ---- Helpers ----
+
+/// Concatenate Q, K, V weight matrices column-wise into a single `[h, q_dim+k_dim+v_dim]` matrix.
+fn fuse_qkv_weights(
+    q_w: &[f32], k_w: &[f32], v_w: &[f32],
+    h: usize, q_dim: usize, k_dim: usize, v_dim: usize,
+) -> Vec<f32> {
+    let qkv_dim = q_dim + k_dim + v_dim;
+    let mut qkv = vec![0.0f32; h * qkv_dim];
+    for row in 0..h {
+        qkv[row * qkv_dim..row * qkv_dim + q_dim]
+            .copy_from_slice(&q_w[row * q_dim..row * q_dim + q_dim]);
+        qkv[row * qkv_dim + q_dim..row * qkv_dim + q_dim + k_dim]
+            .copy_from_slice(&k_w[row * k_dim..row * k_dim + k_dim]);
+        qkv[row * qkv_dim + q_dim + k_dim..row * qkv_dim + qkv_dim]
+            .copy_from_slice(&v_w[row * v_dim..row * v_dim + v_dim]);
+    }
+    qkv
+}
 
 /// Compute pre-scaled RoPE frequencies for each dimension pair.
 ///
@@ -905,6 +978,43 @@ fn transpose(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     for r in 0..rows {
         for c in 0..cols {
             out[c * rows + r] = data[r * cols + c];
+        }
+    }
+    out
+}
+
+/// Fuse Q, K, V bf16 byte buffers column-wise into `[h, q_dim+k_dim+v_dim]` (2 bytes per element).
+#[cfg(feature = "safetensors")]
+fn fuse_qkv_bf16_bytes(
+    q: &[u8], k: &[u8], v: &[u8],
+    h: usize, q_dim: usize, k_dim: usize, v_dim: usize,
+) -> Vec<u8> {
+    let qkv_dim = q_dim + k_dim + v_dim;
+    let mut out = vec![0u8; h * qkv_dim * 2];
+    for row in 0..h {
+        let dst_off = row * qkv_dim * 2;
+        let q_off = row * q_dim * 2;
+        let k_off = row * k_dim * 2;
+        let v_off = row * v_dim * 2;
+        out[dst_off..dst_off + q_dim * 2].copy_from_slice(&q[q_off..q_off + q_dim * 2]);
+        out[dst_off + q_dim * 2..dst_off + (q_dim + k_dim) * 2]
+            .copy_from_slice(&k[k_off..k_off + k_dim * 2]);
+        out[dst_off + (q_dim + k_dim) * 2..dst_off + qkv_dim * 2]
+            .copy_from_slice(&v[v_off..v_off + v_dim * 2]);
+    }
+    out
+}
+
+/// Transpose bf16 bytes `[rows, cols]` → `[cols, rows]` (2 bytes per element).
+#[cfg(feature = "safetensors")]
+fn transpose_bf16_bytes(data: &[u8], rows: usize, cols: usize) -> Vec<u8> {
+    let mut out = vec![0u8; rows * cols * 2];
+    for r in 0..rows {
+        for c in 0..cols {
+            let src = (r * cols + c) * 2;
+            let dst = (c * rows + r) * 2;
+            out[dst] = data[src];
+            out[dst + 1] = data[src + 1];
         }
     }
     out

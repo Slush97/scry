@@ -25,6 +25,7 @@ pub struct KernelCache {
     pub rmsnorm_fwd: CudaFunction,
     pub rope_fwd: CudaFunction,
     pub rope_with_freqs_fwd: CudaFunction,
+    pub rope_with_freqs_scaled_fwd: CudaFunction,
     pub swiglu_fwd: CudaFunction,
     pub repeat_kv_kernel: CudaFunction,
 
@@ -33,6 +34,10 @@ pub struct KernelCache {
     pub f32_to_bf16: CudaFunction,
     #[cfg(feature = "bf16")]
     pub bf16_to_f32: CudaFunction,
+    #[cfg(feature = "bf16")]
+    pub rmsnorm_fwd_with_bf16: CudaFunction,
+    #[cfg(feature = "bf16")]
+    pub swiglu_fwd_with_bf16: CudaFunction,
 }
 
 impl KernelCache {
@@ -79,6 +84,7 @@ impl KernelCache {
             rmsnorm_fwd: module.load_function("rmsnorm_fwd").unwrap(),
             rope_fwd: module.load_function("rope_fwd").unwrap(),
             rope_with_freqs_fwd: module.load_function("rope_with_freqs_fwd").unwrap(),
+            rope_with_freqs_scaled_fwd: module.load_function("rope_with_freqs_scaled_fwd").unwrap(),
             swiglu_fwd: module.load_function("swiglu_fwd").unwrap(),
             repeat_kv_kernel: module.load_function("repeat_kv_kernel").unwrap(),
 
@@ -86,6 +92,10 @@ impl KernelCache {
             f32_to_bf16: bf16_module.load_function("f32_to_bf16").unwrap(),
             #[cfg(feature = "bf16")]
             bf16_to_f32: bf16_module.load_function("bf16_to_f32").unwrap(),
+            #[cfg(feature = "bf16")]
+            rmsnorm_fwd_with_bf16: bf16_module.load_function("rmsnorm_fwd_with_bf16").unwrap(),
+            #[cfg(feature = "bf16")]
+            swiglu_fwd_with_bf16: bf16_module.load_function("swiglu_fwd_with_bf16").unwrap(),
         }
     }
 }
@@ -535,6 +545,46 @@ extern "C" __global__ void rope_with_freqs_fwd(
     out[elem0] = x0 * cos_val - x1 * sin_val;
     out[elem1] = x0 * sin_val + x1 * cos_val;
 }
+
+// ============================================================
+// RoPE with pre-computed frequencies + output scaling
+// Fuses the Q pre-scaling (1/√d) into the RoPE write to eliminate
+// a separate scale kernel launch per layer.
+// ============================================================
+
+extern "C" __global__ void rope_with_freqs_scaled_fwd(
+    float* out, const float* inp, const float* freqs,
+    size_t total_pairs, size_t n_heads, size_t head_dim,
+    size_t start_pos, float output_scale
+) {
+    size_t pair_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (pair_idx >= total_pairs) return;
+
+    size_t half_hd = head_dim / 2;
+    size_t total_dim = n_heads * head_dim;
+    size_t total_pairs_per_row = n_heads * half_hd;
+
+    size_t row = pair_idx / total_pairs_per_row;
+    size_t pair_in_row = pair_idx % total_pairs_per_row;
+
+    size_t dim_pair = pair_in_row % half_hd;
+
+    size_t pos = start_pos + row;
+
+    float freq = freqs[dim_pair];
+    float angle = (float)pos * freq;
+    float cos_val = cosf(angle);
+    float sin_val = sinf(angle);
+
+    size_t head_in_row = pair_in_row / half_hd;
+    size_t elem0 = row * total_dim + head_in_row * head_dim + dim_pair * 2;
+    size_t elem1 = elem0 + 1;
+
+    float x0 = inp[elem0];
+    float x1 = inp[elem1];
+    out[elem0] = (x0 * cos_val - x1 * sin_val) * output_scale;
+    out[elem1] = (x0 * sin_val + x1 * cos_val) * output_scale;
+}
 "#;
 
 #[cfg(feature = "bf16")]
@@ -552,6 +602,60 @@ __device__ __forceinline__ bf16_t float_to_bf16(float x) {
     unsigned int bits;
     memcpy(&bits, &x, 4);
     return (bf16_t)((bits + 0x7FFFu + ((bits >> 16) & 1u)) >> 16);
+}
+
+// ============================================================
+// Fused RMSNorm + bf16 cast: writes both f32 and bf16 output in one pass
+// ============================================================
+
+extern "C" __global__ void rmsnorm_fwd_with_bf16(
+    float* out, bf16_t* out_bf16, const float* inp, const float* weight,
+    size_t rows, size_t d, float eps
+) {
+    extern __shared__ float sdata[];
+
+    size_t row = blockIdx.x;
+    if (row >= rows) return;
+    size_t off = row * d;
+    size_t tid = threadIdx.x;
+    size_t stride = blockDim.x;
+
+    float local_sum_sq = 0.0f;
+    for (size_t j = tid; j < d; j += stride) {
+        float v = inp[off + j];
+        local_sum_sq += v * v;
+    }
+    sdata[tid] = local_sum_sq;
+    __syncthreads();
+    for (size_t s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    float mean_sq = sdata[0] / (float)d;
+    float rstd = rsqrtf(mean_sq + eps);
+    __syncthreads();
+
+    for (size_t j = tid; j < d; j += stride) {
+        float val = inp[off + j] * rstd * weight[j];
+        out[off + j] = val;
+        out_bf16[off + j] = float_to_bf16(val);
+    }
+}
+
+// ============================================================
+// Fused SwiGLU + bf16 cast: writes both f32 and bf16 output in one pass
+// ============================================================
+
+extern "C" __global__ void swiglu_fwd_with_bf16(
+    float* out, bf16_t* out_bf16, const float* gate, const float* up, size_t n
+) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    float g = gate[i];
+    float silu = g / (1.0f + expf(-g));
+    float val = silu * up[i];
+    out[i] = val;
+    out_bf16[i] = float_to_bf16(val);
 }
 
 extern "C" __global__ void f32_to_bf16(bf16_t* out, const float* in, size_t n) {
