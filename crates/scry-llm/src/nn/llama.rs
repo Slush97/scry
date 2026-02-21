@@ -227,6 +227,10 @@ impl<B: MathBackend> LlamaAttention<B> {
         let q_rope = B::rope_with_freqs(&q_all.data, 1, n_heads, hd, pos, &self.rope_freqs);
         let k_rope = B::rope_with_freqs(&k_all.data, 1, n_kv, hd, pos, &self.rope_freqs);
 
+        // Pre-scale Q by 1/√d — eliminates a separate scale kernel on the growing scores tensor
+        let scale = (1.0 / (hd as f64).sqrt()) as f32;
+        let q_scaled = B::scale(&q_rope, scale);
+
         let mut new_k: Vec<B::Storage> = Vec::with_capacity(n_kv);
         let mut new_v: Vec<B::Storage> = Vec::with_capacity(n_kv);
         for kv_h in 0..n_kv {
@@ -253,14 +257,13 @@ impl<B: MathBackend> LlamaAttention<B> {
 
         let k_expanded = B::repeat_kv(&k_stacked, n_kv, n_heads, cached_len, hd);
         let v_expanded = B::repeat_kv(&v_stacked, n_kv, n_heads, cached_len, hd);
-        let q_heads = B::reshape_for_heads(&q_rope, 1, 1, n_heads, hd);
+        let q_heads = B::reshape_for_heads(&q_scaled, 1, 1, n_heads, hd);
 
+        // Scores come out pre-scaled since Q was pre-scaled
         let scores = B::matmul_strided_batched(
             &q_heads, &k_expanded, n_heads, 1, hd, cached_len, false, true,
         );
-        let scale = (1.0 / (hd as f64).sqrt()) as f32;
-        let scores_scaled = B::scale(&scores, scale);
-        let attn = B::softmax(&scores_scaled, &Shape::new(&[n_heads, cached_len]));
+        let attn = B::softmax(&scores, &Shape::new(&[n_heads, cached_len]));
         let out = B::matmul_strided_batched(
             &attn, &v_expanded, n_heads, 1, cached_len, hd, false, false,
         );
@@ -293,6 +296,10 @@ impl<B: MathBackend> LlamaAttention<B> {
         let q_rope = B::rope_with_freqs(&q_all.data, 1, n_heads, hd, pos, &self.rope_freqs);
         let k_rope = B::rope_with_freqs(&k_all.data, 1, n_kv, hd, pos, &self.rope_freqs);
 
+        // Pre-scale Q by 1/√d — eliminates a separate scale kernel on the growing scores tensor
+        let scale = (1.0 / (hd as f64).sqrt()) as f32;
+        let q_scaled = B::scale(&q_rope, scale);
+
         // Append [1, n_kv*hd] directly — 2 scatter_rows total (vs 2*n_kv before)
         cache.append(&k_rope, &v_all.data);
         let cached_len = cache.seq_len;
@@ -310,19 +317,16 @@ impl<B: MathBackend> LlamaAttention<B> {
         let v_expanded = B::repeat_kv(&v_heads, n_kv, n_heads, cached_len, hd);
 
         // Reshape Q: [1, n_heads*hd] → [n_heads, 1, hd]
-        let q_heads = B::reshape_for_heads(&q_rope, 1, 1, n_heads, hd);
+        // For seq=1, [1, H*d] and [H, 1, d] have identical memory layout — this is a no-op
+        let q_heads = B::reshape_for_heads(&q_scaled, 1, 1, n_heads, hd);
 
-        // Batched attention: scores = Q @ K^T → [n_heads, 1, cached_len]
+        // Batched attention: scores come out pre-scaled since Q was pre-scaled
         let scores = B::matmul_strided_batched(
             &q_heads, &k_expanded, n_heads, 1, hd, cached_len, false, true,
         );
 
-        // Scale (no causal mask needed: single query, all cached positions visible)
-        let scale = (1.0 / (hd as f64).sqrt()) as f32;
-        let scores_scaled = B::scale(&scores, scale);
-
-        // Softmax: [n_heads, cached_len]
-        let attn = B::softmax(&scores_scaled, &Shape::new(&[n_heads, cached_len]));
+        // Softmax: [n_heads, cached_len] — no separate scale needed
+        let attn = B::softmax(&scores, &Shape::new(&[n_heads, cached_len]));
 
         // Output: attn @ V → [n_heads, 1, hd]
         let out = B::matmul_strided_batched(
