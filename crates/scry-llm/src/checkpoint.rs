@@ -1,107 +1,13 @@
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::backend::MathBackend;
 use crate::error::ScryLlmError;
 use crate::nn::gpt2::{Gpt2Config, Gpt2Model};
 use crate::nn::Module;
-use crate::optim::adamw::{AdamW, AdamWConfig};
-use crate::tensor::TensorId;
 
-/// Save a training checkpoint: model parameters, optimizer state, step, and seed.
+/// Load model weights from a safetensors checkpoint file.
 ///
-/// Layout in the safetensors file:
-/// - `"param.0"`, `"param.1"`, ... — model parameters in `Module::parameters()` order
-/// - `"optim.m.0"`, `"optim.v.0"`, ... — optimizer first/second moments (same order)
-/// - JSON metadata header: step, seed, lr, beta1, beta2, eps, weight_decay
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be written.
-pub fn save_checkpoint<B: MathBackend>(
-    path: &Path,
-    model: &Gpt2Model<B>,
-    optimizer: &AdamW<B>,
-    step: usize,
-    rng_seed: u64,
-) -> crate::error::Result<()> {
-    let params = model.parameters();
-    let optim_states = optimizer.states();
-
-    // We need to collect all byte buffers first so they live long enough for TensorView refs
-    let mut all_bufs: Vec<Vec<u8>> = Vec::new();
-    let mut tensor_specs: Vec<(String, Vec<usize>, usize)> = Vec::new(); // (name, shape, buf_idx)
-
-    // Parameters
-    for (i, param) in params.iter().enumerate() {
-        let data = B::to_vec(&param.data);
-        let bytes: Vec<u8> = data.iter().flat_map(|f| f.to_le_bytes()).collect();
-        let shape: Vec<usize> = param.shape.dims().to_vec();
-        let idx = all_bufs.len();
-        all_bufs.push(bytes);
-        tensor_specs.push((format!("param.{i}"), shape, idx));
-    }
-
-    // Optimizer states
-    let param_ids: Vec<TensorId> = params.iter().map(|p| p.id).collect();
-    for (i, id) in param_ids.iter().enumerate() {
-        if let Some((m, v)) = optim_states.get(id) {
-            let shape: Vec<usize> = params[i].shape.dims().to_vec();
-
-            let m_data = B::to_vec(m);
-            let m_bytes: Vec<u8> = m_data.iter().flat_map(|f| f.to_le_bytes()).collect();
-            let m_idx = all_bufs.len();
-            all_bufs.push(m_bytes);
-            tensor_specs.push((format!("optim.m.{i}"), shape.clone(), m_idx));
-
-            let v_data = B::to_vec(v);
-            let v_bytes: Vec<u8> = v_data.iter().flat_map(|f| f.to_le_bytes()).collect();
-            let v_idx = all_bufs.len();
-            all_bufs.push(v_bytes);
-            tensor_specs.push((format!("optim.v.{i}"), shape, v_idx));
-        }
-    }
-
-    // Build TensorViews referencing the buffers
-    let mut tensors: Vec<(String, safetensors::tensor::TensorView<'_>)> = Vec::new();
-    for (name, shape, idx) in &tensor_specs {
-        let view = safetensors::tensor::TensorView::new(
-            safetensors::Dtype::F32,
-            shape.clone(),
-            &all_bufs[*idx],
-        )
-        .map_err(|e| ScryLlmError::CheckpointError(format!("tensor view error: {e}")))?;
-        tensors.push((name.clone(), view));
-    }
-
-    // Metadata
-    let metadata = HashMap::from([
-        ("step".to_string(), step.to_string()),
-        ("seed".to_string(), rng_seed.to_string()),
-        (
-            "optim_step_count".to_string(),
-            optimizer.step_count().to_string(),
-        ),
-        ("lr".to_string(), optimizer.config.lr.to_string()),
-        ("beta1".to_string(), optimizer.config.beta1.to_string()),
-        ("beta2".to_string(), optimizer.config.beta2.to_string()),
-        ("eps".to_string(), optimizer.config.eps.to_string()),
-        (
-            "weight_decay".to_string(),
-            optimizer.config.weight_decay.to_string(),
-        ),
-    ]);
-
-    safetensors::tensor::serialize_to_file(tensors, &Some(metadata), path)
-        .map_err(|e| ScryLlmError::CheckpointError(format!("serialize error: {e}")))?;
-
-    Ok(())
-}
-
-/// Load a training checkpoint.
-///
-/// Returns `(model, optimizer, step, rng_seed)`.
+/// Returns `(model, step, rng_seed)`.
 ///
 /// # Errors
 ///
@@ -109,7 +15,7 @@ pub fn save_checkpoint<B: MathBackend>(
 pub fn load_checkpoint<B: MathBackend>(
     path: &Path,
     config: &Gpt2Config,
-) -> crate::error::Result<(Gpt2Model<B>, AdamW<B>, usize, u64)> {
+) -> crate::error::Result<(Gpt2Model<B>, usize, u64)> {
     let data = std::fs::read(path)
         .map_err(|e| ScryLlmError::CheckpointError(format!("read error: {e}")))?;
 
@@ -119,7 +25,6 @@ pub fn load_checkpoint<B: MathBackend>(
     let loaded = safetensors::SafeTensors::deserialize(&data)
         .map_err(|e| ScryLlmError::CheckpointError(format!("deserialize error: {e}")))?;
 
-    // Read metadata
     let meta = meta_obj
         .metadata()
         .as_ref()
@@ -137,20 +42,6 @@ pub fn load_checkpoint<B: MathBackend>(
         .parse()
         .map_err(|e| ScryLlmError::CheckpointError(format!("parse seed: {e}")))?;
 
-    let optim_step_count: u32 = meta
-        .get("optim_step_count")
-        .and_then(|s: &String| s.parse().ok())
-        .unwrap_or(step as u32);
-
-    let adamw_config = AdamWConfig {
-        lr: meta.get("lr").and_then(|s: &String| s.parse().ok()).unwrap_or(6e-4),
-        beta1: meta.get("beta1").and_then(|s: &String| s.parse().ok()).unwrap_or(0.9),
-        beta2: meta.get("beta2").and_then(|s: &String| s.parse().ok()).unwrap_or(0.95),
-        eps: meta.get("eps").and_then(|s: &String| s.parse().ok()).unwrap_or(1e-8),
-        weight_decay: meta.get("weight_decay").and_then(|s: &String| s.parse().ok()).unwrap_or(0.1),
-    };
-
-    // Reconstruct model with dummy init, then overwrite parameters
     let mut rng = fastrand::Rng::with_seed(0);
     let mut model = Gpt2Model::<B>::new(config.clone(), &mut rng);
 
@@ -165,32 +56,67 @@ pub fn load_checkpoint<B: MathBackend>(
             let params = model.parameters();
             params[i].shape.clone()
         };
-        let mut params = model.parameters_mut();
-        params[i].data = Arc::new(B::from_vec(floats, &shape));
+        // Need parameters_mut — re-add it for checkpoint loading
+        let storage = B::from_vec(floats, &shape);
+        // Access field directly since we own the model
+        set_param_data(&mut model, i, storage);
     }
 
-    // Reconstruct optimizer states
-    let param_ids: Vec<TensorId> = model.parameters().iter().map(|p| p.id).collect();
-    let mut optim_states: HashMap<TensorId, (B::Storage, B::Storage)> = HashMap::new();
-
-    for (i, id) in param_ids.iter().enumerate() {
-        let m_name = format!("optim.m.{i}");
-        let v_name = format!("optim.v.{i}");
-        if let (Ok(m_tensor), Ok(v_tensor)) = (loaded.tensor(&m_name), loaded.tensor(&v_name)) {
-            let shape = model.parameters()[i].shape.clone();
-            let m = B::from_vec(bytes_to_f32(m_tensor.data()), &shape);
-            let v = B::from_vec(bytes_to_f32(v_tensor.data()), &shape);
-            optim_states.insert(*id, (m, v));
-        }
-    }
-
-    let optimizer = AdamW::from_state(adamw_config, optim_step_count, optim_states);
-
-    Ok((model, optimizer, step, seed))
+    Ok((model, step, seed))
 }
 
 fn bytes_to_f32(data: &[u8]) -> Vec<f32> {
     data.chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+/// Set parameter data by index. This traverses the model in the same order as `parameters()`.
+fn set_param_data<B: MathBackend>(model: &mut Gpt2Model<B>, idx: usize, data: B::Storage) {
+    // Embedding: token_embedding(0), position_embedding(1)
+    // Per block (12 params): ln1.gamma, ln1.beta, qkv_weight, qkv_bias, proj_weight, proj_bias,
+    //                         ln2.gamma, ln2.beta, fc1.weight, fc1.bias, fc2.weight, fc2.bias
+    // Final: ln_f.gamma, ln_f.beta
+    if idx == 0 {
+        model.embedding.token_embedding.data = data;
+        return;
+    }
+    if idx == 1 {
+        model.embedding.position_embedding.data = data;
+        return;
+    }
+
+    let block_params = 12;
+    let block_start = 2;
+    let block_end = block_start + model.blocks.len() * block_params;
+
+    if idx >= block_start && idx < block_end {
+        let rel = idx - block_start;
+        let block_idx = rel / block_params;
+        let param_in_block = rel % block_params;
+        let block = &mut model.blocks[block_idx];
+        match param_in_block {
+            0 => block.ln1.gamma.data = data,
+            1 => block.ln1.beta.data = data,
+            2 => block.attn.qkv_weight.data = data,
+            3 => block.attn.qkv_bias.data = data,
+            4 => block.attn.proj_weight.data = data,
+            5 => block.attn.proj_bias.data = data,
+            6 => block.ln2.gamma.data = data,
+            7 => block.ln2.beta.data = data,
+            8 => block.mlp.fc1.weight.data = data,
+            9 => block.mlp.fc1.bias.data = data,
+            10 => block.mlp.fc2.weight.data = data,
+            11 => block.mlp.fc2.bias.data = data,
+            _ => unreachable!(),
+        }
+        return;
+    }
+
+    // Final layernorm
+    if idx == block_end {
+        model.ln_f.gamma.data = data;
+    } else if idx == block_end + 1 {
+        model.ln_f.beta.data = data;
+    }
 }

@@ -96,27 +96,6 @@ fn bf16_softmax_forward() {
 }
 
 #[test]
-fn bf16_softmax_backward() {
-    init();
-    let rows = 8;
-    let cols = 64;
-    let d_out = rand_vec(rows * cols, 11);
-    let output = {
-        let raw = rand_vec(rows * cols, 12);
-        let shape = Shape::new(&[rows, cols]);
-        CpuBackend::softmax(&raw, &shape)
-    };
-    let shape = Shape::new(&[rows, cols]);
-
-    let cpu = CpuBackend::softmax_backward(&d_out, &output, &shape);
-    let gd = CudaBackend::from_vec(d_out, &shape);
-    let go = CudaBackend::from_vec(output, &shape);
-    let gpu = CudaBackend::to_vec(&CudaBackend::softmax_backward(&gd, &go, &shape));
-
-    assert_close(&cpu, &gpu, 2e-2, "bf16_softmax_bwd");
-}
-
-#[test]
 fn bf16_layernorm_forward() {
     init();
     let rows = 16;
@@ -152,56 +131,6 @@ fn bf16_gelu_forward() {
 }
 
 #[test]
-fn bf16_gelu_backward() {
-    init();
-    let n = 256;
-    let d_out = rand_vec(n, 31);
-    let input = rand_vec(n, 32);
-
-    let cpu = CpuBackend::gelu_backward(&d_out, &input);
-    let gd = CudaBackend::from_vec(d_out, &Shape::new(&[n]));
-    let gi = CudaBackend::from_vec(input, &Shape::new(&[n]));
-    let gpu = CudaBackend::to_vec(&CudaBackend::gelu_backward(&gd, &gi));
-
-    assert_close(&cpu, &gpu, 1e-2, "bf16_gelu_bwd");
-}
-
-#[test]
-fn bf16_cross_entropy_forward() {
-    init();
-    let batch = 4;
-    let vocab = 32;
-    let logits = rand_vec(batch * vocab, 40);
-    let targets: Vec<usize> = vec![0, 5, 10, 31];
-
-    let cpu_loss = CpuBackend::cross_entropy(&logits, &targets, batch, vocab)[0];
-    let gl = CudaBackend::from_vec(logits, &Shape::new(&[batch, vocab]));
-    let gpu_loss = CudaBackend::to_vec(&CudaBackend::cross_entropy(&gl, &targets, batch, vocab))[0];
-
-    let diff = (cpu_loss - gpu_loss).abs();
-    assert!(
-        diff < 5e-2,
-        "bf16_cross_entropy_fwd: cpu={cpu_loss}, gpu={gpu_loss}, diff={diff}"
-    );
-}
-
-#[test]
-fn bf16_cross_entropy_backward() {
-    init();
-    let batch = 4;
-    let vocab = 32;
-    let logits = rand_vec(batch * vocab, 41);
-    let targets: Vec<usize> = vec![0, 5, 10, 31];
-
-    let cpu = CpuBackend::cross_entropy_backward(&logits, &targets, batch, vocab, &vec![1.0f32]);
-    let gl = CudaBackend::from_vec(logits, &Shape::new(&[batch, vocab]));
-    let d_out = CudaBackend::from_vec(vec![1.0f32], &Shape::new(&[1]));
-    let gpu = CudaBackend::to_vec(&CudaBackend::cross_entropy_backward(&gl, &targets, batch, vocab, &d_out));
-
-    assert_close(&cpu, &gpu, 5e-2, "bf16_cross_entropy_bwd");
-}
-
-#[test]
 fn bf16_embedding_forward() {
     init();
     let vocab = 16;
@@ -214,22 +143,6 @@ fn bf16_embedding_forward() {
     let gpu = CudaBackend::to_vec(&CudaBackend::embedding(&gw, &indices, vocab, dim));
 
     assert_close(&cpu, &gpu, 1e-2, "bf16_embedding_fwd");
-}
-
-#[test]
-fn bf16_embedding_backward() {
-    init();
-    let vocab = 16;
-    let dim = 32;
-    let n_indices = 5;
-    let d_out = rand_vec(n_indices * dim, 51);
-    let indices = vec![0usize, 3, 7, 15, 2];
-
-    let cpu = CpuBackend::embedding_backward(&d_out, &indices, vocab, dim);
-    let gd = CudaBackend::from_vec(d_out, &Shape::new(&[n_indices, dim]));
-    let gpu = CudaBackend::to_vec(&CudaBackend::embedding_backward(&gd, &indices, vocab, dim));
-
-    assert_close(&cpu, &gpu, 1e-2, "bf16_embedding_bwd");
 }
 
 #[test]
@@ -302,30 +215,13 @@ fn bf16_sum() {
     let n = 256;
     let data = rand_vec(n, 160);
 
-    let cpu_sum = CpuBackend::sum(&data)[0];
+    let cpu_sum = CpuBackend::sum(&data);
     let gd = CudaBackend::from_vec(data, &Shape::new(&[n]));
-    let gpu_sum = CudaBackend::to_vec(&CudaBackend::sum(&gd))[0];
+    let gpu_sum = CudaBackend::sum(&gd);
 
     let diff = (cpu_sum - gpu_sum).abs();
     assert!(
         diff < 0.5,
         "bf16_sum: cpu={cpu_sum}, gpu={gpu_sum}, diff={diff}"
-    );
-}
-
-#[test]
-fn bf16_norm() {
-    init();
-    let n = 256;
-    let data = rand_vec(n, 150);
-
-    let cpu_norm = CpuBackend::norm(&data);
-    let gd = CudaBackend::from_vec(data, &Shape::new(&[n]));
-    let gpu_norm = CudaBackend::norm(&gd);
-
-    let diff = (cpu_norm - gpu_norm).abs();
-    assert!(
-        diff < 0.5,
-        "bf16_norm: cpu={cpu_norm}, gpu={gpu_norm}, diff={diff}"
     );
 }

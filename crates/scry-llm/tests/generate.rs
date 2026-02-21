@@ -14,7 +14,6 @@ fn tiny_model() -> Gpt2Model<Cpu> {
         n_heads: 2,
         n_layers: 2,
         d_ff: 16,
-        dropout_rate: 0.0,
     };
     let mut rng = fastrand::Rng::with_seed(42);
     Gpt2Model::<Cpu>::new(config, &mut rng)

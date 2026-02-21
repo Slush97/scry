@@ -1,8 +1,7 @@
-use crate::autograd::ops;
-use crate::autograd::GradTape;
 use crate::backend::MathBackend;
 use crate::nn::init;
 use crate::nn::Module;
+use crate::ops;
 use crate::tensor::shape::Shape;
 use crate::tensor::Tensor;
 
@@ -29,7 +28,6 @@ impl<B: MathBackend> Linear<B> {
     }
 
     /// Apply residual scaling: multiply weights by `1/sqrt(2*n_layer)`.
-    /// Used for attention output and MLP output projections per GPT-2 init.
     pub fn apply_residual_scaling(&mut self, n_layer: usize) {
         let scale = 1.0 / (2.0 * n_layer as f64).sqrt();
         let mut data = self.weight.to_vec();
@@ -39,8 +37,7 @@ impl<B: MathBackend> Linear<B> {
         self.weight = Tensor::from_vec(data, self.weight.shape.clone());
     }
 
-    /// Forward pass with tape for training.
-    pub fn forward(&self, input: &Tensor<B>, tape: &mut GradTape<B>) -> Tensor<B> {
+    pub fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
         let seq = input.shape.dims()[0];
         let mm = ops::matmul(
             input,
@@ -50,34 +47,13 @@ impl<B: MathBackend> Linear<B> {
             self.out_features,
             false,
             false,
-            Some(tape),
         );
-        ops::add(&mm, &self.bias, Some(tape))
-    }
-
-    /// Forward pass without tape (inference only).
-    pub fn forward_inference(&self, input: &Tensor<B>) -> Tensor<B> {
-        let seq = input.shape.dims()[0];
-        let mm = ops::matmul(
-            input,
-            &self.weight,
-            seq,
-            self.in_features,
-            self.out_features,
-            false,
-            false,
-            None,
-        );
-        ops::add(&mm, &self.bias, None)
+        ops::add(&mm, &self.bias)
     }
 }
 
 impl<B: MathBackend> Module<B> for Linear<B> {
     fn parameters(&self) -> Vec<&Tensor<B>> {
         vec![&self.weight, &self.bias]
-    }
-
-    fn parameters_mut(&mut self) -> Vec<&mut Tensor<B>> {
-        vec![&mut self.weight, &mut self.bias]
     }
 }

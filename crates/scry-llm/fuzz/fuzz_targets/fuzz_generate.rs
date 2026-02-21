@@ -39,7 +39,6 @@ fuzz_target!(|data: &[u8]| {
         n_heads: 2,
         n_layers: 1,
         d_ff: 8,
-        dropout_rate: 0.0,
     };
     let mut rng = fastrand::Rng::with_seed(42);
     let model = Gpt2Model::<Cpu>::new(model_config, &mut rng);

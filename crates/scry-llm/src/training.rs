@@ -155,17 +155,14 @@ impl<B: MathBackend> Trainer<B> {
                 self.model_config.vocab_size,
                 Some(&mut tape),
             );
-            let loss_id = loss.id;
+            total_loss += loss.to_vec()[0];
 
             let grads = if self.config.use_checkpointing {
-                self.model.backward_checkpointed(&tape, loss_id)
+                self.model.backward_checkpointed(&tape, loss.id)
             } else {
-                backward(&tape, loss_id)
+                backward(&tape, loss.id)
             };
             merge_grads::<B>(&mut accumulated_grads, grads);
-
-            // Defer D2H transfer until after backward to avoid mid-step GPU sync
-            total_loss += loss.to_vec()[0];
         }
 
         // NaN/Inf safety net: skip optimizer step if loss is bad
@@ -195,7 +192,7 @@ impl<B: MathBackend> Trainer<B> {
 
         let grad_norm = clip_grad_norm::<B>(&mut accumulated_grads, self.config.max_grad_norm);
 
-        // Optimizer step — tape is dropped, so Arc::get_mut succeeds.
+        // Optimizer step
         let mut params: Vec<_> = self
             .model
             .parameters_mut()
@@ -203,7 +200,7 @@ impl<B: MathBackend> Trainer<B> {
             .map(|p| {
                 let id = p.id;
                 let shape = p.shape.clone();
-                (id, p.data_mut(), shape)
+                (id, &mut p.data, shape)
             })
             .collect();
         let mut param_refs: Vec<_> = params

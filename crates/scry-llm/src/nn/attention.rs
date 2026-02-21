@@ -1,5 +1,3 @@
-use crate::autograd::ops;
-use crate::autograd::GradTape;
 use crate::backend::MathBackend;
 use crate::nn::init;
 use crate::nn::kv_cache::LayerKvCache;
@@ -36,33 +34,82 @@ impl<B: MathBackend> CausalSelfAttention<B> {
         }
     }
 
-    pub fn forward(
-        &self,
-        input: &Tensor<B>,
-        dropout_rate: f32,
-        rng: Option<&mut fastrand::Rng>,
-        tape: &mut GradTape<B>,
-    ) -> Tensor<B> {
-        ops::attention(
-            input,
-            &self.qkv_weight,
-            &self.qkv_bias,
-            &self.proj_weight,
-            &self.proj_bias,
-            self.n_heads,
-            self.d_model,
-            self.d_head,
-            dropout_rate,
-            rng,
-            Some(tape),
-        )
+    /// Full-sequence forward for prefill (no KV cache).
+    pub fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
+        let seq_len = input.shape.dims()[0];
+        let d_model = self.d_model;
+        let n_heads = self.n_heads;
+        let d_head = self.d_head;
+
+        // QKV = input @ W_qkv + b_qkv  => [seq, 3*d_model]
+        let qkv_raw = B::matmul(
+            &input.data,
+            &self.qkv_weight.data,
+            seq_len,
+            d_model,
+            3 * d_model,
+            false,
+            false,
+        );
+        let qkv_shape = Shape::new(&[seq_len, 3 * d_model]);
+        let bias_shape = Shape::new(&[1, 3 * d_model]);
+        let qkv = B::add(
+            &qkv_raw,
+            &self.qkv_bias.data,
+            &qkv_shape,
+            &bias_shape,
+            &qkv_shape,
+        );
+
+        let mut head_concat_storage = B::zeros(&Shape::new(&[seq_len, d_model]));
+        let scale = 1.0 / (d_head as f64).sqrt();
+
+        for h in 0..n_heads {
+            let q_h = B::gather_columns(&qkv, seq_len, 3 * d_model, h * d_head, d_head);
+            let k_h = B::gather_columns(&qkv, seq_len, 3 * d_model, d_model + h * d_head, d_head);
+            let v_h =
+                B::gather_columns(&qkv, seq_len, 3 * d_model, 2 * d_model + h * d_head, d_head);
+
+            let mut scores = B::matmul(&q_h, &k_h, seq_len, d_head, seq_len, false, true);
+            B::apply_causal_mask_and_scale(&mut scores, seq_len, scale as f32, f32::NEG_INFINITY);
+
+            let attn = B::softmax(&scores, &Shape::new(&[seq_len, seq_len]));
+            let out_h = B::matmul(&attn, &v_h, seq_len, seq_len, d_head, false, false);
+
+            B::scatter_columns(
+                &mut head_concat_storage,
+                &out_h,
+                seq_len,
+                d_model,
+                h * d_head,
+                d_head,
+            );
+        }
+
+        // Output projection
+        let proj_raw = B::matmul(
+            &head_concat_storage,
+            &self.proj_weight.data,
+            seq_len,
+            d_model,
+            d_model,
+            false,
+            false,
+        );
+        let proj_shape = Shape::new(&[seq_len, d_model]);
+        let pbias_shape = Shape::new(&[1, d_model]);
+        let output_data = B::add(
+            &proj_raw,
+            &self.proj_bias.data,
+            &proj_shape,
+            &pbias_shape,
+            &proj_shape,
+        );
+
+        Tensor::new(output_data, Shape::new(&[seq_len, d_model]))
     }
 
     /// Single-token forward with KV cache for autoregressive inference.
-    ///
-    /// `input`: `[1, d_model]` — embedding for a single token.
-    /// Computes Q, K, V for this token, appends K/V to cache, attends over full
-    /// cached sequence. Returns `[1, d_model]`.
     #[allow(clippy::too_many_lines)]
     pub fn forward_with_cache(&self, input: &Tensor<B>, cache: &mut LayerKvCache<B>) -> Tensor<B> {
         let d_model = self.d_model;
@@ -90,7 +137,6 @@ impl<B: MathBackend> CausalSelfAttention<B> {
         );
         let qkv_vec = B::to_vec(&qkv);
 
-        // Split into per-head Q, K, V for this single token: [1, d_head] each
         let mut new_k: Vec<B::Storage> = Vec::with_capacity(n_heads);
         let mut new_v: Vec<B::Storage> = Vec::with_capacity(n_heads);
         let mut q_heads: Vec<Vec<f32>> = Vec::with_capacity(n_heads);
@@ -110,20 +156,17 @@ impl<B: MathBackend> CausalSelfAttention<B> {
             new_v.push(B::from_vec(v_h, &head_shape));
         }
 
-        // Append to cache
         cache.append(new_k, new_v);
-        let cached_len = cache.seq_len; // includes the token we just added
+        let cached_len = cache.seq_len;
 
-        // Per-head attention: Q_new @ K_cached^T / sqrt(d_head), causal mask, softmax, @ V_cached
         let scale = 1.0 / (d_head as f64).sqrt();
-        let mut head_concat = vec![0.0f32; d_model]; // [1, d_model]
+        let mut head_concat = vec![0.0f32; d_model];
 
         for h in 0..n_heads {
-            let q_h = &q_heads[h]; // [d_head]
-            let k_cached = &cache.k_per_head[h]; // [cached_len, d_head]
-            let v_cached = &cache.v_per_head[h]; // [cached_len, d_head]
+            let q_h = &q_heads[h];
+            let k_cached = &cache.k_per_head[h];
+            let v_cached = &cache.v_per_head[h];
 
-            // scores = q @ K^T => [1, cached_len]
             let scores_raw = B::matmul(
                 &B::from_vec(q_h.clone(), &Shape::new(&[1, d_head])),
                 k_cached,
@@ -138,15 +181,9 @@ impl<B: MathBackend> CausalSelfAttention<B> {
                 scores[t] = (f64::from(scores[t]) * scale) as f32;
             }
 
-            // Causal mask: for token at position (cached_len - 1), mask future positions
-            // Since cached_len - 1 is the current position, all cached positions <= current
-            // are valid. No masking needed (all cached K are at positions < current or == current).
-
-            // Softmax
             let scores_storage = B::from_vec(scores, &Shape::new(&[1, cached_len]));
             let attn = B::softmax(&scores_storage, &Shape::new(&[1, cached_len]));
 
-            // out_h = attn @ V_cached => [1, d_head]
             let out_h = B::matmul(&attn, v_cached, 1, cached_len, d_head, false, false);
             let out_h_vec = B::to_vec(&out_h);
 
@@ -155,7 +192,6 @@ impl<B: MathBackend> CausalSelfAttention<B> {
             }
         }
 
-        // Output projection: head_concat @ W_proj + b_proj => [1, d_model]
         let hc_storage = B::from_vec(head_concat, &Shape::new(&[1, d_model]));
         let proj_raw = B::matmul(
             &hc_storage,
@@ -178,22 +214,6 @@ impl<B: MathBackend> CausalSelfAttention<B> {
 
         Tensor::new(output_data, Shape::new(&[1, d_model]))
     }
-
-    pub fn forward_inference(&self, input: &Tensor<B>) -> Tensor<B> {
-        ops::attention(
-            input,
-            &self.qkv_weight,
-            &self.qkv_bias,
-            &self.proj_weight,
-            &self.proj_bias,
-            self.n_heads,
-            self.d_model,
-            self.d_head,
-            0.0,
-            None,
-            None,
-        )
-    }
 }
 
 impl<B: MathBackend> Module<B> for CausalSelfAttention<B> {
@@ -203,15 +223,6 @@ impl<B: MathBackend> Module<B> for CausalSelfAttention<B> {
             &self.qkv_bias,
             &self.proj_weight,
             &self.proj_bias,
-        ]
-    }
-
-    fn parameters_mut(&mut self) -> Vec<&mut Tensor<B>> {
-        vec![
-            &mut self.qkv_weight,
-            &mut self.qkv_bias,
-            &mut self.proj_weight,
-            &mut self.proj_bias,
         ]
     }
 }

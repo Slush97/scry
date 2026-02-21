@@ -1,22 +1,15 @@
 pub mod backward;
 pub mod ops;
 
-use std::sync::Arc;
-
 use crate::backend::DeviceBackend;
 use crate::tensor::shape::Shape;
 use crate::tensor::TensorId;
 
 /// What data each operation saves for backward.
-///
-/// Fields holding tensor data from model parameters use `Arc<B::Storage>` to
-/// avoid deep device-memory copies when recording on the autograd tape.
-/// Intermediate computation results produced within the forward op remain
-/// owned `B::Storage`.
 pub enum SavedData<B: DeviceBackend> {
     Matmul {
-        a: Arc<B::Storage>,
-        b: Arc<B::Storage>,
+        a: B::Storage,
+        b: B::Storage,
         m: usize,
         k: usize,
         n: usize,
@@ -33,8 +26,8 @@ pub enum SavedData<B: DeviceBackend> {
         shape: Shape,
     },
     LayerNorm {
-        input: Arc<B::Storage>,
-        gamma: Arc<B::Storage>,
+        input: B::Storage,
+        gamma: B::Storage,
         mean: B::Storage,
         rstd: B::Storage,
         shape: Shape,
@@ -42,17 +35,11 @@ pub enum SavedData<B: DeviceBackend> {
         beta_id: TensorId,
     },
     Gelu {
-        input: Arc<B::Storage>,
+        input: B::Storage,
     },
     CrossEntropy {
-        logits: Arc<B::Storage>,
+        logits: B::Storage,
         targets: Vec<usize>,
-        batch: usize,
-        vocab: usize,
-    },
-    /// Fused cross-entropy: cached grad from forward, just scale in backward.
-    CrossEntropyFused {
-        cached_grad: B::Storage,
         batch: usize,
         vocab: usize,
     },
@@ -66,9 +53,9 @@ pub enum SavedData<B: DeviceBackend> {
         input_shape: Shape,
     },
     Attention {
-        input: Arc<B::Storage>,
-        qkv_weight: Arc<B::Storage>,
-        proj_weight: Arc<B::Storage>,
+        input: B::Storage,
+        qkv_weight: B::Storage,
+        proj_weight: B::Storage,
         attn_weights: Vec<B::Storage>,
         q_per_head: Vec<B::Storage>,
         k_per_head: Vec<B::Storage>,
@@ -101,65 +88,11 @@ pub enum SavedData<B: DeviceBackend> {
         batch_size: Option<usize>,
         seq_len: Option<usize>,
     },
-    /// Fused residual-add + `LayerNorm`.
-    /// Stores inputs for backward recomputation (sum = residual + sublayer).
-    ResidualAddLayerNorm {
-        residual: Arc<B::Storage>,
-        sublayer: Arc<B::Storage>,
-        gamma: Arc<B::Storage>,
-        mean: B::Storage,
-        rstd: B::Storage,
-        shape: Shape,
-        gamma_id: TensorId,
-        beta_id: TensorId,
-        /// `TensorId` of the residual sum output (second output).
-        sum_id: TensorId,
-    },
-    /// Fused bias + GELU: `gelu(matmul_out + bias)`.
-    FusedBiasGelu {
-        /// Pre-bias matmul output `[rows, cols]` (intermediate, not from a tensor)
-        input: B::Storage,
-        /// Bias `[cols]`
-        bias: Arc<B::Storage>,
-        rows: usize,
-        cols: usize,
-        /// TensorId of the bias parameter
-        bias_id: TensorId,
-        /// TensorId of the weight parameter
-        weight_id: TensorId,
-        /// Saved input to the matmul
-        matmul_input: Arc<B::Storage>,
-        /// Weight storage
-        weight: Arc<B::Storage>,
-        in_features: usize,
-        out_features: usize,
-    },
-    /// Fused bias + dropout + residual: `residual + dropout(matmul_out + bias)`.
-    FusedBiasDropoutResidual {
-        /// Pre-bias matmul output
-        matmul_out: B::Storage,
-        /// Bias
-        bias: Arc<B::Storage>,
-        /// Dropout mask (scale values)
-        dropout_mask: B::Storage,
-        rows: usize,
-        cols: usize,
-        /// TensorId of the bias parameter
-        bias_id: TensorId,
-        /// TensorId of the weight parameter
-        weight_id: TensorId,
-        /// Saved input to the matmul
-        matmul_input: Arc<B::Storage>,
-        /// Weight storage
-        weight: Arc<B::Storage>,
-        in_features: usize,
-        out_features: usize,
-    },
     /// Batched attention: contiguous tensors for all batch×heads (no per-item vectors).
     AttentionBatched {
-        input: Arc<B::Storage>,
-        qkv_weight: Arc<B::Storage>,
-        proj_weight: Arc<B::Storage>,
+        input: B::Storage,
+        qkv_weight: B::Storage,
+        proj_weight: B::Storage,
         /// `[B*H, S, S]` — attention weights (pre-dropout softmax output)
         attn_weights: B::Storage,
         /// `[B*H, S, d_head]` — Q, K, V in head-first layout
@@ -168,32 +101,6 @@ pub enum SavedData<B: DeviceBackend> {
         v_heads: B::Storage,
         /// `[B*H*S*S]` — dropout mask (scale values or 1.0 if no dropout)
         attn_dropout_mask: B::Storage,
-        /// `[B*S, D]` — concatenated head outputs before projection
-        head_concat: B::Storage,
-        n_heads: usize,
-        d_model: usize,
-        d_head: usize,
-        batch_size: usize,
-        seq_len: usize,
-        qkv_weight_id: TensorId,
-        qkv_bias_id: TensorId,
-        proj_weight_id: TensorId,
-        proj_bias_id: TensorId,
-    },
-    /// FlashAttention: fused Q@K^T → scale → causal mask → softmax → attn@V.
-    FlashAttention {
-        /// `[B*S, D]` — input to attention (for QKV weight gradient)
-        input: Arc<B::Storage>,
-        qkv_weight: Arc<B::Storage>,
-        proj_weight: Arc<B::Storage>,
-        /// `[B*H, S, d_head]` — Q, K, V in head-first layout
-        q_heads: B::Storage,
-        k_heads: B::Storage,
-        v_heads: B::Storage,
-        /// `[B*H, S, d_head]` — flash attention output (before head merge)
-        flash_output: B::Storage,
-        /// `[B*H, S]` — log-sum-exp for backward recomputation
-        lse: B::Storage,
         /// `[B*S, D]` — concatenated head outputs before projection
         head_concat: B::Storage,
         n_heads: usize,
@@ -216,17 +123,12 @@ pub enum Operation {
     LayerNorm,
     Gelu,
     CrossEntropy,
-    CrossEntropyFused,
     Embedding,
     Sum,
     Attention,
     Dropout,
     Checkpoint,
     AttentionBatched,
-    ResidualAddLayerNorm,
-    FusedBiasGelu,
-    FusedBiasDropoutResidual,
-    FlashAttention,
 }
 
 /// A node on the autograd tape.

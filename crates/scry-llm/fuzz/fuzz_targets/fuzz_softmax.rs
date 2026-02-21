@@ -1,4 +1,4 @@
-//! Fuzz softmax forward + backward. Output must sum to 1, be non-negative,
+//! Fuzz softmax forward. Output must sum to 1, be non-negative,
 //! and be finite for any finite input.
 
 #![no_main]
@@ -49,9 +49,4 @@ fuzz_target!(|data: &[u8]| {
             "softmax row {b} sum = {row_sum}, expected ~1.0"
         );
     }
-
-    // Backward must also be finite
-    let d_out = vec![1.0f32; numel];
-    let d_input = CpuBackend::softmax_backward(&d_out, &output, &shape);
-    assert!(d_input.iter().all(|v| v.is_finite()));
 });

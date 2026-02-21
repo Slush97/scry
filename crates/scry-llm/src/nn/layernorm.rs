@@ -1,7 +1,6 @@
-use crate::autograd::ops;
-use crate::autograd::GradTape;
 use crate::backend::MathBackend;
 use crate::nn::Module;
+use crate::ops;
 use crate::tensor::shape::Shape;
 use crate::tensor::Tensor;
 
@@ -21,21 +20,13 @@ impl<B: MathBackend> LayerNormModule<B> {
         }
     }
 
-    pub fn forward(&self, input: &Tensor<B>, tape: &mut GradTape<B>) -> Tensor<B> {
-        ops::layernorm(input, &self.gamma, &self.beta, self.eps, Some(tape))
-    }
-
-    pub fn forward_inference(&self, input: &Tensor<B>) -> Tensor<B> {
-        ops::layernorm(input, &self.gamma, &self.beta, self.eps, None)
+    pub fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
+        ops::layernorm(input, &self.gamma, &self.beta, self.eps)
     }
 }
 
 impl<B: MathBackend> Module<B> for LayerNormModule<B> {
     fn parameters(&self) -> Vec<&Tensor<B>> {
         vec![&self.gamma, &self.beta]
-    }
-
-    fn parameters_mut(&mut self) -> Vec<&mut Tensor<B>> {
-        vec![&mut self.gamma, &mut self.beta]
     }
 }

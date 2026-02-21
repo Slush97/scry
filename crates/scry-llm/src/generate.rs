@@ -1,5 +1,28 @@
 use crate::backend::MathBackend;
-use crate::nn::gpt2::Gpt2Model;
+use crate::tensor::Tensor;
+
+/// Trait for causal language models, decoupling generation from specific architectures.
+pub trait CausalLM<B: MathBackend> {
+    /// Model-specific KV cache type.
+    type Cache;
+
+    /// Full-sequence forward pass (prefill). Returns logits `[seq, vocab]`.
+    fn forward(&self, token_ids: &[usize]) -> Tensor<B>;
+
+    /// Single-token forward with KV cache. Returns logits `[1, vocab]`.
+    fn forward_with_cache(
+        &self,
+        token_id: usize,
+        pos: usize,
+        cache: &mut Self::Cache,
+    ) -> Tensor<B>;
+
+    /// Create a new KV cache sized for this model.
+    fn new_kv_cache(&self, max_seq: usize) -> Self::Cache;
+
+    /// Vocabulary size.
+    fn vocab_size(&self) -> usize;
+}
 
 /// Configuration for text generation sampling.
 #[derive(Clone, Debug)]
@@ -29,8 +52,8 @@ impl Default for SamplingConfig {
 ///
 /// Uses KV-cache for efficient single-token forward passes.
 /// Returns the generated token IDs (not including the prompt).
-pub fn generate<B: MathBackend>(
-    model: &Gpt2Model<B>,
+pub fn generate<B: MathBackend, M: CausalLM<B>>(
+    model: &M,
     prompt_tokens: &[usize],
     config: &SamplingConfig,
     rng: &mut fastrand::Rng,
@@ -40,17 +63,16 @@ pub fn generate<B: MathBackend>(
         "generate: prompt_tokens must not be empty"
     );
 
-    let mut cache = model.new_kv_cache();
-    let vocab_size = model.config.vocab_size;
+    let max_seq = prompt_tokens.len() + config.max_tokens;
+    let mut cache = model.new_kv_cache(max_seq);
+    let vocab_size = model.vocab_size();
     let mut generated = Vec::with_capacity(config.max_tokens);
 
-    // Process prompt tokens through the model (prefill)
+    // Prefill: process prompt tokens through the model
     for (pos, &token_id) in prompt_tokens.iter().enumerate() {
         let logits = model.forward_with_cache(token_id, pos, &mut cache);
-        // Only sample from the last token's logits
         if pos == prompt_tokens.len() - 1 {
             let logits_vec = logits.to_vec();
-            // logits is [1, vocab], take the single row
             let token = sample_token(&logits_vec[..vocab_size], config, rng);
             generated.push(token);
         }
@@ -60,11 +82,6 @@ pub fn generate<B: MathBackend>(
     for i in 1..config.max_tokens {
         let last_token = generated[generated.len() - 1];
         let position = prompt_tokens.len() + i - 1;
-
-        // Guard against exceeding max sequence length
-        if position >= model.config.max_seq_len {
-            break;
-        }
 
         let logits = model.forward_with_cache(last_token, position, &mut cache);
         let logits_vec = logits.to_vec();
@@ -111,7 +128,6 @@ pub fn sample_token(logits: &[f32], config: &SamplingConfig, rng: &mut fastrand:
             *p /= sum;
         }
     } else {
-        // Fallback: uniform
         let uniform = 1.0 / n as f64;
         probs.fill(uniform);
     }
@@ -131,7 +147,6 @@ pub fn sample_token(logits: &[f32], config: &SamplingConfig, rng: &mut fastrand:
             }
         }
 
-        // Zero out tokens beyond the nucleus
         let mut keep = vec![false; n];
         for &(idx, _) in &indexed[..cutoff_idx] {
             keep[idx] = true;
@@ -142,7 +157,6 @@ pub fn sample_token(logits: &[f32], config: &SamplingConfig, rng: &mut fastrand:
             }
         }
 
-        // Re-normalize
         let sum2: f64 = probs.iter().sum();
         if sum2 > 0.0 {
             for p in &mut probs {
@@ -151,7 +165,6 @@ pub fn sample_token(logits: &[f32], config: &SamplingConfig, rng: &mut fastrand:
         }
     }
 
-    // Weighted sampling
     weighted_sample(&probs, rng)
 }
 
@@ -172,6 +185,31 @@ fn weighted_sample(probs: &[f64], rng: &mut fastrand::Rng) -> usize {
             return i;
         }
     }
-    // Fallback: return last non-zero
     probs.len() - 1
+}
+
+// Implement CausalLM for Gpt2Model
+impl<B: MathBackend> CausalLM<B> for crate::nn::gpt2::Gpt2Model<B> {
+    type Cache = crate::nn::kv_cache::KvCache<B>;
+
+    fn forward(&self, token_ids: &[usize]) -> Tensor<B> {
+        self.forward(token_ids)
+    }
+
+    fn forward_with_cache(
+        &self,
+        token_id: usize,
+        pos: usize,
+        cache: &mut crate::nn::kv_cache::KvCache<B>,
+    ) -> Tensor<B> {
+        self.forward_with_cache(token_id, pos, cache)
+    }
+
+    fn new_kv_cache(&self, _max_seq: usize) -> crate::nn::kv_cache::KvCache<B> {
+        self.new_kv_cache()
+    }
+
+    fn vocab_size(&self) -> usize {
+        self.config.vocab_size
+    }
 }

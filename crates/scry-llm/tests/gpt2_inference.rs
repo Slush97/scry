@@ -38,7 +38,7 @@ fn gpt2_pretrained_logits() {
     // "Hello" tokenized: [15496]
     // "Hello world" tokenized: [15496, 995]
     let token_ids = &[15496usize, 995];
-    let logits = model.forward_inference(token_ids);
+    let logits = model.forward(token_ids);
     let logits_vec = logits.to_vec();
 
     // logits shape: [2, 50257]

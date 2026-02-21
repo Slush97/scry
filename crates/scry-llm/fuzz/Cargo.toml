@@ -60,56 +60,13 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
-name = "fuzz_cross_entropy"
-path = "fuzz_targets/fuzz_cross_entropy.rs"
-test = false
-doc = false
-bench = false
-
 # ═══════════════════════════════════════════
-# Autograd fuzz targets
-# ═══════════════════════════════════════════
-
-[[bin]]
-name = "fuzz_backward"
-path = "fuzz_targets/fuzz_backward.rs"
-test = false
-doc = false
-bench = false
-
-# ═══════════════════════════════════════════
-# Phase 2 fuzz targets (attention, optimizer)
+# Inference fuzz targets
 # ═══════════════════════════════════════════
 
 [[bin]]
 name = "fuzz_attention"
 path = "fuzz_targets/fuzz_attention.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "fuzz_adamw"
-path = "fuzz_targets/fuzz_adamw.rs"
-test = false
-doc = false
-bench = false
-
-# ═══════════════════════════════════════════
-# Phase 3 fuzz targets (data, training, generation)
-# ═══════════════════════════════════════════
-
-[[bin]]
-name = "fuzz_data_loader"
-path = "fuzz_targets/fuzz_data_loader.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "fuzz_training_step"
-path = "fuzz_targets/fuzz_training_step.rs"
 test = false
 doc = false
 bench = false

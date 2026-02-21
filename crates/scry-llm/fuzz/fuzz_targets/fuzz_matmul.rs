@@ -1,4 +1,4 @@
-//! Fuzz matmul forward + backward with arbitrary (small) dimensions and transpose combos.
+//! Fuzz matmul forward with arbitrary (small) dimensions and transpose combos.
 //! Must never panic, NaN, or Inf for finite inputs.
 
 #![no_main]
@@ -26,12 +26,6 @@ fuzz_target!(|data: &[u8]| {
             let c = CpuBackend::matmul(&a, &b, m, k, n, trans_a, trans_b);
             assert_eq!(c.len(), m * n);
             assert!(c.iter().all(|v| v.is_finite()));
-
-            let d_out: Vec<f32> = vec![1.0; m * n];
-            let (da, db) =
-                CpuBackend::matmul_backward(&d_out, &a, &b, m, k, n, trans_a, trans_b);
-            assert!(da.iter().all(|v| v.is_finite()));
-            assert!(db.iter().all(|v| v.is_finite()));
         }
         return;
     }

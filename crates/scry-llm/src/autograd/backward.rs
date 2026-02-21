@@ -22,11 +22,11 @@ pub fn backward<B: MathBackend>(tape: &GradTape<B>, loss_id: TensorId) -> Gradie
 
     // Reverse iteration through tape
     for node in tape.nodes.iter().rev() {
-        let d_out = match grads.remove(&node.output_id) {
-            Some(g) => g,
+        let d_out = match grads.get(&node.output_id) {
+            Some(g) => B::clone_storage(g),
             None => continue, // no gradient flows to this node
         };
-        backward_node(node, d_out, &mut grads);
+        backward_node(node, &d_out, &mut grads);
     }
 
     grads
@@ -39,7 +39,7 @@ pub fn backward<B: MathBackend>(tape: &GradTape<B>, loss_id: TensorId) -> Gradie
 #[allow(clippy::too_many_lines)]
 pub fn backward_node<B: MathBackend>(
     node: &super::TapeNode<B>,
-    d_out: B::Storage,
+    d_out: &B::Storage,
     grads: &mut Gradients<B>,
 ) {
     match (&node.op, &node.saved) {
@@ -55,7 +55,7 @@ pub fn backward_node<B: MathBackend>(
                 trans_b,
             },
         ) => {
-            let (d_a, d_b) = B::matmul_backward(&d_out, a, b, *m, *k, *n, *trans_a, *trans_b);
+            let (d_a, d_b) = B::matmul_backward(d_out, a, b, *m, *k, *n, *trans_a, *trans_b);
             accumulate_grad::<B>(grads, node.input_ids[0], d_a);
             accumulate_grad::<B>(grads, node.input_ids[1], d_b);
         }
@@ -67,12 +67,12 @@ pub fn backward_node<B: MathBackend>(
                 out_shape,
             },
         ) => {
-            let (d_a, d_b) = B::add_backward(&d_out, a_shape, b_shape, out_shape);
+            let (d_a, d_b) = B::add_backward(d_out, a_shape, b_shape, out_shape);
             accumulate_grad::<B>(grads, node.input_ids[0], d_a);
             accumulate_grad::<B>(grads, node.input_ids[1], d_b);
         }
         (Operation::Softmax, SavedData::Softmax { output, shape }) => {
-            let d_input = B::softmax_backward(&d_out, output, shape);
+            let d_input = B::softmax_backward(d_out, output, shape);
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
         }
         (
@@ -88,13 +88,13 @@ pub fn backward_node<B: MathBackend>(
             },
         ) => {
             let (d_input, d_gamma, d_beta) =
-                B::layernorm_backward(&d_out, input, gamma, mean, rstd, shape);
+                B::layernorm_backward(d_out, input, gamma, mean, rstd, shape);
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
             accumulate_grad::<B>(grads, *gamma_id, d_gamma);
             accumulate_grad::<B>(grads, *beta_id, d_beta);
         }
         (Operation::Gelu, SavedData::Gelu { input }) => {
-            let d_input = B::gelu_backward(&d_out, input);
+            let d_input = B::gelu_backward(d_out, input);
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
         }
         (
@@ -106,24 +106,10 @@ pub fn backward_node<B: MathBackend>(
                 vocab,
             },
         ) => {
-            // d_out is a 1-element storage — pass directly to the kernel (no D2H sync)
-            let d_logits = B::cross_entropy_backward(logits, targets, *batch, *vocab, &d_out);
-            accumulate_grad::<B>(grads, node.input_ids[0], d_logits);
-        }
-        (
-            Operation::CrossEntropyFused,
-            SavedData::CrossEntropyFused {
-                cached_grad,
-                batch: _,
-                vocab: _,
-            },
-        ) => {
-            // cached_grad = (softmax - one_hot) / batch, precomputed during forward.
-            // d_logits = cached_grad * d_out_scalar.
-            // d_out is 1-element — read to host (single D2H, negligible cost).
-            let d_out_val = B::to_vec(&d_out)[0];
-            let d_logits = B::scale(cached_grad, d_out_val);
-            accumulate_grad::<B>(grads, node.input_ids[0], d_logits);
+            let d_logits = B::cross_entropy_backward(logits, targets, *batch, *vocab);
+            let d_out_scalar = B::to_vec(d_out)[0];
+            let d_logits_scaled = B::scale(&d_logits, d_out_scalar);
+            accumulate_grad::<B>(grads, node.input_ids[0], d_logits_scaled);
         }
         (
             Operation::Embedding,
@@ -134,12 +120,12 @@ pub fn backward_node<B: MathBackend>(
                 weight_id,
             },
         ) => {
-            let d_weight = B::embedding_backward(&d_out, indices, *vocab, *dim);
+            let d_weight = B::embedding_backward(d_out, indices, *vocab, *dim);
             accumulate_grad::<B>(grads, *weight_id, d_weight);
         }
         (Operation::Sum, SavedData::Sum { input_shape }) => {
-            // Broadcast d_out (1-element) to input shape on device (no D2H sync)
-            let d_input = B::broadcast_scalar(&d_out, input_shape.numel());
+            let d_out_scalar = B::to_vec(d_out)[0];
+            let d_input = B::from_vec(vec![d_out_scalar; input_shape.numel()], input_shape);
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
         }
         (
@@ -170,7 +156,7 @@ pub fn backward_node<B: MathBackend>(
             let seq_len = *seq_len;
 
             attention_backward::<B>(
-                &d_out,
+                d_out,
                 input,
                 qkv_weight,
                 proj_weight,
@@ -193,7 +179,7 @@ pub fn backward_node<B: MathBackend>(
             );
         }
         (Operation::Dropout, SavedData::Dropout { mask }) => {
-            let d_input = B::mul_elementwise(&d_out, mask);
+            let d_input = B::mul_elementwise(d_out, mask);
             accumulate_grad::<B>(grads, node.input_ids[0], d_input);
         }
         (
@@ -220,7 +206,7 @@ pub fn backward_node<B: MathBackend>(
             },
         ) => {
             attention_batched_backward::<B>(
-                &d_out,
+                d_out,
                 input,
                 qkv_weight,
                 proj_weight,
@@ -243,181 +229,10 @@ pub fn backward_node<B: MathBackend>(
                 *proj_bias_id,
             );
         }
-        (
-            Operation::ResidualAddLayerNorm,
-            SavedData::ResidualAddLayerNorm {
-                residual,
-                sublayer,
-                gamma,
-                mean,
-                rstd,
-                shape,
-                gamma_id,
-                beta_id,
-                sum_id,
-            },
-        ) => {
-            let (d_input, d_gamma, d_beta) = B::residual_add_layernorm_backward(
-                &d_out,
-                residual,
-                sublayer,
-                gamma,
-                mean,
-                rstd,
-                shape,
-            );
-
-            // d_input is the gradient through the layernorm path for both residual and sublayer.
-            // If sum also has a gradient (from the MLP residual add), add it.
-            let d_input_total = if let Some(d_sum) = grads.get(sum_id) {
-                let mut combined = d_input;
-                B::add_inplace(&mut combined, d_sum);
-                combined
-            } else {
-                d_input
-            };
-
-            // Both residual and sublayer get the same gradient (same-shape add).
-            accumulate_grad::<B>(grads, node.input_ids[0], B::clone_storage(&d_input_total));
-            accumulate_grad::<B>(grads, node.input_ids[1], d_input_total);
-            accumulate_grad::<B>(grads, *gamma_id, d_gamma);
-            accumulate_grad::<B>(grads, *beta_id, d_beta);
-        }
-        (
-            Operation::FusedBiasGelu,
-            SavedData::FusedBiasGelu {
-                input,
-                bias,
-                rows,
-                cols,
-                bias_id,
-                weight_id,
-                matmul_input,
-                weight,
-                in_features,
-                out_features,
-            },
-        ) => {
-            // input is post-bias (matmul + bias), so gelu_backward directly
-            let d_mm = B::gelu_backward(&d_out, input);
-            let _ = bias; // bias gradient comes from reduce_rows(d_mm) below
-
-            // Bias gradient = reduce_rows(d_mm) — same values as d_mm since
-            // d(bias_add)/d(bias) = 1, passed through GELU backward
-            let (_, d_bias) = B::add_backward(
-                &d_mm,
-                &Shape::new(&[*rows, *cols]),
-                &Shape::new(&[1, *cols]),
-                &Shape::new(&[*rows, *cols]),
-            );
-            accumulate_grad::<B>(grads, *bias_id, d_bias);
-
-            // Matmul backward: d_input and d_weight
-            let (d_input, d_weight) = B::matmul_backward(
-                &d_mm, matmul_input, weight,
-                *rows, *in_features, *out_features,
-                false, false,
-            );
-            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
-            accumulate_grad::<B>(grads, *weight_id, d_weight);
-        }
-        (
-            Operation::FusedBiasDropoutResidual,
-            SavedData::FusedBiasDropoutResidual {
-                matmul_out,
-                bias,
-                dropout_mask,
-                rows,
-                cols,
-                bias_id,
-                weight_id,
-                matmul_input,
-                weight,
-                in_features,
-                out_features,
-            },
-        ) => {
-            // out = residual + dropout(matmul_out + bias)
-            // d_biased = d_out * dropout_mask (compute before moving d_out)
-            let d_biased = B::mul_elementwise(&d_out, dropout_mask);
-
-            // d_residual = d_out (identity through residual add) — move, no clone
-            accumulate_grad::<B>(grads, node.input_ids[1], d_out);
-
-            // Bias gradient = reduce_rows(d_biased)
-            let (_, d_bias) = B::add_backward(
-                &d_biased,
-                &Shape::new(&[*rows, *cols]),
-                &Shape::new(&[1, *cols]),
-                &Shape::new(&[*rows, *cols]),
-            );
-            accumulate_grad::<B>(grads, *bias_id, d_bias);
-
-            // d_matmul_out = d_biased (identity through bias add, same shape)
-            // But we need to recompute: d_biased already has the right values since
-            // d(x + bias[col])/dx = 1. So d_mm = d_biased.
-            let _ = (matmul_out, bias); // used only for bias gradient computation above
-
-            // Matmul backward: d_input and d_weight
-            let (d_input, d_weight) = B::matmul_backward(
-                &d_biased, matmul_input, weight,
-                *rows, *in_features, *out_features,
-                false, false,
-            );
-            accumulate_grad::<B>(grads, node.input_ids[0], d_input);
-            accumulate_grad::<B>(grads, *weight_id, d_weight);
-        }
-        (
-            Operation::FlashAttention,
-            SavedData::FlashAttention {
-                input,
-                qkv_weight,
-                proj_weight,
-                q_heads,
-                k_heads,
-                v_heads,
-                flash_output,
-                lse,
-                head_concat,
-                n_heads,
-                d_model,
-                d_head,
-                batch_size,
-                seq_len,
-                qkv_weight_id,
-                qkv_bias_id,
-                proj_weight_id,
-                proj_bias_id,
-            },
-        ) => {
-            flash_attention_backward::<B>(
-                &d_out,
-                input,
-                qkv_weight,
-                proj_weight,
-                q_heads,
-                k_heads,
-                v_heads,
-                flash_output,
-                lse,
-                head_concat,
-                *n_heads,
-                *d_model,
-                *d_head,
-                *batch_size,
-                *seq_len,
-                grads,
-                node.input_ids[0],
-                *qkv_weight_id,
-                *qkv_bias_id,
-                *proj_weight_id,
-                *proj_bias_id,
-            );
-        }
         (Operation::Checkpoint, _) => {
             // Checkpoint nodes are handled by backward_checkpointed in Gpt2Model.
             // If encountered in standard backward, treat as a pass-through.
-            accumulate_grad::<B>(grads, node.input_ids[0], d_out);
+            accumulate_grad::<B>(grads, node.input_ids[0], B::clone_storage(d_out));
         }
         _ => unreachable!("mismatched Operation/SavedData variants: backward dispatch bug"),
     }
@@ -649,11 +464,16 @@ fn attention_batched_backward<B: MathBackend>(
         &d_scores_masked, q_heads, bh, seq_len, seq_len, d_head, true, false,
     );
 
-    // Fused: reshape d_Q, d_K, d_V from [B*H, S, d_head] and scatter into d_QKV [B*S, 3D]
-    let d_qkv = B::merge_heads_to_qkv(
-        &d_q_heads, &d_k_heads, &d_v_heads,
-        batch_size, seq_len, n_heads, d_head,
-    );
+    // Reshape d_Q, d_K, d_V from [B*H, S, d_head] -> [B*S, D]
+    let d_q_flat = B::reshape_from_heads(&d_q_heads, batch_size, seq_len, n_heads, d_head);
+    let d_k_flat = B::reshape_from_heads(&d_k_heads, batch_size, seq_len, n_heads, d_head);
+    let d_v_flat = B::reshape_from_heads(&d_v_heads, batch_size, seq_len, n_heads, d_head);
+
+    // Assemble d_QKV [B*S, 3D] from d_Q, d_K, d_V
+    let mut d_qkv = B::zeros(&Shape::new(&[total_tokens, 3 * d_model]));
+    B::scatter_columns(&mut d_qkv, &d_q_flat, total_tokens, 3 * d_model, 0, d_model);
+    B::scatter_columns(&mut d_qkv, &d_k_flat, total_tokens, 3 * d_model, d_model, d_model);
+    B::scatter_columns(&mut d_qkv, &d_v_flat, total_tokens, 3 * d_model, 2 * d_model, d_model);
 
     // d_input = d_QKV @ W_qkv^T -> [B*S, D]
     let d_input = B::matmul(
@@ -687,102 +507,4 @@ fn attention_batched_backward<B: MathBackend>(
         &Shape::new(&[total_tokens, 3 * d_model]),
     );
     accumulate_grad::<B>(grads, qkv_bias_id, d_qkv_bias);
-}
-
-/// Backward pass for FlashAttention-based multi-head attention.
-/// Uses flash_attention_backward to recompute attention per-tile instead of
-/// storing the S×S attention matrix.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn flash_attention_backward<B: MathBackend>(
-    d_out: &B::Storage,
-    input: &B::Storage,
-    qkv_weight: &B::Storage,
-    proj_weight: &B::Storage,
-    q_heads: &B::Storage,
-    k_heads: &B::Storage,
-    v_heads: &B::Storage,
-    flash_output: &B::Storage,
-    lse: &B::Storage,
-    head_concat: &B::Storage,
-    n_heads: usize,
-    d_model: usize,
-    d_head: usize,
-    batch_size: usize,
-    seq_len: usize,
-    grads: &mut Gradients<B>,
-    input_id: TensorId,
-    qkv_weight_id: TensorId,
-    qkv_bias_id: TensorId,
-    proj_weight_id: TensorId,
-    proj_bias_id: TensorId,
-) {
-    let total_tokens = batch_size * seq_len;
-    let bh = batch_size * n_heads;
-
-    // d_proj_bias = reduce_rows(d_out) -> [D]
-    let (_, d_proj_bias) = B::add_backward(
-        d_out,
-        &Shape::new(&[total_tokens, d_model]),
-        &Shape::new(&[1, d_model]),
-        &Shape::new(&[total_tokens, d_model]),
-    );
-    accumulate_grad::<B>(grads, proj_bias_id, d_proj_bias);
-
-    // d_head_concat = d_out @ W_proj^T -> [B*S, D]
-    let d_head_concat = B::matmul(d_out, proj_weight, total_tokens, d_model, d_model, false, true);
-
-    // d_W_proj = head_concat^T @ d_out -> [D, D]
-    let d_proj_weight = B::matmul(head_concat, d_out, d_model, total_tokens, d_model, true, false);
-    accumulate_grad::<B>(grads, proj_weight_id, d_proj_weight);
-
-    // Reshape d_head_concat [B*S, D] -> [B*H, S, d_head]
-    let d_out_heads = B::reshape_for_heads(&d_head_concat, batch_size, seq_len, n_heads, d_head);
-
-    // FlashAttention backward: recomputes attention per-tile, produces dQ, dK, dV
-    let scale = 1.0 / (d_head as f64).sqrt();
-    let (d_q_heads, d_k_heads, d_v_heads) = B::flash_attention_backward(
-        &d_out_heads,
-        q_heads, k_heads, v_heads,
-        flash_output, lse,
-        bh, seq_len, d_head, scale as f32, true,
-    );
-
-    // Fused: reshape dQ/dK/dV and scatter into d_QKV
-    let d_qkv_flash = B::merge_heads_to_qkv(
-        &d_q_heads, &d_k_heads, &d_v_heads,
-        batch_size, seq_len, n_heads, d_head,
-    );
-
-    // d_input = d_QKV @ W_qkv^T -> [B*S, D]
-    let d_input = B::matmul(
-        &d_qkv_flash,
-        qkv_weight,
-        total_tokens,
-        3 * d_model,
-        d_model,
-        false,
-        true,
-    );
-    accumulate_grad::<B>(grads, input_id, d_input);
-
-    // d_W_qkv = input^T @ d_QKV -> [D, 3D]
-    let d_qkv_weight = B::matmul(
-        input,
-        &d_qkv_flash,
-        d_model,
-        total_tokens,
-        3 * d_model,
-        true,
-        false,
-    );
-    accumulate_grad::<B>(grads, qkv_weight_id, d_qkv_weight);
-
-    // d_qkv_bias = reduce_rows(d_QKV) -> [3D]
-    let (_, d_qkv_bias_flash) = B::add_backward(
-        &d_qkv_flash,
-        &Shape::new(&[total_tokens, 3 * d_model]),
-        &Shape::new(&[1, 3 * d_model]),
-        &Shape::new(&[total_tokens, 3 * d_model]),
-    );
-    accumulate_grad::<B>(grads, qkv_bias_id, d_qkv_bias_flash);
 }

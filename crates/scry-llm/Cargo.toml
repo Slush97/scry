@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.83.0"
 authors = ["esoc"]
-description = "GPT-2 training framework in Rust with CUDA backend"
+description = "Llama inference engine in Rust with CUDA backend"
 license = "MIT OR Apache-2.0"
 
 [features]
@@ -15,7 +15,7 @@ safetensors = ["dep:safetensors"]
 tokenizer = ["dep:serde_json"]
 
 [dependencies]
-cudarc = { version = "0.19", features = ["cublas", "cublaslt", "nvrtc", "cuda-13010"], optional = true }
+cudarc = { version = "0.19", features = ["cublas", "nvrtc", "cuda-13010"], optional = true }
 half = { version = "2", optional = true }
 safetensors = { version = "0.4", optional = true }
 arrayvec = "0.7"
@@ -30,13 +30,6 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "llm_ops"
 harness = false
-
-[[example]]
-name = "prepare_data"
-required-features = ["tokenizer"]
-
-[[example]]
-name = "train_gpt2"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

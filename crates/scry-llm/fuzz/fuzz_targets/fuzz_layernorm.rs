@@ -1,4 +1,4 @@
-//! Fuzz layernorm forward + backward. Output must be finite, mean ≈ beta,
+//! Fuzz layernorm forward. Output must be finite, mean ≈ beta,
 //! variance ≈ gamma^2 (when input has sufficient variance).
 
 #![no_main]
@@ -29,12 +29,4 @@ fuzz_target!(|data: &[u8]| {
     assert!(output.iter().all(|v| v.is_finite()));
     assert!(mean.iter().all(|v| v.is_finite()));
     assert!(rstd.iter().all(|v| v.is_finite() && *v > 0.0));
-
-    // Backward must be finite
-    let d_out = vec![1.0f32; numel];
-    let (d_input, d_gamma, d_beta) =
-        CpuBackend::layernorm_backward(&d_out, &input, &gamma, &mean, &rstd, &shape);
-    assert!(d_input.iter().all(|v| v.is_finite()));
-    assert!(d_gamma.iter().all(|v| v.is_finite()));
-    assert!(d_beta.iter().all(|v| v.is_finite()));
 });

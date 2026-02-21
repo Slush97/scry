@@ -1,6 +1,6 @@
 #![cfg(feature = "tokenizer")]
 
-use scry_llm::tokenizer::BpeTokenizer;
+use scry_llm::tokenizer::{BpeTokenizer, HfTokenizer};
 use std::path::PathBuf;
 
 fn fixture_dir() -> PathBuf {
@@ -124,4 +124,195 @@ fn whitespace_handling() {
     let ids = tok.encode(text);
     let decoded = tok.decode(&ids);
     assert_eq!(decoded, text);
+}
+
+// ---- HfTokenizer tests ----
+
+/// Build a minimal tokenizer.json for testing.
+fn make_test_hf_json() -> String {
+    // Build a tiny BPE vocab with bytes-to-unicode chars.
+    // We include the byte-level unicode chars for ASCII printable range.
+    // For simplicity, map individual bytes + a few merges.
+    let mut vocab = serde_json::Map::new();
+    // Byte-level unicode chars for ASCII letters (these are identity-mapped in bytes_to_unicode)
+    let byte_chars = [
+        ("H", 0), ("e", 1), ("l", 2), ("o", 3), ("Ġ", 4), // Ġ = byte 0x20 (space) mapped to U+0120
+        ("w", 5), ("r", 6), ("d", 7), ("!", 8), (".", 9),
+        ("He", 10), ("ll", 11), ("Hello", 12),
+        ("wo", 13), ("rld", 14), ("world", 15),
+        ("Ġworld", 16),
+    ];
+    for (tok, id) in &byte_chars {
+        vocab.insert(tok.to_string(), serde_json::Value::Number((*id).into()));
+    }
+
+    let merges = vec![
+        "H e", "l l", "He ll", "Hell o",
+        "w o", "r l", "rl d", "wo rld",
+        "Ġ world",
+    ];
+
+    let added_tokens = vec![
+        serde_json::json!({
+            "id": 100, "content": "<|begin_of_text|>",
+            "single_word": false, "lstrip": false, "rstrip": false,
+            "normalized": false, "special": true
+        }),
+        serde_json::json!({
+            "id": 101, "content": "<|end_of_text|>",
+            "single_word": false, "lstrip": false, "rstrip": false,
+            "normalized": false, "special": true
+        }),
+        serde_json::json!({
+            "id": 102, "content": "<|start_header_id|>",
+            "single_word": false, "lstrip": false, "rstrip": false,
+            "normalized": false, "special": true
+        }),
+        serde_json::json!({
+            "id": 103, "content": "<|end_header_id|>",
+            "single_word": false, "lstrip": false, "rstrip": false,
+            "normalized": false, "special": true
+        }),
+        serde_json::json!({
+            "id": 104, "content": "<|eot_id|>",
+            "single_word": false, "lstrip": false, "rstrip": false,
+            "normalized": false, "special": true
+        }),
+    ];
+
+    let root = serde_json::json!({
+        "version": "1.0",
+        "model": {
+            "type": "BPE",
+            "vocab": vocab,
+            "merges": merges,
+            "byte_fallback": false,
+        },
+        "added_tokens": added_tokens,
+        "normalizer": null,
+        "pre_tokenizer": null,
+        "decoder": null,
+        "post_processor": null,
+    });
+
+    serde_json::to_string(&root).unwrap()
+}
+
+#[test]
+fn hf_tokenizer_parse_json() {
+    let json = make_test_hf_json();
+    let tok = HfTokenizer::from_json(&json).expect("failed to parse");
+    // 17 regular tokens + 5 special = 22
+    assert_eq!(tok.vocab_size(), 22);
+}
+
+#[test]
+fn hf_tokenizer_special_token_ids() {
+    let json = make_test_hf_json();
+    let tok = HfTokenizer::from_json(&json).expect("failed to parse");
+    assert_eq!(tok.bos_id(), Some(100));
+    assert_eq!(tok.eos_id(), Some(101));
+    assert_eq!(tok.eot_id(), Some(104));
+    assert_eq!(tok.special_token_id("<|start_header_id|>"), Some(102));
+    assert_eq!(tok.special_token_id("<|end_header_id|>"), Some(103));
+}
+
+#[test]
+fn hf_tokenizer_encode_special_tokens() {
+    let json = make_test_hf_json();
+    let tok = HfTokenizer::from_json(&json).expect("failed to parse");
+
+    // Special token in text should be recognized
+    let ids = tok.encode("<|begin_of_text|>");
+    assert_eq!(ids, vec![100]);
+
+    // Multiple special tokens
+    let ids = tok.encode("<|begin_of_text|><|end_of_text|>");
+    assert_eq!(ids, vec![100, 101]);
+}
+
+#[test]
+fn hf_tokenizer_decode_special_tokens() {
+    let json = make_test_hf_json();
+    let tok = HfTokenizer::from_json(&json).expect("failed to parse");
+    let decoded = tok.decode(&[100, 101]);
+    assert_eq!(decoded, "<|begin_of_text|><|end_of_text|>");
+}
+
+#[test]
+fn hf_tokenizer_empty() {
+    let json = make_test_hf_json();
+    let tok = HfTokenizer::from_json(&json).expect("failed to parse");
+    assert!(tok.encode("").is_empty());
+    assert!(tok.decode(&[]).is_empty());
+}
+
+/// Test with real Llama 3 tokenizer.json if available.
+fn load_hf_tokenizer() -> Option<HfTokenizer> {
+    let path = fixture_dir().join("tokenizer.json");
+    if !path.exists() {
+        eprintln!(
+            "Skipping HF tokenizer test: download tokenizer.json from \
+             https://huggingface.co/meta-llama/Llama-3.2-1B into tests/fixtures/"
+        );
+        return None;
+    }
+    Some(HfTokenizer::from_file(&path).expect("failed to load tokenizer.json"))
+}
+
+#[test]
+fn hf_real_tokenizer_round_trip() {
+    let Some(tok) = load_hf_tokenizer() else {
+        return;
+    };
+
+    let texts = [
+        "Hello world",
+        "The capital of France is Paris.",
+        "1 + 1 = 2",
+        "Rust is a systems programming language.",
+    ];
+
+    for text in texts {
+        let ids = tok.encode(text);
+        let decoded = tok.decode(&ids);
+        assert_eq!(decoded, text, "HF round trip failed for: {text:?}");
+    }
+}
+
+#[test]
+fn hf_real_tokenizer_special_tokens() {
+    let Some(tok) = load_hf_tokenizer() else {
+        return;
+    };
+
+    // Llama 3 special token IDs
+    assert_eq!(tok.bos_id(), Some(128000));
+    assert_eq!(tok.eos_id(), Some(128001));
+    assert_eq!(tok.eot_id(), Some(128009));
+}
+
+#[test]
+fn hf_real_tokenizer_chat_template() {
+    let Some(tok) = load_hf_tokenizer() else {
+        return;
+    };
+
+    let messages = vec![("user", "Hello")];
+    let ids = tok.apply_chat_template(&messages);
+
+    // Should start with <|begin_of_text|>
+    assert_eq!(ids[0], 128000);
+
+    // Should contain <|start_header_id|> and <|end_header_id|>
+    assert!(ids.contains(&128006)); // start_header_id
+    assert!(ids.contains(&128007)); // end_header_id
+
+    // Should end with <|eot_id|>
+    assert_eq!(*ids.last().unwrap(), 128009);
+
+    // Decode and verify structure
+    let decoded = tok.decode(&ids);
+    assert!(decoded.contains("user"));
+    assert!(decoded.contains("Hello"));
 }
