@@ -3,6 +3,8 @@ pub mod cpu;
 pub mod cuda;
 #[cfg(feature = "cuda")]
 pub mod kernels;
+#[cfg(feature = "wgpu")]
+pub mod wgpu;
 
 use crate::tensor::shape::Shape;
 
@@ -123,11 +125,40 @@ pub trait MathBackend: DeviceBackend {
         theta: f32,
     ) -> Self::Storage;
 
-    /// Rotary position embeddings with pre-computed frequencies.
+    /// Rotary position embeddings with pre-computed frequencies (GPU-resident).
     ///
-    /// Applies RoPE to `[seq, n_heads * head_dim]` using pre-computed `freqs`
-    /// (one per dimension pair, len = head_dim/2). This avoids GPU→CPU→GPU
-    /// roundtrips by keeping the operation entirely on-device.
+    /// The `freqs` storage is already on-device (uploaded once at model load),
+    /// eliminating per-token host→device transfers.
+    fn rope_with_freqs_preloaded(
+        input: &Self::Storage,
+        seq: usize,
+        n_heads: usize,
+        head_dim: usize,
+        start_pos: usize,
+        freqs: &Self::Storage,
+    ) -> Self::Storage;
+
+    /// Rotary position embeddings with pre-computed frequencies and output scaling (GPU-resident).
+    ///
+    /// Fuses RoPE and scalar multiply into a single kernel: `out = RoPE(input) * scale`.
+    /// Default implementation calls `rope_with_freqs_preloaded` then `scale`.
+    fn rope_with_freqs_scaled_preloaded(
+        input: &Self::Storage,
+        seq: usize,
+        n_heads: usize,
+        head_dim: usize,
+        start_pos: usize,
+        freqs: &Self::Storage,
+        scale: f32,
+    ) -> Self::Storage {
+        let out = Self::rope_with_freqs_preloaded(input, seq, n_heads, head_dim, start_pos, freqs);
+        Self::scale(&out, scale)
+    }
+
+    /// Rotary position embeddings with pre-computed frequencies (host-side).
+    ///
+    /// Converts `&[f64]` freqs to `Self::Storage` then delegates to `rope_with_freqs_preloaded`.
+    /// Prefer `_preloaded` variant in hot paths to avoid per-call uploads.
     fn rope_with_freqs(
         input: &Self::Storage,
         seq: usize,
@@ -135,12 +166,15 @@ pub trait MathBackend: DeviceBackend {
         head_dim: usize,
         start_pos: usize,
         freqs: &[f64],
-    ) -> Self::Storage;
+    ) -> Self::Storage {
+        let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
+        let freqs_storage = Self::from_vec(freqs_f32, &Shape::new(&[head_dim / 2]));
+        Self::rope_with_freqs_preloaded(input, seq, n_heads, head_dim, start_pos, &freqs_storage)
+    }
 
-    /// Rotary position embeddings with pre-computed frequencies and output scaling.
+    /// Rotary position embeddings with pre-computed frequencies and output scaling (host-side).
     ///
-    /// Fuses RoPE and scalar multiply into a single kernel: `out = RoPE(input) * scale`.
-    /// Default implementation calls `rope_with_freqs` then `scale`.
+    /// Converts `&[f64]` freqs to `Self::Storage` then delegates to `rope_with_freqs_scaled_preloaded`.
     fn rope_with_freqs_scaled(
         input: &Self::Storage,
         seq: usize,
@@ -150,8 +184,9 @@ pub trait MathBackend: DeviceBackend {
         freqs: &[f64],
         scale: f32,
     ) -> Self::Storage {
-        let out = Self::rope_with_freqs(input, seq, n_heads, head_dim, start_pos, freqs);
-        Self::scale(&out, scale)
+        let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
+        let freqs_storage = Self::from_vec(freqs_f32, &Shape::new(&[head_dim / 2]));
+        Self::rope_with_freqs_scaled_preloaded(input, seq, n_heads, head_dim, start_pos, &freqs_storage, scale)
     }
 
     /// `SwiGLU`: `silu(gate) * up` where `silu(x) = x / (1 + exp(-x))`
@@ -173,6 +208,25 @@ pub trait MathBackend: DeviceBackend {
         seq: usize,
         d_head: usize,
     ) -> Self::Storage;
+
+    /// Fused gather + reshape + repeat_kv: read directly from pre-allocated KV cache
+    /// `[max_seq, n_kv_heads * head_dim]` and produce `[n_q_heads, cached_len, head_dim]`
+    /// in a single pass. Eliminates separate gather_rows, reshape_for_heads, and repeat_kv.
+    fn gather_reshape_repeat_kv(
+        cache: &Self::Storage,
+        max_seq: usize,
+        cached_len: usize,
+        n_kv_heads: usize,
+        n_q_heads: usize,
+        head_dim: usize,
+    ) -> Self::Storage {
+        // Default: fall back to the 3-step path
+        let _ = max_seq;
+        let kv_dim = n_kv_heads * head_dim;
+        let gathered = Self::gather_rows(cache, max_seq, kv_dim, 0, cached_len);
+        let reshaped = Self::reshape_for_heads(&gathered, 1, cached_len, n_kv_heads, head_dim);
+        Self::repeat_kv(&reshaped, n_kv_heads, n_q_heads, cached_len, head_dim)
+    }
 
     // ---- Attention helpers ----
 

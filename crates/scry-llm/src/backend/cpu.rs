@@ -7,6 +7,7 @@ use crate::tensor::shape::Shape;
 pub struct CpuBackend;
 
 /// Minimum number of rows (row-tiles) before engaging rayon for matmul.
+#[cfg(not(feature = "blas"))]
 const MATMUL_PAR_THRESHOLD: usize = 128;
 /// Minimum number of rows before parallelizing row-wise ops.
 const ROW_PAR_THRESHOLD: usize = 64;
@@ -297,13 +298,13 @@ impl MathBackend for CpuBackend {
         output
     }
 
-    fn rope_with_freqs(
+    fn rope_with_freqs_preloaded(
         input: &Vec<f32>,
         seq: usize,
         n_heads: usize,
         head_dim: usize,
         start_pos: usize,
-        freqs: &[f64],
+        freqs: &Vec<f32>,
     ) -> Vec<f32> {
         let total_dim = n_heads * head_dim;
         let mut output = input.clone();
@@ -313,7 +314,7 @@ impl MathBackend for CpuBackend {
             for h in 0..n_heads {
                 let head_start = row_start + h * head_dim;
                 for (i, &freq) in freqs.iter().enumerate() {
-                    let angle = pos * freq;
+                    let angle = pos * f64::from(freq);
                     let cos_val = angle.cos() as f32;
                     let sin_val = angle.sin() as f32;
                     let idx0 = head_start + 2 * i;
@@ -368,11 +369,37 @@ impl MathBackend for CpuBackend {
 
         output
     }
+
+    fn gather_reshape_repeat_kv(
+        cache: &Vec<f32>,
+        _max_seq: usize,
+        cached_len: usize,
+        n_kv_heads: usize,
+        n_q_heads: usize,
+        head_dim: usize,
+    ) -> Vec<f32> {
+        let n_rep = n_q_heads / n_kv_heads;
+        let kv_dim = n_kv_heads * head_dim;
+        let total = n_q_heads * cached_len * head_dim;
+        let mut out = vec![0.0f32; total];
+
+        for q_head in 0..n_q_heads {
+            let kv_head = q_head / n_rep;
+            for s in 0..cached_len {
+                let dst = (q_head * cached_len + s) * head_dim;
+                let src = s * kv_dim + kv_head * head_dim;
+                out[dst..dst + head_dim].copy_from_slice(&cache[src..src + head_dim]);
+            }
+        }
+
+        out
+    }
 }
 
 // ---- Helper functions ----
 
 /// Compute one row-tile of C for the tiled matmul.
+#[cfg(not(feature = "blas"))]
 fn matmul_tile_rows(
     a: &[f32],
     b: &[f32],
@@ -431,6 +458,27 @@ fn matmul_tiled(
     trans_a: bool,
     trans_b: bool,
 ) -> Vec<f32> {
+    #[cfg(feature = "blas")]
+    {
+        return matmul_cblas(a, b, m, k, n, trans_a, trans_b);
+    }
+
+    #[cfg(not(feature = "blas"))]
+    {
+        matmul_tiled_fallback(a, b, m, k, n, trans_a, trans_b)
+    }
+}
+
+#[cfg(not(feature = "blas"))]
+fn matmul_tiled_fallback(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Vec<f32> {
     const T: usize = 32;
     let i_tiles: Vec<usize> = (0..m).step_by(T).collect();
 
@@ -456,6 +504,55 @@ fn matmul_tiled(
     for chunk in &row_chunks {
         c.extend(chunk.iter().map(|&x| x as f32));
     }
+    c
+}
+
+/// BLAS-accelerated matmul via cblas_sgemm.
+#[cfg(feature = "blas")]
+fn matmul_cblas(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Vec<f32> {
+    use cblas_sys::{cblas_sgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
+
+    let mut c = vec![0.0f32; m * n];
+
+    let (transa, lda) = if trans_a {
+        (CBLAS_TRANSPOSE::CblasTrans, m as i32)
+    } else {
+        (CBLAS_TRANSPOSE::CblasNoTrans, k as i32)
+    };
+
+    let (transb, ldb) = if trans_b {
+        (CBLAS_TRANSPOSE::CblasTrans, k as i32)
+    } else {
+        (CBLAS_TRANSPOSE::CblasNoTrans, n as i32)
+    };
+
+    unsafe {
+        cblas_sgemm(
+            CBLAS_LAYOUT::CblasRowMajor,
+            transa,
+            transb,
+            m as i32,   // M
+            n as i32,   // N
+            k as i32,   // K
+            1.0,        // alpha
+            a.as_ptr(),
+            lda,
+            b.as_ptr(),
+            ldb,
+            0.0,        // beta
+            c.as_mut_ptr(),
+            n as i32,   // ldc
+        );
+    }
+
     c
 }
 
@@ -550,5 +647,41 @@ mod tests {
         // cos(1) ≈ 0.5403, sin(1) ≈ 0.8415
         assert!((output[0] - 0.5403_f32).abs() < 0.001);
         assert!((output[1] - 0.8415_f32).abs() < 0.001);
+    }
+
+    #[test]
+    fn gather_reshape_repeat_kv_matches_3step() {
+        // Simulate a cache [max_seq=4, n_kv=2, hd=2] with cached_len=3
+        // n_q_heads=4 (n_rep=2)
+        let max_seq = 4;
+        let n_kv = 2;
+        let n_q = 4;
+        let hd = 2;
+        let kv_dim = n_kv * hd;
+        let cached_len = 3;
+
+        // Fill cache: row s, col c = (s * kv_dim + c) as f32
+        let mut cache = vec![0.0f32; max_seq * kv_dim];
+        for s in 0..max_seq {
+            for c in 0..kv_dim {
+                cache[s * kv_dim + c] = (s * kv_dim + c) as f32;
+            }
+        }
+
+        // Fused path
+        let fused = CpuBackend::gather_reshape_repeat_kv(&cache, max_seq, cached_len, n_kv, n_q, hd);
+
+        // 3-step reference path
+        let gathered = CpuBackend::gather_rows(&cache, max_seq, kv_dim, 0, cached_len);
+        let reshaped = CpuBackend::reshape_for_heads(&gathered, 1, cached_len, n_kv, hd);
+        let reference = CpuBackend::repeat_kv(&reshaped, n_kv, n_q, cached_len, hd);
+
+        assert_eq!(fused.len(), reference.len());
+        for (i, (&f, &r)) in fused.iter().zip(reference.iter()).enumerate() {
+            assert!(
+                (f - r).abs() < 1e-6,
+                "mismatch at index {i}: fused={f}, reference={r}"
+            );
+        }
     }
 }

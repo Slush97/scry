@@ -28,8 +28,11 @@ pub struct KernelCache {
     pub rope_with_freqs_scaled_fwd: CudaFunction,
     pub swiglu_fwd: CudaFunction,
     pub repeat_kv_kernel: CudaFunction,
+    pub gather_reshape_repeat_kv: CudaFunction,
 
     // BF16 kernels
+    #[cfg(feature = "bf16")]
+    pub embedding_bf16_fwd: CudaFunction,
     #[cfg(feature = "bf16")]
     pub f32_to_bf16: CudaFunction,
     #[cfg(feature = "bf16")]
@@ -87,7 +90,10 @@ impl KernelCache {
             rope_with_freqs_scaled_fwd: module.load_function("rope_with_freqs_scaled_fwd").unwrap(),
             swiglu_fwd: module.load_function("swiglu_fwd").unwrap(),
             repeat_kv_kernel: module.load_function("repeat_kv_kernel").unwrap(),
+            gather_reshape_repeat_kv: module.load_function("gather_reshape_repeat_kv").unwrap(),
 
+            #[cfg(feature = "bf16")]
+            embedding_bf16_fwd: bf16_module.load_function("embedding_bf16_fwd").unwrap(),
             #[cfg(feature = "bf16")]
             f32_to_bf16: bf16_module.load_function("f32_to_bf16").unwrap(),
             #[cfg(feature = "bf16")]
@@ -503,6 +509,29 @@ extern "C" __global__ void repeat_kv_kernel(
 }
 
 // ============================================================
+// Fused gather + reshape + repeat_kv
+// Reads directly from pre-allocated cache [max_seq, n_kv*hd]
+// and produces [n_q_heads, cached_len, hd] in one pass.
+// ============================================================
+
+extern "C" __global__ void gather_reshape_repeat_kv(
+    float* out, const float* cache,
+    size_t cached_len, size_t n_kv_heads, size_t n_q_heads, size_t head_dim, size_t kv_dim
+) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t total = n_q_heads * cached_len * head_dim;
+    if (idx >= total) return;
+
+    size_t n_rep = n_q_heads / n_kv_heads;
+    size_t d = idx % head_dim;
+    size_t s = (idx / head_dim) % cached_len;
+    size_t q_head = idx / (cached_len * head_dim);
+    size_t kv_head = q_head / n_rep;
+
+    out[idx] = cache[s * kv_dim + kv_head * head_dim + d];
+}
+
+// ============================================================
 // RoPE with pre-computed frequencies
 // Input: [seq, n_heads * head_dim], freqs: [head_dim/2]
 // Each thread handles one (x0, x1) pair
@@ -656,6 +685,18 @@ extern "C" __global__ void swiglu_fwd_with_bf16(
     float val = silu * up[i];
     out[i] = val;
     out_bf16[i] = float_to_bf16(val);
+}
+
+// Embedding lookup from bf16 weights → f32 output
+extern "C" __global__ void embedding_bf16_fwd(
+    float* out, const bf16_t* weight, const unsigned int* indices,
+    size_t n_indices, size_t dim
+) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n_indices * dim) return;
+    size_t token = idx / dim;
+    size_t d = idx % dim;
+    out[token * dim + d] = bf16_to_float(weight[indices[token] * dim + d]);
 }
 
 extern "C" __global__ void f32_to_bf16(bf16_t* out, const float* in, size_t n) {

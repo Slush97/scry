@@ -150,6 +150,8 @@ pub struct LlamaAttention<B: MathBackend> {
     pub head_dim: usize,
     /// Pre-computed RoPE frequencies per dimension pair: `freqs[i]` for pair `(2i, 2i+1)`.
     pub rope_freqs: Vec<f64>,
+    /// GPU-resident RoPE frequencies (uploaded once at model load, reused every token).
+    pub rope_freqs_device: B::Storage,
 }
 
 impl<B: MathBackend> LlamaAttention<B> {
@@ -175,9 +177,9 @@ impl<B: MathBackend> LlamaAttention<B> {
         let k_data = B::gather_columns(&qkv.data, seq_len, qkv_dim, q_dim, k_dim);
         let v_data = B::gather_columns(&qkv.data, seq_len, qkv_dim, q_dim + k_dim, k_dim);
 
-        // Apply RoPE to all Q and K heads at once (entirely on-device, no GPU sync)
-        let q_rope = B::rope_with_freqs(&q_data, seq_len, n_heads, hd, start_pos, &self.rope_freqs);
-        let k_rope = B::rope_with_freqs(&k_data, seq_len, n_kv, hd, start_pos, &self.rope_freqs);
+        // Apply RoPE to all Q and K heads at once (freqs already on GPU — zero upload)
+        let q_rope = B::rope_with_freqs_preloaded(&q_data, seq_len, n_heads, hd, start_pos, &self.rope_freqs_device);
+        let k_rope = B::rope_with_freqs_preloaded(&k_data, seq_len, n_kv, hd, start_pos, &self.rope_freqs_device);
 
         // Reshape: [seq, H*d] → [H, seq, d]
         let q_heads = B::reshape_for_heads(&q_rope, 1, seq_len, n_heads, hd);
@@ -239,8 +241,8 @@ impl<B: MathBackend> LlamaAttention<B> {
 
         // Pre-scale Q by 1/√d fused into RoPE — eliminates a separate scale kernel
         let scale = (1.0 / (hd as f64).sqrt()) as f32;
-        let q_scaled = B::rope_with_freqs_scaled(&q_data, 1, n_heads, hd, pos, &self.rope_freqs, scale);
-        let k_rope = B::rope_with_freqs(&k_data, 1, n_kv, hd, pos, &self.rope_freqs);
+        let q_scaled = B::rope_with_freqs_scaled_preloaded(&q_data, 1, n_heads, hd, pos, &self.rope_freqs_device, scale);
+        let k_rope = B::rope_with_freqs_preloaded(&k_data, 1, n_kv, hd, pos, &self.rope_freqs_device);
 
         let mut new_k: Vec<B::Storage> = Vec::with_capacity(n_kv);
         let mut new_v: Vec<B::Storage> = Vec::with_capacity(n_kv);
@@ -311,24 +313,22 @@ impl<B: MathBackend> LlamaAttention<B> {
 
         // Apply RoPE — fuse Q pre-scaling (1/√d) into RoPE to eliminate a separate scale kernel
         let scale = (1.0 / (hd as f64).sqrt()) as f32;
-        let q_scaled = B::rope_with_freqs_scaled(&q_data, 1, n_heads, hd, pos, &self.rope_freqs, scale);
-        let k_rope = B::rope_with_freqs(&k_data, 1, n_kv, hd, pos, &self.rope_freqs);
+        let q_scaled = B::rope_with_freqs_scaled_preloaded(&q_data, 1, n_heads, hd, pos, &self.rope_freqs_device, scale);
+        let k_rope = B::rope_with_freqs_preloaded(&k_data, 1, n_kv, hd, pos, &self.rope_freqs_device);
 
         // Append [1, n_kv*hd] directly — 2 scatter_rows total (vs 2*n_kv before)
         cache.append(&k_rope, &v_data);
         let cached_len = cache.seq_len;
 
-        // Read cached K/V: [cached_len, n_kv*hd] — 2 gather_rows total
-        let k_cached = cache.k();
-        let v_cached = cache.v();
-
-        // Reshape: [cached_len, n_kv*hd] → [n_kv, cached_len, hd]
-        let k_heads = B::reshape_for_heads(&k_cached, 1, cached_len, n_kv, hd);
-        let v_heads = B::reshape_for_heads(&v_cached, 1, cached_len, n_kv, hd);
-
-        // Expand KV for GQA: [n_kv, cached_len, hd] → [n_heads, cached_len, hd]
-        let k_expanded = B::repeat_kv(&k_heads, n_kv, n_heads, cached_len, hd);
-        let v_expanded = B::repeat_kv(&v_heads, n_kv, n_heads, cached_len, hd);
+        // Fused gather + reshape + GQA repeat: read directly from pre-allocated cache
+        // and produce [n_heads, cached_len, hd] in a single kernel per tensor.
+        // Eliminates 4 kernel launches + 4 GPU allocs per layer vs the 3-step path.
+        let k_expanded = B::gather_reshape_repeat_kv(
+            &cache.k_cache, cache.max_seq_len, cached_len, n_kv, n_heads, hd,
+        );
+        let v_expanded = B::gather_reshape_repeat_kv(
+            &cache.v_cache, cache.max_seq_len, cached_len, n_kv, n_heads, hd,
+        );
 
         // Reshape Q: [1, n_heads*hd] → [n_heads, 1, hd]
         // For seq=1, [1, H*d] and [H, 1, d] have identical memory layout — this is a no-op
@@ -495,19 +495,25 @@ impl<B: MathBackend> LlamaModel<B> {
                     let k_w = init::normal_vec(rng, h * k_dim, 0.0, std);
                     let v_w = init::normal_vec(rng, h * v_dim, 0.0, std);
                     let qkv_w = fuse_qkv_weights(&q_w, &k_w, &v_w, h, q_dim, k_dim, v_dim);
-                    LlamaAttention {
-                        q_proj: Tensor::from_vec(q_w, Shape::new(&[h, q_dim])),
-                        k_proj: Tensor::from_vec(k_w, Shape::new(&[h, k_dim])),
-                        v_proj: Tensor::from_vec(v_w, Shape::new(&[h, v_dim])),
-                        o_proj: Tensor::from_vec(
-                            init::normal_vec(rng, q_dim * h, 0.0, std),
-                            Shape::new(&[q_dim, h]),
-                        ),
-                        qkv_proj: Tensor::from_vec(qkv_w, Shape::new(&[h, q_dim + k_dim + v_dim])),
-                        n_heads: config.n_heads,
-                        n_kv_heads: config.n_kv_heads,
-                        head_dim: hd,
-                        rope_freqs: compute_rope_freqs(hd, config.rope_theta, config.rope_scaling.as_ref()),
+                    {
+                        let freqs = compute_rope_freqs(hd, config.rope_theta, config.rope_scaling.as_ref());
+                        let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
+                        let freqs_device = B::from_vec(freqs_f32, &Shape::new(&[hd / 2]));
+                        LlamaAttention {
+                            q_proj: Tensor::from_vec(q_w, Shape::new(&[h, q_dim])),
+                            k_proj: Tensor::from_vec(k_w, Shape::new(&[h, k_dim])),
+                            v_proj: Tensor::from_vec(v_w, Shape::new(&[h, v_dim])),
+                            o_proj: Tensor::from_vec(
+                                init::normal_vec(rng, q_dim * h, 0.0, std),
+                                Shape::new(&[q_dim, h]),
+                            ),
+                            qkv_proj: Tensor::from_vec(qkv_w, Shape::new(&[h, q_dim + k_dim + v_dim])),
+                            n_heads: config.n_heads,
+                            n_kv_heads: config.n_kv_heads,
+                            head_dim: hd,
+                            rope_freqs: freqs,
+                            rope_freqs_device: freqs_device,
+                        }
                     }
                 },
                 post_attention_layernorm: RMSNorm::new(h),
@@ -758,16 +764,22 @@ impl<B: MathBackend> LlamaModel<B> {
                     weight: Tensor::from_vec(input_ln_w, Shape::new(&[h])),
                     eps: config.rms_norm_eps,
                 },
-                self_attn: LlamaAttention {
-                    q_proj: make_tensor(q_w, q_bf16, Shape::new(&[h, q_dim])),
-                    k_proj: make_tensor(k_w, k_bf16, Shape::new(&[h, k_dim])),
-                    v_proj: make_tensor(v_w, v_bf16, Shape::new(&[h, v_dim])),
-                    o_proj: make_tensor(o_w, o_bf16, Shape::new(&[q_dim, h])),
-                    qkv_proj: make_tensor(qkv_w, qkv_bf16, Shape::new(&[h, q_dim + k_dim + v_dim])),
-                    n_heads: config.n_heads,
-                    n_kv_heads: config.n_kv_heads,
-                    head_dim: hd,
-                    rope_freqs: compute_rope_freqs(hd, config.rope_theta, config.rope_scaling.as_ref()),
+                self_attn: {
+                    let freqs = compute_rope_freqs(hd, config.rope_theta, config.rope_scaling.as_ref());
+                    let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
+                    let freqs_device = B::from_vec(freqs_f32, &Shape::new(&[hd / 2]));
+                    LlamaAttention {
+                        q_proj: make_tensor(q_w, q_bf16, Shape::new(&[h, q_dim])),
+                        k_proj: make_tensor(k_w, k_bf16, Shape::new(&[h, k_dim])),
+                        v_proj: make_tensor(v_w, v_bf16, Shape::new(&[h, v_dim])),
+                        o_proj: make_tensor(o_w, o_bf16, Shape::new(&[q_dim, h])),
+                        qkv_proj: make_tensor(qkv_w, qkv_bf16, Shape::new(&[h, q_dim + k_dim + v_dim])),
+                        n_heads: config.n_heads,
+                        n_kv_heads: config.n_kv_heads,
+                        head_dim: hd,
+                        rope_freqs: freqs,
+                        rope_freqs_device: freqs_device,
+                    }
                 },
                 post_attention_layernorm: RMSNorm {
                     weight: Tensor::from_vec(post_ln_w, Shape::new(&[h])),

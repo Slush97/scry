@@ -76,12 +76,19 @@ fn with_gpu_mut<R>(f: impl FnOnce(&mut GpuCtx) -> R) -> R {
 }
 
 /// GPU storage: a device-side f32 buffer with optional bf16 shadow.
+///
+/// In bf16 mode, weight tensors store a 1-element f32 stub (`f32_is_stub = true`)
+/// and the real data lives in `bf16_data`. This saves ~4.9 GB VRAM for Llama 1B
+/// by not duplicating every weight in both precisions.
 #[derive(Debug)]
 pub struct GpuStorage {
     pub(crate) inner: CudaSlice<f32>,
     pub(crate) len: usize,
     #[cfg(feature = "bf16")]
     pub(crate) bf16_data: std::cell::OnceCell<CudaSlice<half::bf16>>,
+    /// When true, `inner` is a 1-element placeholder — real data is in `bf16_data`.
+    #[cfg(feature = "bf16")]
+    pub(crate) f32_is_stub: bool,
 }
 
 impl Clone for GpuStorage {
@@ -90,11 +97,25 @@ impl Clone for GpuStorage {
             .inner
             .try_clone()
             .expect("failed to clone GPU storage");
-        Self {
-            inner: cloned,
-            len: self.len,
-            #[cfg(feature = "bf16")]
-            bf16_data: std::cell::OnceCell::new(),
+        #[cfg(feature = "bf16")]
+        {
+            let bf16_cell = std::cell::OnceCell::new();
+            if let Some(bf16) = self.bf16_data.get() {
+                bf16_cell.set(bf16.try_clone().expect("failed to clone bf16 GPU storage")).ok();
+            }
+            Self {
+                inner: cloned,
+                len: self.len,
+                bf16_data: bf16_cell,
+                f32_is_stub: self.f32_is_stub,
+            }
+        }
+        #[cfg(not(feature = "bf16"))]
+        {
+            Self {
+                inner: cloned,
+                len: self.len,
+            }
         }
     }
 }
@@ -106,6 +127,8 @@ impl GpuStorage {
             len,
             #[cfg(feature = "bf16")]
             bf16_data: std::cell::OnceCell::new(),
+            #[cfg(feature = "bf16")]
+            f32_is_stub: false,
         }
     }
 
@@ -113,11 +136,13 @@ impl GpuStorage {
     #[cfg(feature = "bf16")]
     pub(crate) fn bf16_ref(&self) -> &CudaSlice<half::bf16> {
         self.bf16_data.get_or_init(|| {
+            assert!(!self.f32_is_stub, "bf16_ref: f32 is a stub but no bf16 data set — bug");
             with_gpu(|gpu| bf16_ops::cast_f32_to_bf16(gpu, &self.inner, self.len))
         })
     }
 
-    /// Upload bf16 data directly from host, skipping f32→bf16 GPU conversion.
+    /// Upload bf16 data directly from host. In bf16 mode, stores only a 1-element
+    /// f32 stub to save ~4x VRAM on weight tensors.
     #[cfg(feature = "bf16")]
     pub(crate) fn from_bf16_host(bf16_bytes: &[u8], f32_data: &[f32], len: usize) -> GpuStorage {
         let bf16_vec: Vec<half::bf16> = bf16_bytes
@@ -126,10 +151,23 @@ impl GpuStorage {
             .collect();
         with_gpu(|gpu| {
             let bf16_gpu = gpu.stream.clone_htod(&bf16_vec).unwrap();
-            let f32_gpu = gpu.stream.clone_htod(f32_data).unwrap();
-            let storage = GpuStorage::new(f32_gpu, len);
-            storage.bf16_data.set(bf16_gpu).ok();
-            storage
+            if bf16_enabled() {
+                // Stub: 1-element f32 placeholder — real data is bf16 only
+                let f32_stub = gpu.stream.alloc_zeros::<f32>(1).unwrap();
+                let storage = GpuStorage {
+                    inner: f32_stub,
+                    len,
+                    bf16_data: std::cell::OnceCell::new(),
+                    f32_is_stub: true,
+                };
+                storage.bf16_data.set(bf16_gpu).ok();
+                storage
+            } else {
+                let f32_gpu = gpu.stream.clone_htod(f32_data).unwrap();
+                let storage = GpuStorage::new(f32_gpu, len);
+                storage.bf16_data.set(bf16_gpu).ok();
+                storage
+            }
         })
     }
 }
@@ -187,6 +225,16 @@ impl DeviceBackend for CudaBackend {
     }
 
     fn to_vec(storage: &GpuStorage) -> Vec<f32> {
+        #[cfg(feature = "bf16")]
+        if storage.f32_is_stub {
+            // f32 is a placeholder — convert from bf16
+            return with_gpu(|gpu| {
+                let bf16 = storage.bf16_data.get()
+                    .expect("to_vec: f32 is stub but no bf16 data");
+                let bf16_host: Vec<half::bf16> = gpu.stream.clone_dtoh(bf16).unwrap();
+                bf16_host.iter().map(|&v| v.to_f32()).collect()
+            });
+        }
         with_gpu(|gpu| gpu.stream.clone_dtoh(&storage.inner).unwrap())
     }
 
@@ -417,6 +465,30 @@ impl MathBackend for CudaBackend {
             let indices_u32: Vec<u32> = indices.iter().map(|&i| i as u32).collect();
             let indices_dev = gpu.stream.clone_htod(&indices_u32).unwrap();
             let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+
+            #[cfg(feature = "bf16")]
+            if weight.f32_is_stub {
+                // Weight is bf16-only — use bf16 embedding kernel
+                let bf16_weight = weight.bf16_data.get()
+                    .expect("embedding: f32 is stub but no bf16 data");
+                unsafe {
+                    gpu.stream
+                        .launch_builder(&gpu.kernels.embedding_bf16_fwd)
+                        .arg(&mut out)
+                        .arg(bf16_weight)
+                        .arg(&indices_dev)
+                        .arg(&n_indices)
+                        .arg(&dim)
+                        .launch(LaunchConfig {
+                            grid_dim: (grid_for(total, BLOCK), 1, 1),
+                            block_dim: (BLOCK, 1, 1),
+                            shared_mem_bytes: 0,
+                        })
+                        .unwrap();
+                }
+                return GpuStorage::new(out, total);
+            }
+
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.embedding_fwd)
@@ -632,29 +704,25 @@ impl MathBackend for CudaBackend {
         })
     }
 
-    fn rope_with_freqs(
+    fn rope_with_freqs_preloaded(
         input: &GpuStorage,
         seq: usize,
         n_heads: usize,
         head_dim: usize,
         start_pos: usize,
-        freqs: &[f64],
+        freqs: &GpuStorage,
     ) -> GpuStorage {
         let n = input.len;
         let half_hd = head_dim / 2;
         let total_pairs = seq * n_heads * half_hd;
         with_gpu(|gpu| {
-            // Upload pre-computed frequencies as f32 (tiny: head_dim/2 floats)
-            let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
-            let freqs_dev = gpu.stream.clone_htod(&freqs_f32).unwrap();
-
             let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.rope_with_freqs_fwd)
                     .arg(&mut out)
                     .arg(&input.inner)
-                    .arg(&freqs_dev)
+                    .arg(&freqs.inner)
                     .arg(&total_pairs)
                     .arg(&n_heads)
                     .arg(&head_dim)
@@ -670,29 +738,26 @@ impl MathBackend for CudaBackend {
         })
     }
 
-    fn rope_with_freqs_scaled(
+    fn rope_with_freqs_scaled_preloaded(
         input: &GpuStorage,
         seq: usize,
         n_heads: usize,
         head_dim: usize,
         start_pos: usize,
-        freqs: &[f64],
+        freqs: &GpuStorage,
         scale: f32,
     ) -> GpuStorage {
         let n = input.len;
         let half_hd = head_dim / 2;
         let total_pairs = seq * n_heads * half_hd;
         with_gpu(|gpu| {
-            let freqs_f32: Vec<f32> = freqs.iter().map(|&f| f as f32).collect();
-            let freqs_dev = gpu.stream.clone_htod(&freqs_f32).unwrap();
-
             let mut out = gpu.stream.alloc_zeros::<f32>(n).unwrap();
             unsafe {
                 gpu.stream
                     .launch_builder(&gpu.kernels.rope_with_freqs_scaled_fwd)
                     .arg(&mut out)
                     .arg(&input.inner)
-                    .arg(&freqs_dev)
+                    .arg(&freqs.inner)
                     .arg(&total_pairs)
                     .arg(&n_heads)
                     .arg(&head_dim)
@@ -784,6 +849,39 @@ impl MathBackend for CudaBackend {
                     .arg(&n_q_heads)
                     .arg(&seq)
                     .arg(&d_head)
+                    .launch(LaunchConfig {
+                        grid_dim: (grid_for(total, BLOCK), 1, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    })
+                    .unwrap();
+            }
+            GpuStorage::new(out, total)
+        })
+    }
+
+    fn gather_reshape_repeat_kv(
+        cache: &GpuStorage,
+        _max_seq: usize,
+        cached_len: usize,
+        n_kv_heads: usize,
+        n_q_heads: usize,
+        head_dim: usize,
+    ) -> GpuStorage {
+        let total = n_q_heads * cached_len * head_dim;
+        let kv_dim = n_kv_heads * head_dim;
+        with_gpu(|gpu| {
+            let mut out = gpu.stream.alloc_zeros::<f32>(total).unwrap();
+            unsafe {
+                gpu.stream
+                    .launch_builder(&gpu.kernels.gather_reshape_repeat_kv)
+                    .arg(&mut out)
+                    .arg(&cache.inner)
+                    .arg(&cached_len)
+                    .arg(&n_kv_heads)
+                    .arg(&n_q_heads)
+                    .arg(&head_dim)
+                    .arg(&kv_dim)
                     .launch(LaunchConfig {
                         grid_dim: (grid_for(total, BLOCK), 1, 1),
                         block_dim: (BLOCK, 1, 1),
