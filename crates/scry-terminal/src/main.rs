@@ -73,6 +73,10 @@ struct TerminalState {
     spawn_time: Instant,
     /// Deadline to exit after child exits (drain period).
     exit_deadline: Option<Instant>,
+    /// Original font size for Ctrl+0 reset.
+    original_font_size: f32,
+    /// Content padding in pixels.
+    padding: f32,
 }
 
 impl TerminalApp {
@@ -94,11 +98,12 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
         eprintln!("[scry-term] resumed: creating window...");
 
         // Create window
+        let pad = f64::from(self.config.window.padding);
         let attrs = WindowAttributes::default()
             .with_title("Scry Terminal")
             .with_inner_size(winit::dpi::LogicalSize::new(
-                self.config.window.columns as f64 * 8.0, // Approximate
-                self.config.window.rows as f64 * 16.0,
+                self.config.window.columns as f64 * 8.0 + 2.0 * pad,
+                self.config.window.rows as f64 * 16.0 + 2.0 * pad,
             ));
 
         let window = match event_loop.create_window(attrs) {
@@ -130,11 +135,13 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
 
         // Compute initial terminal size
         let inner = window.inner_size();
+        let padding = self.config.window.padding;
         let term_size = TerminalSize::from_window(
             inner.width,
             inner.height,
             compositor.cell_width(),
             compositor.cell_height(),
+            padding,
         );
 
         eprintln!(
@@ -211,6 +218,8 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
             child_exited: false,
             spawn_time: Instant::now(),
             exit_deadline: None,
+            original_font_size: self.config.font.size,
+            padding,
         });
 
         eprintln!("[scry-term] initialization complete, requesting first redraw...");
@@ -256,6 +265,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                         new_size.height,
                         state.compositor.cell_width(),
                         state.compositor.cell_height(),
+                        state.padding,
                     );
 
                     state.grid.resize(term_size.cols, term_size.rows);
@@ -320,9 +330,30 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                                         &text,
                                         state.grid.bracketed_paste,
                                     );
-                                    let _ = state.pty.write(&bytes);
+                                    pty_write(&mut state.pty,&bytes);
                                 }
                             }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Zoom: Ctrl+= / Ctrl+- / Ctrl+0
+                if event.state == ElementState::Pressed && state.modifiers.control_key() {
+                    match &event.logical_key {
+                        Key::Character(ch) if ch.as_str() == "=" || ch.as_str() == "+" => {
+                            let new_size = state.compositor.font_size() + 1.0;
+                            zoom_to(state, new_size);
+                            return;
+                        }
+                        Key::Character(ch) if ch.as_str() == "-" => {
+                            let new_size = (state.compositor.font_size() - 1.0).max(8.0);
+                            zoom_to(state, new_size);
+                            return;
+                        }
+                        Key::Character(ch) if ch.as_str() == "0" => {
+                            zoom_to(state, state.original_font_size);
                             return;
                         }
                         _ => {}
@@ -340,7 +371,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                     // User is typing — snap to bottom and reset cursor blink
                     state.grid.snap_to_bottom();
                     state.compositor.reset_blink();
-                    let _ = state.pty.write(&bytes);
+                    pty_write(&mut state.pty, &bytes);
                 }
             }
 
@@ -380,13 +411,17 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                     state.grid.mouse_mode,
                     state.grid.mouse_encoding,
                 ) {
-                    let _ = state.pty.write(&bytes);
+                    pty_write(&mut state.pty,&bytes);
                 }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
-                let col = (position.x as f32 / state.compositor.cell_width()) as u16;
-                let row = (position.y as f32 / state.compositor.cell_height()) as u16;
+                let col =
+                    ((position.x as f32 - state.padding) / state.compositor.cell_width()).max(0.0)
+                        as u16;
+                let row =
+                    ((position.y as f32 - state.padding) / state.compositor.cell_height()).max(0.0)
+                        as u16;
                 let col = col.min(state.grid.cols().saturating_sub(1));
                 let row = row.min(state.grid.rows().saturating_sub(1));
 
@@ -410,7 +445,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                         state.grid.mouse_mode,
                         state.grid.mouse_encoding,
                     ) {
-                        let _ = state.pty.write(&bytes);
+                        pty_write(&mut state.pty,&bytes);
                     }
                 }
             }
@@ -437,7 +472,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                     state.grid.mouse_mode,
                     state.grid.mouse_encoding,
                 ) {
-                    let _ = state.pty.write(&bytes);
+                    pty_write(&mut state.pty,&bytes);
                 }
             }
 
@@ -449,7 +484,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                         .throttler
                         .poll_pty(&state.pty, &mut state.grid, &mut state.security);
                     for response in &drain.responses {
-                        let _ = state.pty.write(response);
+                        pty_write(&mut state.pty,response);
                     }
                     if drain.bytes_consumed > 0 {
                         state.scheduler.request_redraw();
@@ -477,7 +512,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
 
                 // Send responses back to PTY
                 for response in &result.responses {
-                    let _ = state.pty.write(response);
+                    pty_write(&mut state.pty,response);
                 }
 
                 if result.child_exited {
@@ -490,6 +525,13 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
 
                 if result.bytes_consumed > 0 {
                     state.scheduler.request_redraw();
+                }
+
+                // Check clipboard paste (OSC 52)
+                if let Some(text) = state.grid.clipboard_pending.take() {
+                    if let Some(clip) = &mut state.clipboard {
+                        let _ = clip.set_text(&text);
+                    }
                 }
 
                 // Check visual bell
@@ -515,7 +557,9 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                             event_loop.exit();
                             return;
                         }
-                        Err(_) => {}
+                        Err(e) => {
+                            eprintln!("[scry-term] surface error (recovered): {e}");
+                        }
                     }
                 }
 
@@ -562,6 +606,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                         size.height,
                         state.compositor.cell_width(),
                         state.compositor.cell_height(),
+                        state.padding,
                     );
 
                     state.grid.resize(term_size.cols, term_size.rows);
@@ -604,14 +649,53 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
     }
 }
 
+/// Write to PTY with error logging instead of silently ignoring failures.
+fn pty_write(pty: &mut PtyManager, data: &[u8]) {
+    if let Err(e) = pty.write(data) {
+        eprintln!("[scry-term] PTY write failed: {e}");
+    }
+}
+
+/// Apply a zoom (font size change), recompute grid, and save to config.
+fn zoom_to(state: &mut TerminalState, new_size: f32) {
+    let (_cw, _ch) = state.compositor.set_font_size(new_size);
+
+    let inner = state.window.inner_size();
+    let term_size = TerminalSize::from_window(
+        inner.width,
+        inner.height,
+        state.compositor.cell_width(),
+        state.compositor.cell_height(),
+        state.padding,
+    );
+
+    state.grid.resize(term_size.cols, term_size.rows);
+    let _ = state.pty.resize(
+        term_size.cols,
+        term_size.rows,
+        term_size.pixel_width,
+        term_size.pixel_height,
+    );
+
+    state.scheduler.request_redraw();
+    state.window.request_redraw();
+
+    eprintln!("[scry-term] font size: {new_size}px (saved)");
+    TerminalConfig::save_font_size(new_size);
+}
+
 fn main() {
     // Load config
     let config = TerminalConfig::load();
 
     // Create event loop with user events (for PTY wakeup)
-    let event_loop = EventLoop::<TerminalEvent>::with_user_event()
-        .build()
-        .expect("create event loop");
+    let event_loop = match EventLoop::<TerminalEvent>::with_user_event().build() {
+        Ok(el) => el,
+        Err(e) => {
+            eprintln!("scry-terminal: failed to create event loop: {e}");
+            std::process::exit(1);
+        }
+    };
     event_loop.set_control_flow(ControlFlow::Wait);
 
     let proxy = event_loop.create_proxy();

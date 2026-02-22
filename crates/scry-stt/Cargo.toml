@@ -11,6 +11,7 @@ license = "MIT OR Apache-2.0"
 default = []
 cuda = ["scry-llm/cuda"]
 blas = ["scry-llm/blas"]
+dnnl = ["scry-llm/dnnl"]
 wgpu = ["scry-llm/wgpu"]
 auto = ["scry-llm/auto"]
 safetensors = ["dep:safetensors", "dep:memmap2", "dep:half"]

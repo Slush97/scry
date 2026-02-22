@@ -904,6 +904,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "data-encoding"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
+
+[[package]]
 name = "data-url"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4045,11 +4051,13 @@ dependencies = [
  "bytemuck",
  "cosmic-text",
  "crossbeam-channel",
+ "data-encoding",
  "dirs",
  "glyphon",
  "libc",
  "pollster",
  "portable-pty",
+ "scry-engine",
  "serde",
  "thiserror 2.0.18",
  "toml",

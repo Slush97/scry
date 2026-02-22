@@ -360,6 +360,8 @@ pub struct TerminalGrid {
     pub scroll_offset: usize,
     /// Visual bell pending flag.
     pub bell_pending: bool,
+    /// Clipboard text pending (set by OSC 52, drained by main loop).
+    pub clipboard_pending: Option<String>,
 }
 
 impl TerminalGrid {
@@ -401,6 +403,7 @@ impl TerminalGrid {
             last_printed_char: ' ',
             scroll_offset: 0,
             bell_pending: false,
+            clipboard_pending: None,
         }
     }
 
@@ -604,6 +607,18 @@ impl TerminalGrid {
         // Write the cell
         {
             let idx = self.idx(col, row);
+
+            // Clean up stale wide-char cells before overwriting
+            let old_width = self.cells[idx].width;
+            if old_width == 2 && col + 1 < self.cols {
+                let cont_idx = self.idx(col + 1, row);
+                self.cells[cont_idx].clear();
+            }
+            if old_width == 0 && col > 0 {
+                let lead_idx = self.idx(col - 1, row);
+                self.cells[lead_idx].clear();
+            }
+
             let pen_fg = self.pen_fg;
             let pen_bg = self.pen_bg;
             let pen_flags = self.pen_flags;
@@ -687,6 +702,18 @@ impl TerminalGrid {
 
         {
             let idx = self.idx(col, row);
+
+            // Clean up stale wide-char cells before overwriting
+            let old_width = self.cells[idx].width;
+            if old_width == 2 && col + 1 < self.cols {
+                let cont_idx = self.idx(col + 1, row);
+                self.cells[cont_idx].clear();
+            }
+            if old_width == 0 && col > 0 {
+                let lead_idx = self.idx(col - 1, row);
+                self.cells[lead_idx].clear();
+            }
+
             let pen_fg = self.pen_fg;
             let pen_bg = self.pen_bg;
             let pen_flags = self.pen_flags;
@@ -941,6 +968,7 @@ impl TerminalGrid {
                     self.clear_line(row);
                 }
                 self.scrollback.clear();
+                self.scroll_offset = 0;
             }
             _ => {}
         }

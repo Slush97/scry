@@ -73,19 +73,9 @@ impl TextEngine {
         let font_size = config.font.size;
         let line_height = (font_size * 1.2).ceil();
 
-        // Measure monospace cell dimensions
+        // Measure monospace cell dimensions using advance width
         let metrics = Metrics::new(font_size, line_height);
-        let mut measure_buf = Buffer::new(&mut font_system, metrics);
-        measure_buf.set_text(&mut font_system, "M", Attrs::new(), Shaping::Advanced);
-        measure_buf.shape_until_scroll(&mut font_system, false);
-
-        // Get cell width from the shaped 'M' glyph
-        let cell_width = measure_buf
-            .layout_runs()
-            .next()
-            .and_then(|run| run.glyphs.first())
-            .map(|g| g.w)
-            .unwrap_or(font_size * 0.6);
+        let cell_width = measure_cell_width(&mut font_system, metrics, font_size);
 
         Self {
             font_system,
@@ -116,6 +106,39 @@ impl TextEngine {
     ///
     /// Shapes dirty lines and updates the glyph atlas. Only lines flagged
     /// as dirty are re-shaped, dramatically reducing per-frame work.
+    /// Current font size in pixels.
+    pub fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
+    /// Change the font size, re-measure cell dimensions, and mark all lines dirty.
+    pub fn set_font_size(&mut self, new_size: f32) {
+        self.font_size = new_size;
+        self.line_height = (new_size * 1.2).ceil();
+
+        // Re-measure cell dimensions
+        let metrics = Metrics::new(self.font_size, self.line_height);
+        self.cell_width = measure_cell_width(&mut self.font_system, metrics, self.font_size);
+        self.cell_height = self.line_height;
+
+        // Recreate line buffers with new metrics
+        let count = self.line_buffers.len();
+        self.line_buffers.clear();
+        for _ in 0..count {
+            self.line_buffers
+                .push(Buffer::new(&mut self.font_system, metrics));
+        }
+
+        // Mark all dirty
+        for d in &mut self.line_dirty {
+            *d = true;
+        }
+    }
+
+    /// Prepare text rendering for a frame.
+    ///
+    /// Shapes dirty lines and updates the glyph atlas. Only lines flagged
+    /// as dirty are re-shaped, dramatically reducing per-frame work.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -124,6 +147,7 @@ impl TextEngine {
         colors: &ColorConfig,
         screen_width: u32,
         screen_height: u32,
+        padding: f32,
     ) -> Result<(), glyphon::PrepareError> {
         let rows = grid.rows() as usize;
         let cols = grid.cols() as usize;
@@ -243,14 +267,14 @@ impl TextEngine {
             .iter()
             .enumerate()
             .map(|(row, buf)| {
-                let y = row as f32 * cell_height;
+                let y = padding + row as f32 * cell_height;
                 TextArea {
                     buffer: buf,
-                    left: 0.0,
+                    left: padding,
                     top: y,
                     scale: 1.0,
                     bounds: TextBounds {
-                        left: 0,
+                        left: padding as i32,
                         top: y as i32,
                         right: screen_width as i32,
                         bottom: (y + cell_height) as i32,
@@ -342,4 +366,30 @@ impl TextEngine {
 /// (color, weight, style). This avoids reshaping when attributes match.
 fn attrs_equal(a: &Attrs<'_>, b: &Attrs<'_>) -> bool {
     a.color_opt == b.color_opt && a.weight == b.weight && a.style == b.style && a.family == b.family
+}
+
+/// Measure monospace cell width by shaping two characters and computing the
+/// advance (position difference).  Falls back to single-glyph `w` if only
+/// one glyph is produced.
+fn measure_cell_width(font_system: &mut FontSystem, metrics: Metrics, font_size: f32) -> f32 {
+    let mono = Attrs::new().family(Family::Monospace);
+    let mut buf = Buffer::new(font_system, metrics);
+    buf.set_text(font_system, "MM", mono, Shaping::Advanced);
+    buf.shape_until_scroll(font_system, false);
+
+    if let Some(run) = buf.layout_runs().next() {
+        let glyphs: Vec<_> = run.glyphs.iter().collect();
+        if glyphs.len() >= 2 {
+            // Advance = difference between the x positions of consecutive glyphs
+            let advance = glyphs[1].x - glyphs[0].x;
+            if advance > 0.0 {
+                return advance;
+            }
+        }
+        // Fallback: single glyph hitbox width
+        if let Some(g) = glyphs.first() {
+            return g.w;
+        }
+    }
+    font_size * 0.6
 }

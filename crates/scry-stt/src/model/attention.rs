@@ -99,17 +99,17 @@ impl<B: MathBackend> CrossAttention<B> {
             false,
         );
 
-        // V = encoder_output @ v_weight + v_bias
-        let v_raw = scry_llm::ops::matmul(
+        // V = encoder_output @ v_weight + v_bias (fused)
+        let v = scry_llm::ops::matmul_bias(
             encoder_output,
             &self.v_weight,
+            &self.v_bias,
             audio_len,
             self.d_model,
             self.d_model,
             false,
             false,
         );
-        let v = scry_llm::ops::add(&v_raw, &self.v_bias);
 
         CrossKvCache { k, v, audio_len }
     }
@@ -120,6 +120,8 @@ impl<B: MathBackend> CrossAttention<B> {
     /// `cache`: pre-computed encoder KV from `compute_kv_cache`.
     ///
     /// Returns: `[seq_len, d_model]`.
+    ///
+    /// Uses batched matmul across all heads simultaneously.
     pub fn forward(
         &self,
         decoder_state: &Tensor<B>,
@@ -131,76 +133,58 @@ impl<B: MathBackend> CrossAttention<B> {
         let n_heads = self.n_heads;
         let d_head = self.d_head;
 
-        // Q = decoder_state @ q_weight + q_bias  → [seq_len, d_model]
-        let q_raw = scry_llm::ops::matmul(
+        // Q = decoder_state @ q_weight + q_bias  → [seq_len, d_model] (fused)
+        let q = scry_llm::ops::matmul_bias(
             decoder_state,
             &self.q_weight,
+            &self.q_bias,
             seq_len,
             d_model,
             d_model,
             false,
             false,
         );
-        let q = scry_llm::ops::add(&q_raw, &self.q_bias);
-        let q_vec = q.to_vec();
-        let k_vec = cache.k.to_vec();
-        let v_vec = cache.v.to_vec();
 
-        let scale = 1.0 / (d_head as f64).sqrt();
-        let mut head_concat = vec![0.0f32; seq_len * d_model];
+        // Reshape Q [seq_len, d_model] → [n_heads * seq_len, d_head]
+        let q_heads = B::reshape_for_heads(&q.data, 1, seq_len, n_heads, d_head);
+        // Reshape K [audio_len, d_model] → [n_heads * audio_len, d_head]
+        let k_heads = B::reshape_for_heads(&cache.k.data, 1, audio_len, n_heads, d_head);
+        // Reshape V [audio_len, d_model] → [n_heads * audio_len, d_head]
+        let v_heads = B::reshape_for_heads(&cache.v.data, 1, audio_len, n_heads, d_head);
 
-        // Multi-head cross-attention
-        for h in 0..n_heads {
-            for s in 0..seq_len {
-                // Extract q_h for this head and position: [d_head]
-                let q_offset = s * d_model + h * d_head;
+        // Batched scores = Q_heads @ K_heads^T → [n_heads * seq_len, audio_len]
+        let scores = B::matmul_strided_batched(
+            &q_heads, &k_heads, n_heads, seq_len, d_head, audio_len, false, true,
+        );
 
-                // Compute attention scores: q_h @ k_h^T → [audio_len]
-                let mut scores = vec![0.0f64; audio_len];
-                for t in 0..audio_len {
-                    let k_offset = t * d_model + h * d_head;
-                    let mut dot = 0.0f64;
-                    for d in 0..d_head {
-                        dot += f64::from(q_vec[q_offset + d]) * f64::from(k_vec[k_offset + d]);
-                    }
-                    scores[t] = dot * scale;
-                }
+        // Fused scale + softmax — [n_heads * seq_len, audio_len]
+        let scale = 1.0 / (d_head as f32).sqrt();
+        let attn = B::scaled_softmax(
+            &scores,
+            scale,
+            &Shape::new(&[n_heads * seq_len, audio_len]),
+        );
 
-                // Softmax over scores (no causal mask — attend to all encoder positions)
-                let max_score = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                let mut exp_sum = 0.0f64;
-                for v in &mut scores {
-                    *v = (*v - max_score).exp();
-                    exp_sum += *v;
-                }
-                for v in &mut scores {
-                    *v /= exp_sum;
-                }
+        // Batched out = attn @ V_heads → [n_heads * seq_len, d_head]
+        let out_heads = B::matmul_strided_batched(
+            &attn, &v_heads, n_heads, seq_len, audio_len, d_head, false, false,
+        );
 
-                // Weighted sum of values: attn @ v_h → [d_head]
-                for d in 0..d_head {
-                    let mut acc = 0.0f64;
-                    for t in 0..audio_len {
-                        let v_offset = t * d_model + h * d_head + d;
-                        acc += scores[t] * f64::from(v_vec[v_offset]);
-                    }
-                    head_concat[s * d_model + h * d_head + d] = acc as f32;
-                }
-            }
-        }
+        // Reshape [n_heads * seq_len, d_head] → [seq_len, d_model]
+        let head_concat = B::reshape_from_heads(&out_heads, 1, seq_len, n_heads, d_head);
 
-        // Output projection
-        let hc = Tensor::<B>::from_vec(head_concat, Shape::new(&[seq_len, d_model]));
-        let out_raw = scry_llm::ops::matmul(
+        // Output projection (fused matmul + bias)
+        let hc = Tensor::<B>::new(head_concat, Shape::new(&[seq_len, d_model]));
+        scry_llm::ops::matmul_bias(
             &hc,
             &self.out_weight,
+            &self.out_bias,
             seq_len,
             d_model,
             d_model,
             false,
             false,
-        );
-        scry_llm::ops::add(&out_raw, &self.out_bias)
+        )
     }
 }
 

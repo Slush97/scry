@@ -101,7 +101,8 @@ impl PtyManager {
         let (sender, receiver) = crossbeam_channel::bounded::<PtyEvent>(256);
 
         // Start the reader thread
-        Self::start_reader_thread(reader, sender, waker);
+        Self::start_reader_thread(reader, sender, waker)
+            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
 
         Ok(Self {
             writer: pair.master.take_writer()?,
@@ -117,45 +118,56 @@ impl PtyManager {
         mut reader: Box<dyn Read + Send>,
         sender: Sender<PtyEvent>,
         waker: Option<Arc<Box<dyn Fn() + Send + Sync>>>,
-    ) {
+    ) -> Result<(), crate::error::TerminalError> {
         std::thread::Builder::new()
             .name("pty-reader".to_string())
             .spawn(move || {
-                let mut buf = vec![0u8; 8192];
-                loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => {
-                            // EOF — child closed its end
-                            let _ = sender.send(PtyEvent::ChildExited);
-                            if let Some(w) = &waker {
-                                w();
-                            }
-                            break;
-                        }
-                        Ok(n) => {
-                            let data = buf[..n].to_vec();
-                            if sender.send(PtyEvent::Output(data)).is_err() {
-                                break; // Receiver dropped
-                            }
-                            // Wake the event loop so it processes the data
-                            if let Some(w) = &waker {
-                                w();
-                            }
-                        }
-                        Err(e) => {
-                            // I/O error — child probably exited
-                            if e.kind() != std::io::ErrorKind::Interrupted {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut buf = vec![0u8; 8192];
+                    loop {
+                        match reader.read(&mut buf) {
+                            Ok(0) => {
+                                // EOF — child closed its end
                                 let _ = sender.send(PtyEvent::ChildExited);
                                 if let Some(w) = &waker {
                                     w();
                                 }
                                 break;
                             }
+                            Ok(n) => {
+                                let data = buf[..n].to_vec();
+                                if sender.send(PtyEvent::Output(data)).is_err() {
+                                    break; // Receiver dropped
+                                }
+                                // Wake the event loop so it processes the data
+                                if let Some(w) = &waker {
+                                    w();
+                                }
+                            }
+                            Err(e) => {
+                                // I/O error — child probably exited
+                                if e.kind() != std::io::ErrorKind::Interrupted {
+                                    let _ = sender.send(PtyEvent::ChildExited);
+                                    if let Some(w) = &waker {
+                                        w();
+                                    }
+                                    break;
+                                }
+                            }
                         }
+                    }
+                }));
+
+                if result.is_err() {
+                    eprintln!("[scry-term] PTY reader thread panicked");
+                    let _ = sender.send(PtyEvent::ChildExited);
+                    if let Some(w) = &waker {
+                        w();
                     }
                 }
             })
-            .expect("failed to spawn PTY reader thread");
+            .map_err(crate::error::TerminalError::ThreadSpawn)?;
+        Ok(())
     }
 
     /// Write bytes to the PTY (sends input to the child process).

@@ -148,9 +148,13 @@ impl vte::Perform for VtHandler<'_> {
             }
 
             // ── Device Attributes ──────────────────────────────────
-            'c' => {
+            'c' if _intermediates.is_empty() => {
                 // Primary DA: identify as VT220 with ANSI color
                 self.respond(ResponseType::DeviceAttributes, b"\x1b[?62;22c");
+            }
+            'c' if _intermediates == [b'>'] => {
+                // Secondary DA: report as VT220, firmware version 0
+                self.respond(ResponseType::DeviceAttributes, b"\x1b[>0;0;0c");
             }
 
             // ── Cursor style (DECSCUSR) ────────────────────────────
@@ -187,12 +191,6 @@ impl vte::Perform for VtHandler<'_> {
                 for _ in 0..count {
                     self.grid.put_char(ch);
                 }
-            }
-
-            // ── Secondary Device Attributes ─────────────────────────
-            'c' if _intermediates == [b'>'] => {
-                // Secondary DA: report as VT220, firmware version 0
-                self.respond(ResponseType::DeviceAttributes, b"\x1b[>0;0;0c");
             }
 
             // ── Soft reset (DECSTR) ─────────────────────────────────
@@ -280,7 +278,13 @@ impl vte::Perform for VtHandler<'_> {
                 }
             }
             OscAction::ClipboardSet => {
-                // TODO: Phase 2 — decode base64 and set clipboard via arboard
+                if let Some(data) = params.get(2) {
+                    if let Ok(bytes) = data_encoding::BASE64.decode(data) {
+                        if let Ok(text) = String::from_utf8(bytes) {
+                            self.grid.clipboard_pending = Some(text);
+                        }
+                    }
+                }
             }
             OscAction::HyperlinkOpen(_url) => {
                 // TODO: Phase 2 — track hyperlink state per cell

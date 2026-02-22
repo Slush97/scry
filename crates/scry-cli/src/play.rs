@@ -2988,7 +2988,9 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
     let start = Instant::now();
 
     eprint!("\x1b[?25l"); // hide cursor
-    eprintln!("godrays: rendering first frame ({w}x{h})… press any key to quit");
+    if scry_engine::scry_debug_enabled() {
+        eprintln!("godrays: rendering first frame ({w}x{h})… press any key to quit");
+    }
 
     crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
 

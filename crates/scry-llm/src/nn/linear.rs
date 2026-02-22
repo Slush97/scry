@@ -39,16 +39,16 @@ impl<B: MathBackend> Linear<B> {
 
     pub fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
         let seq = input.shape.dims()[0];
-        let mm = ops::matmul(
+        ops::matmul_bias(
             input,
             &self.weight,
+            &self.bias,
             seq,
             self.in_features,
             self.out_features,
             false,
             false,
-        );
-        ops::add(&mm, &self.bias)
+        )
     }
 }
 

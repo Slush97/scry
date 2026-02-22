@@ -273,6 +273,8 @@ impl<B: MathBackend> DecoderSelfAttention<B> {
     }
 
     /// Single-token causal self-attention with KV cache.
+    ///
+    /// Uses batched matmul across all heads simultaneously.
     fn forward_with_cache(
         &self,
         input: &Tensor<B>,
@@ -282,81 +284,74 @@ impl<B: MathBackend> DecoderSelfAttention<B> {
         let n_heads = self.n_heads;
         let d_head = self.d_head;
 
-        // QKV = input @ W_qkv + b_qkv → [1, 3 * d_model]
-        let qkv_raw = scry_llm::ops::matmul(
+        // QKV = input @ W_qkv + b_qkv → [1, 3 * d_model] (fused)
+        let qkv = scry_llm::ops::matmul_bias(
             input,
             &self.qkv_weight,
+            &self.qkv_bias,
             1,
             d_model,
             3 * d_model,
             false,
             false,
         );
-        let qkv = scry_llm::ops::add(&qkv_raw, &Tensor::from_vec(
-            self.qkv_bias.to_vec(),
-            Shape::new(&[1, 3 * d_model]),
-        ));
         let qkv_vec = qkv.to_vec();
 
         // Extract Q, K, V and append K, V to cache
-        let q: Vec<f32> = qkv_vec[..d_model].to_vec();
-        let k: Vec<f32> = qkv_vec[d_model..2 * d_model].to_vec();
-        let v: Vec<f32> = qkv_vec[2 * d_model..3 * d_model].to_vec();
+        let q_flat: Vec<f32> = qkv_vec[..d_model].to_vec();
+        let k_new: Vec<f32> = qkv_vec[d_model..2 * d_model].to_vec();
+        let v_new: Vec<f32> = qkv_vec[2 * d_model..3 * d_model].to_vec();
 
-        cache.k.extend_from_slice(&k);
-        cache.v.extend_from_slice(&v);
+        cache.k.extend_from_slice(&k_new);
+        cache.v.extend_from_slice(&v_new);
         cache.seq_len += 1;
         let cached_len = cache.seq_len;
 
-        let scale = 1.0 / (d_head as f64).sqrt();
-        let mut head_concat = vec![0.0f32; d_model];
+        // Convert to backend storage and reshape
+        // Q [1, d_model] → [n_heads, 1, d_head]  (identity permutation for seq=1)
+        let q_stor = B::from_vec(q_flat, &Shape::new(&[1, d_model]));
+        let q_heads = B::reshape_for_heads(&q_stor, 1, 1, n_heads, d_head);
 
-        for h in 0..n_heads {
-            // Compute attention scores: q_h @ cached_k_h^T → [cached_len]
-            let mut scores = vec![0.0f64; cached_len];
-            for t in 0..cached_len {
-                let mut dot = 0.0f64;
-                for d in 0..d_head {
-                    dot += f64::from(q[h * d_head + d])
-                        * f64::from(cache.k[t * d_model + h * d_head + d]);
-                }
-                scores[t] = dot * scale;
-            }
+        // Cached K [cached_len, d_model] → [n_heads * cached_len, d_head]
+        let k_stor = B::from_vec(cache.k.clone(), &Shape::new(&[cached_len, d_model]));
+        let k_heads = B::reshape_for_heads(&k_stor, 1, cached_len, n_heads, d_head);
+        // Cached V [cached_len, d_model] → [n_heads * cached_len, d_head]
+        let v_stor = B::from_vec(cache.v.clone(), &Shape::new(&[cached_len, d_model]));
+        let v_heads = B::reshape_for_heads(&v_stor, 1, cached_len, n_heads, d_head);
 
-            // Softmax (causal: only attend to positions ≤ current)
-            // Since we only compute scores for cached positions, all are valid
-            let max_s = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            let mut exp_sum = 0.0f64;
-            for v in &mut scores {
-                *v = (*v - max_s).exp();
-                exp_sum += *v;
-            }
-            for v in &mut scores {
-                *v /= exp_sum;
-            }
+        // Batched scores = Q_heads @ K_heads^T → [n_heads * 1, cached_len]
+        let scores = B::matmul_strided_batched(
+            &q_heads, &k_heads, n_heads, 1, d_head, cached_len, false, true,
+        );
 
-            // Weighted sum of cached values
-            for d in 0..d_head {
-                let mut acc = 0.0f64;
-                for t in 0..cached_len {
-                    acc += scores[t] * f64::from(cache.v[t * d_model + h * d_head + d]);
-                }
-                head_concat[h * d_head + d] = acc as f32;
-            }
-        }
+        // Fused scale + softmax — [n_heads, cached_len]
+        let scale = 1.0 / (d_head as f32).sqrt();
+        let attn = B::scaled_softmax(
+            &scores,
+            scale,
+            &Shape::new(&[n_heads, cached_len]),
+        );
 
-        // Output projection
-        let hc = Tensor::<B>::from_vec(head_concat, Shape::new(&[1, d_model]));
-        let out_raw = scry_llm::ops::matmul(
+        // Batched out = attn @ V_heads → [n_heads * 1, d_head]
+        let out_heads = B::matmul_strided_batched(
+            &attn, &v_heads, n_heads, 1, cached_len, d_head, false, false,
+        );
+
+        // Reshape [n_heads, d_head] → [1, d_model]  (identity permutation for seq=1)
+        let head_concat = B::reshape_from_heads(&out_heads, 1, 1, n_heads, d_head);
+
+        // Output projection (fused matmul + bias)
+        let hc = Tensor::<B>::new(head_concat, Shape::new(&[1, d_model]));
+        scry_llm::ops::matmul_bias(
             &hc,
             &self.out_weight,
+            &self.out_bias,
             1,
             d_model,
             d_model,
             false,
             false,
-        );
-        scry_llm::ops::add(&out_raw, &self.out_bias)
+        )
     }
 }
 

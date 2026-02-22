@@ -92,6 +92,8 @@ pub struct WindowConfig {
     pub columns: u16,
     /// Initial rows.
     pub rows: u16,
+    /// Padding around terminal content in pixels.
+    pub padding: f32,
 }
 
 // ── Defaults ───────────────────────────────────────────────────────
@@ -168,6 +170,7 @@ impl Default for WindowConfig {
         Self {
             columns: 80,
             rows: 24,
+            padding: 6.0,
         }
     }
 }
@@ -254,6 +257,36 @@ impl TerminalConfig {
     /// or `~/.config/scry/terminal.toml`.
     pub fn config_path() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join("scry").join("terminal.toml"))
+    }
+
+    /// Persist a new font size to the config file.
+    ///
+    /// Reads the existing TOML (or creates a minimal one), updates `font.size`,
+    /// and writes it back. Preserves the rest of the file contents.
+    pub fn save_font_size(size: f32) {
+        let Some(path) = Self::config_path() else {
+            return;
+        };
+        // Read existing content or start fresh
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut doc: toml::Table = toml::from_str(&content).unwrap_or_default();
+
+        // Ensure [font] table exists and set size
+        let font = doc
+            .entry("font")
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+        if let toml::Value::Table(t) = font {
+            t.insert(
+                "size".to_string(),
+                toml::Value::Float(f64::from(size)),
+            );
+        }
+
+        let output = toml::to_string_pretty(&doc).unwrap_or_default();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, output);
     }
 }
 

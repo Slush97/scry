@@ -14,6 +14,7 @@ bf16 = ["cuda", "cudarc/f16", "dep:half"]
 safetensors = ["dep:safetensors"]
 tokenizer = ["dep:serde_json"]
 blas = ["dep:cblas-sys"]
+dnnl = []
 wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 auto = ["blas", "wgpu"]
 

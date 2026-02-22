@@ -21,7 +21,7 @@ impl<B: MathBackend> LayerNormModule<B> {
     }
 
     pub fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
-        ops::layernorm(input, &self.gamma, &self.beta, self.eps)
+        ops::layernorm_inference(input, &self.gamma, &self.beta, self.eps)
     }
 }
 

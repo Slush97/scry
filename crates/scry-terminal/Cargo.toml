@@ -30,6 +30,9 @@ wgpu = "24"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 
+# scry-engine integration
+scry-engine = { path = "../..", features = ["gpu"] }
+
 # Threading + I/O
 crossbeam-channel = "0.5"
 
@@ -38,6 +41,7 @@ libc = "0.2"
 
 # Clipboard
 arboard = "3"
+data-encoding = "2"
 
 # Config + platform
 dirs = "5"

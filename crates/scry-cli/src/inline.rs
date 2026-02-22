@@ -281,9 +281,8 @@ pub fn display_kitty_animation_frame(png_data: &[u8], frame: u64) -> io::Result<
 
     let anchor = ANCHOR_ROW.load(Ordering::Relaxed).max(1);
 
-    // Center the image horizontally in the terminal.
-    let left_pad = (term_cols.saturating_sub(cols_to_use)) / 2;
-    let col = left_pad.max(1); // 1-indexed column
+    // Position the image at 25% of the horizontal margin.
+    let col = (term_cols / 4).max(1); // 1-indexed column
 
     // Position cursor at the anchor row, centered column.
     write!(stdout, "\x1b[{anchor};{col}H")?;

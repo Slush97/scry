@@ -45,9 +45,9 @@ pub struct Compositor {
     /// wgpu surface for presenting frames.
     surface: wgpu::Surface<'static>,
     /// GPU device.
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
     /// GPU command queue.
-    queue: wgpu::Queue,
+    queue: Arc<wgpu::Queue>,
     /// Surface configuration.
     surface_config: wgpu::SurfaceConfiguration,
 
@@ -81,6 +81,30 @@ pub struct Compositor {
     // ── Visual bell ──────────────────────────────────────────────
     /// When the visual bell was triggered (None = no bell active).
     bell_start: Option<Instant>,
+
+    /// Content padding in pixels (applied on all four sides).
+    padding: f32,
+
+    /// Shared scry-engine GPU device (bridges terminal GPU to engine pipelines).
+    engine_gpu: &'static scry_engine::gpu::GpuDevice,
+
+    // ── Graphics overlay (scry-engine) ──────────────────────────
+    /// Overlay render pipeline (fullscreen triangle with texture sampling).
+    overlay_pipeline: wgpu::RenderPipeline,
+    /// Overlay bind group layout.
+    overlay_bgl: wgpu::BindGroupLayout,
+    /// Overlay sampler (linear filtering).
+    overlay_sampler: wgpu::Sampler,
+    /// Overlay texture (Rgba8UnormSrgb, matches scry-engine output).
+    overlay_texture: Option<wgpu::Texture>,
+    /// Overlay bind group (texture + sampler).
+    overlay_bind_group: Option<wgpu::BindGroup>,
+    /// The current overlay scene (rasterized by scry-engine's CPU backend).
+    overlay_scene: Option<scry_engine::scene::PixelCanvas>,
+    /// Whether the overlay needs re-rasterization.
+    overlay_dirty: bool,
+    /// Cached content hash of the last rasterized scene.
+    overlay_hash: u64,
 }
 
 impl Compositor {
@@ -111,7 +135,7 @@ impl Compositor {
         }))
         .ok_or_else(|| TerminalError::Gpu("no suitable GPU adapter found".to_string()))?;
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
+        let (raw_device, raw_queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("scry-terminal"),
                 required_features: wgpu::Features::empty(),
@@ -121,6 +145,16 @@ impl Compositor {
             None,
         ))
         .map_err(|e| TerminalError::Gpu(format!("failed to create GPU device: {e}")))?;
+
+        let device = Arc::new(raw_device);
+        let queue = Arc::new(raw_queue);
+
+        // Bridge to scry-engine: wrap our device/queue so engine pipelines
+        // (shapes, gradients, SDF) can render into the terminal viewport.
+        let engine_gpu = Box::leak(Box::new(scry_engine::gpu::GpuDevice::from_existing(
+            Arc::clone(&device),
+            Arc::clone(&queue),
+        )));
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -246,6 +280,77 @@ impl Compositor {
             mapped_at_creation: false,
         });
 
+        // Create overlay pipeline (fullscreen triangle with texture)
+        let overlay_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("overlay"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/overlay.wgsl").into()),
+        });
+
+        let overlay_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("overlay_bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let overlay_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("overlay_pipeline_layout"),
+                bind_group_layouts: &[&overlay_bgl],
+                push_constant_ranges: &[],
+            });
+
+        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("overlay_pipeline"),
+            layout: Some(&overlay_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &overlay_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &overlay_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
+        let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("overlay_sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
         Ok(Self {
             surface,
             device,
@@ -263,6 +368,16 @@ impl Compositor {
             cursor_blink_visible: true,
             last_blink: Instant::now(),
             bell_start: None,
+            padding: config.window.padding,
+            engine_gpu,
+            overlay_pipeline,
+            overlay_bgl,
+            overlay_sampler,
+            overlay_texture: None,
+            overlay_bind_group: None,
+            overlay_scene: None,
+            overlay_dirty: false,
+            overlay_hash: 0,
         })
     }
 
@@ -276,6 +391,41 @@ impl Compositor {
         self.text_engine.cell_height()
     }
 
+    /// Content padding in pixels.
+    pub fn padding(&self) -> f32 {
+        self.padding
+    }
+
+    /// Get the bridged scry-engine GPU device.
+    ///
+    /// This shares the same underlying wgpu device/queue as the compositor,
+    /// enabling scry-engine's rendering pipelines (shapes, gradients, SDF)
+    /// to render into the terminal viewport.
+    pub fn engine_gpu(&self) -> &'static scry_engine::gpu::GpuDevice {
+        self.engine_gpu
+    }
+
+    /// Get a clone of the `Arc<Device>`.
+    pub fn device_arc(&self) -> Arc<wgpu::Device> {
+        Arc::clone(&self.device)
+    }
+
+    /// Get a clone of the `Arc<Queue>`.
+    pub fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        Arc::clone(&self.queue)
+    }
+
+    /// Current font size in pixels.
+    pub fn font_size(&self) -> f32 {
+        self.text_engine.font_size()
+    }
+
+    /// Change the font size and return the new `(cell_width, cell_height)`.
+    pub fn set_font_size(&mut self, size: f32) -> (f32, f32) {
+        self.text_engine.set_font_size(size);
+        (self.text_engine.cell_width(), self.text_engine.cell_height())
+    }
+
     /// Resize the surface.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
@@ -286,6 +436,7 @@ impl Compositor {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
+        self.overlay_dirty = true;
     }
 
     /// Trigger the visual bell (called when BEL is received).
@@ -304,6 +455,110 @@ impl Compositor {
     pub fn reset_blink(&mut self) {
         self.cursor_blink_visible = true;
         self.last_blink = Instant::now();
+    }
+
+    /// Set or clear the graphics overlay scene.
+    ///
+    /// When set, the scene is rasterized (via scry-engine's CPU backend) and
+    /// composited between cell backgrounds and text. Pass `None` to remove
+    /// the overlay entirely (zero overhead when no overlay is active).
+    pub fn set_overlay_scene(&mut self, scene: Option<scry_engine::scene::PixelCanvas>) {
+        let new_hash = scene.as_ref().map_or(0, scry_engine::scene::PixelCanvas::content_hash);
+        if new_hash != self.overlay_hash {
+            self.overlay_dirty = true;
+            self.overlay_hash = new_hash;
+        }
+        if scene.is_none() {
+            self.overlay_texture = None;
+            self.overlay_bind_group = None;
+        }
+        self.overlay_scene = scene;
+    }
+
+    /// Rasterize the overlay scene to a GPU texture when dirty.
+    fn update_overlay(&mut self) {
+        if !self.overlay_dirty {
+            return;
+        }
+        self.overlay_dirty = false;
+
+        let Some(scene) = &self.overlay_scene else {
+            self.overlay_texture = None;
+            self.overlay_bind_group = None;
+            return;
+        };
+
+        // Rasterize via scry-engine's CPU backend (tiny-skia)
+        let Ok(pixmap) = scry_engine::rasterize::Rasterizer::rasterize(scene) else {
+            return;
+        };
+
+        let tex_width = pixmap.width();
+        let tex_height = pixmap.height();
+
+        // Recreate texture if dimensions changed
+        let needs_new_texture = self.overlay_texture.as_ref().is_none_or(|t| {
+            t.width() != tex_width || t.height() != tex_height
+        });
+
+        if needs_new_texture {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("overlay_texture"),
+                size: wgpu::Extent3d {
+                    width: tex_width,
+                    height: tex_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("overlay_bind_group"),
+                layout: &self.overlay_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.overlay_sampler),
+                    },
+                ],
+            });
+
+            self.overlay_texture = Some(texture);
+            self.overlay_bind_group = Some(bind_group);
+        }
+
+        // Upload pixel data
+        if let Some(texture) = &self.overlay_texture {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                pixmap.data(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * tex_width),
+                    rows_per_image: Some(tex_height),
+                },
+                wgpu::Extent3d {
+                    width: tex_width,
+                    height: tex_height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
     }
 
     /// Render a complete frame.
@@ -332,6 +587,9 @@ impl Compositor {
             self.cursor_blink_visible = !self.cursor_blink_visible;
             self.last_blink = now;
         }
+
+        // Update overlay texture if dirty
+        self.update_overlay();
 
         // Build cell background instances
         let instances = self.build_bg_instances(grid);
@@ -387,6 +645,7 @@ impl Compositor {
             &self.config.colors,
             self.width,
             self.height,
+            self.padding,
         );
 
         // Encode render pass
@@ -420,6 +679,13 @@ impl Compositor {
                 pass.draw(0..6, 0..total_instances);
             }
 
+            // Draw overlay (scry-engine graphics layer)
+            if let Some(bg) = &self.overlay_bind_group {
+                pass.set_pipeline(&self.overlay_pipeline);
+                pass.set_bind_group(0, bg, &[]);
+                pass.draw(0..3, 0..1); // Fullscreen triangle
+            }
+
             // Draw text
             let _ = self.text_engine.render(&mut pass);
         }
@@ -438,6 +704,7 @@ impl Compositor {
         let mut instances = Vec::new();
         let cw = self.text_engine.cell_width();
         let ch = self.text_engine.cell_height();
+        let pad = self.padding;
 
         for row in 0..grid.rows() {
             for col in 0..grid.cols() {
@@ -457,7 +724,7 @@ impl Compositor {
                 let (r, g, b) = bg.resolve(false, &self.config.colors);
 
                 instances.push(CellBgInstance {
-                    pos: [col as f32 * cw, row as f32 * ch],
+                    pos: [pad + col as f32 * cw, pad + row as f32 * ch],
                     size: [cw * cell.width.max(1) as f32, ch],
                     color: [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
                 });
@@ -480,6 +747,7 @@ impl Compositor {
         let mut instances = Vec::new();
         let cw = self.text_engine.cell_width();
         let ch = self.text_engine.cell_height();
+        let pad = self.padding;
         // Semi-transparent blue highlight
         let color = [0.4, 0.6, 1.0, 0.35];
 
@@ -487,7 +755,7 @@ impl Compositor {
             for col in 0..grid.cols() {
                 if selection.contains(col, row as i64) {
                     instances.push(CellBgInstance {
-                        pos: [col as f32 * cw, row as f32 * ch],
+                        pos: [pad + col as f32 * cw, pad + row as f32 * ch],
                         size: [cw, ch],
                         color,
                     });
@@ -511,6 +779,7 @@ impl Compositor {
 
         let cw = self.text_engine.cell_width();
         let ch = self.text_engine.cell_height();
+        let pad = self.padding;
         let col = grid.cursor.col as f32;
         let row = grid.cursor.row as f32;
 
@@ -520,15 +789,15 @@ impl Compositor {
 
         let (pos, size) = match grid.cursor.style {
             CursorStyle::Block => (
-                [col * cw, row * ch],
+                [pad + col * cw, pad + row * ch],
                 [cw, ch],
             ),
             CursorStyle::Bar => (
-                [col * cw, row * ch],
+                [pad + col * cw, pad + row * ch],
                 [2.0, ch],
             ),
             CursorStyle::Underline => (
-                [col * cw, (row + 1.0) * ch - 2.0],
+                [pad + col * cw, pad + (row + 1.0) * ch - 2.0],
                 [cw, 2.0],
             ),
         };

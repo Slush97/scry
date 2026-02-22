@@ -40,6 +40,19 @@ impl DeviceBackend for CpuBackend {
 }
 
 impl MathBackend for CpuBackend {
+    fn matmul_bias(
+        a: &Vec<f32>,
+        b: &Vec<f32>,
+        bias: &Vec<f32>,
+        m: usize,
+        k: usize,
+        n: usize,
+        trans_a: bool,
+        trans_b: bool,
+    ) -> Vec<f32> {
+        matmul_bias_impl(a, b, bias, m, k, n, trans_a, trans_b)
+    }
+
     fn matmul(
         a: &Vec<f32>,
         b: &Vec<f32>,
@@ -82,6 +95,39 @@ impl MathBackend for CpuBackend {
         result
     }
 
+    fn scaled_softmax(input: &Vec<f32>, scale: f32, shape: &Shape) -> Vec<f32> {
+        let dims = shape.dims();
+        let last = *dims.last().unwrap();
+        let batch = input.len() / last;
+        let mut output = vec![0.0f32; input.len()];
+
+        let process_row = |out_row: &mut [f32], in_row: &[f32]| {
+            let max_val = in_row.iter().copied().map(|x| x * scale).fold(f32::NEG_INFINITY, f32::max);
+            let mut sum = 0.0f64;
+            for i in 0..last {
+                let e = f64::from((in_row[i] * scale - max_val).exp());
+                out_row[i] = e as f32;
+                sum += e;
+            }
+            for i in 0..last {
+                out_row[i] = (f64::from(out_row[i]) / sum) as f32;
+            }
+        };
+
+        if batch >= ROW_PAR_THRESHOLD {
+            output
+                .par_chunks_mut(last)
+                .zip(input.par_chunks(last))
+                .for_each(|(o, i)| process_row(o, i));
+        } else {
+            output
+                .chunks_mut(last)
+                .zip(input.chunks(last))
+                .for_each(|(o, i)| process_row(o, i));
+        }
+        output
+    }
+
     fn softmax(input: &Vec<f32>, shape: &Shape) -> Vec<f32> {
         let dims = shape.dims();
         let last = *dims.last().unwrap();
@@ -112,6 +158,58 @@ impl MathBackend for CpuBackend {
                 .zip(input.chunks(last))
                 .for_each(|(o, i)| process_row(o, i));
         }
+        output
+    }
+
+    fn layernorm_inference(
+        input: &Vec<f32>,
+        gamma: &Vec<f32>,
+        beta: &Vec<f32>,
+        shape: &Shape,
+        eps: f32,
+    ) -> Vec<f32> {
+        let dims = shape.dims();
+        let d = *dims.last().unwrap();
+        let n = input.len() / d;
+        let mut output = vec![0.0f32; input.len()];
+
+        let process_row = |i: usize, out_row: &mut [f32]| {
+            let start = i * d;
+            let slice = &input[start..start + d];
+
+            let mean = slice.iter().map(|&x| f64::from(x)).sum::<f64>() / d as f64;
+            let var = slice
+                .iter()
+                .map(|&x| {
+                    let diff = f64::from(x) - mean;
+                    diff * diff
+                })
+                .sum::<f64>()
+                / d as f64;
+            let rstd = 1.0 / (var + f64::from(eps)).sqrt();
+
+            for j in 0..d {
+                let norm = (f64::from(slice[j]) - mean) * rstd;
+                out_row[j] = (norm * f64::from(gamma[j]) + f64::from(beta[j])) as f32;
+            }
+        };
+
+        if n >= ROW_PAR_THRESHOLD {
+            output
+                .par_chunks_mut(d)
+                .enumerate()
+                .for_each(|(i, out_row)| {
+                    process_row(i, out_row);
+                });
+        } else {
+            output
+                .chunks_mut(d)
+                .enumerate()
+                .for_each(|(i, out_row)| {
+                    process_row(i, out_row);
+                });
+        }
+
         output
     }
 
@@ -209,6 +307,19 @@ impl MathBackend for CpuBackend {
 
     fn scale(a: &Vec<f32>, scalar: f32) -> Vec<f32> {
         a.iter().map(|&x| x * scalar).collect()
+    }
+
+    fn matmul_strided_batched(
+        a: &Vec<f32>,
+        b: &Vec<f32>,
+        batch_count: usize,
+        m: usize,
+        k: usize,
+        n: usize,
+        trans_a: bool,
+        trans_b: bool,
+    ) -> Vec<f32> {
+        matmul_strided_batched_impl(a, b, batch_count, m, k, n, trans_a, trans_b)
     }
 
     fn concat_rows(
@@ -458,12 +569,17 @@ fn matmul_tiled(
     trans_a: bool,
     trans_b: bool,
 ) -> Vec<f32> {
+    #[cfg(feature = "dnnl")]
+    {
+        return matmul_dnnl(a, b, m, k, n, trans_a, trans_b, 0.0, &[]);
+    }
+
     #[cfg(feature = "blas")]
     {
         return matmul_cblas(a, b, m, k, n, trans_a, trans_b);
     }
 
-    #[cfg(not(feature = "blas"))]
+    #[cfg(not(any(feature = "blas", feature = "dnnl")))]
     {
         matmul_tiled_fallback(a, b, m, k, n, trans_a, trans_b)
     }
@@ -505,6 +621,35 @@ fn matmul_tiled_fallback(
         c.extend(chunk.iter().map(|&x| x as f32));
     }
     c
+}
+
+/// oneDNN FFI bindings for `dnnl_sgemm`.
+#[cfg(feature = "dnnl")]
+mod dnnl_ffi {
+    // dnnl_dim_t is i64 on 64-bit platforms
+    type DnnlDim = i64;
+
+    // dnnl_status_t
+    #[allow(non_camel_case_types, dead_code)]
+    type DnnlStatus = i32;
+
+    unsafe extern "C" {
+        pub fn dnnl_sgemm(
+            transa: std::ffi::c_char,
+            transb: std::ffi::c_char,
+            m: DnnlDim,
+            n: DnnlDim,
+            k: DnnlDim,
+            alpha: f32,
+            a: *const f32,
+            lda: DnnlDim,
+            b: *const f32,
+            ldb: DnnlDim,
+            beta: f32,
+            c: *mut f32,
+            ldc: DnnlDim,
+        ) -> DnnlStatus;
+    }
 }
 
 /// BLAS-accelerated matmul via cblas_sgemm.
@@ -568,6 +713,249 @@ fn gelu_scalar(x: f32) -> f32 {
 fn silu_scalar(x: f32) -> f32 {
     let x64 = f64::from(x);
     (x64 / (1.0 + (-x64).exp())) as f32
+}
+
+/// Fused matmul + bias: C = A @ B + bias (bias broadcast along rows).
+fn matmul_bias_impl(
+    a: &[f32],
+    b: &[f32],
+    bias: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Vec<f32> {
+    #[cfg(feature = "dnnl")]
+    {
+        return matmul_dnnl(a, b, m, k, n, trans_a, trans_b, 1.0, bias);
+    }
+
+    #[cfg(feature = "blas")]
+    {
+        return matmul_bias_cblas(a, b, bias, m, k, n, trans_a, trans_b);
+    }
+
+    #[cfg(not(any(feature = "blas", feature = "dnnl")))]
+    {
+        let mut c = matmul_tiled_fallback(a, b, m, k, n, trans_a, trans_b);
+        for row in 0..m {
+            for col in 0..n {
+                c[row * n + col] += bias[col];
+            }
+        }
+        c
+    }
+}
+
+/// oneDNN sgemm: supports both plain matmul and fused matmul+bias via beta parameter.
+/// When `bias` is non-empty and `beta == 1.0`, C is pre-filled with broadcast bias
+/// so that `C = alpha*A*B + beta*C` fuses the bias add.
+///
+/// Note: unlike standard Fortran BLAS, `dnnl_sgemm` is **row-major**.
+#[cfg(feature = "dnnl")]
+fn matmul_dnnl(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+    beta: f32,
+    bias: &[f32],
+) -> Vec<f32> {
+    let transa_c: std::ffi::c_char = if trans_a { b'T' as _ } else { b'N' as _ };
+    let transb_c: std::ffi::c_char = if trans_b { b'T' as _ } else { b'N' as _ };
+
+    // Row-major leading dimensions (same convention as cblas_sgemm CblasRowMajor)
+    let lda = if trans_a { m as i64 } else { k as i64 };
+    let ldb = if trans_b { k as i64 } else { n as i64 };
+    let ldc = n as i64;
+
+    let mut c = if !bias.is_empty() {
+        let mut c = Vec::with_capacity(m * n);
+        for _ in 0..m {
+            c.extend_from_slice(bias);
+        }
+        c
+    } else {
+        vec![0.0f32; m * n]
+    };
+
+    unsafe {
+        let status = dnnl_ffi::dnnl_sgemm(
+            transa_c,
+            transb_c,
+            m as i64,
+            n as i64,
+            k as i64,
+            1.0,         // alpha
+            a.as_ptr(),
+            lda,
+            b.as_ptr(),
+            ldb,
+            beta,
+            c.as_mut_ptr(),
+            ldc,
+        );
+        debug_assert_eq!(status, 0, "dnnl_sgemm failed with status {status}");
+    }
+
+    c
+}
+
+/// BLAS-accelerated fused matmul + bias via beta=1.0.
+#[cfg(feature = "blas")]
+fn matmul_bias_cblas(
+    a: &[f32],
+    b: &[f32],
+    bias: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Vec<f32> {
+    use cblas_sys::{cblas_sgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
+
+    // Pre-fill C with broadcast bias so sgemm's beta=1.0 adds it for free
+    let mut c = Vec::with_capacity(m * n);
+    for _ in 0..m {
+        c.extend_from_slice(bias);
+    }
+
+    let (transa, lda) = if trans_a {
+        (CBLAS_TRANSPOSE::CblasTrans, m as i32)
+    } else {
+        (CBLAS_TRANSPOSE::CblasNoTrans, k as i32)
+    };
+
+    let (transb, ldb) = if trans_b {
+        (CBLAS_TRANSPOSE::CblasTrans, k as i32)
+    } else {
+        (CBLAS_TRANSPOSE::CblasNoTrans, n as i32)
+    };
+
+    unsafe {
+        cblas_sgemm(
+            CBLAS_LAYOUT::CblasRowMajor,
+            transa,
+            transb,
+            m as i32,
+            n as i32,
+            k as i32,
+            1.0,        // alpha
+            a.as_ptr(),
+            lda,
+            b.as_ptr(),
+            ldb,
+            1.0,        // beta = 1.0 → C = alpha*A*B + 1.0*C (adds pre-filled bias)
+            c.as_mut_ptr(),
+            n as i32,
+        );
+    }
+
+    c
+}
+
+/// Zero-copy strided batched matmul — passes slice offsets directly instead of cloning.
+fn matmul_strided_batched_impl(
+    a: &[f32],
+    b: &[f32],
+    batch_count: usize,
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Vec<f32> {
+    let a_stride = m * k;
+    let b_stride = k * n;
+    let c_stride = m * n;
+
+    #[cfg(feature = "dnnl")]
+    {
+        let mut c = vec![0.0f32; batch_count * c_stride];
+        let transa_c: std::ffi::c_char = if trans_a { b'T' as _ } else { b'N' as _ };
+        let transb_c: std::ffi::c_char = if trans_b { b'T' as _ } else { b'N' as _ };
+        let lda = if trans_a { m as i64 } else { k as i64 };
+        let ldb = if trans_b { k as i64 } else { n as i64 };
+        let ldc = n as i64;
+
+        for i in 0..batch_count {
+            unsafe {
+                dnnl_ffi::dnnl_sgemm(
+                    transa_c,
+                    transb_c,
+                    m as i64,
+                    n as i64,
+                    k as i64,
+                    1.0,
+                    a[i * a_stride..].as_ptr(),
+                    lda,
+                    b[i * b_stride..].as_ptr(),
+                    ldb,
+                    0.0,
+                    c[i * c_stride..].as_mut_ptr(),
+                    ldc,
+                );
+            }
+        }
+        return c;
+    }
+
+    #[cfg(feature = "blas")]
+    {
+        use cblas_sys::{cblas_sgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
+
+        let mut c = vec![0.0f32; batch_count * c_stride];
+
+        let (transa, lda) = if trans_a {
+            (CBLAS_TRANSPOSE::CblasTrans, m as i32)
+        } else {
+            (CBLAS_TRANSPOSE::CblasNoTrans, k as i32)
+        };
+        let (transb, ldb) = if trans_b {
+            (CBLAS_TRANSPOSE::CblasTrans, k as i32)
+        } else {
+            (CBLAS_TRANSPOSE::CblasNoTrans, n as i32)
+        };
+
+        for i in 0..batch_count {
+            unsafe {
+                cblas_sgemm(
+                    CBLAS_LAYOUT::CblasRowMajor,
+                    transa,
+                    transb,
+                    m as i32,
+                    n as i32,
+                    k as i32,
+                    1.0,
+                    a[i * a_stride..].as_ptr(),
+                    lda,
+                    b[i * b_stride..].as_ptr(),
+                    ldb,
+                    0.0,
+                    c[i * c_stride..].as_mut_ptr(),
+                    n as i32,
+                );
+            }
+        }
+        return c;
+    }
+
+    #[cfg(not(any(feature = "blas", feature = "dnnl")))]
+    {
+        let mut c = Vec::with_capacity(batch_count * c_stride);
+        for i in 0..batch_count {
+            let a_slice = &a[i * a_stride..(i + 1) * a_stride];
+            let b_slice = &b[i * b_stride..(i + 1) * b_stride];
+            let tile = matmul_tiled_fallback(a_slice, b_slice, m, k, n, trans_a, trans_b);
+            c.extend_from_slice(&tile);
+        }
+        c
+    }
 }
 
 #[cfg(test)]
@@ -647,6 +1035,125 @@ mod tests {
         // cos(1) ≈ 0.5403, sin(1) ≈ 0.8415
         assert!((output[0] - 0.5403_f32).abs() < 0.001);
         assert!((output[1] - 0.8415_f32).abs() < 0.001);
+    }
+
+    #[test]
+    fn matmul_bias_matches_separate() {
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // [2, 3]
+        let b = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]; // [3, 2]
+        let bias = vec![10.0, 20.0]; // [2]
+        let fused = CpuBackend::matmul_bias(&a, &b, &bias, 2, 3, 2, false, false);
+        let separate = CpuBackend::matmul(&a, &b, 2, 3, 2, false, false);
+        for i in 0..4 {
+            let row = i / 2;
+            let col = i % 2;
+            let expected = separate[i] + bias[col];
+            assert!(
+                (fused[i] - expected).abs() < 1e-5,
+                "mismatch at [{row},{col}]: fused={}, expected={expected}",
+                fused[i]
+            );
+        }
+    }
+
+    #[test]
+    fn scaled_softmax_matches_separate() {
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // [2, 3]
+        let shape = Shape::new(&[2, 3]);
+        let scale = 0.5;
+        let fused = CpuBackend::scaled_softmax(&input, scale, &shape);
+        let scaled: Vec<f32> = input.iter().map(|&x| x * scale).collect();
+        let reference = CpuBackend::softmax(&scaled, &shape);
+        for (i, (&f, &r)) in fused.iter().zip(reference.iter()).enumerate() {
+            assert!(
+                (f - r).abs() < 1e-6,
+                "mismatch at {i}: fused={f}, reference={r}"
+            );
+        }
+    }
+
+    #[test]
+    fn layernorm_inference_matches() {
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let gamma = vec![1.0, 1.0, 1.0];
+        let beta = vec![0.0, 0.0, 0.0];
+        let shape = Shape::new(&[2, 3]);
+        let (reference, _, _) = CpuBackend::layernorm(&input, &gamma, &beta, &shape, 1e-5);
+        let fused = CpuBackend::layernorm_inference(&input, &gamma, &beta, &shape, 1e-5);
+        for (i, (&f, &r)) in fused.iter().zip(reference.iter()).enumerate() {
+            assert!(
+                (f - r).abs() < 1e-6,
+                "mismatch at {i}: fused={f}, reference={r}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_qkv_reshape_heads_matches_manual() {
+        // seq=2, n_heads=2, d_head=3, d_model=6
+        let seq = 2;
+        let n_heads = 2;
+        let d_head = 3;
+        let d_model = n_heads * d_head;
+        // qkv: [seq, 3*d_model]
+        let qkv: Vec<f32> = (0..seq * 3 * d_model).map(|i| i as f32).collect();
+
+        let (q_heads, k_heads, v_heads) =
+            CpuBackend::split_qkv_reshape_heads(&qkv, seq, n_heads, d_head);
+
+        // Manual reference: split then reshape
+        let mut q_flat = vec![0.0f32; seq * d_model];
+        let mut k_flat = vec![0.0f32; seq * d_model];
+        let mut v_flat = vec![0.0f32; seq * d_model];
+        for s in 0..seq {
+            let row = s * 3 * d_model;
+            let dst = s * d_model;
+            q_flat[dst..dst + d_model].copy_from_slice(&qkv[row..row + d_model]);
+            k_flat[dst..dst + d_model].copy_from_slice(&qkv[row + d_model..row + 2 * d_model]);
+            v_flat[dst..dst + d_model].copy_from_slice(&qkv[row + 2 * d_model..row + 3 * d_model]);
+        }
+        let q_ref = CpuBackend::reshape_for_heads(
+            &q_flat, 1, seq, n_heads, d_head,
+        );
+        let k_ref = CpuBackend::reshape_for_heads(
+            &k_flat, 1, seq, n_heads, d_head,
+        );
+        let v_ref = CpuBackend::reshape_for_heads(
+            &v_flat, 1, seq, n_heads, d_head,
+        );
+        assert_eq!(q_heads, q_ref, "Q mismatch");
+        assert_eq!(k_heads, k_ref, "K mismatch");
+        assert_eq!(v_heads, v_ref, "V mismatch");
+    }
+
+    #[test]
+    fn matmul_strided_batched_matches_default() {
+        // 3 batches of [2,4] @ [4,3]
+        let batch = 3;
+        let m = 2;
+        let k = 4;
+        let n = 3;
+        let a: Vec<f32> = (0..batch * m * k).map(|i| (i as f32) * 0.1).collect();
+        let b: Vec<f32> = (0..batch * k * n).map(|i| (i as f32) * 0.1).collect();
+
+        let result = CpuBackend::matmul_strided_batched(&a, &b, batch, m, k, n, false, false);
+
+        // Reference: individual matmuls
+        for i in 0..batch {
+            let a_slice = &a[i * m * k..(i + 1) * m * k];
+            let b_slice = &b[i * k * n..(i + 1) * k * n];
+            let ref_c = CpuBackend::matmul(
+                &a_slice.to_vec(), &b_slice.to_vec(), m, k, n, false, false,
+            );
+            for j in 0..m * n {
+                assert!(
+                    (result[i * m * n + j] - ref_c[j]).abs() < 1e-4,
+                    "batch {i}, idx {j}: got {}, expected {}",
+                    result[i * m * n + j],
+                    ref_c[j]
+                );
+            }
+        }
     }
 
     #[test]

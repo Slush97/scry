@@ -18,6 +18,22 @@ pub fn matmul<B: MathBackend>(
     Tensor::new(data, Shape::new(&[m, n]))
 }
 
+/// Fused matrix multiply + bias add: `C = A @ B + bias`.
+/// Bias is broadcast along rows. Saves one allocation vs separate matmul + add.
+pub fn matmul_bias<B: MathBackend>(
+    a: &Tensor<B>,
+    b: &Tensor<B>,
+    bias: &Tensor<B>,
+    m: usize,
+    k: usize,
+    n: usize,
+    trans_a: bool,
+    trans_b: bool,
+) -> Tensor<B> {
+    let data = B::matmul_bias(&a.data, &b.data, &bias.data, m, k, n, trans_a, trans_b);
+    Tensor::new(data, Shape::new(&[m, n]))
+}
+
 /// Elementwise add with broadcasting.
 pub fn add<B: MathBackend>(a: &Tensor<B>, b: &Tensor<B>) -> Tensor<B> {
     let out_shape = Shape::broadcast(&a.shape, &b.shape).expect("broadcast failed in add");
@@ -31,6 +47,12 @@ pub fn softmax<B: MathBackend>(input: &Tensor<B>) -> Tensor<B> {
     Tensor::new(data, input.shape.clone())
 }
 
+/// Fused scale + softmax along the last axis.
+pub fn scaled_softmax<B: MathBackend>(input: &Tensor<B>, scale: f32) -> Tensor<B> {
+    let data = B::scaled_softmax(&input.data, scale, &input.shape);
+    Tensor::new(data, input.shape.clone())
+}
+
 /// Layer normalization along the last axis.
 /// Returns the normalized output (discards mean/rstd since no backward needed).
 pub fn layernorm<B: MathBackend>(
@@ -41,6 +63,17 @@ pub fn layernorm<B: MathBackend>(
 ) -> Tensor<B> {
     let (data, _mean, _rstd) =
         B::layernorm(&input.data, &gamma.data, &beta.data, &input.shape, eps);
+    Tensor::new(data, input.shape.clone())
+}
+
+/// Inference-only layer normalization — skips mean/rstd allocation.
+pub fn layernorm_inference<B: MathBackend>(
+    input: &Tensor<B>,
+    gamma: &Tensor<B>,
+    beta: &Tensor<B>,
+    eps: f32,
+) -> Tensor<B> {
+    let data = B::layernorm_inference(&input.data, &gamma.data, &beta.data, &input.shape, eps);
     Tensor::new(data, input.shape.clone())
 }
 

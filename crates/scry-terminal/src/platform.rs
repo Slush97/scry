@@ -85,15 +85,18 @@ pub struct TerminalSize {
 }
 
 impl TerminalSize {
-    /// Compute cell dimensions from window size and cell metrics.
+    /// Compute cell dimensions from window size, cell metrics, and padding.
     pub fn from_window(
         pixel_width: u32,
         pixel_height: u32,
         cell_width: f32,
         cell_height: f32,
+        padding: f32,
     ) -> Self {
-        let cols = (pixel_width as f32 / cell_width).floor().max(1.0) as u16;
-        let rows = (pixel_height as f32 / cell_height).floor().max(1.0) as u16;
+        let usable_w = (pixel_width as f32 - 2.0 * padding).max(cell_width);
+        let usable_h = (pixel_height as f32 - 2.0 * padding).max(cell_height);
+        let cols = (usable_w / cell_width).floor().max(1.0) as u16;
+        let rows = (usable_h / cell_height).floor().max(1.0) as u16;
         Self {
             cols,
             rows,
@@ -126,7 +129,7 @@ mod tests {
 
     #[test]
     fn terminal_size_from_window() {
-        let size = TerminalSize::from_window(800, 600, 8.0, 16.0);
+        let size = TerminalSize::from_window(800, 600, 8.0, 16.0, 0.0);
         assert_eq!(size.cols, 100);
         assert_eq!(size.rows, 37);
         assert_eq!(size.pixel_width, 800);
@@ -134,8 +137,17 @@ mod tests {
     }
 
     #[test]
+    fn terminal_size_with_padding() {
+        // 800 - 2*6 = 788 usable, 788/8 = 98.5 → 98 cols
+        // 600 - 2*6 = 588 usable, 588/16 = 36.75 → 36 rows
+        let size = TerminalSize::from_window(800, 600, 8.0, 16.0, 6.0);
+        assert_eq!(size.cols, 98);
+        assert_eq!(size.rows, 36);
+    }
+
+    #[test]
     fn terminal_size_minimum_1x1() {
-        let size = TerminalSize::from_window(1, 1, 100.0, 100.0);
+        let size = TerminalSize::from_window(1, 1, 100.0, 100.0, 0.0);
         assert_eq!(size.cols, 1);
         assert_eq!(size.rows, 1);
     }

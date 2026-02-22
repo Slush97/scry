@@ -403,12 +403,12 @@ impl PipelinesSdf {
         }
 
         let shader_source = include_str!("../sdf/shaders/sdf_compute.wgsl");
-        eprintln!("[scry-gpu] compiling SDF shader ({} lines)…", shader_source.lines().count());
+        crate::scry_info!("[scry-gpu] compiling SDF shader ({} lines)…", shader_source.lines().count());
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sdf-compute-shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
-        eprintln!("[scry-gpu] shader module ready in {:?}", t0.elapsed());
+        crate::scry_info!("[scry-gpu] shader module ready in {:?}", t0.elapsed());
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sdf-compute-bgl"),
@@ -496,7 +496,7 @@ impl PipelinesSdf {
                 t0.elapsed(), if had_cache { "loaded" } else { "cold" });
         }
 
-        eprintln!("[scry-gpu] creating compute pipeline (cache={})…",
+        crate::scry_info!("[scry-gpu] creating compute pipeline (cache={})…",
             if had_cache { "warm" } else { "cold" });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("sdf-compute-pipeline"),
@@ -506,7 +506,7 @@ impl PipelinesSdf {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: Some(&cache),
         });
-        eprintln!("[scry-gpu] compute pipeline ready in {:?}", t0.elapsed());
+        crate::scry_info!("[scry-gpu] compute pipeline ready in {:?}", t0.elapsed());
 
         // Persist cache to disk for next run
         Self::save_cache(&cache);

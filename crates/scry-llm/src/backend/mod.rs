@@ -42,6 +42,32 @@ pub trait MathBackend: DeviceBackend {
         trans_b: bool,
     ) -> Self::Storage;
 
+    /// Fused matrix multiply + bias add: `C = A @ B + bias` (bias broadcast along rows).
+    /// Avoids a separate allocation for the matmul result.
+    fn matmul_bias(
+        a: &Self::Storage,
+        b: &Self::Storage,
+        bias: &Self::Storage,
+        m: usize,
+        k: usize,
+        n: usize,
+        trans_a: bool,
+        trans_b: bool,
+    ) -> Self::Storage {
+        // Default: matmul then add bias in-place
+        let mut c = Self::matmul(a, b, m, k, n, trans_a, trans_b);
+        let c_vec = Self::to_vec(&c);
+        let bias_vec = Self::to_vec(bias);
+        let mut out = c_vec;
+        for row in 0..m {
+            for col in 0..n {
+                out[row * n + col] += bias_vec[col];
+            }
+        }
+        c = Self::from_vec(out, &Shape::new(&[m, n]));
+        c
+    }
+
     /// Elementwise add with broadcasting.
     fn add(
         a: &Self::Storage,
@@ -54,6 +80,13 @@ pub trait MathBackend: DeviceBackend {
     /// Softmax along the last axis.
     fn softmax(input: &Self::Storage, shape: &Shape) -> Self::Storage;
 
+    /// Fused scale + softmax: applies `x * scale` then softmax along the last axis.
+    /// Eliminates the separate `scale()` allocation.
+    fn scaled_softmax(input: &Self::Storage, scale: f32, shape: &Shape) -> Self::Storage {
+        let scaled = Self::scale(input, scale);
+        Self::softmax(&scaled, shape)
+    }
+
     /// Layer normalization along the last axis.
     /// Returns `(output, mean, rstd)`.
     fn layernorm(
@@ -63,6 +96,18 @@ pub trait MathBackend: DeviceBackend {
         shape: &Shape,
         eps: f32,
     ) -> (Self::Storage, Self::Storage, Self::Storage);
+
+    /// Inference-only layer normalization — returns only the output, no mean/rstd.
+    fn layernorm_inference(
+        input: &Self::Storage,
+        gamma: &Self::Storage,
+        beta: &Self::Storage,
+        shape: &Shape,
+        eps: f32,
+    ) -> Self::Storage {
+        let (output, _, _) = Self::layernorm(input, gamma, beta, shape, eps);
+        output
+    }
 
     /// GELU activation (tanh approximation).
     fn gelu(input: &Self::Storage) -> Self::Storage;
@@ -316,6 +361,43 @@ pub trait MathBackend: DeviceBackend {
             }
         }
         *scores = Self::from_vec(data, &Shape::new(&[seq_len, seq_len]));
+    }
+
+    /// Fused QKV split + reshape for multi-head attention.
+    ///
+    /// Input: `[seq, 3*d_model]` containing concatenated Q, K, V.
+    /// Returns `(Q_heads, K_heads, V_heads)` each shaped `[n_heads, seq, d_head]`.
+    /// Eliminates separate split + 3x from_vec + 3x reshape_for_heads.
+    fn split_qkv_reshape_heads(
+        qkv: &Self::Storage,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> (Self::Storage, Self::Storage, Self::Storage) {
+        let d_model = n_heads * d_head;
+        let head_len = n_heads * seq * d_head;
+        let data = Self::to_vec(qkv);
+        let mut q = vec![0.0f32; head_len];
+        let mut k = vec![0.0f32; head_len];
+        let mut v = vec![0.0f32; head_len];
+        for s in 0..seq {
+            let row = s * 3 * d_model;
+            for h in 0..n_heads {
+                for d in 0..d_head {
+                    let dst = (h * seq + s) * d_head + d;
+                    let src_col = h * d_head + d;
+                    q[dst] = data[row + src_col];
+                    k[dst] = data[row + d_model + src_col];
+                    v[dst] = data[row + 2 * d_model + src_col];
+                }
+            }
+        }
+        let shape = Shape::new(&[n_heads, seq, d_head]);
+        (
+            Self::from_vec(q, &shape),
+            Self::from_vec(k, &shape),
+            Self::from_vec(v, &shape),
+        )
     }
 
     /// Reshape `[B*S, H*d_head]` → `[B*H, S, d_head]` for batched multi-head attention.
