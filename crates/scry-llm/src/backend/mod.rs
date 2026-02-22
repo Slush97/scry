@@ -12,6 +12,13 @@ use crate::tensor::shape::Shape;
 pub trait DeviceBackend: Sized {
     type Storage: Clone;
     type Stream;
+    #[cfg(feature = "quantize")]
+    type I8Storage: Clone;
+
+    #[cfg(feature = "quantize")]
+    fn i8_from_vec(data: Vec<i8>) -> Self::I8Storage;
+    #[cfg(feature = "quantize")]
+    fn i8_to_vec(storage: &Self::I8Storage) -> Vec<i8>;
 
     fn zeros(shape: &Shape) -> Self::Storage;
     fn ones(shape: &Shape) -> Self::Storage;
@@ -429,6 +436,20 @@ pub trait MathBackend: DeviceBackend {
         Self::from_vec(out, &Shape::new(&[batch * n_heads, seq, d_head]))
     }
 
+    /// Reshape host `&[f32]` data `[B*S, H*d_head]` → `[B*H, S, d_head]` for batched attention.
+    /// Avoids clone + from_vec for CpuBackend where Storage = Vec<f32>.
+    fn reshape_for_heads_from_host(
+        data: &[f32],
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> Self::Storage {
+        let v = data.to_vec();
+        let storage = Self::from_vec(v, &Shape::new(&[batch * seq, n_heads * d_head]));
+        Self::reshape_for_heads(&storage, batch, seq, n_heads, d_head)
+    }
+
     /// Reshape `[B*H, S, d_head]` → `[B*S, H*d_head]` (reverse of `reshape_for_heads`).
     fn reshape_from_heads(
         storage: &Self::Storage,
@@ -456,6 +477,53 @@ pub trait MathBackend: DeviceBackend {
             }
         }
         Self::from_vec(out, &Shape::new(&[batch * seq, d_model]))
+    }
+
+    // ---- INT8 quantized ops ----
+
+    /// Matrix multiply with i8 weights: `C = A_f32 @ dequant(B_i8)`.
+    ///
+    /// `B_i8` is `[k, n]` in i8, `scale` converts i8→f32.
+    /// Result is `[m, n]` in f32.
+    ///
+    /// Default: dequantize to f32 buffer then call `matmul`.
+    #[cfg(feature = "quantize")]
+    fn matmul_i8_f32(
+        a: &Self::Storage,
+        b_q: &Self::I8Storage,
+        scale: f32,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Self::Storage {
+        let b_i8 = Self::i8_to_vec(b_q);
+        let b_f32: Vec<f32> = b_i8.iter().map(|&q| f32::from(q) * scale).collect();
+        let b_storage = Self::from_vec(b_f32, &Shape::new(&[k, n]));
+        Self::matmul(a, &b_storage, m, k, n, false, false)
+    }
+
+    /// Fused i8 matmul + bias: `C = A_f32 @ dequant(B_i8) + bias`.
+    #[cfg(feature = "quantize")]
+    fn matmul_i8_f32_bias(
+        a: &Self::Storage,
+        b_q: &Self::I8Storage,
+        scale: f32,
+        bias: &Self::Storage,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Self::Storage {
+        let mut c = Self::matmul_i8_f32(a, b_q, scale, m, k, n);
+        let c_vec = Self::to_vec(&c);
+        let bias_vec = Self::to_vec(bias);
+        let mut out = c_vec;
+        for row in 0..m {
+            for col in 0..n {
+                out[row * n + col] += bias_vec[col];
+            }
+        }
+        c = Self::from_vec(out, &Shape::new(&[m, n]));
+        c
     }
 
     /// Strided batched matrix multiply.

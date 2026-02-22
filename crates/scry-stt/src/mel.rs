@@ -1,5 +1,7 @@
 use std::f64::consts::PI;
+use std::sync::OnceLock;
 
+use rayon::prelude::*;
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
 
@@ -11,11 +13,32 @@ pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
 /// Maximum audio chunk duration: 30 seconds.
 pub const WHISPER_CHUNK_SAMPLES: usize = WHISPER_SAMPLE_RATE as usize * 30; // 480_000
 
+/// Pad or trim audio samples to exactly one Whisper chunk (30 seconds at 16kHz).
+///
+/// This matches the Python Whisper pipeline which zero-pads raw audio *before*
+/// computing the mel spectrogram, ensuring silence frames receive the correct
+/// normalized values.
+pub fn pad_or_trim_audio(samples: &[f32]) -> Vec<f32> {
+    if samples.len() >= WHISPER_CHUNK_SAMPLES {
+        samples[..WHISPER_CHUNK_SAMPLES].to_vec()
+    } else {
+        let mut out = Vec::with_capacity(WHISPER_CHUNK_SAMPLES);
+        out.extend_from_slice(samples);
+        out.resize(WHISPER_CHUNK_SAMPLES, 0.0);
+        out
+    }
+}
+
 /// Compute the log-mel spectrogram of an audio signal.
 ///
 /// Input: `samples` — mono PCM audio at 16kHz (f32).
 /// Output: `[n_mels, n_frames]` row-major f32 array, where
-///         `n_frames = samples.len() / hop_length + 1`.
+///         `n_frames = (samples.len() + n_fft) / hop_length`.
+///
+/// **Important:** For Whisper inference, pad or trim the audio to 30 seconds
+/// (480,000 samples) *before* calling this function, using [`pad_or_trim_audio`].
+/// This ensures the mel spectrogram has exactly 3000 frames and that silence
+/// frames receive correct normalized values.
 ///
 /// This matches the output of `whisper.log_mel_spectrogram()` in the Python reference.
 pub fn log_mel_spectrogram(samples: &[f32]) -> MelSpectrogram {
@@ -23,67 +46,74 @@ pub fn log_mel_spectrogram(samples: &[f32]) -> MelSpectrogram {
     let hop = WHISPER_HOP_LENGTH;
     let n_mels = WHISPER_N_MELS;
     let n_freq = n_fft / 2 + 1; // 201
+    let pad = n_fft / 2; // 200 — matches torch.stft center=True
 
-    // Pad to at least one full frame
-    let padded_len = if samples.len() < n_fft {
-        n_fft
-    } else {
-        samples.len()
-    };
-    let n_frames = padded_len / hop + 1;
+    // Reflect-pad the signal by n_fft/2 on each side (center=True behaviour).
+    let padded = reflect_pad(samples, pad);
 
-    // Create Hann window
-    let window = hann_window(n_fft);
+    // Match torch.stft frame count: (padded_len - n_fft) / hop + 1
+    let stft_frames = (padded.len() - n_fft) / hop + 1;
+    // Whisper drops the last STFT frame: `stft[..., :-1]`
+    let n_frames = stft_frames.saturating_sub(1).max(1);
 
-    // Compute mel filterbank
-    let filters = mel_filterbank(n_mels, n_fft, WHISPER_SAMPLE_RATE);
+    // Cached Hann window and mel filterbank (parsed/computed once, reused forever).
+    static HANN: OnceLock<Vec<f64>> = OnceLock::new();
+    static FILTERS: OnceLock<Vec<[f64; 201]>> = OnceLock::new();
+    let window = HANN.get_or_init(|| hann_window(n_fft));
+    let filters = FILTERS.get_or_init(|| {
+        let raw = whisper_mel_filterbank();
+        raw.into_iter()
+            .map(|row| {
+                let mut arr = [0.0f64; 201];
+                arr.copy_from_slice(&row);
+                arr
+            })
+            .collect()
+    });
 
-    // Set up FFT
-    let mut planner = FftPlanner::<f64>::new();
-    let fft = planner.plan_fft_forward(n_fft);
-
-    // STFT → power spectrum → mel → log
-    let mut mel_spec = vec![0.0f32; n_mels * n_frames];
-
-    for frame_idx in 0..n_frames {
-        let start = frame_idx * hop;
-
-        // Extract frame with zero-padding at boundaries
-        let mut frame: Vec<Complex<f64>> = (0..n_fft)
-            .map(|i| {
-                let sample = if start + i < samples.len() {
-                    f64::from(samples[start + i])
+    // Stage 1: parallel STFT → power spectra (flat buffer [n_frames * n_freq]).
+    let mut power_buf = vec![0.0f64; n_frames * n_freq];
+    power_buf
+        .par_chunks_mut(n_freq)
+        .enumerate()
+        .for_each(|(frame_idx, power_out)| {
+            let start = frame_idx * hop;
+            // Each thread gets its own FftPlanner + frame buffer.
+            let mut planner = FftPlanner::<f64>::new();
+            let fft = planner.plan_fft_forward(n_fft);
+            let mut frame = vec![Complex::new(0.0, 0.0); n_fft];
+            for i in 0..n_fft {
+                let sample = if start + i < padded.len() {
+                    f64::from(padded[start + i])
                 } else {
                     0.0
                 };
-                Complex::new(sample * window[i], 0.0)
-            })
-            .collect();
-
-        // In-place FFT
-        fft.process(&mut frame);
-
-        // Power spectrum (magnitude squared) for positive frequencies
-        let power: Vec<f64> = frame[..n_freq]
-            .iter()
-            .map(rustfft::num_complex::Complex::norm_sqr)
-            .collect();
-
-        // Apply mel filterbank
-        for (mel_idx, filter) in filters.iter().enumerate() {
-            let mut energy = 0.0f64;
-            for (freq_idx, &coeff) in filter.iter().enumerate() {
-                energy += coeff * power[freq_idx];
+                frame[i] = Complex::new(sample * window[i], 0.0);
             }
-            // Clamp to minimum value to avoid log(0)
-            let clamped = energy.max(1e-10);
-            mel_spec[mel_idx * n_frames + frame_idx] = clamped.log10().max(-10.0) as f32;
-        }
-    }
+            fft.process(&mut frame);
+            for i in 0..n_freq {
+                power_out[i] = frame[i].norm_sqr();
+            }
+        });
+
+    // Stage 2: parallel mel filterbank application + log (over mel bands).
+    let mut mel_spec = vec![0.0f32; n_mels * n_frames];
+    mel_spec
+        .par_chunks_mut(n_frames)
+        .enumerate()
+        .for_each(|(mel_idx, mel_row)| {
+            let filter = &filters[mel_idx];
+            for frame_idx in 0..n_frames {
+                let power_row = &power_buf[frame_idx * n_freq..][..n_freq];
+                let mut energy = 0.0f64;
+                for (freq_idx, &coeff) in filter.iter().enumerate() {
+                    energy += coeff * power_row[freq_idx];
+                }
+                mel_row[frame_idx] = energy.max(1e-10).log10() as f32;
+            }
+        });
 
     // Normalize: scale to match Whisper's reference implementation
-    // Whisper applies: log_spec = torch.clamp(log_spec, min=log_spec.max() - 8.0)
-    //                  log_spec = (log_spec + 4.0) / 4.0
     let max_val = mel_spec.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let clamp_min = max_val - 8.0;
     for v in &mut mel_spec {
@@ -129,6 +159,29 @@ impl MelSpectrogram {
     }
 }
 
+/// Reflect-pad a signal by `pad` samples on each side.
+///
+/// Matches `torch.nn.functional.pad(x, (pad, pad), mode='reflect')` which is
+/// what `torch.stft(..., center=True)` applies internally.
+fn reflect_pad(samples: &[f32], pad: usize) -> Vec<f32> {
+    let n = samples.len();
+    if n == 0 {
+        return vec![0.0; pad * 2];
+    }
+    let mut out = Vec::with_capacity(n + 2 * pad);
+    // Left reflection: samples[pad], samples[pad-1], ..., samples[1]
+    for i in (1..=pad).rev() {
+        out.push(samples[i.min(n - 1)]);
+    }
+    out.extend_from_slice(samples);
+    // Right reflection: samples[n-2], samples[n-3], ...
+    for i in 0..pad {
+        let idx = if n >= 2 { n - 2 - i.min(n - 2) } else { 0 };
+        out.push(samples[idx]);
+    }
+    out
+}
+
 /// Hann window of length `n`.
 fn hann_window(n: usize) -> Vec<f64> {
     (0..n)
@@ -139,10 +192,35 @@ fn hann_window(n: usize) -> Vec<f64> {
         .collect()
 }
 
-/// Compute mel filterbank matrix `[n_mels, n_freq]`.
+/// Load Whisper's reference mel filterbank from the embedded binary.
+///
+/// The binary contains 80×201 f32 values in little-endian row-major order,
+/// extracted from `openai/whisper`'s `mel_filters.npz` (the 80-band variant).
+fn whisper_mel_filterbank() -> Vec<Vec<f64>> {
+    static BYTES: &[u8] = include_bytes!("mel_filters_80.bin");
+    const N_MELS: usize = 80;
+    const N_FREQ: usize = 201; // n_fft/2 + 1 where n_fft = 400
+    assert_eq!(BYTES.len(), N_MELS * N_FREQ * 4);
+
+    let mut filters = Vec::with_capacity(N_MELS);
+    for mel in 0..N_MELS {
+        let mut row = Vec::with_capacity(N_FREQ);
+        for freq in 0..N_FREQ {
+            let offset = (mel * N_FREQ + freq) * 4;
+            let bytes: [u8; 4] = BYTES[offset..offset + 4].try_into().unwrap();
+            row.push(f32::from_le_bytes(bytes) as f64);
+        }
+        filters.push(row);
+    }
+    filters
+}
+
+/// Compute mel filterbank matrix `[n_mels, n_freq]` from scratch using the Slaney formula.
 ///
 /// Returns a vector of `n_mels` filters, each a vector of `n_freq` coefficients.
-/// Uses the Slaney formula (same as `librosa.filters.mel`).
+/// **Note:** This is kept for testing/reference. The main spectrogram path uses
+/// `whisper_mel_filterbank()` which loads Whisper's exact pre-computed coefficients.
+#[cfg(test)]
 fn mel_filterbank(n_mels: usize, n_fft: usize, sample_rate: u32) -> Vec<Vec<f64>> {
     let n_freq = n_fft / 2 + 1;
     let sr = f64::from(sample_rate);
@@ -212,9 +290,57 @@ mod tests {
         let samples = vec![0.0f32; 16_000];
         let mel = log_mel_spectrogram(&samples);
         assert_eq!(mel.n_mels, 80);
-        // n_frames = 16000 / 160 + 1 = 101
-        assert_eq!(mel.n_frames, 101);
-        assert_eq!(mel.data.len(), 80 * 101);
+        // With center padding: padded_len = 16000 + 400 = 16400
+        // stft_frames = (16400 - 400) / 160 + 1 = 101, then drop last → 100
+        assert_eq!(mel.n_frames, 100);
+        assert_eq!(mel.data.len(), 80 * 100);
+    }
+
+    #[test]
+    fn mel_spectrogram_30s_gives_3000_frames() {
+        // Pad audio to 30s (Whisper's expected input), verify exactly 3000 frames.
+        let samples = vec![0.0f32; 16_000];
+        let audio = pad_or_trim_audio(&samples);
+        let mel = log_mel_spectrogram(&audio);
+        assert_eq!(mel.n_frames, 3000);
+        assert_eq!(mel.data.len(), 80 * 3000);
+    }
+
+    #[test]
+    fn mel_spectrogram_matches_python_reference() {
+        // 3 seconds of 440Hz sine wave at 0.5 amplitude, padded to 30s.
+        // Compare against Python whisper reference values.
+        let sr = WHISPER_SAMPLE_RATE as usize;
+        let samples: Vec<f32> = (0..3 * sr)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5
+            })
+            .collect();
+        let audio = pad_or_trim_audio(&samples);
+        let mel = log_mel_spectrogram(&audio);
+
+        assert_eq!(mel.n_frames, 3000);
+
+        // Python reference values for this exact input:
+        //   min=-0.561795, max=1.438205, mean=-0.551421
+        //   silence region value: -0.5618
+        let min = mel.data.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = mel.data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let mean = mel.data.iter().sum::<f32>() / mel.data.len() as f32;
+
+        eprintln!("Rust mel: min={min:.6}, max={max:.6}, mean={mean:.6}");
+        eprintln!("Python:   min=-0.561795, max=1.438205, mean=-0.551421");
+        eprintln!("Mel[0,:10]: {:?}", &mel.data[..10]);
+        // Python: [0.983, 0.471, -0.562, -0.562, ...]
+        eprintln!("Mel[0,2500]: {}", mel.data[2500]);
+        // Python: -0.5618 (silence floor)
+
+        // Allow some tolerance for float differences
+        assert!((min - (-0.5618)).abs() < 0.05,
+            "mel min {min} too far from Python reference -0.5618");
+        assert!((max - 1.4382).abs() < 0.05,
+            "mel max {max} too far from Python reference 1.4382");
     }
 
     #[test]

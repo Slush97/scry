@@ -587,17 +587,36 @@ impl TerminalGrid {
             }
         }
 
-        // If wide char doesn't fit, wrap or pad
+        // If wide char doesn't fit, handle edge: only wrap if auto_wrap is enabled.
         if char_width == 2 && self.cursor.col + 1 >= self.cols {
-            // Wide char at last column — pad with space and wrap
-            let col = self.cursor.col;
-            let row = self.cursor.row;
-            self.cell_mut(col, row).clear();
-            self.cursor.col = 0;
-            if self.cursor.row == self.scroll_bottom {
-                self.scroll_up(1);
+            if self.auto_wrap {
+                // Wide char at last column — pad with space and wrap
+                let col = self.cursor.col;
+                let row = self.cursor.row;
+                self.cell_mut(col, row).clear();
+                self.cursor.col = 0;
+                if self.cursor.row == self.scroll_bottom {
+                    self.scroll_up(1);
+                } else {
+                    self.cursor.row = (self.cursor.row + 1).min(self.rows - 1);
+                }
             } else {
-                self.cursor.row = (self.cursor.row + 1).min(self.rows - 1);
+                // auto_wrap off: clip the wide char to a narrow cell
+                let col = self.cursor.col;
+                let row = self.cursor.row;
+                // Write it as a single-width char to avoid overflowing the line.
+                let pen_fg = self.pen_fg;
+                let pen_bg = self.pen_bg;
+                let pen_flags = self.pen_flags;
+                let idx = self.idx(col, row);
+                let cell = &mut self.cells[idx];
+                cell.grapheme = GraphemeStorage::from_char(c);
+                cell.fg = pen_fg;
+                cell.bg = pen_bg;
+                cell.flags = pen_flags;
+                cell.width = 1;
+                self.mark_dirty(row);
+                return; // cursor does not advance past end of line
             }
         }
 
@@ -850,7 +869,8 @@ impl TerminalGrid {
     pub fn set_scroll_region(&mut self, top: u16, bottom: u16) {
         let top = top.saturating_sub(1).min(self.rows - 1);
         let bottom = bottom.saturating_sub(1).min(self.rows - 1);
-        if top < bottom {
+        // Allow top == bottom (one-line scroll region, used by tmux status bar).
+        if top <= bottom {
             self.scroll_top = top;
             self.scroll_bottom = bottom;
             // Reset cursor to home (within scroll region if origin mode)
@@ -866,37 +886,33 @@ impl TerminalGrid {
         let top = self.scroll_top as usize;
         let bottom = self.scroll_bottom as usize;
         let cols = self.cols as usize;
+        let n = (n as usize).min(bottom - top + 1);
 
-        for _ in 0..n {
-            // If scrolling the full screen on primary buffer, push to scrollback
-            if top == 0 && !self.alt_active {
-                let line = self.cells[0..cols].to_vec();
+        // Push scrolled-off lines to scrollback (primary buffer, full-screen scroll)
+        if top == 0 && !self.alt_active {
+            for line_idx in 0..n {
+                let start = line_idx * cols;
+                let line = self.cells[start..start + cols].to_vec();
                 self.scrollback.push_back(line);
-                // Keep viewport stable when user is scrolled back
                 if self.scroll_offset > 0 {
                     self.scroll_offset += 1;
                 }
                 if self.scrollback.len() > self.max_scrollback {
                     self.scrollback.pop_front();
-                    // Clamp offset if old lines were evicted
                     self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
                 }
             }
+        }
 
-            // Shift lines up within the scroll region using slice copies
-            let region_start = top * cols;
-            let region_len = (bottom - top) * cols;
-            let src_start = (top + 1) * cols;
-            // Use split_at_mut for safe overlapping move
-            for i in 0..region_len {
-                self.cells[region_start + i] = self.cells[src_start + i].clone();
-            }
+        // Rotate the scroll region slice left by n lines (in-place, no per-element clone loop)
+        let region_start = top * cols;
+        let region_end = (bottom + 1) * cols;
+        self.cells[region_start..region_end].rotate_left(n * cols);
 
-            // Clear the bottom line
-            let clear_start = bottom * cols;
-            for c in 0..cols {
-                self.cells[clear_start + c] = Cell::default();
-            }
+        // Clear the newly exposed bottom lines
+        let clear_start = (bottom + 1 - n) * cols;
+        for cell in &mut self.cells[clear_start..region_end] {
+            *cell = Cell::default();
         }
 
         // Mark affected lines dirty
@@ -910,22 +926,17 @@ impl TerminalGrid {
         let top = self.scroll_top as usize;
         let bottom = self.scroll_bottom as usize;
         let cols = self.cols as usize;
+        let n = (n as usize).min(bottom - top + 1);
 
-        for _ in 0..n {
-            // Shift lines down within the scroll region (iterate in reverse)
-            for row in (top + 1..=bottom).rev() {
-                let src_start = (row - 1) * cols;
-                let dst_start = row * cols;
-                for c in 0..cols {
-                    self.cells[dst_start + c] = self.cells[src_start + c].clone();
-                }
-            }
+        // Rotate the scroll region slice right by n lines
+        let region_start = top * cols;
+        let region_end = (bottom + 1) * cols;
+        self.cells[region_start..region_end].rotate_right(n * cols);
 
-            // Clear the top line
-            let clear_start = top * cols;
-            for c in 0..cols {
-                self.cells[clear_start + c] = Cell::default();
-            }
+        // Clear the newly exposed top lines
+        let clear_end = (top + n) * cols;
+        for cell in &mut self.cells[region_start..clear_end] {
+            *cell = Cell::default();
         }
 
         for row in top..=bottom {
@@ -1041,17 +1052,21 @@ impl TerminalGrid {
         let col = self.cursor.col;
         let cols = self.cols;
 
-        // Shift right
+        // Shift right — work from the right edge to avoid overwriting src cells.
+        // Use checked arithmetic to prevent u16 underflow in debug builds.
         for c in (col..cols).rev() {
-            if c >= n + col && c - n < cols {
-                let src_idx = self.idx(c - n, row);
-                let dst_idx = self.idx(c, row);
-                self.cells[dst_idx] = self.cells[src_idx].clone();
+            let src = c.checked_sub(n);
+            if let Some(src) = src {
+                if src >= col {
+                    let src_idx = self.idx(src, row);
+                    let dst_idx = self.idx(c, row);
+                    self.cells[dst_idx] = self.cells[src_idx].clone();
+                }
             }
         }
 
         // Clear inserted positions
-        for c in col..(col + n).min(cols) {
+        for c in col..(col.saturating_add(n)).min(cols) {
             self.cell_mut(c, row).clear();
         }
         self.mark_dirty(row);
@@ -1103,6 +1118,9 @@ impl TerminalGrid {
     }
 
     /// Switch back to the primary screen buffer.
+    ///
+    /// Does **not** restore the cursor — callers (e.g. mode 1049 handler)
+    /// are responsible for restoring the cursor if required.
     pub fn exit_alt_screen(&mut self) {
         if !self.alt_active {
             return;
@@ -1111,12 +1129,6 @@ impl TerminalGrid {
             self.cells = primary;
         }
         self.alt_active = false;
-        // Restore saved cursor
-        if let Some((fg, bg, flags)) = self.cursor.restore() {
-            self.pen_fg = fg;
-            self.pen_bg = bg;
-            self.pen_flags = flags;
-        }
         self.mark_all_dirty();
     }
 
@@ -1189,6 +1201,19 @@ impl TerminalGrid {
         self.pen_fg = CellColor::Default;
         self.pen_bg = CellColor::Default;
         self.pen_flags = CellFlags::empty();
+    }
+
+    // ── Bell ────────────────────────────────────────────────────────
+
+    /// Atomically read and clear the visual bell flag.
+    ///
+    /// Returns `true` if a BEL was pending (and clears it), `false` otherwise.
+    /// Callers should check this once per frame and trigger the visual flash
+    /// only when it returns `true`.
+    pub fn take_bell(&mut self) -> bool {
+        let pending = self.bell_pending;
+        self.bell_pending = false;
+        pending
     }
 }
 
@@ -1410,5 +1435,58 @@ mod tests {
         assert!(grid.scroll_offset > 0);
         grid.snap_to_bottom();
         assert_eq!(grid.scroll_offset, 0);
+    }
+
+    #[test]
+    fn scroll_up_preserves_content_order() {
+        let mut grid = TerminalGrid::new(5, 3, 10);
+        // Fill rows with A, B, C
+        for row in 0..3u16 {
+            for col in 0..5u16 {
+                grid.cursor.col = col;
+                grid.cursor.row = row;
+                grid.put_char(char::from(b'A' + row as u8));
+            }
+        }
+        grid.scroll_up(1);
+        // Row 0 should now be old row 1 ('B')
+        assert_eq!(grid.cell(0, 0).char(), 'B');
+        // Row 1 should be old row 2 ('C')
+        assert_eq!(grid.cell(0, 1).char(), 'C');
+        // Row 2 should be cleared
+        assert_eq!(grid.cell(0, 2).char(), ' ');
+    }
+
+    #[test]
+    fn scroll_down_preserves_content_order() {
+        let mut grid = TerminalGrid::new(5, 3, 0);
+        for row in 0..3u16 {
+            for col in 0..5u16 {
+                grid.cursor.col = col;
+                grid.cursor.row = row;
+                grid.cursor.pending_wrap = false;
+                grid.put_char(char::from(b'A' + row as u8));
+            }
+        }
+        grid.scroll_down(1);
+        // Row 0 should be cleared
+        assert_eq!(grid.cell(0, 0).char(), ' ');
+        // Row 1 should be old row 0 ('A')
+        assert_eq!(grid.cell(0, 1).char(), 'A');
+        // Row 2 should be old row 1 ('B')
+        assert_eq!(grid.cell(0, 2).char(), 'B');
+    }
+
+    #[test]
+    fn scroll_up_pushes_to_scrollback() {
+        let mut grid = TerminalGrid::new(5, 3, 10);
+        for col in 0..5u16 {
+            grid.cursor.col = col;
+            grid.cursor.row = 0;
+            grid.put_char('Z');
+        }
+        assert!(grid.scrollback_len() == 0);
+        grid.scroll_up(1);
+        assert!(grid.scrollback_len() == 1);
     }
 }

@@ -2,9 +2,9 @@
 //! Render subcommand — `scry render FILE`.
 //!
 //! Display images (PNG, JPEG) inline in the terminal using the
-//! auto-detected graphics protocol (Kitty, iTerm2).
+//! auto-detected graphics protocol.
 
-use crate::inline;
+use crate::display;
 
 /// CLI arguments for the render subcommand.
 #[derive(Debug, clap::Args)]
@@ -37,7 +37,6 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
         data
     } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
         // For JPEG: decode → re-encode as PNG for inline display
-        // (Kitty protocol requires PNG)
         reencode_as_png(&data)?
     } else if data.starts_with(b"\x89PNG") {
         data
@@ -48,11 +47,8 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
         data
     };
 
-    match (args.width, args.height) {
-        (None, None) => inline::display_inline_auto(&png_data),
-        _ => inline::display_inline_auto_sized(&png_data, args.width, args.height),
-    }
-    .map_err(|e| format!("inline display failed: {e}"))?;
+    let mut driver = display::FrameDriver::detect();
+    driver.display_png(&png_data)?;
 
     Ok(())
 }

@@ -10,7 +10,7 @@ use scry_engine::rasterize::Rasterizer;
 use scry_engine::scene::style::{BlendMode, Color as C, Rect as PxRect, Transform};
 use scry_engine::scene::PixelCanvas;
 
-use crate::inline;
+use crate::display;
 
 // ---------------------------------------------------------------------------
 // CLI types
@@ -122,7 +122,7 @@ pub struct PlayArgs {
 /// the rendered object is a compact, crisp inline element — not a
 /// massive rectangle that fills the whole screen.
 pub(crate) fn sdf_default_res() -> u32 {
-    let (pw, ph) = crate::inline::terminal_pixel_size();
+    let (pw, ph) = crate::display::terminal_pixel_size();
     // 40% of the smaller axis, capped to [200, 300] for quality vs size.
     let target = ((pw.min(ph) as f64) * 0.4) as u32;
     target.clamp(200, 300)
@@ -281,6 +281,7 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
 
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -363,12 +364,8 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -414,6 +411,7 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
 
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -508,12 +506,8 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -559,6 +553,7 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
 
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -670,12 +665,8 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -721,6 +712,7 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
 
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -839,12 +831,8 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -890,6 +878,7 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -975,12 +964,8 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -1022,6 +1007,7 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1113,12 +1099,8 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -1160,6 +1142,7 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1255,12 +1238,8 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -1302,6 +1281,7 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1424,12 +1404,8 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -1474,6 +1450,7 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -1619,12 +1596,8 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -1655,7 +1628,7 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
     let (w, h) = {
         let (term_cols, term_rows) =
             crossterm::terminal::size().unwrap_or((120, 40));
-        let (cw, ch) = crate::inline::detect_cell_size();
+        let (cw, ch) = crate::display::detect_cell_size();
         let auto_w = (term_cols as u32) * u32::from(cw);
         let auto_h = (term_rows as u32).saturating_sub(4) * u32::from(ch);
         let default_res = sdf_default_res();
@@ -1675,6 +1648,7 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
 
 
 
+    let mut driver = display::FrameDriver::detect();
     let mut frame: u64 = 0;
     let start = Instant::now();
 
@@ -1706,12 +1680,8 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
             let canvas = build_illusions(w, h, t);
             let pixmap = Rasterizer::rasterize(&canvas)
                 .map_err(|e| format!("rasterization failed: {e}"))?;
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame += 1;
 
@@ -2016,6 +1986,7 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2175,12 +2146,8 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -2225,6 +2192,7 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2396,12 +2364,8 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -2445,6 +2409,7 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2637,12 +2602,8 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -2848,12 +2809,8 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         let pixmap = gpu_ctx.render(&scene, w, h, t)
             .map_err(|e| format!("SDF render failed: {e}"))?;
 
-        let png_data = pixmap
-            .encode_png()
-            .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-        inline::display_inline_auto(&png_data)
-            .map_err(|e| format!("inline display failed: {e}"))?;
+        let mut driver = display::FrameDriver::detect();
+        driver.display_static(&pixmap)?;
 
         return Ok(());
     }
@@ -2867,6 +2824,7 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         None
     };
 
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
     let mut yaw: f32 = 0.0;
@@ -2907,12 +2865,8 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -2984,6 +2938,7 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -3074,12 +3029,8 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             gpu_ctx.flush(); // overlap GPU compute with terminal I/O
             frame_count += 1;
@@ -3124,6 +3075,7 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -3235,12 +3187,8 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 
@@ -3283,6 +3231,7 @@ pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
     };
 
     let mut gpu_ctx = GpuRenderCtx::new();
+    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -3357,12 +3306,8 @@ pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
             let pixmap = gpu_ctx.render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            let png_data = pixmap
-                .encode_png()
-                .map_err(|e| format!("PNG encoding failed: {e}"))?;
-
-            inline::display_kitty_animation_frame(&png_data, frame_count)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_frame(&pixmap, frame_count)
+                .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
 

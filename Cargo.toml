@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-font", "crates/scry-learn", "crates/scry-llm", "crates/scry-pipe", "crates/scry-stt", "crates/scry-terminal"]
+members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-learn", "crates/scry-llm", "crates/scry-pipe", "crates/scry-stt", "crates/scry-terminal"]
 exclude = ["fuzz"]
 resolver = "2"
 
@@ -34,9 +34,10 @@ sdf = ["dep:rayon"]
 sdf-gpu = ["sdf", "gpu"]
 sdf-text = ["sdf", "text", "dep:ttf-parser"]
 input = []
+native-ipc = []
 window = ["dep:winit", "dep:softbuffer"]
 logging = ["dep:tracing"]
-full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "sdf-gpu", "sdf-text", "input", "window", "logging"]
+full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "sdf-gpu", "sdf-text", "input", "window", "logging", "native-ipc"]
 
 [dependencies]
 tiny-skia = "0.11"
@@ -97,6 +98,10 @@ required-features = ["svg", "widget"]
 
 [[example]]
 name = "sdf_showcase"
+required-features = ["sdf"]
+
+[[example]]
+name = "duality"
 required-features = ["sdf"]
 
 [[example]]

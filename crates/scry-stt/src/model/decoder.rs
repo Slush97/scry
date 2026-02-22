@@ -172,6 +172,8 @@ impl<B: MathBackend> WhisperDecoder<B> {
         self_kv_cache: &mut DecoderKvCache<B>,
         cross_kv_caches: &[CrossKvCache<B>],
     ) -> Tensor<B> {
+        let profile = std::env::var("SCRY_DECODE_PROFILE").is_ok();
+
         // Token embedding + positional embedding
         let tok_emb = scry_llm::ops::embedding(
             &self.token_embedding,
@@ -179,31 +181,42 @@ impl<B: MathBackend> WhisperDecoder<B> {
             self.vocab_size,
             self.d_model,
         );
-        let pos_vec = self.positional_embedding.to_vec();
-        let pos_start = position * self.d_model;
-        let pos_slice = &pos_vec[pos_start..pos_start + self.d_model];
-        let pos = Tensor::<B>::from_vec(pos_slice.to_vec(), Shape::new(&[1, self.d_model]));
+        let pos = scry_llm::ops::embedding(
+            &self.positional_embedding,
+            &[position],
+            self.n_text_ctx,
+            self.d_model,
+        );
         let mut x = scry_llm::ops::add(&tok_emb, &pos);
 
         // Decoder blocks
+        let t_blocks = std::time::Instant::now();
         for (i, block) in self.blocks.iter().enumerate() {
             x = block.forward_step(&x, &mut self_kv_cache.layers[i], &cross_kv_caches[i]);
         }
+        let blocks_ms = t_blocks.elapsed().as_secs_f64() * 1000.0;
 
         // Final layer norm
         x = self.ln.forward(&x);
 
         // Project to vocab logits: x @ token_embedding^T → [1, vocab_size]
-        // (weight tying: logit projection = transpose of token embedding)
-        scry_llm::ops::matmul(
+        let t_logit = std::time::Instant::now();
+        let logits = scry_llm::ops::matmul(
             &x,
             &self.token_embedding,
             1,
             self.d_model,
             self.vocab_size,
             false,
-            true, // transpose — [d_model, vocab_size]^T = [vocab_size, d_model]^T
-        )
+            true,
+        );
+        let logit_ms = t_logit.elapsed().as_secs_f64() * 1000.0;
+
+        if profile {
+            eprintln!("    blocks={blocks_ms:.2}ms logit_proj={logit_ms:.2}ms");
+        }
+
+        logits
     }
 }
 
@@ -312,12 +325,11 @@ impl<B: MathBackend> DecoderSelfAttention<B> {
         let q_stor = B::from_vec(q_flat, &Shape::new(&[1, d_model]));
         let q_heads = B::reshape_for_heads(&q_stor, 1, 1, n_heads, d_head);
 
-        // Cached K [cached_len, d_model] → [n_heads * cached_len, d_head]
-        let k_stor = B::from_vec(cache.k.clone(), &Shape::new(&[cached_len, d_model]));
-        let k_heads = B::reshape_for_heads(&k_stor, 1, cached_len, n_heads, d_head);
-        // Cached V [cached_len, d_model] → [n_heads * cached_len, d_head]
-        let v_stor = B::from_vec(cache.v.clone(), &Shape::new(&[cached_len, d_model]));
-        let v_heads = B::reshape_for_heads(&v_stor, 1, cached_len, n_heads, d_head);
+        // Cached K [cached_len, d_model] → [n_heads, cached_len, d_head]
+        // Use reshape_for_heads_from_host to avoid clone + from_vec on CpuBackend.
+        let k_heads = B::reshape_for_heads_from_host(&cache.k, 1, cached_len, n_heads, d_head);
+        // Cached V [cached_len, d_model] → [n_heads, cached_len, d_head]
+        let v_heads = B::reshape_for_heads_from_host(&cache.v, 1, cached_len, n_heads, d_head);
 
         // Batched scores = Q_heads @ K_heads^T → [n_heads * 1, cached_len]
         let scores = B::matmul_strided_batched(

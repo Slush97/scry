@@ -401,7 +401,10 @@ impl SdfGpuRenderer {
             let data = readback_slice.get_mapped_range();
             // GPU shader packs as r|(g<<8)|(b<<16)|(255<<24) which is RGBA byte
             // order on little-endian — identical to tiny_skia::Pixmap layout.
-            pixmap.data_mut().copy_from_slice(&data);
+            // The readback buffer may be larger than the pixmap (grow-only pool),
+            // so slice to exact frame size.
+            let expected = (width as usize) * (height as usize) * 4;
+            pixmap.data_mut().copy_from_slice(&data[..expected]);
         }
         readback_buf.unmap();
         ctx.pending_readback = false;
@@ -441,7 +444,8 @@ impl SdfGpuRenderer {
 
         {
             let data = readback_slice.get_mapped_range();
-            buf.copy_from_slice(&data);
+            // Readback buffer may be larger than expected (grow-only pool).
+            buf.copy_from_slice(&data[..expected]);
         }
         readback_buf.unmap();
         ctx.pending_readback = false;

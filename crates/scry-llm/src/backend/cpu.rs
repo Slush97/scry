@@ -7,7 +7,7 @@ use crate::tensor::shape::Shape;
 pub struct CpuBackend;
 
 /// Minimum number of rows (row-tiles) before engaging rayon for matmul.
-#[cfg(not(feature = "blas"))]
+#[cfg(not(any(feature = "blas", feature = "mkl")))]
 const MATMUL_PAR_THRESHOLD: usize = 128;
 /// Minimum number of rows before parallelizing row-wise ops.
 const ROW_PAR_THRESHOLD: usize = 64;
@@ -17,6 +17,13 @@ const ELEM_PAR_THRESHOLD: usize = 8192;
 impl DeviceBackend for CpuBackend {
     type Storage = Vec<f32>;
     type Stream = ();
+    #[cfg(feature = "quantize")]
+    type I8Storage = Vec<i8>;
+
+    #[cfg(feature = "quantize")]
+    fn i8_from_vec(data: Vec<i8>) -> Vec<i8> { data }
+    #[cfg(feature = "quantize")]
+    fn i8_to_vec(storage: &Vec<i8>) -> Vec<i8> { storage.clone() }
 
     fn zeros(shape: &Shape) -> Vec<f32> {
         vec![0.0; shape.numel()]
@@ -73,8 +80,74 @@ impl MathBackend for CpuBackend {
         out_shape: &Shape,
     ) -> Vec<f32> {
         let out_numel = out_shape.numel();
-        let mut result = vec![0.0; out_numel];
 
+        // Fast path: same shape — direct elementwise add (no broadcast math)
+        if a_shape == b_shape {
+            if out_numel >= ELEM_PAR_THRESHOLD {
+                return a.par_iter().zip(b.par_iter()).map(|(&x, &y)| x + y).collect();
+            }
+            return a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect();
+        }
+
+        // Fast path: row broadcast [N,M] + [1,M] — add same row to every row
+        let a_dims = a_shape.dims();
+        let b_dims = b_shape.dims();
+        let out_dims = out_shape.dims();
+        if out_dims.len() == 2 {
+            let (rows, cols) = (out_dims[0], out_dims[1]);
+            // b is [1, M] or [M] broadcast over [N, M]
+            if a_dims == out_dims && b.len() == cols
+                && (b_dims == [1, cols] || b_dims == [cols])
+            {
+                let mut result = vec![0.0f32; out_numel];
+                for r in 0..rows {
+                    let row_start = r * cols;
+                    for c in 0..cols {
+                        result[row_start + c] = a[row_start + c] + b[c];
+                    }
+                }
+                return result;
+            }
+            // a is [1, M] or [M] broadcast over [N, M]
+            if b_dims == out_dims && a.len() == cols
+                && (a_dims == [1, cols] || a_dims == [cols])
+            {
+                let mut result = vec![0.0f32; out_numel];
+                for r in 0..rows {
+                    let row_start = r * cols;
+                    for c in 0..cols {
+                        result[row_start + c] = a[c] + b[row_start + c];
+                    }
+                }
+                return result;
+            }
+            // Column broadcast: [N,M] + [N,1]
+            if a_dims == out_dims && b_dims == [rows, 1] {
+                let mut result = vec![0.0f32; out_numel];
+                for r in 0..rows {
+                    let row_start = r * cols;
+                    let bv = b[r];
+                    for c in 0..cols {
+                        result[row_start + c] = a[row_start + c] + bv;
+                    }
+                }
+                return result;
+            }
+            if b_dims == out_dims && a_dims == [rows, 1] {
+                let mut result = vec![0.0f32; out_numel];
+                for r in 0..rows {
+                    let row_start = r * cols;
+                    let av = a[r];
+                    for c in 0..cols {
+                        result[row_start + c] = av + b[row_start + c];
+                    }
+                }
+                return result;
+            }
+        }
+
+        // Generic broadcast fallback
+        let mut result = vec![0.0; out_numel];
         let a_strides = a_shape.broadcast_strides(out_shape);
         let b_strides = b_shape.broadcast_strides(out_shape);
         let out_strides = out_shape.strides();
@@ -93,6 +166,116 @@ impl MathBackend for CpuBackend {
             result[idx] = a[a_offset] + b[b_offset];
         }
         result
+    }
+
+    fn reshape_for_heads_from_host(
+        data: &[f32],
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> Vec<f32> {
+        // Index host slice directly — zero clones for CpuBackend.
+        if batch == 1 && seq == 1 {
+            return data.to_vec();
+        }
+        let d_model = n_heads * d_head;
+        let total = batch * n_heads * seq * d_head;
+        let mut out = vec![0.0f32; total];
+        for b in 0..batch {
+            for h in 0..n_heads {
+                for s in 0..seq {
+                    for d in 0..d_head {
+                        out[(b * n_heads + h) * seq * d_head + s * d_head + d] =
+                            data[(b * seq + s) * d_model + h * d_head + d];
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn reshape_for_heads(
+        storage: &Vec<f32>,
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> Vec<f32> {
+        // When B=1, S=1 the reshape is an identity permutation — skip the transpose.
+        if batch == 1 && seq == 1 {
+            return storage.clone();
+        }
+        // Index storage directly — no clone needed since Storage = Vec<f32>
+        let d_model = n_heads * d_head;
+        let total = batch * n_heads * seq * d_head;
+        let mut out = vec![0.0f32; total];
+        for b in 0..batch {
+            for h in 0..n_heads {
+                for s in 0..seq {
+                    for d in 0..d_head {
+                        out[(b * n_heads + h) * seq * d_head + s * d_head + d] =
+                            storage[(b * seq + s) * d_model + h * d_head + d];
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn reshape_from_heads(
+        storage: &Vec<f32>,
+        batch: usize,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> Vec<f32> {
+        // When B=1, S=1 the reshape is an identity permutation — skip the transpose.
+        if batch == 1 && seq == 1 {
+            return storage.clone();
+        }
+        // Index storage directly — no clone needed since Storage = Vec<f32>
+        let d_model = n_heads * d_head;
+        let total = batch * seq * d_model;
+        let mut out = vec![0.0f32; total];
+        for b in 0..batch {
+            for h in 0..n_heads {
+                for s in 0..seq {
+                    for d in 0..d_head {
+                        out[(b * seq + s) * d_model + h * d_head + d] =
+                            storage[(b * n_heads + h) * seq * d_head + s * d_head + d];
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn split_qkv_reshape_heads(
+        qkv: &Vec<f32>,
+        seq: usize,
+        n_heads: usize,
+        d_head: usize,
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+        let d_model = n_heads * d_head;
+        let head_len = n_heads * seq * d_head;
+        // Index qkv directly — no clone needed since Storage = Vec<f32>
+        let mut q = vec![0.0f32; head_len];
+        let mut k = vec![0.0f32; head_len];
+        let mut v = vec![0.0f32; head_len];
+        for s in 0..seq {
+            let row = s * 3 * d_model;
+            for h in 0..n_heads {
+                for d in 0..d_head {
+                    let dst = (h * seq + s) * d_head + d;
+                    let src_col = h * d_head + d;
+                    q[dst] = qkv[row + src_col];
+                    k[dst] = qkv[row + d_model + src_col];
+                    v[dst] = qkv[row + 2 * d_model + src_col];
+                }
+            }
+        }
+        (q, k, v)
     }
 
     fn scaled_softmax(input: &Vec<f32>, scale: f32, shape: &Shape) -> Vec<f32> {
@@ -335,6 +518,39 @@ impl MathBackend for CpuBackend {
         out
     }
 
+    // ---- INT8 quantized matmul ----
+
+    #[cfg(feature = "quantize")]
+    fn matmul_i8_f32(
+        a: &Vec<f32>,
+        b_q: &Vec<i8>,
+        scale: f32,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
+        matmul_i8_f32_tiled(a, b_q, scale, m, k, n)
+    }
+
+    #[cfg(feature = "quantize")]
+    fn matmul_i8_f32_bias(
+        a: &Vec<f32>,
+        b_q: &Vec<i8>,
+        scale: f32,
+        bias: &Vec<f32>,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
+        let mut c = matmul_i8_f32_tiled(a, b_q, scale, m, k, n);
+        for row in 0..m {
+            for col in 0..n {
+                c[row * n + col] += bias[col];
+            }
+        }
+        c
+    }
+
     // ---- Llama-specific ops ----
 
     fn rmsnorm(
@@ -509,8 +725,97 @@ impl MathBackend for CpuBackend {
 
 // ---- Helper functions ----
 
+/// Fast vector-matrix multiply for single-row matmuls (m == 1).
+///
+/// Computes `out[j] = sum_p vec[p] * mat[p * n + j]` for row-major `mat[k, n]`.
+/// Falls back to a tight scalar loop that auto-vectorizes well on x86-64.
+/// Avoids BLAS dispatch overhead which dominates at small dimensions (e.g. 384).
+#[inline]
+fn gemv_f32(vec: &[f32], mat: &[f32], k: usize, n: usize) -> Vec<f32> {
+    let mut out = vec![0.0f32; n];
+    // Process in blocks of 4 along k to give the compiler more ILP
+    let k4 = k & !3;
+    for p in (0..k4).step_by(4) {
+        let v0 = vec[p];
+        let v1 = vec[p + 1];
+        let v2 = vec[p + 2];
+        let v3 = vec[p + 3];
+        let row0 = &mat[p * n..];
+        let row1 = &mat[(p + 1) * n..];
+        let row2 = &mat[(p + 2) * n..];
+        let row3 = &mat[(p + 3) * n..];
+        for j in 0..n {
+            out[j] += v0 * row0[j] + v1 * row1[j] + v2 * row2[j] + v3 * row3[j];
+        }
+    }
+    for p in k4..k {
+        let v = vec[p];
+        let row = &mat[p * n..];
+        for j in 0..n {
+            out[j] += v * row[j];
+        }
+    }
+    out
+}
+
+/// GEMV for `vec[1, k] @ mat_T[n, k]` (trans_b = true, row-major).
+/// Equivalent to: for each j, dot(vec, mat_T[j*k..]).
+/// Uses 4-wide accumulator unrolling for ILP (matches `gemv_f32`'s pattern).
+#[inline]
+fn gemv_trans_b_f32(vec: &[f32], mat_t: &[f32], k: usize, n: usize) -> Vec<f32> {
+    let mut out = vec![0.0f32; n];
+    gemv_trans_b_into(vec, mat_t, k, n, &mut out);
+    out
+}
+
+/// GEMV for `vec[1, k] @ mat_T[n, k]` writing directly into `out` (no allocation).
+#[inline]
+fn gemv_trans_b_into(vec: &[f32], mat_t: &[f32], k: usize, n: usize, out: &mut [f32]) {
+    let k4 = k & !3;
+    for j in 0..n {
+        let row = &mat_t[j * k..];
+        let (mut a0, mut a1, mut a2, mut a3) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        for p in (0..k4).step_by(4) {
+            a0 += vec[p]     * row[p];
+            a1 += vec[p + 1] * row[p + 1];
+            a2 += vec[p + 2] * row[p + 2];
+            a3 += vec[p + 3] * row[p + 3];
+        }
+        let mut acc = a0 + a1 + a2 + a3;
+        for p in k4..k { acc += vec[p] * row[p]; }
+        out[j] = acc;
+    }
+}
+
+/// GEMV for `vec[1, k] @ mat[k, n]` writing directly into `out` (no allocation).
+#[inline]
+fn gemv_into(vec: &[f32], mat: &[f32], k: usize, n: usize, out: &mut [f32]) {
+    for j in 0..n { out[j] = 0.0; }
+    let k4 = k & !3;
+    for p in (0..k4).step_by(4) {
+        let v0 = vec[p];
+        let v1 = vec[p + 1];
+        let v2 = vec[p + 2];
+        let v3 = vec[p + 3];
+        let row0 = &mat[p * n..];
+        let row1 = &mat[(p + 1) * n..];
+        let row2 = &mat[(p + 2) * n..];
+        let row3 = &mat[(p + 3) * n..];
+        for j in 0..n {
+            out[j] += v0 * row0[j] + v1 * row1[j] + v2 * row2[j] + v3 * row3[j];
+        }
+    }
+    for p in k4..k {
+        let v = vec[p];
+        let row = &mat[p * n..];
+        for j in 0..n {
+            out[j] += v * row[j];
+        }
+    }
+}
+
 /// Compute one row-tile of C for the tiled matmul.
-#[cfg(not(feature = "blas"))]
+#[cfg(not(any(feature = "blas", feature = "mkl")))]
 fn matmul_tile_rows(
     a: &[f32],
     b: &[f32],
@@ -569,23 +874,34 @@ fn matmul_tiled(
     trans_a: bool,
     trans_b: bool,
 ) -> Vec<f32> {
+    // Fast path: single-row matmul → GEMV (avoids BLAS dispatch overhead).
+    // Only for small matrices — large ones (e.g. logit projection [1,384]×[51865,384]^T)
+    // are faster with BLAS's cache-optimized sgemm.
+    if m == 1 && !trans_a && k * n <= 1_000_000 {
+        if trans_b {
+            return gemv_trans_b_f32(a, b, k, n);
+        } else {
+            return gemv_f32(a, b, k, n);
+        }
+    }
+
     #[cfg(feature = "dnnl")]
     {
         return matmul_dnnl(a, b, m, k, n, trans_a, trans_b, 0.0, &[]);
     }
 
-    #[cfg(feature = "blas")]
+    #[cfg(any(feature = "blas", feature = "mkl"))]
     {
         return matmul_cblas(a, b, m, k, n, trans_a, trans_b);
     }
 
-    #[cfg(not(any(feature = "blas", feature = "dnnl")))]
+    #[cfg(not(any(feature = "blas", feature = "mkl", feature = "dnnl")))]
     {
         matmul_tiled_fallback(a, b, m, k, n, trans_a, trans_b)
     }
 }
 
-#[cfg(not(feature = "blas"))]
+#[cfg(not(any(feature = "blas", feature = "mkl")))]
 fn matmul_tiled_fallback(
     a: &[f32],
     b: &[f32],
@@ -653,7 +969,7 @@ mod dnnl_ffi {
 }
 
 /// BLAS-accelerated matmul via cblas_sgemm.
-#[cfg(feature = "blas")]
+#[cfg(any(feature = "blas", feature = "mkl"))]
 fn matmul_cblas(
     a: &[f32],
     b: &[f32],
@@ -715,6 +1031,44 @@ fn silu_scalar(x: f32) -> f32 {
     (x64 / (1.0 + (-x64).exp())) as f32
 }
 
+/// Tiled i8×f32 matmul with on-the-fly dequantization.
+///
+/// `A` is `[m, k]` f32, `B_q` is `[k, n]` i8. Result is `[m, n]` f32.
+/// Each i8 element is dequantized as `b_q[idx] as f32 * scale`.
+#[cfg(feature = "quantize")]
+fn matmul_i8_f32_tiled(
+    a: &[f32],
+    b_q: &[i8],
+    scale: f32,
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<f32> {
+    const T: usize = 32;
+    let mut c = vec![0.0f32; m * n];
+    let scale_f64 = f64::from(scale);
+
+    for i_tile in (0..m).step_by(T) {
+        let i_end = (i_tile + T).min(m);
+        for p_tile in (0..k).step_by(T) {
+            let p_end = (p_tile + T).min(k);
+            for j_tile in (0..n).step_by(T) {
+                let j_end = (j_tile + T).min(n);
+                for i in i_tile..i_end {
+                    for p in p_tile..p_end {
+                        let a_val = f64::from(a[i * k + p]);
+                        for j in j_tile..j_end {
+                            let b_val = f64::from(b_q[p * n + j]) * scale_f64;
+                            c[i * n + j] += (a_val * b_val) as f32;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    c
+}
+
 /// Fused matmul + bias: C = A @ B + bias (bias broadcast along rows).
 fn matmul_bias_impl(
     a: &[f32],
@@ -726,17 +1080,30 @@ fn matmul_bias_impl(
     trans_a: bool,
     trans_b: bool,
 ) -> Vec<f32> {
+    // Fast path: single-row matmul+bias → GEMV + bias add (small matrices only)
+    if m == 1 && !trans_a && k * n <= 1_000_000 {
+        let mut c = if trans_b {
+            gemv_trans_b_f32(a, b, k, n)
+        } else {
+            gemv_f32(a, b, k, n)
+        };
+        for j in 0..n {
+            c[j] += bias[j];
+        }
+        return c;
+    }
+
     #[cfg(feature = "dnnl")]
     {
         return matmul_dnnl(a, b, m, k, n, trans_a, trans_b, 1.0, bias);
     }
 
-    #[cfg(feature = "blas")]
+    #[cfg(any(feature = "blas", feature = "mkl"))]
     {
         return matmul_bias_cblas(a, b, bias, m, k, n, trans_a, trans_b);
     }
 
-    #[cfg(not(any(feature = "blas", feature = "dnnl")))]
+    #[cfg(not(any(feature = "blas", feature = "mkl", feature = "dnnl")))]
     {
         let mut c = matmul_tiled_fallback(a, b, m, k, n, trans_a, trans_b);
         for row in 0..m {
@@ -806,7 +1173,7 @@ fn matmul_dnnl(
 }
 
 /// BLAS-accelerated fused matmul + bias via beta=1.0.
-#[cfg(feature = "blas")]
+#[cfg(any(feature = "blas", feature = "mkl"))]
 fn matmul_bias_cblas(
     a: &[f32],
     b: &[f32],
@@ -874,6 +1241,23 @@ fn matmul_strided_batched_impl(
     let b_stride = k * n;
     let c_stride = m * n;
 
+    // Fast path: batched GEMV when m == 1 (decoder attention/projections)
+    // Writes directly into pre-allocated output — no per-head Vec allocation.
+    if m == 1 && !trans_a {
+        let mut c = vec![0.0f32; batch_count * n];
+        for i in 0..batch_count {
+            let a_slice = &a[i * k..(i + 1) * k];
+            let b_slice = &b[i * b_stride..];
+            let out_slice = &mut c[i * n..(i + 1) * n];
+            if trans_b {
+                gemv_trans_b_into(a_slice, b_slice, k, n, out_slice);
+            } else {
+                gemv_into(a_slice, b_slice, k, n, out_slice);
+            }
+        }
+        return c;
+    }
+
     #[cfg(feature = "dnnl")]
     {
         let mut c = vec![0.0f32; batch_count * c_stride];
@@ -905,7 +1289,7 @@ fn matmul_strided_batched_impl(
         return c;
     }
 
-    #[cfg(feature = "blas")]
+    #[cfg(any(feature = "blas", feature = "mkl"))]
     {
         use cblas_sys::{cblas_sgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 
@@ -945,7 +1329,7 @@ fn matmul_strided_batched_impl(
         return c;
     }
 
-    #[cfg(not(any(feature = "blas", feature = "dnnl")))]
+    #[cfg(not(any(feature = "blas", feature = "mkl", feature = "dnnl")))]
     {
         let mut c = Vec::with_capacity(batch_count * c_stride);
         for i in 0..batch_count {
@@ -1188,6 +1572,63 @@ mod tests {
             assert!(
                 (f - r).abs() < 1e-6,
                 "mismatch at index {i}: fused={f}, reference={r}"
+            );
+        }
+    }
+
+    #[cfg(feature = "quantize")]
+    #[test]
+    fn matmul_i8_f32_matches_f32_matmul() {
+        use crate::quantize::quantize_symmetric;
+
+        let m = 4;
+        let k = 8;
+        let n = 3;
+        let a: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.1 - 1.5).collect();
+        let b: Vec<f32> = (0..k * n).map(|i| (i as f32) * 0.05 - 0.6).collect();
+
+        // f32 reference
+        let ref_c = CpuBackend::matmul(&a, &b, m, k, n, false, false);
+
+        // Quantize B and compute via i8 path
+        let (b_q, meta) = quantize_symmetric(&b);
+        let i8_c = CpuBackend::matmul_i8_f32(&a, &b_q, meta.scale, m, k, n);
+
+        // Tolerance: quantization introduces error proportional to absmax/127 * k
+        let b_absmax = b.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+        let tolerance = b_absmax / 127.0 * k as f32 * 0.5; // generous bound
+        for i in 0..m * n {
+            assert!(
+                (ref_c[i] - i8_c[i]).abs() < tolerance,
+                "mismatch at {i}: ref={}, i8={}, tol={tolerance}",
+                ref_c[i], i8_c[i]
+            );
+        }
+    }
+
+    #[cfg(feature = "quantize")]
+    #[test]
+    fn matmul_i8_f32_bias_matches_f32() {
+        use crate::quantize::quantize_symmetric;
+
+        let m = 2;
+        let k = 4;
+        let n = 3;
+        let a: Vec<f32> = (0..m * k).map(|i| i as f32 * 0.1).collect();
+        let b: Vec<f32> = (0..k * n).map(|i| i as f32 * 0.05).collect();
+        let bias: Vec<f32> = vec![1.0, 2.0, 3.0];
+
+        let ref_c = CpuBackend::matmul_bias(&a, &b, &bias, m, k, n, false, false);
+        let (b_q, meta) = quantize_symmetric(&b);
+        let i8_c = CpuBackend::matmul_i8_f32_bias(&a, &b_q, meta.scale, &bias, m, k, n);
+
+        let b_absmax = b.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+        let tolerance = b_absmax / 127.0 * k as f32 * 0.5;
+        for i in 0..m * n {
+            assert!(
+                (ref_c[i] - i8_c[i]).abs() < tolerance,
+                "mismatch at {i}: ref={}, i8={}, tol={tolerance}",
+                ref_c[i], i8_c[i]
             );
         }
     }

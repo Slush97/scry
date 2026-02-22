@@ -185,6 +185,13 @@ const ROW_BLOCK: u32 = 256;
 impl DeviceBackend for CudaBackend {
     type Storage = GpuStorage;
     type Stream = Arc<CudaStream>;
+    #[cfg(feature = "quantize")]
+    type I8Storage = Vec<i8>;
+
+    #[cfg(feature = "quantize")]
+    fn i8_from_vec(data: Vec<i8>) -> Vec<i8> { data }
+    #[cfg(feature = "quantize")]
+    fn i8_to_vec(storage: &Vec<i8>) -> Vec<i8> { storage.clone() }
 
     fn zeros(shape: &Shape) -> GpuStorage {
         let n = shape.numel();

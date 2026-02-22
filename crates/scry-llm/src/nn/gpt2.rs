@@ -5,7 +5,6 @@ use crate::nn::layernorm::LayerNormModule;
 use crate::nn::transformer::TransformerBlock;
 use crate::nn::Module;
 use crate::ops;
-use crate::tensor::shape::Shape;
 use crate::tensor::Tensor;
 
 /// GPT-2 configuration.
@@ -155,6 +154,7 @@ impl<B: MathBackend> Gpt2Model<B> {
         use crate::nn::attention::CausalSelfAttention;
         use crate::nn::linear::Linear;
         use crate::nn::mlp::Mlp;
+        use crate::tensor::shape::Shape;
 
         let data = std::fs::read(path).map_err(|e| {
             ScryLlmError::WeightLoadError(format!("failed to read {}: {e}", path.display()))
@@ -242,12 +242,16 @@ impl<B: MathBackend> Gpt2Model<B> {
                         bias: Tensor::from_vec(mlp_fc_b, Shape::new(&[ff])),
                         in_features: d,
                         out_features: ff,
+                        #[cfg(feature = "quantize")]
+                        quant: None,
                     },
                     fc2: Linear {
                         weight: Tensor::from_vec(mlp_proj_w, Shape::new(&[ff, d])),
                         bias: Tensor::from_vec(mlp_proj_b, Shape::new(&[d])),
                         in_features: ff,
                         out_features: d,
+                        #[cfg(feature = "quantize")]
+                        quant: None,
                     },
                 },
             };

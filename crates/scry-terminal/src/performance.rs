@@ -126,22 +126,24 @@ impl RenderScheduler {
 
     /// Check if we should render now.
     ///
+    /// This is a **pure query** — it does NOT modify any state. Call
+    /// `did_render()` after a successful render to advance the scheduler.
+    ///
     /// Returns `true` if:
     /// 1. A redraw is pending, AND
     /// 2. Enough time has elapsed since the last render.
-    pub fn should_render(&mut self) -> bool {
+    pub fn should_render(&self) -> bool {
         if !self.pending {
             return false;
         }
-        if self.last_render.elapsed() < self.min_interval {
-            return false;
-        }
-        self.pending = false;
-        self.last_render = Instant::now();
-        true
+        self.last_render.elapsed() >= self.min_interval
     }
 
-    /// Called after a successful render to record the timestamp.
+    /// Called after a **successful** render to acknowledge the frame and
+    /// clear the pending flag.
+    ///
+    /// Separating this from `should_render` ensures that a failed render
+    /// (e.g. `SurfaceError::Lost`) does not silently drop the pending bit.
     pub fn did_render(&mut self) {
         self.last_render = Instant::now();
         self.pending = false;
@@ -161,8 +163,13 @@ mod tests {
     #[test]
     fn render_scheduler_first_frame() {
         let mut scheduler = RenderScheduler::new(60);
+        // First call: pending and enough time has elapsed (last_render backdated 1s).
         assert!(scheduler.should_render());
-        assert!(!scheduler.should_render()); // Already consumed
+        // should_render is now a pure query — calling it again returns the same answer.
+        assert!(scheduler.should_render(), "pure query: second call should still return true");
+        // After acknowledging the render, pending is cleared.
+        scheduler.did_render();
+        assert!(!scheduler.should_render(), "after did_render: no longer pending");
     }
 
     #[test]

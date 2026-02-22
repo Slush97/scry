@@ -94,7 +94,6 @@ scry-learn (independent)
 scry-llm (independent)
 scry-pipe → scry-learn
 scry-terminal (uses scry-engine's wgpu/winit, but not scry-engine crate)
-scry-font (independent)
 ```
 
 | Crate | Depends On |
@@ -106,4 +105,4 @@ scry-font (independent)
 | `scry-llm` | *(independent)* |
 | `scry-pipe` | `scry-learn` |
 | `scry-terminal` | `wgpu`, `winit` (shared deps, not `scry-engine` crate) |
-| `scry-font` | *(independent)* |
+

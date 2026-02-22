@@ -25,14 +25,14 @@
 //! // 1. Compute mel spectrogram from audio
 //! let audio_samples: Vec<f32> = load_wav("audio.wav");
 //! let mel = log_mel_spectrogram(&audio_samples);
-//! let mel_padded = mel.pad_or_truncate(1500);
+//! let mel_padded = mel.pad_or_truncate(3000);
 //!
 //! // 2. Load model
 //! let config = WhisperConfig::tiny();
 //! let model = WhisperModel::<CpuBackend>::new(config);
 //!
 //! // 3. Encode audio
-//! let mel_tensor = Tensor::from_vec(mel_padded.data, Shape::new(&[80, 1500]));
+//! let mel_tensor = Tensor::from_vec(mel_padded.data, Shape::new(&[80, 3000]));
 //! let encoder_output = model.encode(&mel_tensor);
 //!
 //! // 4. Decode text

@@ -98,6 +98,11 @@ Before any commit touching benchmarks:
 - Verify all accuracy numbers use train/test split or are labeled as train=test
 - Verify checksums are printed for cross-machine verification
 
+### scry-stt Specifics
+- **Model weights**: Must use OpenAI's original `tiny.pt` converted to safetensors (NOT the HuggingFace `openai/whisper-tiny` safetensors — different weights, produces garbage). Conversion script: `crates/scry-stt/scripts/convert_openai_to_hf.py`
+- **Decode token suppression**: GPT-2 endoftext (50256) and all tokens >= SOT (50258) must be suppressed during generation; only text tokens (0–50255) and Whisper EOT (50257) are allowed
+- **Decode performance**: Correct weights + suppression → model hits EOT naturally in ~6 tokens (266ms) vs running to max 224 tokens of garbage (1000ms+) — ~4x faster
+
 ## Known Issues
 
 - Gaussian NB digits accuracy −2.2% vs sklearn — var_smoothing differences

@@ -89,6 +89,8 @@ pub enum ProtocolKind {
     Halfblock,
     /// Native OS window via softbuffer (CPU framebuffer).
     Window,
+    /// Native shared-memory IPC with scry-terminal.
+    Native,
 }
 
 impl std::fmt::Display for ProtocolKind {
@@ -99,6 +101,7 @@ impl std::fmt::Display for ProtocolKind {
             Self::Iterm2 => write!(f, "iTerm2"),
             Self::Halfblock => write!(f, "Halfblock"),
             Self::Window => write!(f, "Window"),
+            Self::Native => write!(f, "Native"),
         }
     }
 }
@@ -209,4 +212,18 @@ pub trait ProtocolBackend: std::fmt::Debug + Send {
 
     /// The protocol kind this backend implements.
     fn protocol_kind(&self) -> ProtocolKind;
+
+    /// Poll for asynchronous events from the terminal (non-blocking).
+    ///
+    /// Only meaningful for `NativeBackend` — other backends are no-ops.
+    /// Call this in animation loops between frames to process click and
+    /// visibility events. Updates internal pause/visibility state.
+    fn poll_events(&mut self) {}
+
+    /// Whether the given overlay is currently paused (click-to-toggle).
+    ///
+    /// Only meaningful for `NativeBackend` — other backends always return false.
+    fn is_overlay_paused(&self, _id: u32) -> bool {
+        false
+    }
 }

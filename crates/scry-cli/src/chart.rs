@@ -10,8 +10,8 @@ use clap::Subcommand;
 use std::io::Read;
 
 use crate::csv;
+use crate::display;
 use crate::examples;
-use crate::inline;
 use crate::spec::{ChartSpec, ChartType};
 
 // ---------------------------------------------------------------------------
@@ -326,8 +326,8 @@ fn cmd_render(
         eprintln!("✓ Saved {path} ({w}×{h}, {} bytes)", png_data.len());
     } else {
         // Display inline in terminal
-        inline::display_inline_auto(&png_data)
-            .map_err(|e| format!("inline display failed: {e}"))?;
+        let mut driver = display::FrameDriver::detect();
+        driver.display_png(&png_data)?;
     }
 
     Ok(())
@@ -336,7 +336,8 @@ fn cmd_render(
 fn cmd_show(path: &str) -> Result<(), String> {
     let png_data = std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
 
-    inline::display_inline_auto(&png_data).map_err(|e| format!("inline display failed: {e}"))?;
+    let mut driver = display::FrameDriver::detect();
+    driver.display_png(&png_data)?;
 
     Ok(())
 }
@@ -356,6 +357,8 @@ fn cmd_example(
     } else {
         examples::all_types().to_vec()
     };
+
+    let mut driver = display::FrameDriver::detect();
 
     for (i, ct) in types.iter().enumerate() {
         let mut chart = examples::build_example(*ct, theme.clone());
@@ -379,8 +382,7 @@ fn cmd_example(
             if types.len() > 1 {
                 eprintln!("── {ct} ──");
             }
-            inline::display_inline_auto(&png_data)
-                .map_err(|e| format!("inline display failed: {e}"))?;
+            driver.display_png(&png_data)?;
         }
 
         // Small separator between gallery items (except last)
@@ -397,22 +399,15 @@ fn cmd_info() -> Result<(), String> {
     println!();
 
     // Terminal info
-    let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".into());
-    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "unknown".into());
-    let kitty_pid = std::env::var("KITTY_PID").ok();
-
+    let driver = display::FrameDriver::detect();
     println!("Terminal:");
-    println!("  TERM={term}");
-    println!("  TERM_PROGRAM={term_program}");
-    if let Some(pid) = &kitty_pid {
-        println!("  KITTY_PID={pid}");
-    }
+    println!("  Protocol: {}", driver.protocol());
     println!(
         "  Inline images: {}",
-        if inline::terminal_supports_inline() {
+        if driver.supports_inline() {
             "✓ supported"
         } else {
-            "✗ not detected (will attempt Kitty protocol anyway)"
+            "✗ not detected (halfblock fallback)"
         }
     );
     println!();
@@ -609,8 +604,8 @@ fn cmd_plot(
             png_data.len()
         );
     } else {
-        inline::display_inline_auto(&png_data)
-            .map_err(|e| format!("inline display failed: {e}"))?;
+        let mut driver = display::FrameDriver::detect();
+        driver.display_png(&png_data)?;
     }
 
     Ok(())

@@ -19,7 +19,7 @@ use scry_llm::tensor::Tensor;
 
 use scry_stt::checkpoint::load_whisper_checkpoint;
 use scry_stt::decode::{greedy_decode, DecodeConfig};
-use scry_stt::mel::{log_mel_spectrogram, WHISPER_SAMPLE_RATE};
+use scry_stt::mel::{log_mel_spectrogram, pad_or_trim_audio, WHISPER_SAMPLE_RATE};
 use scry_stt::model::config::WhisperConfig;
 use scry_stt::tokenizer::WhisperTokenizer;
 
@@ -61,9 +61,11 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════════╝");
     #[cfg(feature = "wgpu")]
     println!("  Backend: WGPU (GPU compute)");
-    #[cfg(all(feature = "blas", not(feature = "wgpu")))]
+    #[cfg(all(feature = "mkl", not(feature = "wgpu")))]
+    println!("  Backend: MKL (Intel Math Kernel Library)");
+    #[cfg(all(feature = "blas", not(any(feature = "wgpu", feature = "mkl"))))]
     println!("  Backend: BLAS (OpenBLAS)");
-    #[cfg(not(any(feature = "blas", feature = "wgpu")))]
+    #[cfg(not(any(feature = "blas", feature = "mkl", feature = "wgpu")))]
     println!("  Backend: CPU (tiled + rayon)");
     println!();
 
@@ -95,11 +97,11 @@ fn main() {
 
     // ── Stage 4: Mel spectrogram ────────────────────────────────────────
     let t3 = Instant::now();
-    let mel = log_mel_spectrogram(&samples);
-    let mel_padded = mel.pad_or_truncate(1500);
+    let audio_chunk = pad_or_trim_audio(&samples);
+    let mel = log_mel_spectrogram(&audio_chunk);
     let mel_tensor = Tensor::<Backend>::from_vec(
-        mel_padded.data,
-        Shape::new(&[mel_padded.n_mels, mel_padded.n_frames]),
+        mel.data.clone(),
+        Shape::new(&[mel.n_mels, mel.n_frames]),
     );
     let mel_ms = t3.elapsed().as_secs_f64() * 1000.0;
 
@@ -163,19 +165,24 @@ fn main() {
     println!();
     println!("Vocab size: {}", tokenizer.vocab_size());
 
-    // ── Warmup + second inference ───────────────────────────────────────
+    // ── Warmup + averaged warm inference ────────────────────────────────
     println!();
-    println!("── Second inference (warm) ─────────────────────────────────");
-    let t_warm = Instant::now();
-    let mel2 = log_mel_spectrogram(&samples);
-    let mel2_padded = mel2.pad_or_truncate(1500);
-    let mel2_tensor = Tensor::<Backend>::from_vec(
-        mel2_padded.data,
-        Shape::new(&[mel2_padded.n_mels, mel2_padded.n_frames]),
-    );
-    let encoder_output2 = model.encode(&mel2_tensor);
-    let tokens2 = greedy_decode(&model, &encoder_output2, &decode_config);
-    let _ = tokenizer.decode(&tokens2);
-    let warm_ms = t_warm.elapsed().as_secs_f64() * 1000.0;
-    println!("  Warm inference (mel+enc+dec): {:.2} ms", warm_ms);
+    println!("── Warm inference (3-run average) ───────────────────────────");
+    let mut warm_times = Vec::new();
+    for run in 0..3 {
+        let t_warm = Instant::now();
+        let mel_w = log_mel_spectrogram(&audio_chunk);
+        let mel_w_tensor = Tensor::<Backend>::from_vec(
+            mel_w.data,
+            Shape::new(&[mel_w.n_mels, mel_w.n_frames]),
+        );
+        let enc_w = model.encode(&mel_w_tensor);
+        let tok_w = greedy_decode(&model, &enc_w, &decode_config);
+        let _ = tokenizer.decode(&tok_w);
+        let warm_ms = t_warm.elapsed().as_secs_f64() * 1000.0;
+        println!("  Run {}: {:.2} ms", run + 1, warm_ms);
+        warm_times.push(warm_ms);
+    }
+    let avg_warm: f64 = warm_times.iter().sum::<f64>() / warm_times.len() as f64;
+    println!("  Average: {:.2} ms", avg_warm);
 }

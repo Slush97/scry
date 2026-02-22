@@ -4,6 +4,12 @@ use scry_llm::tensor::Tensor;
 use crate::model::WhisperModel;
 use crate::model::attention::CrossKvCache;
 use crate::model::decoder::DecoderKvCache;
+use crate::tokenizer::{EOT_TOKEN, SOT_TOKEN, NO_TIMESTAMPS_TOKEN};
+
+/// Language token for English.
+pub const LANG_EN_TOKEN: usize = 50259;
+/// Task token for transcription (as opposed to translation).
+pub const TRANSCRIBE_TOKEN: usize = 50359;
 
 /// Configuration for decoding behavior.
 #[derive(Clone, Debug)]
@@ -16,6 +22,11 @@ pub struct DecodeConfig {
     pub eot_token: usize,
     /// Start-of-transcript token ID.
     pub sot_token: usize,
+    /// Conditioning prompt tokens force-fed before generation.
+    ///
+    /// For Whisper, this should be `[SOT, <|en|>, <|transcribe|>, <|notimestamps|>]`.
+    /// The last token's logits produce the first generated token.
+    pub prompt_tokens: Vec<usize>,
 }
 
 impl Default for DecodeConfig {
@@ -23,8 +34,14 @@ impl Default for DecodeConfig {
         Self {
             max_tokens: 224,
             temperature: 0.0, // greedy by default
-            eot_token: 50257,
-            sot_token: 50258,
+            eot_token: EOT_TOKEN,
+            sot_token: SOT_TOKEN,
+            prompt_tokens: vec![
+                SOT_TOKEN,
+                LANG_EN_TOKEN,
+                TRANSCRIBE_TOKEN,
+                NO_TIMESTAMPS_TOKEN,
+            ],
         }
     }
 }
@@ -42,9 +59,32 @@ pub struct Segment {
     pub tokens: Vec<usize>,
 }
 
+/// GPT-2's `<|endoftext|>` token — distinct from Whisper's EOT (50257).
+const GPT2_ENDOFTEXT: usize = 50256;
+
+/// Suppress non-text tokens in logits (in-place).
+///
+/// Matches Whisper's Python `SuppressTokens` + `ApplyTimestampRules` logic:
+/// - GPT-2's `<|endoftext|>` (50256) is suppressed (not our EOT).
+/// - All special tokens from SOT (50258) onwards are set to -inf.
+/// - EOT (50257) is left alone so the model can terminate the sequence.
+fn suppress_special_tokens(logits: &mut [f32]) {
+    // Suppress GPT-2 endoftext — it's not Whisper's EOT but leaks through otherwise
+    logits[GPT2_ENDOFTEXT] = f32::NEG_INFINITY;
+    // Suppress SOT and every Whisper special token after it
+    for i in SOT_TOKEN..logits.len() {
+        logits[i] = f32::NEG_INFINITY;
+    }
+}
+
 /// Greedy decode: generate tokens until EOT or max length.
 ///
-/// Returns the generated token IDs (excluding SOT, including EOT if hit).
+/// Force-feeds the `prompt_tokens` (conditioning prefix) before switching to
+/// autoregressive generation. Returns only the generated token IDs.
+///
+/// Applies Whisper-style token suppression: all special tokens (language tags,
+/// timestamps, task tokens, etc.) are suppressed during generation so only
+/// text tokens and EOT can be selected.
 pub fn greedy_decode<B: MathBackend>(
     model: &WhisperModel<B>,
     encoder_output: &Tensor<B>,
@@ -54,31 +94,63 @@ pub fn greedy_decode<B: MathBackend>(
     let mut self_kv_cache: DecoderKvCache<B> = model.new_decoder_kv_cache();
 
     let mut tokens = Vec::with_capacity(config.max_tokens);
-    let mut current_token = config.sot_token;
+    let prompt = &config.prompt_tokens;
 
-    for pos in 0..config.max_tokens {
+    let profile = std::env::var("SCRY_DECODE_PROFILE").is_ok();
+
+    // Phase 1: Force-feed conditioning prompt tokens.
+    for (pos, &tok) in prompt.iter().enumerate() {
+        if pos < prompt.len() - 1 {
+            let _ = model.decode_step(tok, pos, &mut self_kv_cache, &cross_kv_caches);
+        } else {
+            let logits = model.decode_step(tok, pos, &mut self_kv_cache, &cross_kv_caches);
+            let mut logits_vec = logits.to_vec();
+            suppress_special_tokens(&mut logits_vec);
+            let next_token = if config.temperature < 1e-8 {
+                argmax(&logits_vec)
+            } else {
+                sample_with_temperature(&logits_vec, config.temperature)
+            };
+            if next_token == config.eot_token {
+                return tokens;
+            }
+            tokens.push(next_token);
+        }
+    }
+
+    // Phase 2: Autoregressive generation from the last generated token.
+    let prompt_len = prompt.len();
+    for step in 0..(config.max_tokens - 1) {
+        let pos = prompt_len + step;
+        let current_token = *tokens.last().unwrap();
+
+        let t_step = std::time::Instant::now();
         let logits = model.decode_step(
             current_token,
             pos,
             &mut self_kv_cache,
             &cross_kv_caches,
         );
+        let step_ms = t_step.elapsed().as_secs_f64() * 1000.0;
 
-        let logits_vec = logits.to_vec();
+        let mut logits_vec = logits.to_vec();
+        suppress_special_tokens(&mut logits_vec);
 
-        // Greedy: argmax over vocabulary
         let next_token = if config.temperature < 1e-8 {
             argmax(&logits_vec)
         } else {
             sample_with_temperature(&logits_vec, config.temperature)
         };
 
+        if profile {
+            eprintln!("  [decode] step {step} tok={current_token} → {next_token} ({step_ms:.2}ms)");
+        }
+
         if next_token == config.eot_token {
             break;
         }
 
         tokens.push(next_token);
-        current_token = next_token;
     }
 
     tokens

@@ -162,6 +162,33 @@ pub fn load_whisper_checkpoint<B: MathBackend>(
     })
 }
 
+/// Load a Whisper model and quantize all Linear layer weights to INT8.
+///
+/// Same as [`load_whisper_checkpoint`] but applies symmetric per-tensor INT8
+/// quantization (W8A32) to all MLP linear layers, reducing weight memory ~4x.
+#[cfg(feature = "quantize")]
+pub fn load_whisper_checkpoint_quantized<B: MathBackend>(
+    safetensors_path: &Path,
+    config: &WhisperConfig,
+) -> crate::error::Result<WhisperModel<B>> {
+    let mut model = load_whisper_checkpoint(safetensors_path, config)?;
+    quantize_model_weights(&mut model);
+    Ok(model)
+}
+
+/// Quantize all MLP Linear layer weights in a Whisper model to INT8.
+#[cfg(feature = "quantize")]
+pub fn quantize_model_weights<B: MathBackend>(model: &mut WhisperModel<B>) {
+    for block in &mut model.encoder.blocks {
+        block.mlp_fc1.quantize_weights();
+        block.mlp_fc2.quantize_weights();
+    }
+    for block in &mut model.decoder.blocks {
+        block.mlp_fc1.quantize_weights();
+        block.mlp_fc2.quantize_weights();
+    }
+}
+
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -259,6 +286,8 @@ fn load_linear<B: MathBackend>(
         bias,
         in_features: in_f,
         out_features: out_f,
+        #[cfg(feature = "quantize")]
+        quant: None,
     })
 }
 

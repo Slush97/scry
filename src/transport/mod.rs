@@ -52,6 +52,12 @@ pub mod window;
 #[cfg(feature = "shm")]
 pub(crate) mod shm;
 
+#[cfg(feature = "native-ipc")]
+pub mod ipc;
+
+#[cfg(feature = "native-ipc")]
+pub mod native;
+
 pub use backend::{FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
 pub use capabilities::{
     DetectionMethod, KittyFeatures, Multiplexer, ProbeConfig, SixelFeatures, TerminalCapabilities,

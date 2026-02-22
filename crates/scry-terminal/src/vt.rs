@@ -158,13 +158,26 @@ impl vte::Perform for VtHandler<'_> {
             }
 
             // ── Cursor style (DECSCUSR) ────────────────────────────
+            //
+            // Parameters:
+            //   0 / 1 = blinking block (default)   2 = steady block
+            //   3     = blinking underline          4 = steady underline
+            //   5     = blinking bar                6 = steady bar
+            //
+            // Odd params → blink on; even params (except 0 which resets to
+            // the user-configured default) → blink off.
             'q' if _intermediates == [b' '] => {
                 self.grid.cursor.style = match p1 {
-                    0 | 1 => CursorStyle::Block,     // Default / blinking block
-                    2 => CursorStyle::Block,          // Steady block
-                    3 | 4 => CursorStyle::Underline,  // Blinking / steady underline
-                    5 | 6 => CursorStyle::Bar,        // Blinking / steady bar
-                    _ => CursorStyle::Block,
+                    0 | 1 | 2 => CursorStyle::Block,
+                    3 | 4     => CursorStyle::Underline,
+                    5 | 6     => CursorStyle::Bar,
+                    _         => CursorStyle::Block,
+                };
+                // 0 = restore user-configured default blink state (true by convention).
+                // Odd  → blinking, even (non-zero) → steady.
+                self.grid.cursor.blink = match p1 {
+                    0 | 1 | 3 | 5 => true,
+                    _              => false,
                 };
             }
 
@@ -666,5 +679,37 @@ mod tests {
             vte::Perform::osc_dispatch(&mut handler, &[b"0", b"My Terminal"], false);
         }
         assert_eq!(grid.title, "My Terminal");
+    }
+
+    #[test]
+    fn decscusr_sets_blink_and_style() {
+        use crate::grid::CursorStyle;
+
+        // Feed `ESC [ <digit> SP q` through the real VTE parser.
+        // VTE params are ASCII digit characters, not raw integer bytes.
+        // param=0/default is emitted with no digit: `ESC [ SP q`.
+        let run = |param: u8| -> (CursorStyle, bool) {
+            let (mut grid, mut sec) = make_handler();
+            let mut parser = vte::Parser::new();
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            // Build: ESC [ [<digit>] SP q
+            let seq: Vec<u8> = if param == 0 {
+                vec![0x1b, b'[', b' ', b'q']
+            } else {
+                vec![0x1b, b'[', b'0' + param, b' ', b'q']
+            };
+            for &b in &seq {
+                parser.advance(&mut handler, b);
+            }
+            (grid.cursor.style, grid.cursor.blink)
+        };
+
+        assert_eq!(run(0), (CursorStyle::Block,     true),  "param=0 (default blinking block)");
+        assert_eq!(run(1), (CursorStyle::Block,     true),  "param=1 (blinking block)");
+        assert_eq!(run(2), (CursorStyle::Block,     false), "param=2 (steady block)");
+        assert_eq!(run(3), (CursorStyle::Underline, true),  "param=3 (blinking underline)");
+        assert_eq!(run(4), (CursorStyle::Underline, false), "param=4 (steady underline)");
+        assert_eq!(run(5), (CursorStyle::Bar,       true),  "param=5 (blinking bar)");
+        assert_eq!(run(6), (CursorStyle::Bar,       false), "param=6 (steady bar)");
     }
 }

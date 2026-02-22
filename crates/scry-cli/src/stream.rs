@@ -2,7 +2,7 @@
 //! `scry stream` — live streaming chart from stdin.
 //!
 //! Reads numeric data line-by-line from stdin and renders a live-updating
-//! chart inline in the terminal using the Kitty graphics protocol.
+//! chart inline in the terminal using the auto-detected graphics protocol.
 //!
 //! ```bash
 //! # Single series
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use scry_chart::streaming::StreamingChart;
 
-use crate::inline;
+use crate::display;
 
 // ---------------------------------------------------------------------------
 // CLI arguments
@@ -149,6 +149,7 @@ fn estimate_terminal_rows(pixel_height: u32) -> u16 {
 
 /// Render one frame: move cursor up to overwrite previous frame, then display.
 fn render_frame(
+    driver: &mut display::FrameDriver,
     chart: &StreamingChart,
     width: u32,
     height: u32,
@@ -172,7 +173,7 @@ fn render_frame(
         stdout.flush().map_err(|e| e.to_string())?;
     }
 
-    inline::display_inline_auto(&png_data).map_err(|e| format!("display failed: {e}"))?;
+    driver.display_png(&png_data)?;
 
     Ok(())
 }
@@ -209,6 +210,8 @@ pub fn run(args: &StreamArgs) -> Result<(), String> {
 
     let interval = Duration::from_millis(args.interval);
     let mut last_render = Instant::now();
+
+    let mut driver = display::FrameDriver::detect();
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -270,7 +273,7 @@ pub fn run(args: &StreamArgs) -> Result<(), String> {
 
         // Rate-limited rendering
         if last_render.elapsed() >= interval {
-            render_frame(c, args.width, args.height, frame_number)?;
+            render_frame(&mut driver, c, args.width, args.height, frame_number)?;
             frame_number += 1;
             last_render = Instant::now();
         }
@@ -279,7 +282,7 @@ pub fn run(args: &StreamArgs) -> Result<(), String> {
     // Final render after stdin closes (show last state)
     if let Some(ref c) = chart {
         if c.total_points() > 0 {
-            render_frame(c, args.width, args.height, frame_number)?;
+            render_frame(&mut driver, c, args.width, args.height, frame_number)?;
         }
     }
 

@@ -302,6 +302,13 @@ pub struct WgpuBackend;
 impl DeviceBackend for WgpuBackend {
     type Storage = Vec<f32>;
     type Stream = ();
+    #[cfg(feature = "quantize")]
+    type I8Storage = Vec<i8>;
+
+    #[cfg(feature = "quantize")]
+    fn i8_from_vec(data: Vec<i8>) -> Vec<i8> { data }
+    #[cfg(feature = "quantize")]
+    fn i8_to_vec(storage: &Vec<i8>) -> Vec<i8> { storage.clone() }
 
     fn zeros(shape: &Shape) -> Vec<f32> { CpuBackend::zeros(shape) }
     fn ones(shape: &Shape) -> Vec<f32> { CpuBackend::ones(shape) }

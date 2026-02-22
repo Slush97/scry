@@ -69,8 +69,6 @@ impl<B: MathBackend> Conv1d<B> {
         let out_length = (padded_len - self.kernel_size) / self.stride + 1;
 
         let input_vec = input.to_vec();
-        let weight_vec = self.weight.to_vec();
-        let bias_vec = self.bias.to_vec();
 
         // Build im2col matrix: [kernel_size * in_channels, out_length]
         let col_rows = self.kernel_size * self.in_channels;
@@ -91,18 +89,13 @@ impl<B: MathBackend> Conv1d<B> {
             }
         }
 
-        // weight reshaped: [out_channels, in_channels * kernel_size]
-        // matmul: [out_channels, col_rows] @ [col_rows, out_length] → [out_channels, out_length]
-        let col_tensor =
-            Tensor::<B>::from_vec(col, Shape::new(&[col_rows, out_length]));
-        let w_reshaped = Tensor::<B>::from_vec(
-            weight_vec,
-            Shape::new(&[self.out_channels, col_rows]),
-        );
+        let col_storage = B::from_vec(col, &Shape::new(&[col_rows, out_length]));
 
-        let out = scry_llm::ops::matmul(
-            &w_reshaped,
-            &col_tensor,
+        // Weight [out_channels, in_channels, kernel_size] has the same flat layout as
+        // [out_channels, in_channels * kernel_size] in row-major — use directly, no clone.
+        let out_data = B::matmul(
+            &self.weight.data,
+            &col_storage,
             self.out_channels,
             col_rows,
             out_length,
@@ -110,9 +103,19 @@ impl<B: MathBackend> Conv1d<B> {
             false,
         );
 
-        // Add bias: broadcast [out_channels, 1] over [out_channels, out_length]
-        let bias_tensor = Tensor::<B>::from_vec(bias_vec, Shape::new(&[self.out_channels, 1]));
-        scry_llm::ops::add(&out, &bias_tensor)
+        // Column broadcast bias add: bias[c] added to every element of row c.
+        // Reshape bias [out_channels] → [out_channels, 1] to hit the column broadcast
+        // fast path in CpuBackend::add, avoiding a to_vec() clone of the matmul output.
+        let bias_col = B::from_vec(self.bias.to_vec(), &Shape::new(&[self.out_channels, 1]));
+        let out_shape = Shape::new(&[self.out_channels, out_length]);
+        let result = B::add(
+            &out_data,
+            &bias_col,
+            &out_shape,
+            &Shape::new(&[self.out_channels, 1]),
+            &out_shape,
+        );
+        Tensor::<B>::new(result, out_shape)
     }
 }
 

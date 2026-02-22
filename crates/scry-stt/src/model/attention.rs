@@ -34,6 +34,8 @@ pub struct CrossAttention<B: MathBackend> {
 /// Cached encoder key-value projections for cross-attention.
 ///
 /// Computed once from encoder output, reused for every decode step.
+/// Stores both the original projections and pre-reshaped head views
+/// to avoid re-transposing 1500×384 data on every decode step.
 pub struct CrossKvCache<B: MathBackend> {
     /// Projected keys: `[audio_len, d_model]`.
     pub k: Tensor<B>,
@@ -41,6 +43,10 @@ pub struct CrossKvCache<B: MathBackend> {
     pub v: Tensor<B>,
     /// Audio sequence length.
     pub audio_len: usize,
+    /// Pre-reshaped keys: `[n_heads * audio_len, d_head]` — avoids per-step reshape.
+    pub k_heads: B::Storage,
+    /// Pre-reshaped values: `[n_heads * audio_len, d_head]` — avoids per-step reshape.
+    pub v_heads: B::Storage,
 }
 
 impl<B: MathBackend> CrossAttention<B> {
@@ -87,6 +93,8 @@ impl<B: MathBackend> CrossAttention<B> {
     /// is reused for all decode steps within that chunk.
     pub fn compute_kv_cache(&self, encoder_output: &Tensor<B>) -> CrossKvCache<B> {
         let audio_len = encoder_output.shape.dims()[0];
+        let n_heads = self.n_heads;
+        let d_head = self.d_head;
 
         // K = encoder_output @ k_weight  (no bias in Whisper cross-attn keys)
         let k = scry_llm::ops::matmul(
@@ -111,7 +119,11 @@ impl<B: MathBackend> CrossAttention<B> {
             false,
         );
 
-        CrossKvCache { k, v, audio_len }
+        // Pre-reshape for heads once — avoids re-transposing 1500×384 on every decode step
+        let k_heads = B::reshape_for_heads(&k.data, 1, audio_len, n_heads, d_head);
+        let v_heads = B::reshape_for_heads(&v.data, 1, audio_len, n_heads, d_head);
+
+        CrossKvCache { k, v, audio_len, k_heads, v_heads }
     }
 
     /// Forward pass: cross-attention with cached encoder KV.
@@ -147,14 +159,13 @@ impl<B: MathBackend> CrossAttention<B> {
 
         // Reshape Q [seq_len, d_model] → [n_heads * seq_len, d_head]
         let q_heads = B::reshape_for_heads(&q.data, 1, seq_len, n_heads, d_head);
-        // Reshape K [audio_len, d_model] → [n_heads * audio_len, d_head]
-        let k_heads = B::reshape_for_heads(&cache.k.data, 1, audio_len, n_heads, d_head);
-        // Reshape V [audio_len, d_model] → [n_heads * audio_len, d_head]
-        let v_heads = B::reshape_for_heads(&cache.v.data, 1, audio_len, n_heads, d_head);
+        // Use pre-reshaped encoder KV (computed once in compute_kv_cache)
+        let k_heads = &cache.k_heads;
+        let v_heads = &cache.v_heads;
 
         // Batched scores = Q_heads @ K_heads^T → [n_heads * seq_len, audio_len]
         let scores = B::matmul_strided_batched(
-            &q_heads, &k_heads, n_heads, seq_len, d_head, audio_len, false, true,
+            &q_heads, k_heads, n_heads, seq_len, d_head, audio_len, false, true,
         );
 
         // Fused scale + softmax — [n_heads * seq_len, audio_len]
@@ -167,7 +178,7 @@ impl<B: MathBackend> CrossAttention<B> {
 
         // Batched out = attn @ V_heads → [n_heads * seq_len, d_head]
         let out_heads = B::matmul_strided_batched(
-            &attn, &v_heads, n_heads, seq_len, audio_len, d_head, false, false,
+            &attn, v_heads, n_heads, seq_len, audio_len, d_head, false, false,
         );
 
         // Reshape [n_heads * seq_len, d_head] → [seq_len, d_model]

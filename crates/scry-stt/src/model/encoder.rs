@@ -109,22 +109,18 @@ impl<B: MathBackend> WhisperEncoder<B> {
         let x = self.conv2.forward(&x);
         let x = scry_llm::ops::gelu(&x);
 
-        // Transpose to [n_frames/2, d_model] for transformer blocks
+        // Fused transpose [d_model, out_len] → [out_len, d_model] + positional embedding add
         let out_len = x.shape.dims()[1];
         let x_vec = x.to_vec();
-        let mut transposed = vec![0.0f32; out_len * self.d_model];
-        for c in 0..self.d_model {
-            for t in 0..out_len {
-                transposed[t * self.d_model + c] = x_vec[c * out_len + t];
+        let pos_vec = B::to_vec(&self.positional_embedding.data);
+        let mut fused = vec![0.0f32; out_len * self.d_model];
+        for t in 0..out_len {
+            let pos_row = t * self.d_model;
+            for c in 0..self.d_model {
+                fused[pos_row + c] = x_vec[c * out_len + t] + pos_vec[pos_row + c];
             }
         }
-        let mut x = Tensor::<B>::from_vec(transposed, Shape::new(&[out_len, self.d_model]));
-
-        // Add positional embedding (truncated to actual length)
-        let pos_vec = self.positional_embedding.to_vec();
-        let pos_truncated: Vec<f32> = pos_vec[..out_len * self.d_model].to_vec();
-        let pos = Tensor::<B>::from_vec(pos_truncated, Shape::new(&[out_len, self.d_model]));
-        x = scry_llm::ops::add(&x, &pos);
+        let mut x = Tensor::<B>::from_vec(fused, Shape::new(&[out_len, self.d_model]));
 
         // Transformer encoder blocks
         for block in &self.blocks {

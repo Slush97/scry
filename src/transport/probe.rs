@@ -44,6 +44,7 @@ pub fn check_manual_override() -> Option<ProtocolKind> {
         "sixel" => Some(ProtocolKind::Sixel),
         "iterm2" => Some(ProtocolKind::Iterm2),
         "halfblock" => Some(ProtocolKind::Halfblock),
+        "native" => Some(ProtocolKind::Native),
         _ => None,
     }
 }
@@ -153,7 +154,9 @@ pub fn parse_kitty_graphics_response(response: &[u8]) -> bool {
 #[must_use]
 pub fn protocol_from_terminal_name(name: &str) -> Option<ProtocolKind> {
     let lower = name.to_lowercase();
-    if lower.contains("kitty") || lower.contains("ghostty") || lower.contains("wezterm") {
+    if lower.contains("scry") {
+        Some(ProtocolKind::Native)
+    } else if lower.contains("kitty") || lower.contains("ghostty") || lower.contains("wezterm") {
         Some(ProtocolKind::Kitty)
     } else if lower.contains("iterm2") || lower.contains("mintty") {
         Some(ProtocolKind::Iterm2)
@@ -320,6 +323,14 @@ pub fn query_terminal(_query: &[u8], _timeout_ms: u64) -> Vec<u8> {
 /// 5. Falls back to env-var heuristics
 pub fn probe_capabilities(config: &ProbeConfig) -> TerminalCapabilities {
     let mut caps = TerminalCapabilities::default();
+
+    // 0. Native scry-terminal detection (highest priority)
+    if std::env::var("SCRY_TERMINAL_SOCK").is_ok() {
+        caps.protocol = ProtocolKind::Native;
+        caps.detection_method = DetectionMethod::EnvVar;
+        caps.terminal_name = Some("scry-terminal".to_string());
+        return caps;
+    }
 
     // 1. Manual override
     if let Some(protocol) = check_manual_override() {

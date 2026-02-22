@@ -54,9 +54,9 @@ pub struct SplashArgs {
     #[arg(long, default_value = "default")]
     pub palette: String,
 
-    /// Skip fastfetch integration (just show the animation)
-    #[arg(long)]
-    pub no_fastfetch: bool,
+    /// Show system info alongside the animation (native, no external binary)
+    #[arg(long, default_value = "true")]
+    pub sysinfo: bool,
 
     /// Run in foreground instead of forking to background
     #[arg(long)]
@@ -78,6 +78,7 @@ pub fn run(args: &SplashArgs) -> Result<(), String> {
             eprintln!("  For the full experience, run the standalone example:");
             eprintln!("    cargo run --example fastfetch_anim");
             eprintln!();
+            eprintln!("  System info is collected natively — no fastfetch required.");
             eprintln!("  Standalone CLI integration coming soon.");
             Ok(())
         }

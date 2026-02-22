@@ -392,6 +392,7 @@ pub fn draw_collected_tick_marks(
 /// Return type for [`draw_axis`]: canvas, tick labels, grid lines, tick marks, effective rotation.
 pub type DrawAxisResult = (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>, LabelRotation);
 
+/// Draw an axis (spine, ticks, minor ticks) and collect grid/tick geometry for z-ordered rendering.
 #[must_use]
 pub fn draw_axis(
     mut canvas: PixelCanvas,

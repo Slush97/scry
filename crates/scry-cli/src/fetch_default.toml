@@ -1,0 +1,73 @@
+[display]
+animation = "geometry"
+duration  = 3
+rows      = 0
+separator = "─"
+
+[theme]
+title_user = "#A8D5BA"
+title_host = "#F2B5D4"
+title_at   = "#787268"
+separator  = "#CBB6FF"
+icon       = "#CBB6FF"
+value      = "#E8E2D7"
+
+[fields]
+order = [
+  "os", "kernel", "uptime", "shell",
+  "terminal", "de_wm", "packages", "memory", "cpu",
+]
+
+[[field]]
+id    = "os"
+label = "OS"
+icon  = "󰀧"
+color = "#A8D5BA"
+
+[[field]]
+id    = "kernel"
+label = "Kernel"
+icon  = "󠞕"
+color = "#9EC1FF"
+
+[[field]]
+id    = "uptime"
+label = "Uptime"
+icon  = "󰔟"
+color = "#F4C095"
+
+[[field]]
+id    = "shell"
+label = "Shell"
+icon  = "󠚑"
+color = "#F3E7B3"
+
+[[field]]
+id    = "terminal"
+label = "Terminal"
+icon  = "󠞕"
+color = "#CBB6FF"
+
+[[field]]
+id    = "de_wm"
+label = "DE / WM"
+icon  = "󰖲"
+color = "#F2B5D4"
+
+[[field]]
+id    = "packages"
+label = "Packages"
+icon  = "󰏗"
+color = "#A8D5BA"
+
+[[field]]
+id    = "memory"
+label = "Memory"
+icon  = "󰍛"
+color = "#9EC1FF"
+
+[[field]]
+id    = "cpu"
+label = "CPU"
+icon  = "󰘚"
+color = "#CBB6FF"

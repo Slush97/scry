@@ -22,14 +22,16 @@
 
 mod chart;
 mod csv;
+mod display;
 mod examples;
-mod inline;
+mod fetch;
 mod play;
 mod render_image;
 mod see;
 mod spec;
 mod splash;
 mod stream;
+mod sysinfo_fetch;
 mod viz;
 
 use clap::{Parser, Subcommand};
@@ -75,6 +77,9 @@ enum Commands {
         cmd: Box<viz::VizCommands>,
     },
 
+    /// Show animated system info — add to .bashrc / .zshrc for terminal ricing
+    Fetch(fetch::FetchArgs),
+
     /// Print terminal capabilities and supported features
     Info,
 }
@@ -89,12 +94,13 @@ fn main() {
     let result = match cli.command {
         Commands::Chart { cmd } => chart::run(*cmd),
         Commands::Splash(args) => splash::run(&args),
+        Commands::Fetch(args)  => fetch::run(&args).map_err(|e| e),
         Commands::Render(args) => render_image::run(&args),
-        Commands::Play(args) => play::run(&args),
-        Commands::See(args) => see::run(&args),
+        Commands::Play(args)   => play::run(&args),
+        Commands::See(args)    => see::run(&args),
         Commands::Stream(args) => stream::run(&args),
-        Commands::Viz { cmd } => viz::run(*cmd),
-        Commands::Info => cmd_info(),
+        Commands::Viz { cmd }  => viz::run(*cmd),
+        Commands::Info         => cmd_info(),
     };
 
     if let Err(e) = result {
@@ -115,20 +121,24 @@ fn cmd_info() -> Result<(), String> {
     // Terminal info
     let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".into());
     let term_program = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "unknown".into());
-    let kitty_pid = std::env::var("KITTY_PID").ok();
 
     println!("Terminal:");
     println!("  TERM={term}");
     println!("  TERM_PROGRAM={term_program}");
-    if let Some(pid) = &kitty_pid {
+    if std::env::var("SCRY_TERMINAL_SOCK").is_ok() {
+        println!("  scry-terminal: ✓ (native shared-memory IPC)");
+    }
+    if let Some(pid) = std::env::var("KITTY_PID").ok() {
         println!("  KITTY_PID={pid}");
     }
+    let driver = display::FrameDriver::detect();
+    println!("  Protocol: {}", driver.protocol());
     println!(
         "  Inline images: {}",
-        if inline::terminal_supports_inline() {
+        if driver.supports_inline() {
             "✓ supported"
         } else {
-            "✗ not detected (will attempt Kitty protocol anyway)"
+            "✗ not detected (halfblock fallback)"
         }
     );
     println!();
