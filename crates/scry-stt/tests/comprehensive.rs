@@ -238,10 +238,12 @@ fn decoder_forward_step_smoke_tiny() {
 
     // Verify KV cache grew correctly
     assert_eq!(self_kv_cache.layers[0].seq_len, 3);
+    // Cache is pre-allocated to [n_heads, max_seq, d_head] — verify full buffer size
+    let expected_buf = config.n_decoder_heads * config.n_text_ctx * config.d_head_decoder();
     assert_eq!(
         self_kv_cache.layers[0].k.len(),
-        3 * config.d_model,
-        "KV cache should have 3 * d_model entries"
+        expected_buf,
+        "KV cache should be pre-allocated to n_heads * max_seq * d_head"
     );
 }
 
@@ -418,11 +420,11 @@ fn decoder_kv_cache_clear_resets() {
     model.decode_step(50258, 0, &mut cache, &cross_kv_caches);
     assert_eq!(cache.layers[0].seq_len, 1);
 
-    // Clear and verify reset
+    // Clear and verify reset — buffers stay allocated, only seq_len resets
     cache.clear();
     assert_eq!(cache.layers[0].seq_len, 0);
-    assert!(cache.layers[0].k.is_empty());
-    assert!(cache.layers[0].v.is_empty());
+    // Pre-allocated cache retains its buffer; seq_len=0 means no valid data
+    assert!(!cache.layers[0].k.is_empty(), "pre-allocated cache should retain buffer");
 }
 
 #[test]

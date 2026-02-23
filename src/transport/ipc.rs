@@ -76,6 +76,10 @@ pub enum IpcCommand {
         px_w: u32,
         /// Pixel height of the RGBA buffer.
         px_h: u32,
+        /// If true, the overlay survives client disconnection.
+        /// Used for static images (charts, `scry render`) that should
+        /// remain visible after the CLI process exits.
+        persist: bool,
     },
     /// Re-read the existing memfd (data updated in-place). Very fast — no fd transfer.
     Refresh {
@@ -91,8 +95,48 @@ pub enum IpcCommand {
     ClearAll,
     /// Query terminal info (font size, grid dimensions).
     QueryInfo,
-    /// Trigger the native fetch overlay display.
-    ShowFetch,
+    /// Submit a serialized scene graph for server-side GPU rendering.
+    ///
+    /// The terminal will rasterize the scene on its GPU — no pixel data
+    /// is transferred. The scene bytes are passed via `memfd` (same as
+    /// `Transmit`), with `scene_len` indicating how many bytes to read.
+    SubmitScene {
+        /// Client-assigned overlay ID.
+        id: u32,
+        /// Where to place the overlay.
+        anchor: OverlayAnchor,
+        /// Z-index for compositing order.
+        z_index: i32,
+        /// Size of the serialized scene data in the accompanying memfd.
+        scene_len: u32,
+        /// If true, the overlay survives client disconnection.
+        persist: bool,
+    },
+    /// Submit an animation program for terminal-autonomous rendering.
+    ///
+    /// The terminal deserializes the `AnimationProgram` from the memfd,
+    /// then drives the animation in its own render loop. The CLI can exit
+    /// immediately after submission.
+    SubmitAnimation {
+        /// Client-assigned overlay ID.
+        id: u32,
+        /// Where to place the overlay.
+        anchor: OverlayAnchor,
+        /// Z-index for compositing order.
+        z_index: i32,
+        /// Size of the serialized `AnimationProgram` data in the memfd.
+        program_len: u32,
+        /// Duration in seconds (0 = infinite loop).
+        duration_secs: u32,
+        /// Target frames per second.
+        fps: u32,
+        /// Pixel width for SDF rendering.
+        width: u32,
+        /// Pixel height for SDF rendering.
+        height: u32,
+        /// If true, the overlay survives client disconnection.
+        persist: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +205,9 @@ const TAG_CMD_REFRESH: u8 = 0x81;
 const TAG_CMD_REMOVE: u8 = 0x82;
 const TAG_CMD_CLEAR_ALL: u8 = 0x83;
 const TAG_CMD_QUERY_INFO: u8 = 0x84;
-const TAG_CMD_SHOW_FETCH: u8 = 0x85;
+const TAG_CMD_SUBMIT_SCENE: u8 = 0x85;
+const TAG_CMD_SUBMIT_ANIMATION: u8 = 0x86;
+
 
 // Event tags: 0xC0–0xFF
 const TAG_EVT_CLICKED: u8 = 0xC0;
@@ -457,6 +503,7 @@ impl IpcCommand {
                 z,
                 px_w,
                 px_h,
+                persist,
             } => {
                 payload.push(TAG_CMD_TRANSMIT);
                 put_u32(&mut payload, *id);
@@ -477,6 +524,7 @@ impl IpcCommand {
                 put_i32(&mut payload, *z);
                 put_u32(&mut payload, *px_w);
                 put_u32(&mut payload, *px_h);
+                payload.push(u8::from(*persist));
             }
             Self::Refresh { id } => {
                 payload.push(TAG_CMD_REFRESH);
@@ -492,9 +540,65 @@ impl IpcCommand {
             Self::QueryInfo => {
                 payload.push(TAG_CMD_QUERY_INFO);
             }
-            Self::ShowFetch => {
-                payload.push(TAG_CMD_SHOW_FETCH);
+            Self::SubmitScene {
+                id,
+                anchor,
+                z_index,
+                scene_len,
+                persist,
+            } => {
+                payload.push(TAG_CMD_SUBMIT_SCENE);
+                put_u32(&mut payload, *id);
+                match anchor {
+                    OverlayAnchor::Canvas { col, row } => {
+                        payload.push(ANCHOR_CANVAS);
+                        put_u16(&mut payload, *col);
+                        put_i64(&mut payload, *row);
+                    }
+                    OverlayAnchor::Viewport { col, row } => {
+                        payload.push(ANCHOR_VIEWPORT);
+                        put_u16(&mut payload, *col);
+                        put_u16(&mut payload, *row);
+                    }
+                }
+                put_i32(&mut payload, *z_index);
+                put_u32(&mut payload, *scene_len);
+                payload.push(u8::from(*persist));
             }
+            Self::SubmitAnimation {
+                id,
+                anchor,
+                z_index,
+                program_len,
+                duration_secs,
+                fps,
+                width,
+                height,
+                persist,
+            } => {
+                payload.push(TAG_CMD_SUBMIT_ANIMATION);
+                put_u32(&mut payload, *id);
+                match anchor {
+                    OverlayAnchor::Canvas { col, row } => {
+                        payload.push(ANCHOR_CANVAS);
+                        put_u16(&mut payload, *col);
+                        put_i64(&mut payload, *row);
+                    }
+                    OverlayAnchor::Viewport { col, row } => {
+                        payload.push(ANCHOR_VIEWPORT);
+                        put_u16(&mut payload, *col);
+                        put_u16(&mut payload, *row);
+                    }
+                }
+                put_i32(&mut payload, *z_index);
+                put_u32(&mut payload, *program_len);
+                put_u32(&mut payload, *duration_secs);
+                put_u32(&mut payload, *fps);
+                put_u32(&mut payload, *width);
+                put_u32(&mut payload, *height);
+                payload.push(u8::from(*persist));
+            }
+
         }
 
         // Prepend 2-byte LE length (of payload, not including the length field itself).
@@ -549,6 +653,7 @@ impl IpcCommand {
                 let z = get_i32(data, rest_offset + 4)?;
                 let px_w = get_u32(data, rest_offset + 8)?;
                 let px_h = get_u32(data, rest_offset + 12)?;
+                let persist = data.get(rest_offset + 16).copied().unwrap_or(0) != 0;
 
                 Ok(Self::Transmit {
                     id,
@@ -558,6 +663,7 @@ impl IpcCommand {
                     z,
                     px_w,
                     px_h,
+                    persist,
                 })
             }
             TAG_CMD_REFRESH => {
@@ -570,7 +676,89 @@ impl IpcCommand {
             }
             TAG_CMD_CLEAR_ALL => Ok(Self::ClearAll),
             TAG_CMD_QUERY_INFO => Ok(Self::QueryInfo),
-            TAG_CMD_SHOW_FETCH => Ok(Self::ShowFetch),
+            TAG_CMD_SUBMIT_SCENE => {
+                let id = get_u32(data, 0)?;
+                let anchor_tag = *data
+                    .get(4)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag"))?;
+
+                let (anchor, rest_offset) = match anchor_tag {
+                    ANCHOR_CANVAS => {
+                        let col = get_u16(data, 5)?;
+                        let row = get_i64(data, 7)?;
+                        (OverlayAnchor::Canvas { col, row }, 15)
+                    }
+                    ANCHOR_VIEWPORT => {
+                        let col = get_u16(data, 5)?;
+                        let row = get_u16(data, 7)?;
+                        (OverlayAnchor::Viewport { col, row }, 9)
+                    }
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("unknown anchor tag: {anchor_tag:#x}"),
+                        ));
+                    }
+                };
+
+                let z_index = get_i32(data, rest_offset)?;
+                let scene_len = get_u32(data, rest_offset + 4)?;
+                let persist = data.get(rest_offset + 8).copied().unwrap_or(0) != 0;
+
+                Ok(Self::SubmitScene {
+                    id,
+                    anchor,
+                    z_index,
+                    scene_len,
+                    persist,
+                })
+            }
+            TAG_CMD_SUBMIT_ANIMATION => {
+                let id = get_u32(data, 0)?;
+                let anchor_tag = *data
+                    .get(4)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag"))?;
+
+                let (anchor, rest_offset) = match anchor_tag {
+                    ANCHOR_CANVAS => {
+                        let col = get_u16(data, 5)?;
+                        let row = get_i64(data, 7)?;
+                        (OverlayAnchor::Canvas { col, row }, 15)
+                    }
+                    ANCHOR_VIEWPORT => {
+                        let col = get_u16(data, 5)?;
+                        let row = get_u16(data, 7)?;
+                        (OverlayAnchor::Viewport { col, row }, 9)
+                    }
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("unknown anchor tag: {anchor_tag:#x}"),
+                        ));
+                    }
+                };
+
+                let z_index = get_i32(data, rest_offset)?;
+                let program_len = get_u32(data, rest_offset + 4)?;
+                let duration_secs = get_u32(data, rest_offset + 8)?;
+                let fps = get_u32(data, rest_offset + 12)?;
+                let width = get_u32(data, rest_offset + 16)?;
+                let height = get_u32(data, rest_offset + 20)?;
+                let persist = data.get(rest_offset + 24).copied().unwrap_or(0) != 0;
+
+                Ok(Self::SubmitAnimation {
+                    id,
+                    anchor,
+                    z_index,
+                    program_len,
+                    duration_secs,
+                    fps,
+                    width,
+                    height,
+                    persist,
+                })
+            }
+
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown command tag: {tag:#x}"),
@@ -984,6 +1172,7 @@ mod tests {
             z: 1,
             px_w: 640,
             px_h: 480,
+            persist: false,
         };
         let frame = cmd.serialize();
         // Skip 2-byte length prefix.
@@ -1002,6 +1191,7 @@ mod tests {
             z: -1,
             px_w: 1920,
             px_h: 1080,
+            persist: false,
         };
         let frame = cmd.serialize();
         let payload = &frame[2..];
@@ -1037,6 +1227,34 @@ mod tests {
         let frame = IpcCommand::QueryInfo.serialize();
         let decoded = IpcCommand::deserialize(&frame[2..]).unwrap();
         assert_eq!(IpcCommand::QueryInfo, decoded);
+    }
+
+    #[test]
+    fn ipc_submit_scene_canvas_round_trip() {
+        let cmd = IpcCommand::SubmitScene {
+            id: 7,
+            anchor: OverlayAnchor::Canvas { col: 5, row: -3 },
+            z_index: 2,
+            scene_len: 42_000,
+            persist: true,
+        };
+        let frame = cmd.serialize();
+        let decoded = IpcCommand::deserialize(&frame[2..]).unwrap();
+        assert_eq!(cmd, decoded);
+    }
+
+    #[test]
+    fn ipc_submit_scene_viewport_round_trip() {
+        let cmd = IpcCommand::SubmitScene {
+            id: 99,
+            anchor: OverlayAnchor::Viewport { col: 0, row: 0 },
+            z_index: -1,
+            scene_len: 1024,
+            persist: false,
+        };
+        let frame = cmd.serialize();
+        let decoded = IpcCommand::deserialize(&frame[2..]).unwrap();
+        assert_eq!(cmd, decoded);
     }
 
     #[test]
@@ -1154,6 +1372,7 @@ mod tests {
             z: 0,
             px_w: 100,
             px_h: 50,
+            persist: false,
         };
         send_command_with_fd(&mut tx, &cmd, Some(memfd.as_raw_fd())).unwrap();
 

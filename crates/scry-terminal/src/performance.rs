@@ -73,9 +73,8 @@ impl ParseThrottler {
                     break; // No more data this frame
                 }
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    eprintln!(
-                        "[scry-term] DIAG: PTY channel disconnected (reader thread dropped sender) — treating as child_exited"
-                    );
+                    #[cfg(feature = "logging")]
+                    tracing::warn!("PTY channel disconnected — treating as child_exited");
                     child_exited = true;
                     break;
                 }

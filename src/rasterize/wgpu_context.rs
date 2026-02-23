@@ -12,7 +12,7 @@
 //! This module is only available when the `gpu` feature is enabled (default).
 
 // Re-export vertex types from the pipeline registry for use by wgpu.rs
-pub(super) use crate::gpu::pipeline_registry::{
+pub use crate::gpu::pipeline_registry::{
     create_frame_resources, GpuGradientStop, GradientUniforms, LineVertex, MeshVertex,
     ShapeInstance,
 };

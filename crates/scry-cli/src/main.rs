@@ -13,9 +13,6 @@
 //! # Display an image inline
 //! scry render image.png
 //!
-//! # Splash animation
-//! scry splash --preset geometry
-//!
 //! # Terminal info
 //! scry info
 //! ```
@@ -24,14 +21,13 @@ mod chart;
 mod csv;
 mod display;
 mod examples;
-mod fetch;
+
 mod play;
 mod render_image;
 mod see;
 mod spec;
-mod splash;
 mod stream;
-mod sysinfo_fetch;
+
 mod viz;
 
 use clap::{Parser, Subcommand};
@@ -56,9 +52,6 @@ enum Commands {
         cmd: Box<chart::ChartCommands>,
     },
 
-    /// Display a startup splash animation in the terminal
-    Splash(splash::SplashArgs),
-
     /// Display an image file inline in the terminal
     Render(render_image::RenderArgs),
 
@@ -77,8 +70,6 @@ enum Commands {
         cmd: Box<viz::VizCommands>,
     },
 
-    /// Show animated system info — add to .bashrc / .zshrc for terminal ricing
-    Fetch(fetch::FetchArgs),
 
     /// Print terminal capabilities and supported features
     Info,
@@ -93,8 +84,7 @@ fn main() {
 
     let result = match cli.command {
         Commands::Chart { cmd } => chart::run(*cmd),
-        Commands::Splash(args) => splash::run(&args),
-        Commands::Fetch(args)  => fetch::run(&args).map_err(|e| e),
+
         Commands::Render(args) => render_image::run(&args),
         Commands::Play(args)   => play::run(&args),
         Commands::See(args)    => see::run(&args),
@@ -149,7 +139,6 @@ fn cmd_info() -> Result<(), String> {
     println!("  scry chart plot      Plot data from CSV");
     println!("  scry chart example   Built-in demo charts");
     println!("  scry chart show      Display PNG inline");
-    println!("  scry splash          Startup splash animation");
     println!("  scry render          Display image inline");
     println!("  scry stream          Live streaming chart from stdin");
     println!("  scry play            Interactive TUI animations & illusions");

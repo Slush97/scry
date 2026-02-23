@@ -107,10 +107,12 @@ pub fn load_whisper_checkpoint<B: MathBackend>(
     // Final encoder layer norm
     let enc_ln_post = load_layer_norm(&load_tensor, "model.encoder.layer_norm", d)?;
 
+    let pos_data = enc_pos_emb.to_vec();
     let encoder = WhisperEncoder {
         conv1: enc_conv1,
         conv2: enc_conv2,
         positional_embedding: enc_pos_emb,
+        pos_data,
         blocks: enc_blocks,
         ln_post: enc_ln_post,
         d_model: d,
@@ -142,8 +144,10 @@ pub fn load_whisper_checkpoint<B: MathBackend>(
 
     let dec_ln = load_layer_norm(&load_tensor, "model.decoder.layer_norm", d)?;
 
+    let logit_proj_weight = WhisperDecoder::transpose_2d(&dec_tok_emb, actual_vocab, d);
     let decoder = WhisperDecoder {
         token_embedding: dec_tok_emb,
+        logit_proj_weight,
         positional_embedding: dec_pos_emb,
         blocks: dec_blocks,
         ln: dec_ln,
@@ -245,6 +249,12 @@ fn load_conv1d<B: MathBackend>(
     let b_name = format!("{prefix}.bias");
     let w_data = load(&w_name)?;
     let b_data = load(&b_name)?;
+    // Pre-allocate workspace for the expected input length (3000 frames for 30s audio).
+    let expected_len = 3000;
+    let expected_out = (expected_len + 2 * padding - kernel) / stride + 1;
+    let col_rows = kernel * in_ch;
+    let workspace = std::cell::RefCell::new(vec![0.0f32; col_rows * expected_out]);
+
     Ok(Conv1d {
         weight: Tensor::from_vec(w_data, Shape::new(&[out_ch, in_ch, kernel])),
         bias: Tensor::from_vec(b_data, Shape::new(&[out_ch])),
@@ -253,6 +263,7 @@ fn load_conv1d<B: MathBackend>(
         kernel_size: kernel,
         stride,
         padding,
+        workspace,
     })
 }
 

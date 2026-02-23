@@ -23,7 +23,7 @@ use crate::scene::PixelCanvas;
 use crate::transport::backend::{
     FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
 };
-use crate::transport::halfblock::{HalfblockBackend, HalfblockCell};
+use crate::transport::halfblock::{self, HalfblockCell};
 use crate::PixelCanvasError;
 
 // ---------------------------------------------------------------------------
@@ -449,7 +449,7 @@ fn render_halfblock_to_buffer(
     font_size: FontSize,
     hb_buf: &mut Vec<HalfblockCell>,
 ) {
-    let (cell_rows, cell_cols) = HalfblockBackend::render_to_cells_flat(pixmap, hb_buf);
+    let (cell_rows, cell_cols) = halfblock::render_to_cells_flat(pixmap, hb_buf);
 
     if cell_cols == 0 || cell_rows == 0 {
         return;

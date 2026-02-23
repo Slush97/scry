@@ -53,6 +53,34 @@ pub struct PixelCanvas {
     hit_tags: HashMap<usize, crate::scene::hit::HitTag>,
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for PixelCanvas {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("PixelCanvas", 4)?;
+        s.serialize_field("width", &self.width)?;
+        s.serialize_field("height", &self.height)?;
+        s.serialize_field("background", &self.background)?;
+        s.serialize_field("commands", &self.commands)?;
+        s.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for PixelCanvas {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct PixelCanvasRepr {
+            width: u32,
+            height: u32,
+            background: Color,
+            commands: Vec<DrawCommand>,
+        }
+        let repr = PixelCanvasRepr::deserialize(deserializer)?;
+        Ok(Self::from_commands(repr.width, repr.height, repr.commands, repr.background))
+    }
+}
+
 impl PixelCanvas {
     /// Create a new canvas with the given pixel dimensions.
     ///
@@ -593,6 +621,27 @@ impl PixelCanvas {
     #[must_use]
     pub fn hit_tags(&self) -> &HashMap<usize, crate::scene::hit::HitTag> {
         &self.hit_tags
+    }
+
+    /// Create a canvas from a pre-built list of commands.
+    ///
+    /// Useful for diagnostics and tests that need to inject commands
+    /// outside the fluent builder API (e.g., empty polylines).
+    #[must_use]
+    pub fn from_commands(
+        width: u32,
+        height: u32,
+        commands: Vec<DrawCommand>,
+        background: Color,
+    ) -> Self {
+        Self {
+            commands,
+            background,
+            width,
+            height,
+            #[cfg(feature = "input")]
+            hit_tags: HashMap::new(),
+        }
     }
 
     /// Push a command internally (used by builders).

@@ -37,6 +37,7 @@ pub mod animation;
 pub mod builder;
 pub mod command;
 pub mod style;
+pub mod validate;
 
 #[cfg(feature = "input")]
 pub mod hit;

@@ -31,7 +31,10 @@ pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 
 # scry-engine integration
-scry-engine = { path = "../..", features = ["gpu", "native-ipc", "text"] }
+scry-engine = { path = "../..", features = ["gpu", "native-ipc", "text", "serde", "sdf"] }
+
+# Binary serialization for scene-graph IPC
+postcard = { version = "1", features = ["alloc"] }
 
 # Threading + I/O
 crossbeam-channel = "0.5"

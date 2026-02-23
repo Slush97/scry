@@ -35,6 +35,12 @@ pub enum ResponsePolicy {
     /// Maximum security. Will break vim's terminal detection and
     /// tmux's feature negotiation.
     None,
+
+    /// Block everything including DA. No bytes ever go back to the PTY.
+    ///
+    /// Use when running untrusted commands and you want zero
+    /// information leakage.
+    Paranoid,
 }
 
 // ── Security gate ──────────────────────────────────────────────────
@@ -45,6 +51,12 @@ pub struct SecurityGate {
     policy: ResponsePolicy,
     /// Whether bracketed paste is enabled by the shell.
     pub bracketed_paste_enabled: bool,
+    /// Response rate limiter: bytes sent in current window.
+    rate_bytes: u64,
+    /// Start of the current rate-limit window.
+    rate_window_start: std::time::Instant,
+    /// Maximum response bytes per second.
+    rate_limit: u32,
 }
 
 impl SecurityGate {
@@ -53,20 +65,55 @@ impl SecurityGate {
         Self {
             policy,
             bracketed_paste_enabled: false,
+            rate_bytes: 0,
+            rate_window_start: std::time::Instant::now(),
+            rate_limit: 4096,
+        }
+    }
+
+    /// Create a security gate with a custom response rate limit.
+    pub fn with_rate_limit(policy: ResponsePolicy, rate_limit: u32) -> Self {
+        Self {
+            policy,
+            bracketed_paste_enabled: false,
+            rate_bytes: 0,
+            rate_window_start: std::time::Instant::now(),
+            rate_limit,
         }
     }
 
     // ── Response filtering ─────────────────────────────────────────
 
     /// Check if a response type is allowed by the current policy.
-    pub fn allow_response(&self, response: ResponseType) -> bool {
+    pub fn allow_response(&mut self, response: ResponseType) -> bool {
         match self.policy {
-            ResponsePolicy::None => false,
+            ResponsePolicy::None | ResponsePolicy::Paranoid => false,
             ResponsePolicy::MinimalRequired => matches!(
                 response,
                 ResponseType::DeviceAttributes | ResponseType::DeviceStatusOk
             ),
             ResponsePolicy::StandardMinusTitle => !matches!(response, ResponseType::TitleReport),
+        }
+    }
+
+    /// Check if a response of the given byte length is within rate limits.
+    ///
+    /// Call this before writing response bytes to the PTY. Returns `false`
+    /// if the rate would be exceeded, preventing exfiltration attacks.
+    pub fn check_rate(&mut self, byte_count: usize) -> bool {
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(self.rate_window_start);
+        if elapsed.as_secs() >= 1 {
+            // Reset window
+            self.rate_bytes = 0;
+            self.rate_window_start = now;
+        }
+        let new_total = self.rate_bytes + byte_count as u64;
+        if new_total > u64::from(self.rate_limit) {
+            false
+        } else {
+            self.rate_bytes = new_total;
+            true
         }
     }
 
@@ -95,8 +142,26 @@ impl SecurityGate {
             // Hyperlinks (OSC 8)
             Some(8) => self.filter_hyperlink(params),
 
-            // Color query/set (OSC 10–19) — allowed (no security risk)
-            Some(10..=19) => OscAction::Allow,
+            // Foreground color query (OSC 10)
+            Some(10) => {
+                if params.get(1).map_or(false, |p| p == b"?") {
+                    OscAction::QueryFg
+                } else {
+                    OscAction::Ignore // set not yet implemented
+                }
+            }
+
+            // Background color query (OSC 11)
+            Some(11) => {
+                if params.get(1).map_or(false, |p| p == b"?") {
+                    OscAction::QueryBg
+                } else {
+                    OscAction::Ignore // set not yet implemented
+                }
+            }
+
+            // Other color queries (OSC 12–19) — no security risk
+            Some(12..=19) => OscAction::Ignore,
 
             // Unknown — block by default
             _ => OscAction::Ignore,
@@ -188,6 +253,22 @@ pub enum OscAction {
     HyperlinkOpen(String),
     /// Close the current hyperlink.
     HyperlinkClose,
+    /// Query foreground color (OSC 10 ?).
+    QueryFg,
+    /// Query background color (OSC 11 ?).
+    QueryBg,
+}
+
+/// Sanitize an OSC string parameter by stripping embedded escape sequences.
+///
+/// Malicious PTY output can embed ESC, CSI, OSC, or DCS starters inside
+/// OSC parameters (e.g., inside a title string). This function removes
+/// control characters and escape sequences to prevent injection.
+pub fn sanitize_osc_string(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_control() || *c == ' ')
+        .take(4096)
+        .collect()
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -198,7 +279,7 @@ mod tests {
 
     #[test]
     fn default_policy_blocks_title_report() {
-        let gate = SecurityGate::new(ResponsePolicy::default());
+        let mut gate = SecurityGate::new(ResponsePolicy::default());
         assert!(gate.allow_response(ResponseType::DeviceAttributes));
         assert!(gate.allow_response(ResponseType::CursorPosition));
         assert!(!gate.allow_response(ResponseType::TitleReport));
@@ -206,7 +287,7 @@ mod tests {
 
     #[test]
     fn minimal_policy_blocks_cursor_report() {
-        let gate = SecurityGate::new(ResponsePolicy::MinimalRequired);
+        let mut gate = SecurityGate::new(ResponsePolicy::MinimalRequired);
         assert!(gate.allow_response(ResponseType::DeviceAttributes));
         assert!(!gate.allow_response(ResponseType::CursorPosition));
         assert!(!gate.allow_response(ResponseType::TitleReport));
@@ -214,7 +295,7 @@ mod tests {
 
     #[test]
     fn none_policy_blocks_everything() {
-        let gate = SecurityGate::new(ResponsePolicy::None);
+        let mut gate = SecurityGate::new(ResponsePolicy::None);
         assert!(!gate.allow_response(ResponseType::DeviceAttributes));
         assert!(!gate.allow_response(ResponseType::CursorPosition));
     }
@@ -292,5 +373,60 @@ mod tests {
         let small = vec![b'A'; 100];
         let result = gate.filter_osc(&[b"52", b"c", &small]);
         assert_eq!(result, OscAction::ClipboardSet);
+    }
+
+    #[test]
+    fn paranoid_policy_blocks_all() {
+        let mut gate = SecurityGate::new(ResponsePolicy::Paranoid);
+        assert!(!gate.allow_response(ResponseType::DeviceAttributes));
+        assert!(!gate.allow_response(ResponseType::CursorPosition));
+        assert!(!gate.allow_response(ResponseType::TitleReport));
+        assert!(!gate.allow_response(ResponseType::DeviceStatusOk));
+    }
+
+    #[test]
+    fn response_rate_limiter() {
+        let mut gate = SecurityGate::with_rate_limit(ResponsePolicy::default(), 100);
+        // First 100 bytes should be allowed
+        assert!(gate.check_rate(50));
+        assert!(gate.check_rate(50));
+        // Next byte should be rejected
+        assert!(!gate.check_rate(1));
+    }
+
+    #[test]
+    fn sanitize_osc_string_strips_escapes() {
+        let dirty = "hello\x1b[31mworld\x07";
+        let clean = sanitize_osc_string(dirty);
+        // ESC and BEL are stripped; "[31m" is printable ASCII and stays
+        assert_eq!(clean, "hello[31mworld");
+        assert!(!clean.contains('\x1b'));
+        assert!(!clean.contains('\x07'));
+    }
+
+    #[test]
+    fn sanitize_osc_string_preserves_spaces() {
+        let s = "My Terminal Title";
+        assert_eq!(sanitize_osc_string(s), s);
+    }
+
+    #[test]
+    fn sanitize_osc_string_truncates_long() {
+        let long = "A".repeat(10_000);
+        assert_eq!(sanitize_osc_string(&long).len(), 4096);
+    }
+
+    #[test]
+    fn osc_query_fg() {
+        let gate = SecurityGate::new(ResponsePolicy::default());
+        let result = gate.filter_osc(&[b"10", b"?"]);
+        assert_eq!(result, OscAction::QueryFg);
+    }
+
+    #[test]
+    fn osc_query_bg() {
+        let gate = SecurityGate::new(ResponsePolicy::default());
+        let result = gate.filter_osc(&[b"11", b"?"]);
+        assert_eq!(result, OscAction::QueryBg);
     }
 }

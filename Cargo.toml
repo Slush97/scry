@@ -34,7 +34,7 @@ sdf = ["dep:rayon"]
 sdf-gpu = ["sdf", "gpu"]
 sdf-text = ["sdf", "text", "dep:ttf-parser"]
 input = []
-native-ipc = []
+native-ipc = ["serde", "dep:postcard"]
 window = ["dep:winit", "dep:softbuffer"]
 logging = ["dep:tracing"]
 full = ["kitty", "widget", "text", "svg", "gpu", "sdf", "sdf-gpu", "sdf-text", "input", "window", "logging", "native-ipc"]
@@ -65,6 +65,8 @@ ttf-parser = { version = "0.21", optional = true }
 wgpu = { version = "24", optional = true }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
+# Optional: compact binary serialization for scene-graph IPC
+postcard = { version = "1", features = ["alloc"], optional = true }
 # Optional: native window display via softbuffer (CPU framebuffer)
 winit = { version = "0.30", optional = true }
 softbuffer = { version = "0.4", optional = true }
@@ -89,6 +91,7 @@ insta = { version = "1", features = ["glob"] }
 pretty_assertions = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1"
+postcard = { version = "1", features = ["alloc"] }
 scry-chart = { path = "crates/scry-chart", features = ["widget"] }
 scry-learn = { path = "crates/scry-learn" }
 

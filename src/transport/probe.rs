@@ -423,6 +423,16 @@ pub fn probe_capabilities(config: &ProbeConfig) -> TerminalCapabilities {
 
 /// Detect protocol using environment variables only.
 fn detect_protocol_from_env() -> ProtocolKind {
+    // Check for scry-terminal (TERM_PROGRAM fallback — the primary check is
+    // SCRY_TERMINAL_SOCK in probe_capabilities, but if the IPC server failed
+    // to start this still detects native mode via TERM_PROGRAM).
+    #[cfg(feature = "native-ipc")]
+    if let Ok(prog) = std::env::var("TERM_PROGRAM") {
+        if prog == "scry-terminal" {
+            return ProtocolKind::Native;
+        }
+    }
+
     // Check for Kitty
     #[cfg(feature = "kitty")]
     {

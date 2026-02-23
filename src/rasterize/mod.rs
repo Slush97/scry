@@ -33,7 +33,7 @@ pub mod profiler;
 pub mod skia;
 
 #[cfg(feature = "gpu")]
-mod gpu_commands;
+pub mod gpu_commands;
 #[cfg(feature = "gpu")]
 mod tessellate;
 #[cfg(feature = "gpu")]
@@ -61,3 +61,5 @@ pub use self::wgpu::rasterize_auto;
 pub use self::wgpu::WgpuRasterizer;
 #[cfg(feature = "gpu")]
 pub use wgpu_context::WgpuContext2D;
+#[cfg(feature = "gpu")]
+pub use gpu_commands::{GpuBatches, collect_gpu_batches};

@@ -25,80 +25,17 @@ pub struct TerminalConfig {
     pub shell: Option<String>,
     /// Initial window dimensions in cells.
     pub window: WindowConfig,
-    /// Fetch splash configuration.
-    pub fetch: FetchConfig,
     /// Bell (BEL character) behaviour.
     pub bell: BellConfig,
+    /// Performance tuning.
+    pub performance: PerformanceConfig,
+    /// Security policy.
+    pub security: SecurityConfig,
+    /// Key bindings (scaffold — not yet dispatched at runtime).
+    pub keybinds: KeybindsConfig,
 }
 
-// ── Fetch splash configuration ──────────────────────────────────
 
-/// Configuration for the native fetch splash display.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(default)]
-pub struct FetchConfig {
-    /// Whether to show fetch on terminal startup.
-    pub show_on_startup: bool,
-    /// Auto-dismiss after this many seconds (0 = keypress only).
-    pub duration: f32,
-    /// Logo source: `"auto"` (distro detection), `"geometry"` (sacred geometry),
-    /// `"none"`, or a file path to a custom image/SVG.
-    pub logo: String,
-    /// Fade-out duration in seconds.
-    pub fade_duration: f32,
-    /// Theme settings for the fetch display.
-    pub theme: FetchTheme,
-    /// Ordered list of field IDs to display.
-    pub fields: Vec<String>,
-}
-
-/// Theme colors for the fetch display.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(default)]
-pub struct FetchTheme {
-    /// Color for the username part of user@host.
-    pub title_user: String,
-    /// Color for the hostname part of user@host.
-    pub title_host: String,
-    /// Color for the `@` separator.
-    pub title_at: String,
-    /// Color for the separator line.
-    pub separator: String,
-    /// Color for field icons.
-    pub icon: String,
-    /// Color for field values.
-    pub value: String,
-}
-
-impl Default for FetchConfig {
-    fn default() -> Self {
-        Self {
-            show_on_startup: true,
-            duration: 3.0,
-            logo: "auto".into(),
-            fade_duration: 0.5,
-            theme: FetchTheme::default(),
-            fields: vec![
-                "os".into(), "kernel".into(), "uptime".into(), "shell".into(),
-                "terminal".into(), "de_wm".into(), "packages".into(),
-                "memory".into(), "cpu".into(),
-            ],
-        }
-    }
-}
-
-impl Default for FetchTheme {
-    fn default() -> Self {
-        Self {
-            title_user: "#A8D5BA".into(),
-            title_host: "#F2B5D4".into(),
-            title_at: "#787268".into(),
-            separator: "#CBB6FF".into(),
-            icon: "#CBB6FF".into(),
-            value: "#E8E2D7".into(),
-        }
-    }
-}
 
 /// Font configuration.
 #[derive(Clone, Debug, Deserialize)]
@@ -110,6 +47,14 @@ pub struct FontConfig {
     pub path: Option<PathBuf>,
     /// Font size in pixels.
     pub size: f32,
+    /// Bold font family override (empty = derive from `family`).
+    pub bold_family: String,
+    /// Italic font family override (empty = derive from `family`).
+    pub italic_family: String,
+    /// Line height multiplier (1.0 = tight, 1.2 = comfortable).
+    pub line_height: f32,
+    /// Enable OpenType ligature substitution.
+    pub ligatures: bool,
 }
 
 /// Color scheme.
@@ -142,6 +87,12 @@ pub struct CursorConfig {
     pub blink: bool,
     /// Cursor color as hex string (default: same as foreground).
     pub color: Option<String>,
+    /// Half-period of the blink cycle in milliseconds.
+    pub blink_rate_ms: u32,
+    /// Pixel thickness for bar and underline styles.
+    pub thickness: f32,
+    /// Fill opacity (0.0–1.0).
+    pub opacity: f32,
 }
 
 /// Cursor shape.
@@ -170,6 +121,14 @@ pub struct WindowConfig {
     /// Background opacity (0.0 = fully transparent, 1.0 = fully opaque).
     /// Compositor support required for values below 1.0.
     pub opacity: f32,
+    /// Subtle background gradient effect.
+    pub background_gradient: bool,
+    /// Scrollbar visibility: "none", "thin", or "overlay".
+    pub scrollbar: String,
+    /// Window title template. `{title}` is replaced with the app-set title.
+    pub title_format: String,
+    /// Ask before closing if a child process is running.
+    pub confirm_close: bool,
 }
 
 /// Bell (BEL character) configuration.
@@ -186,6 +145,48 @@ pub struct BellConfig {
     pub audio: bool,
 }
 
+/// Performance tuning.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct PerformanceConfig {
+    /// Maximum target framerate. 0 = vsync-limited.
+    pub fps_cap: u32,
+    /// Keep the render loop spinning even when idle.
+    pub render_on_idle: bool,
+}
+
+/// Security policy.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct SecurityConfig {
+    /// Response policy: "default", "minimal", "none", or "paranoid".
+    pub response_policy: String,
+    /// Maximum clipboard content size in bytes (OSC 52).
+    pub max_clipboard_bytes: usize,
+    /// Maximum response bytes per second (anti-exfiltration).
+    pub response_rate_limit: u32,
+}
+
+/// Key binding overrides (scaffold — not yet dispatched).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct KeybindsConfig {
+    /// Copy binding (default: Ctrl+Shift+C).
+    pub copy: String,
+    /// Paste binding (default: Ctrl+Shift+V).
+    pub paste: String,
+    /// Zoom in binding.
+    pub zoom_in: String,
+    /// Zoom out binding.
+    pub zoom_out: String,
+    /// Zoom reset binding.
+    pub zoom_reset: String,
+    /// Scroll up binding.
+    pub scroll_up: String,
+    /// Scroll down binding.
+    pub scroll_down: String,
+}
+
 // ── Defaults ───────────────────────────────────────────────────────
 
 impl Default for TerminalConfig {
@@ -197,8 +198,10 @@ impl Default for TerminalConfig {
             cursor: CursorConfig::default(),
             shell: None,
             window: WindowConfig::default(),
-            fetch: FetchConfig::default(),
             bell: BellConfig::default(),
+            performance: PerformanceConfig::default(),
+            security: SecurityConfig::default(),
+            keybinds: KeybindsConfig::default(),
         }
     }
 }
@@ -209,6 +212,10 @@ impl Default for FontConfig {
             family: "monospace".to_string(),
             path: None,
             size: 14.0,
+            bold_family: String::new(),
+            italic_family: String::new(),
+            line_height: 1.0,
+            ligatures: false,
         }
     }
 }
@@ -253,6 +260,9 @@ impl Default for CursorConfig {
             style: CursorStyleConfig::Block,
             blink: true,
             color: None,
+            blink_rate_ms: 530,
+            thickness: 2.0,
+            opacity: 1.0,
         }
     }
 }
@@ -264,6 +274,43 @@ impl Default for WindowConfig {
             rows: 24,
             padding: 20.0,
             opacity: 1.0,
+            background_gradient: false,
+            scrollbar: "none".to_string(),
+            title_format: "{title}".to_string(),
+            confirm_close: false,
+        }
+    }
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            fps_cap: 60,
+            render_on_idle: false,
+        }
+    }
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            response_policy: "default".to_string(),
+            max_clipboard_bytes: 1_048_576,
+            response_rate_limit: 4096,
+        }
+    }
+}
+
+impl Default for KeybindsConfig {
+    fn default() -> Self {
+        Self {
+            copy: String::new(),
+            paste: String::new(),
+            zoom_in: String::new(),
+            zoom_out: String::new(),
+            zoom_reset: String::new(),
+            scroll_up: String::new(),
+            scroll_down: String::new(),
         }
     }
 }
@@ -344,11 +391,13 @@ impl TerminalConfig {
     ///
     /// Falls back to defaults if the file doesn't exist or can't be parsed.
     pub fn load() -> Self {
-        if let Some(path) = Self::config_path() {
+        let mut config = if let Some(path) = Self::config_path() {
             Self::load_from(&path).unwrap_or_default()
         } else {
             Self::default()
-        }
+        };
+        config.validate();
+        config
     }
 
     /// Load configuration from a specific file path.
@@ -395,6 +444,26 @@ impl TerminalConfig {
         if std::fs::write(&tmp_path, &output).is_ok() {
             let _ = std::fs::rename(&tmp_path, &path);
         }
+    }
+
+    /// Clamp configuration values to safe ranges.
+    ///
+    /// Prevents panics, GPU glitches, or OOM from extreme values in
+    /// user-provided `terminal.toml`.
+    pub fn validate(&mut self) {
+        self.font.size = self.font.size.clamp(6.0, 72.0);
+        self.font.line_height = self.font.line_height.clamp(0.5, 3.0);
+        self.scrollback.lines = self.scrollback.lines.clamp(0, 100_000);
+        self.window.columns = self.window.columns.clamp(10, 500);
+        self.window.rows = self.window.rows.clamp(2, 200);
+        self.window.padding = self.window.padding.clamp(0.0, 64.0);
+        self.window.opacity = self.window.opacity.clamp(0.0, 1.0);
+        self.cursor.blink_rate_ms = self.cursor.blink_rate_ms.clamp(100, 5000);
+        self.cursor.thickness = self.cursor.thickness.clamp(1.0, 8.0);
+        self.cursor.opacity = self.cursor.opacity.clamp(0.0, 1.0);
+        self.performance.fps_cap = self.performance.fps_cap.min(240);
+        self.security.max_clipboard_bytes = self.security.max_clipboard_bytes.clamp(0, 16_777_216);
+        self.security.response_rate_limit = self.security.response_rate_limit.clamp(256, 65_536);
     }
 }
 
@@ -507,5 +576,25 @@ mod tests {
         let config: TerminalConfig = toml::from_str(toml_str).unwrap();
         assert!(config.bell.visual);
         assert_eq!(config.bell.flash_duration_ms, 200);
+    }
+
+    #[test]
+    fn config_validation_clamps_extremes() {
+        let mut config = TerminalConfig::default();
+        config.font.size = -5.0;
+        config.scrollback.lines = 999_999_999;
+        config.window.columns = 0;
+        config.window.rows = 0;
+        config.window.padding = 200.0;
+        config.window.opacity = 3.5;
+
+        config.validate();
+
+        assert_eq!(config.font.size, 6.0);
+        assert_eq!(config.scrollback.lines, 100_000);
+        assert_eq!(config.window.columns, 10);
+        assert_eq!(config.window.rows, 2);
+        assert_eq!(config.window.padding, 64.0);
+        assert!((config.window.opacity - 1.0).abs() < f32::EPSILON);
     }
 }

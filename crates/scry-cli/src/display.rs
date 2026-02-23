@@ -26,6 +26,11 @@ pub struct FrameDriver {
     handle: Option<scry_engine::transport::ImageHandle>,
     /// Row where the animation was anchored on frame 0 (0-indexed).
     anchor_row: u16,
+    /// True when running inside scry-terminal (Native IPC path).
+    is_native: bool,
+    /// When true, `cleanup()` will NOT delete the image.
+    /// Set by `display_static()` so one-shot images survive process exit.
+    persist: bool,
 }
 
 impl FrameDriver {
@@ -35,14 +40,34 @@ impl FrameDriver {
     /// graphics queries, and env-var fallbacks.  Results are cached globally.
     pub fn detect() -> Self {
         let picker = Picker::detect();
-        let font_size = picker.font_size();
-        let backend = picker.create_backend();
+        let mut font_size = picker.font_size();
+        let is_native = picker.protocol() == ProtocolKind::Native;
+        let mut backend = picker.create_backend();
+
+        // When running inside scry-terminal, query the actual font metrics
+        // from the terminal rather than relying on TIOCGWINSZ which may
+        // report inaccurate cell dimensions in the PTY.
+        if is_native {
+            if let Ok(info) = backend.query_info() {
+                if info.font_w > 0 && info.font_h > 0 {
+                    font_size = FontSize::new(info.font_w, info.font_h);
+                }
+            }
+        }
+
         Self {
             backend,
             font_size,
             handle: None,
             anchor_row: 0,
+            is_native,
+            persist: false,
         }
+    }
+
+    /// Whether this driver is using the native IPC path (inside scry-terminal).
+    pub fn is_native(&self) -> bool {
+        self.is_native
     }
 
     /// The detected protocol kind.
@@ -67,22 +92,66 @@ impl FrameDriver {
 
     /// Display a single [`Pixmap`] (non-animated).
     ///
-    /// Places the image at the current cursor position by querying the
-    /// cursor row and passing that as `TerminalPosition`.
+    /// Fits the image to the terminal (preserving aspect ratio), centers
+    /// it horizontally, reserves vertical space, and marks the image as
+    /// persistent so it survives process exit.
     pub fn display_static(&mut self, pixmap: &Pixmap) -> Result<(), String> {
+        // Mark as persistent so cleanup() won't delete the image.
+        self.persist = true;
+
+        let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+        let cw = self.font_size.width.max(1);
+        let ch = self.font_size.height.max(1);
+
+        // Fit to terminal, preserving aspect ratio.
+        let (cols, rows) = self.fit_to_terminal(pixmap, term_cols, term_rows, cw, ch);
+
+        if self.is_native {
+            // Native path: use persistent transmit so the overlay survives
+            // after the CLI process exits.  Center horizontally.
+            let native_cols = self.native_terminal_cols();
+            let col = native_cols.saturating_sub(cols) / 2;
+            let position = TerminalPosition::new(col, 0, cols, rows);
+
+            let handle = self.backend
+                .transmit_persistent(pixmap, position, 0)
+                .map_err(|e| format!("display failed: {e}"))?;
+            self.handle = Some(handle);
+            return Ok(());
+        }
+
         let (_, cur_row) = crossterm::cursor::position().unwrap_or((0, 0));
-        let (cols, rows) = self.pixmap_cell_dims(pixmap);
 
-        // Position at current cursor row, column 0.
-        let position = TerminalPosition::new(0, cur_row, cols, rows);
+        // Reserve vertical space for the image.
+        {
+            let mut stdout = io::stdout().lock();
+            for _ in 0..rows {
+                writeln!(stdout).ok();
+            }
+            stdout.flush().ok();
+        }
 
-        self.backend
+        // Compute anchor, accounting for possible scroll.
+        let space_below = term_rows.saturating_sub(cur_row + 1);
+        let anchor_row = if space_below >= rows {
+            cur_row
+        } else {
+            cur_row.saturating_sub(rows.saturating_sub(space_below))
+        };
+
+        // Center horizontally.
+        let col = term_cols.saturating_sub(cols) / 2;
+        let position = TerminalPosition::new(col, anchor_row, cols, rows);
+
+        let handle = self.backend
             .transmit(pixmap, position, 0)
             .map_err(|e| format!("display failed: {e}"))?;
+        self.handle = Some(handle);
 
-        // Newline after the image so the prompt appears below.
+        // Move cursor below the image so the prompt appears underneath.
+        let below_row = anchor_row + rows + 1;
         let mut stdout = io::stdout().lock();
-        writeln!(stdout).ok();
+        write!(stdout, "\x1b[{below_row};1H").ok();
         stdout.flush().ok();
 
         Ok(())
@@ -107,6 +176,10 @@ impl FrameDriver {
             if self.backend.is_overlay_paused(h.id()) {
                 return Ok(());
             }
+        }
+
+        if self.is_native {
+            return self.display_frame_native(pixmap);
         }
 
         let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
@@ -139,7 +212,7 @@ impl FrameDriver {
         }
 
         // Center horizontally: offset by ~25% of terminal width.
-        let col = term_cols.saturating_sub(cols_to_use) / 4;
+        let col = term_cols.saturating_sub(cols_to_use) / 2;
 
         // The backend handles cursor positioning, synchronized updates,
         // and escape sequence formatting — we just provide the position.
@@ -164,6 +237,51 @@ impl FrameDriver {
         stdout.flush().map_err(|e| e.to_string())?;
 
         Ok(())
+    }
+
+    /// Native IPC render path — skip all crossterm terminal management.
+    ///
+    /// The compositor handles placement, so we use viewport-relative
+    /// coordinates and let `NativeBackend` transmit RGBA pixels over memfd IPC.
+    /// Overlay is centered horizontally within the terminal viewport.
+    fn display_frame_native(&mut self, pixmap: &Pixmap) -> Result<(), String> {
+        let (cols, rows) = self.pixmap_cell_dims(pixmap);
+
+        // Center horizontally within the terminal viewport.
+        let term_cols = self.native_terminal_cols();
+        let col = term_cols.saturating_sub(cols) / 2;
+        let position = TerminalPosition::new(col, 0, cols, rows);
+
+        if let Some(ref prev_handle) = self.handle {
+            let new_handle = self.backend
+                .replace(prev_handle, pixmap, position, 0)
+                .map_err(|e| format!("frame replace failed: {e}"))?;
+            self.handle = Some(new_handle);
+        } else {
+            let new_handle = self.backend
+                .transmit(pixmap, position, 0)
+                .map_err(|e| format!("frame transmit failed: {e}"))?;
+            self.handle = Some(new_handle);
+        }
+
+        Ok(())
+    }
+
+    /// Remove the active overlay from the backend.
+    ///
+    /// When `persist` is true (set by `display_static`), the image handle
+    /// is dropped without sending a delete command — the Kitty protocol
+    /// image survives naturally and the terminal reclaims it on scroll
+    /// or screen clear.
+    pub fn cleanup(&mut self) {
+        if self.persist {
+            // Drop the handle without deleting — image stays on screen.
+            self.handle.take();
+            return;
+        }
+        if let Some(ref handle) = self.handle.take() {
+            let _ = self.backend.remove(handle);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -213,6 +331,15 @@ impl FrameDriver {
         }
 
         (cols, rows.max(1))
+    }
+
+    /// Get the terminal column count for native mode (from cached font size).
+    fn native_terminal_cols(&self) -> u16 {
+        // Query grid cols from the terminal via the font size and a
+        // reasonable terminal width estimate.  In practice the NativeBackend
+        // already queried this via `QueryInfo` at detect() time, but we
+        // don't cache it separately.  Use TIOCGWINSZ as a fallback for cols.
+        crossterm::terminal::size().map_or(80, |(cols, _)| cols)
     }
 }
 

@@ -32,11 +32,9 @@ def main():
     model = whisper.load_model(model_name, device="cpu")
     model_load_ms = (time.perf_counter() - t0) * 1000.0
 
-    # ── Load audio ────────────────────────────────────────────────────────
-    t1 = time.perf_counter()
+    # ── Load audio once (not timed — same as Rust which has audio in memory) ──
     audio = whisper.load_audio(wav_path)
     audio = whisper.pad_or_trim(audio)
-    audio_ms = (time.perf_counter() - t1) * 1000.0
 
     # ── Mel spectrogram ───────────────────────────────────────────────────
     t2 = time.perf_counter()
@@ -49,22 +47,19 @@ def main():
     result = whisper.decode(model, mel, options)
     decode_ms = (time.perf_counter() - t3) * 1000.0
 
-    total_inference_ms = audio_ms + mel_ms + decode_ms
+    total_inference_ms = mel_ms + decode_ms
 
-    # ── Warm runs ─────────────────────────────────────────────────────────
+    # ── Warm runs (reuse in-memory audio, same as Rust) ───────────────────
     warm_times = []
     for _ in range(3):
         tw = time.perf_counter()
-        audio_w = whisper.load_audio(wav_path)
-        audio_w = whisper.pad_or_trim(audio_w)
-        mel_w = whisper.log_mel_spectrogram(audio_w).to(model.device)
+        mel_w = whisper.log_mel_spectrogram(audio).to(model.device)
         _ = whisper.decode(model, mel_w, options)
         warm_times.append((time.perf_counter() - tw) * 1000.0)
 
     output = {
         "text": result.text.strip(),
         "model_load_ms": round(model_load_ms, 2),
-        "audio_load_ms": round(audio_ms, 2),
         "mel_ms": round(mel_ms, 2),
         "decode_ms": round(decode_ms, 2),
         "total_inference_ms": round(total_inference_ms, 2),

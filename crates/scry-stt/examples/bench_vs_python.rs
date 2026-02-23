@@ -311,6 +311,7 @@ fn print_comparison(
     rust: &RustResult,
     python: Option<&serde_json::Value>,
     wcpp: Option<&serde_json::Value>,
+    rust_model_load_ms: f64,
 ) {
     println!();
     println!("╔════════════════════════════════════════════════════════════════════════════════════════════╗");
@@ -406,15 +407,15 @@ fn print_comparison(
         );
     }
 
-    // ── Model load times ─────────────────────────────────────────────────
-    if w_model.is_some() || py_model.is_some() {
-        println!();
-        if let Some(wm) = w_model {
-            println!("  whisper.cpp model load: {wm:.0}ms (not included in inference)");
-        }
-        if let Some(pm) = py_model {
-            println!("  Python model load: {pm:.0}ms (not included in inference)");
-        }
+    // ── Model load times (excluded from all inference totals above) ─────
+    println!();
+    println!("  Model load (excluded from inference):");
+    println!("    scry-stt:    {rust_model_load_ms:.0}ms");
+    if let Some(wm) = w_model {
+        println!("    whisper.cpp: {wm:.0}ms");
+    }
+    if let Some(pm) = py_model {
+        println!("    Python:      {pm:.0}ms");
     }
     println!();
 }
@@ -552,7 +553,7 @@ fn main() {
         let python_result = run_python_benchmark(&wav_path, model_name);
 
         // ── Side-by-side comparison ──────────────────────────────────────
-        print_comparison(&rust_result, python_result.as_ref(), wcpp_result.as_ref());
+        print_comparison(&rust_result, python_result.as_ref(), wcpp_result.as_ref(), load_ms);
 
         // Clean up temp WAV
         let _ = std::fs::remove_file(&wav_path);

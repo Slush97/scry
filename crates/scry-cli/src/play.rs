@@ -122,7 +122,14 @@ pub struct PlayArgs {
 /// the rendered object is a compact, crisp inline element — not a
 /// massive rectangle that fills the whole screen.
 pub(crate) fn sdf_default_res() -> u32 {
-    let (pw, ph) = crate::display::terminal_pixel_size();
+    // When running inside scry-terminal, the PTY's TIOCGWINSZ may not
+    // report pixel dimensions (ws_xpixel / ws_ypixel are often zero).
+    // Use the Picker's font size (reliable via IPC) × cell grid instead.
+    let picker = scry_engine::transport::Picker::detect();
+    let font = picker.font_size();
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let pw = u32::from(cols) * u32::from(font.width.max(1));
+    let ph = u32::from(rows) * u32::from(font.height.max(1));
     // 40% of the smaller axis, capped to [200, 300] for quality vs size.
     let target = ((pw.min(ph) as f64) * 0.4) as u32;
     target.clamp(200, 300)
@@ -161,15 +168,16 @@ impl PlayArgs {
 /// its own GPU/CPU decision — now delegates everything to the unified
 /// `SdfPipeline` which uses `GpuHealthMonitor` for coordinated decisions.
 pub(crate) struct GpuRenderCtx {
-    pipeline: scry_engine::sdf::SdfPipeline,
+    pipeline: Option<scry_engine::sdf::SdfPipeline>,
 }
 
 impl GpuRenderCtx {
     /// Create a new render context backed by `SdfPipeline`.
     pub fn new() -> Self {
         let pipeline = scry_engine::sdf::SdfPipeline::new();
-        Self { pipeline }
+        Self { pipeline: Some(pipeline) }
     }
+
 
     /// Render a scene, using GPU if available, otherwise CPU.
     ///
@@ -183,7 +191,8 @@ impl GpuRenderCtx {
         height: u32,
         time: f32,
     ) -> Result<scry_engine::Pixmap, scry_engine::PixelCanvasError> {
-        let result = self.pipeline.render(scene, width, height, time);
+        let pipeline = self.pipeline.as_mut().expect("pipeline consumed");
+        let result = pipeline.render(scene, width, height, time);
         let w = result.width;
         let h = result.height;
         let mut pixmap = scry_engine::Pixmap::new(w, h).ok_or_else(|| {
@@ -198,7 +207,84 @@ impl GpuRenderCtx {
     /// Flush pending GPU work. Call after displaying a frame so GPU
     /// compute overlaps with terminal I/O.
     pub fn flush(&mut self) {
-        self.pipeline.flush();
+        if let Some(pipeline) = self.pipeline.as_mut() {
+            pipeline.flush();
+        }
+    }
+}
+
+impl Drop for GpuRenderCtx {
+    fn drop(&mut self) {
+        // Leak the pipeline to avoid wgpu destructor races during process
+        // exit (the background GPU init thread may still hold references).
+        // The OS reclaims all resources on exit anyway.
+        if let Some(pipeline) = self.pipeline.take() {
+            std::mem::forget(pipeline);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Native-aware animation helpers
+// ---------------------------------------------------------------------------
+
+/// Create a `GpuRenderCtx` for SDF rendering.
+///
+/// Always uses the full GPU pipeline — wgpu safely supports multiple
+/// device instances, so there is no contention with the compositor.
+fn make_gpu_ctx(_driver: &display::FrameDriver) -> GpuRenderCtx {
+    GpuRenderCtx::new()
+}
+
+/// Enter raw mode for crossterm event polling (skipped when native).
+fn enter_raw_mode_unless_native(driver: &display::FrameDriver) -> Result<(), String> {
+    if !driver.is_native() {
+        crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Poll for exit conditions: keypress (non-native only) or deadline.
+///
+/// Returns `true` if the animation loop should break.
+/// Only `q` and `Esc` are treated as quit keys — all other keypresses
+/// are ignored so they don't trigger an unexpected exit.
+fn poll_should_exit(
+    driver: &display::FrameDriver,
+    deadline: Option<std::time::Instant>,
+) -> bool {
+    if !driver.is_native() {
+        use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+        if event::poll(std::time::Duration::ZERO).unwrap_or(false) {
+            if let Ok(Event::Key(key)) = event::read() {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => return true,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    if let Some(dl) = deadline {
+        if std::time::Instant::now() >= dl {
+            return true;
+        }
+    }
+    false
+}
+
+/// Clean up after an animation loop: restore terminal state.
+///
+/// The last frame is intentionally NOT deleted — the Kitty protocol image
+/// persists naturally, giving the user a static snapshot of the final frame.
+/// The terminal reclaims the image on scroll or screen clear.
+fn animation_teardown(driver: &mut display::FrameDriver) {
+    // Skip cleanup so the final frame stays on screen.
+    // Only restore terminal raw mode.
+    let _ = driver; // suppress unused warning when native
+    if !driver.is_native() {
+        let _ = crossterm::terminal::disable_raw_mode();
     }
 }
 
@@ -208,6 +294,19 @@ impl GpuRenderCtx {
 
 pub fn run(args: &PlayArgs) -> Result<(), String> {
     let params = args.to_sdf_params();
+
+    // ── Native animation offload fast path ──────────────────────────
+    // When running inside scry-terminal, SDF presets can be offloaded
+    // to the terminal's render loop. The CLI submits the animation
+    // program and returns immediately — the animation continues even
+    // after this process exits.
+    if let Some(program) = preset_to_animation_program(&args.preset) {
+        if try_native_animation_offload(program, &params).is_ok() {
+            return Ok(());
+        }
+        // Fall through to local rendering if native offload failed.
+    }
+
     match args.preset {
         PlayPreset::Illusion => run_illusion(&params),
         PlayPreset::Cube => run_cube(&params),
@@ -254,13 +353,72 @@ pub fn run(args: &PlayArgs) -> Result<(), String> {
     }
 }
 
+/// Map a CLI PlayPreset to an engine AnimationProgram (SDF presets only).
+///
+/// Returns `None` for 2D presets (Geometry, Wave, Fractal, Aurora, Illusion)
+/// and presets that don't have an `AnimationProgram` counterpart yet
+/// (Mirror, GradientDescent, NeuralNet, KMeans — these use custom logic
+/// not yet ported to the engine).
+fn preset_to_animation_program(
+    preset: &PlayPreset,
+) -> Option<scry_engine::sdf::AnimationProgram> {
+    use scry_engine::sdf::AnimationProgram;
+    match preset {
+        PlayPreset::Cube => Some(AnimationProgram::Cube),
+        PlayPreset::Vortex => Some(AnimationProgram::Vortex),
+        PlayPreset::Pulse => Some(AnimationProgram::Pulse),
+        PlayPreset::Orbit => Some(AnimationProgram::Orbit),
+        PlayPreset::Torus => Some(AnimationProgram::Torus),
+        PlayPreset::Mandelbulb => Some(AnimationProgram::Mandelbulb),
+        PlayPreset::Menger => Some(AnimationProgram::Menger),
+        PlayPreset::Gyroid => Some(AnimationProgram::Gyroid),
+        PlayPreset::GodRays => Some(AnimationProgram::GodRays),
+        PlayPreset::Sss => Some(AnimationProgram::Sss),
+        PlayPreset::Morph => Some(AnimationProgram::Morph),
+        _ => None,
+    }
+}
+
+/// Try to offload the animation to the terminal via native IPC.
+///
+/// Returns `Ok(())` if the terminal accepted the animation program.
+/// The animation will continue rendering in the terminal's event loop
+/// even after this process exits.
+fn try_native_animation_offload(
+    program: scry_engine::sdf::AnimationProgram,
+    params: &SdfRunParams,
+) -> Result<(), String> {
+    use scry_engine::transport::ipc::OverlayAnchor;
+    use scry_engine::transport::native::NativeBackend;
+
+    // Check if we're inside scry-terminal.
+    let sock = std::env::var("SCRY_TERMINAL_SOCK")
+        .map_err(|_| "not inside scry-terminal".to_string())?;
+
+    let mut backend = NativeBackend::connect(&sock);
+
+    backend
+        .submit_animation(
+            &program,
+            OverlayAnchor::Viewport { col: 0, row: 0 },
+            10, // z-index
+            params.duration as u32,
+            params.fps,
+            params.width,
+            params.height,
+            true, // persist after CLI exits
+        )
+        .map_err(|e| format!("animation offload failed: {e}"))?;
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Cube preset — spinning 3D ray-marched cube with rainbow gradient
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -280,31 +438,20 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
 
 
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            // Non-blocking keypress check
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Build the scene fresh each frame with updated rotation & hue
@@ -377,11 +524,9 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +535,6 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -410,30 +554,20 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
 
 
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Triple-axis rotation for the torus
@@ -519,11 +653,9 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -532,7 +664,6 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -552,30 +683,20 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
 
 
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Breathing factor — slow sinusoidal expansion/contraction
@@ -678,11 +799,9 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -691,7 +810,6 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -711,12 +829,12 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
 
 
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
@@ -724,18 +842,8 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
             let t = start.elapsed().as_secs_f32();
             let pi = std::f32::consts::PI;
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Central mirror sphere — reflects the orbiters
@@ -844,11 +952,9 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 
@@ -859,7 +965,6 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -877,30 +982,20 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Slow Y-axis rotation
@@ -977,9 +1072,8 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
-    result?;
-    Ok(())
+    animation_teardown(&mut driver);
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -988,7 +1082,6 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -1006,30 +1099,20 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Slow tumbling rotation
@@ -1112,9 +1195,8 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
-    result?;
-    Ok(())
+    animation_teardown(&mut driver);
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1123,7 +1205,6 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -1141,30 +1222,20 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Slow tumbling rotation
@@ -1251,9 +1322,8 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
-    result?;
-    Ok(())
+    animation_teardown(&mut driver);
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1262,7 +1332,6 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -1280,30 +1349,20 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Slow rotation
@@ -1417,11 +1476,9 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1430,7 +1487,6 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, SdfTextLabel,
@@ -1449,12 +1505,12 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         let pi = std::f32::consts::PI;
@@ -1462,18 +1518,8 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Central mirror sphere — highly reflective
@@ -1609,11 +1655,9 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1621,7 +1665,6 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use std::time::{Duration, Instant};
 
     // Auto-size from terminal dimensions for the illusion grid.
@@ -1653,27 +1696,15 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
     let start = Instant::now();
 
     // Enable raw mode so we can poll keypresses without blocking
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            // Check for keypress (non-blocking)
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            // Check duration limit
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Build and rasterize
@@ -1695,11 +1726,9 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
     })();
 
     // Always restore terminal state
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ─── Grid helper ──────────────────────────────────────────────────────────────
@@ -1967,7 +1996,6 @@ fn build_illusions(w: u32, h: u32, t: f32) -> PixelCanvas {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -1985,8 +2013,8 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2001,25 +2029,15 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
         (-1.0, -0.2, 1.8),   // local min 4
     ];
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             let _pi = std::f32::consts::PI;
@@ -2159,11 +2177,9 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -2173,7 +2189,6 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -2191,8 +2206,8 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2217,25 +2232,15 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
         neuron_positions.push(positions);
     }
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             let pi = std::f32::consts::PI;
@@ -2377,11 +2382,9 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -2390,7 +2393,6 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -2408,8 +2410,8 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2461,25 +2463,15 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
         }
     }
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Phase: 10s convergence, 4s hold, then reset
@@ -2615,11 +2607,9 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -2799,7 +2789,9 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         scene
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
+    // Create driver first so we can choose CPU-only rendering for native.
+    let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
 
     // ── Static mode (default): render one frame and display inline ──
     if !opts.animate {
@@ -2809,7 +2801,6 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         let pixmap = gpu_ctx.render(&scene, w, h, t)
             .map_err(|e| format!("SDF render failed: {e}"))?;
 
-        let mut driver = display::FrameDriver::detect();
         driver.display_static(&pixmap)?;
 
         return Ok(());
@@ -2824,14 +2815,13 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         None
     };
 
-    let mut driver = display::FrameDriver::detect();
     let mut frame_count: u64 = 0;
     let start = Instant::now();
     let mut yaw: f32 = 0.0;
     let mut pitch: f32 = 0.0;
     let rot_speed: f32 = 0.08;
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
@@ -2839,7 +2829,9 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
             let t = start.elapsed().as_secs_f32();
 
             // Handle input: arrow keys rotate, q/Esc quits
-            if event::poll(Duration::ZERO).unwrap_or(false) {
+            if !driver.is_native()
+                && event::poll(Duration::ZERO).unwrap_or(false)
+            {
                 if let Ok(Event::Key(key)) = event::read() {
                     if key.kind == KeyEventKind::Press {
                         match key.code {
@@ -2878,11 +2870,9 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
 
-    result?;
-
-    Ok(())
+    result
 }
 
 
@@ -2937,8 +2927,8 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
@@ -2947,7 +2937,7 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
         eprintln!("godrays: rendering first frame ({w}x{h})… press any key to quit");
     }
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
@@ -2955,13 +2945,15 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
             let t = start.elapsed().as_secs_f32();
 
             // Drain all pending input events — break on any key press
-            while event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        return Ok(());
+            if !driver.is_native() {
+                while event::poll(Duration::ZERO).unwrap_or(false) {
+                    if let Ok(Event::Key(key)) = event::read() {
+                        if key.kind == KeyEventKind::Press {
+                            return Ok(());
+                        }
+                    } else {
+                        let _ = event::read(); // consume non-key events
                     }
-                } else {
-                    let _ = event::read(); // consume non-key events
                 }
             }
 
@@ -3043,11 +3035,10 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
+    animation_teardown(&mut driver);
     eprint!("\x1b[?25h"); // restore cursor
 
-    result?;
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -3056,7 +3047,6 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -3074,30 +3064,20 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Jade sphere — green surface, warm yellow-green back-illumination
@@ -3200,10 +3180,8 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
-
-    result?;
-    Ok(())
+    animation_teardown(&mut driver);
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -3212,7 +3190,6 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
 
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
-    use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
         Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
@@ -3230,30 +3207,20 @@ pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
         None
     };
 
-    let mut gpu_ctx = GpuRenderCtx::new();
     let mut driver = display::FrameDriver::detect();
+    let mut gpu_ctx = make_gpu_ctx(&driver);
     let mut frame_count: u64 = 0;
     let start = Instant::now();
 
-    crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
+    enter_raw_mode_unless_native(&driver)?;
 
     let result = (|| -> Result<(), String> {
         loop {
             let frame_start = Instant::now();
             let t = start.elapsed().as_secs_f32();
 
-            if event::poll(Duration::ZERO).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.kind == KeyEventKind::Press {
-                        break;
-                    }
-                }
-            }
-
-            if let Some(dl) = deadline {
-                if Instant::now() >= dl {
-                    break;
-                }
+            if poll_should_exit(&driver, deadline) {
+                break;
             }
 
             // Morph factor: smooth oscillation between 0 and 1
@@ -3319,8 +3286,6 @@ pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
         Ok(())
     })();
 
-    let _ = crossterm::terminal::disable_raw_mode();
-
-    result?;
-    Ok(())
+    animation_teardown(&mut driver);
+    result
 }

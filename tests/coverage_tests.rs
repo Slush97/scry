@@ -1056,33 +1056,33 @@ fn animation_state_default() {
 
 #[test]
 fn halfblock_odd_height() {
-    use scry_engine::transport::halfblock::HalfblockBackend;
+    use scry_engine::transport::halfblock::render_to_cells;
 
     let canvas = PixelCanvas::new(10, 11).background(Color::RED);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
-    let cells = HalfblockBackend::render_to_cells(&pixmap);
+    let cells = render_to_cells(&pixmap);
     assert_eq!(cells.len(), 6); // ceil(11/2)
 }
 
 #[test]
 fn halfblock_1px_height() {
-    use scry_engine::transport::halfblock::HalfblockBackend;
+    use scry_engine::transport::halfblock::render_to_cells;
 
     let canvas = PixelCanvas::new(5, 1).background(Color::GREEN);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
-    let cells = HalfblockBackend::render_to_cells(&pixmap);
+    let cells = render_to_cells(&pixmap);
     assert_eq!(cells.len(), 1);
     assert_eq!(cells[0].len(), 5);
 }
 
 #[test]
 fn halfblock_render_to_cells_flat() {
-    use scry_engine::transport::halfblock::HalfblockBackend;
+    use scry_engine::transport::halfblock::render_to_cells_flat;
 
     let canvas = PixelCanvas::new(10, 10).background(Color::RED);
     let pixmap = Rasterizer::rasterize(&canvas).unwrap();
     let mut buf = Vec::new();
-    let (rows, cols) = HalfblockBackend::render_to_cells_flat(&pixmap, &mut buf);
+    let (rows, cols) = render_to_cells_flat(&pixmap, &mut buf);
     assert_eq!(rows, 5); // ceil(10/2)
     assert_eq!(cols, 10);
     assert_eq!(buf.len(), cols * rows);

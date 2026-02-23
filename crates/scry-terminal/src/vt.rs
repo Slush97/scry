@@ -9,7 +9,7 @@
 //! ```
 
 use crate::grid::{CellColor, CellFlags, CursorStyle, MouseEncoding, MouseMode, TerminalGrid};
-use crate::security::{OscAction, ResponseType, SecurityGate};
+use crate::security::{OscAction, ResponseType, SecurityGate, sanitize_osc_string};
 
 /// The VTE handler that implements `vte::Perform`.
 ///
@@ -22,6 +22,8 @@ pub struct VtHandler<'a> {
     pub security: &'a mut SecurityGate,
     /// Response buffer: bytes to write back to the PTY fd.
     pub response: Vec<u8>,
+    /// DCS accumulation buffer (capped at 4 KiB).
+    dcs_buf: Vec<u8>,
 }
 
 impl<'a> VtHandler<'a> {
@@ -31,6 +33,7 @@ impl<'a> VtHandler<'a> {
             grid,
             security,
             response: Vec::new(),
+            dcs_buf: Vec::new(),
         }
     }
 
@@ -222,6 +225,15 @@ impl vte::Perform for VtHandler<'_> {
                 self.grid.cursor.visible = true;
             }
 
+            // ── Tab stop clear (TBC) ───────────────────────────────
+            'g' => {
+                match p1 {
+                    0 => self.grid.clear_tab_stop(),
+                    3 => self.grid.clear_all_tab_stops(),
+                    _ => {}
+                }
+            }
+
             _ => {} // Unknown CSI — ignore
         }
     }
@@ -276,6 +288,10 @@ impl vte::Perform for VtHandler<'_> {
                 self.grid.app_cursor_keys = false;
                 self.grid.app_keypad = false;
             }
+            b'H' => {
+                // HTS: Horizontal Tab Set — set a tab stop at current column
+                self.grid.set_tab_stop();
+            }
             _ => {} // Unknown ESC — ignore
         }
     }
@@ -287,7 +303,7 @@ impl vte::Perform for VtHandler<'_> {
         match action {
             OscAction::SetTitle => {
                 if let Some(title) = params.get(1).and_then(|p| std::str::from_utf8(p).ok()) {
-                    self.grid.title = title.to_string();
+                    self.grid.title = sanitize_osc_string(title);
                 }
             }
             OscAction::ClipboardSet => {
@@ -305,17 +321,54 @@ impl vte::Perform for VtHandler<'_> {
             OscAction::HyperlinkClose => {
                 // TODO: Phase 2 — end hyperlink region
             }
+            OscAction::QueryFg => {
+                // OSC 10: report foreground color
+                let (r, g, b) = self.grid.pen_fg.resolve(
+                    true,
+                    &crate::config::ColorConfig::default(),
+                );
+                let resp = format!(
+                    "\x1b]10;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    r, g, b
+                );
+                self.response.extend_from_slice(resp.as_bytes());
+            }
+            OscAction::QueryBg => {
+                // OSC 11: report background color
+                let (r, g, b) = self.grid.pen_bg.resolve(
+                    false,
+                    &crate::config::ColorConfig::default(),
+                );
+                let resp = format!(
+                    "\x1b]11;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    r, g, b
+                );
+                self.response.extend_from_slice(resp.as_bytes());
+            }
             OscAction::Allow | OscAction::Ignore | OscAction::Block => {}
         }
     }
 
     fn hook(&mut self, _params: &vte::Params, _intermediates: &[u8], _ignore: bool, _action: char) {
-        // DCS (Device Control String) — not implemented in Phase 1
+        // DCS (Device Control String) — accumulate for future handling
+        self.dcs_buf.clear();
     }
 
-    fn unhook(&mut self) {}
+    fn unhook(&mut self) {
+        // End of DCS — log and clear the accumulated buffer
+        #[cfg(feature = "logging")]
+        if !self.dcs_buf.is_empty() {
+            tracing::debug!("DCS received: {} bytes (unhandled)", self.dcs_buf.len());
+        }
+        self.dcs_buf.clear();
+    }
 
-    fn put(&mut self, _byte: u8) {}
+    fn put(&mut self, byte: u8) {
+        // Accumulate DCS payload bytes (capped to prevent abuse)
+        if self.dcs_buf.len() < 4096 {
+            self.dcs_buf.push(byte);
+        }
+    }
 }
 
 // ── SGR handling ───────────────────────────────────────────────────
@@ -342,6 +395,11 @@ impl VtHandler<'_> {
                 7 => self.grid.pen_flags.insert(CellFlags::INVERSE),
                 8 => self.grid.pen_flags.insert(CellFlags::HIDDEN),
                 9 => self.grid.pen_flags.insert(CellFlags::STRIKETHROUGH),
+                21 => {
+                    // SGR 21: doubly underlined
+                    self.grid.pen_flags.insert(CellFlags::UNDERLINE);
+                    self.grid.pen_flags.insert(CellFlags::UNDERLINE_DOUBLE);
+                }
 
                 // Attribute off
                 22 => {
@@ -349,7 +407,14 @@ impl VtHandler<'_> {
                     self.grid.pen_flags.remove(CellFlags::DIM);
                 }
                 23 => self.grid.pen_flags.remove(CellFlags::ITALIC),
-                24 => self.grid.pen_flags.remove(CellFlags::UNDERLINE),
+                24 => {
+                    // Remove all underline variants
+                    self.grid.pen_flags.remove(CellFlags::UNDERLINE);
+                    self.grid.pen_flags.remove(CellFlags::UNDERLINE_DOUBLE);
+                    self.grid.pen_flags.remove(CellFlags::UNDERLINE_CURLY);
+                    self.grid.pen_flags.remove(CellFlags::UNDERLINE_DOTTED);
+                    self.grid.pen_flags.remove(CellFlags::UNDERLINE_DASHED);
+                }
                 25 => self.grid.pen_flags.remove(CellFlags::BLINK),
                 27 => self.grid.pen_flags.remove(CellFlags::INVERSE),
                 28 => self.grid.pen_flags.remove(CellFlags::HIDDEN),
@@ -420,6 +485,36 @@ impl VtHandler<'_> {
                         }
                     }
                 }
+
+                // Extended underline color: 58;2;R;G;B or 58;5;N
+                58 => {
+                    i += 1;
+                    if i < params.len() {
+                        match params[i] {
+                            2 => {
+                                // True color underline: 58;2;R;G;B
+                                if i + 3 < params.len() {
+                                    let r = params[i + 1] as u8;
+                                    let g = params[i + 2] as u8;
+                                    let b = params[i + 3] as u8;
+                                    self.grid.pen_underline_color = Some((r, g, b));
+                                    i += 3;
+                                }
+                            }
+                            5 => {
+                                // 256-color underline: 58;5;N
+                                i += 1;
+                                if i < params.len() {
+                                    let rgb = crate::config::compute_256_color(params[i] as u8);
+                                    self.grid.pen_underline_color = Some(rgb);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                // Reset underline color
+                59 => self.grid.pen_underline_color = None,
 
                 _ => {} // Unknown SGR — ignore
             }
@@ -711,5 +806,77 @@ mod tests {
         assert_eq!(run(4), (CursorStyle::Underline, false), "param=4 (steady underline)");
         assert_eq!(run(5), (CursorStyle::Bar,       true),  "param=5 (blinking bar)");
         assert_eq!(run(6), (CursorStyle::Bar,       false), "param=6 (steady bar)");
+    }
+
+    #[test]
+    fn sgr_underline_color() {
+        let (mut grid, mut sec) = make_handler();
+        {
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            // SGR 58;2;255;0;128 = set underline color to (255, 0, 128)
+            handler.handle_sgr(&[58, 2, 255, 0, 128]);
+        }
+        assert_eq!(grid.pen_underline_color, Some((255, 0, 128)));
+        // SGR 59 = reset underline color
+        {
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            handler.handle_sgr(&[59]);
+        }
+        assert_eq!(grid.pen_underline_color, None);
+    }
+
+    #[test]
+    fn sgr_double_underline() {
+        let (mut grid, mut sec) = make_handler();
+        {
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            handler.handle_sgr(&[21]); // double underline
+        }
+        assert!(grid.pen_flags.contains(CellFlags::UNDERLINE));
+        assert!(grid.pen_flags.contains(CellFlags::UNDERLINE_DOUBLE));
+    }
+
+    #[test]
+    fn sgr_24_clears_all_underline_variants() {
+        let (mut grid, mut sec) = make_handler();
+        {
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            handler.handle_sgr(&[21]); // double underline
+        }
+        assert!(grid.pen_flags.contains(CellFlags::UNDERLINE_DOUBLE));
+        {
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            handler.handle_sgr(&[24]); // underline off
+        }
+        assert!(!grid.pen_flags.contains(CellFlags::UNDERLINE));
+        assert!(!grid.pen_flags.contains(CellFlags::UNDERLINE_DOUBLE));
+    }
+
+    #[test]
+    fn hts_sets_tab_stop() {
+        let (mut grid, mut sec) = make_handler();
+        // move_to_col(5) is 1-indexed → sets cursor at 0-indexed col 4
+        grid.move_to_col(5);
+        {
+            let mut handler = VtHandler::new(&mut grid, &mut sec);
+            vte::Perform::esc_dispatch(&mut handler, &[], false, b'H');
+        }
+        // Tab stop is at 0-indexed col 4. Tab from col 1 should land there.
+        grid.move_to_col(2); // 1-indexed 2 = 0-indexed 1
+        grid.tab();
+        assert_eq!(grid.cursor.col, 4);
+    }
+
+    #[test]
+    fn tbc_clears_tab_stops() {
+        let (mut grid, mut _sec) = make_handler();
+        // Default tab stops at 0, 8, 16, ...
+        // Clear all tab stops directly (equivalent to CSI 3g)
+        grid.clear_all_tab_stops();
+
+        // Now tabbing from col 0 should go to end of line (no stops)
+        grid.move_to_col(0);
+        grid.tab();
+        assert_eq!(grid.cursor.col, grid.cols() - 1);
     }
 }

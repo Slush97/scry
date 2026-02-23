@@ -491,9 +491,7 @@ impl SdfPipeline {
                 }
             }
             Err(e) => {
-                if crate::scry_debug_enabled() {
-                    crate::scry_error!("[scry] CPU SDF render failed: {e}");
-                }
+                crate::scry_debug!("[scry] CPU SDF render failed: {e}");
                 // Return a blank image rather than crashing
                 SdfRenderResult {
                     image: ImageData::new(width, height, vec![0; (width * height * 4) as usize]),

@@ -23,6 +23,9 @@ pub struct WhisperEncoder<B: MathBackend> {
     pub conv2: Conv1d<B>,
     /// Sinusoidal positional embedding: `[n_audio_ctx, d_model]`.
     pub positional_embedding: Tensor<B>,
+    /// Pre-materialized positional embedding data in row-major `[n_audio_ctx, d_model]`.
+    /// Cached to avoid `B::to_vec()` on every forward pass.
+    pub pos_data: Vec<f32>,
     /// Transformer encoder blocks.
     pub blocks: Vec<EncoderBlock<B>>,
     /// Final layer norm.
@@ -79,7 +82,7 @@ impl<B: MathBackend> WhisperEncoder<B> {
         // Sinusoidal positional embeddings
         let pos_data = sinusoidal_embedding(n_audio_ctx, d_model);
         let positional_embedding =
-            Tensor::from_vec(pos_data, Shape::new(&[n_audio_ctx, d_model]));
+            Tensor::from_vec(pos_data.clone(), Shape::new(&[n_audio_ctx, d_model]));
 
         let blocks = (0..n_layers)
             .map(|_| EncoderBlock::new(d_model, n_heads, rng))
@@ -91,6 +94,7 @@ impl<B: MathBackend> WhisperEncoder<B> {
             conv1,
             conv2,
             positional_embedding,
+            pos_data,
             blocks,
             ln_post,
             d_model,
@@ -112,12 +116,11 @@ impl<B: MathBackend> WhisperEncoder<B> {
         // Fused transpose [d_model, out_len] → [out_len, d_model] + positional embedding add
         let out_len = x.shape.dims()[1];
         let x_vec = x.to_vec();
-        let pos_vec = B::to_vec(&self.positional_embedding.data);
         let mut fused = vec![0.0f32; out_len * self.d_model];
         for t in 0..out_len {
             let pos_row = t * self.d_model;
             for c in 0..self.d_model {
-                fused[pos_row + c] = x_vec[c * out_len + t] + pos_vec[pos_row + c];
+                fused[pos_row + c] = x_vec[c * out_len + t] + self.pos_data[pos_row + c];
             }
         }
         let mut x = Tensor::<B>::from_vec(fused, Shape::new(&[out_len, self.d_model]));
@@ -187,7 +190,9 @@ impl<B: MathBackend> EncoderSelfAttention<B> {
 
     /// Bidirectional self-attention (no causal mask).
     ///
-    /// Per-head loop with f64 precision (reverting batched path for debugging).
+    /// Uses batched matmul across all heads simultaneously instead of a
+    /// per-head loop, eliminating gather/scatter overhead and enabling
+    /// BLAS to amortise call overhead across heads.
     fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
         let seq_len = input.shape.dims()[0];
         let d_model = self.d_model;
@@ -195,72 +200,54 @@ impl<B: MathBackend> EncoderSelfAttention<B> {
         let d_head = self.d_head;
 
         // QKV = input @ W_qkv + b_qkv → [seq_len, 3 * d_model]
-        let qkv_raw = scry_llm::ops::matmul(
+        let qkv = scry_llm::ops::matmul_bias(
             input,
             &self.qkv_weight,
+            &self.qkv_bias,
             seq_len,
             d_model,
             3 * d_model,
             false,
             false,
         );
-        let qkv = scry_llm::ops::add(&qkv_raw, &Tensor::from_vec(
-            self.qkv_bias.to_vec(),
-            Shape::new(&[1, 3 * d_model]),
-        ));
-        let qkv_vec = qkv.to_vec();
 
-        let scale = 1.0 / (d_head as f64).sqrt();
-        let mut head_concat = vec![0.0f32; seq_len * d_model];
+        // Fused QKV split + reshape → [n_heads, seq_len, d_head] each
+        let (q_heads, k_heads, v_heads) =
+            B::split_qkv_reshape_heads(&qkv.data, seq_len, n_heads, d_head);
 
-        for h in 0..n_heads {
-            for s in 0..seq_len {
-                let mut scores = vec![0.0f64; seq_len];
-                for t in 0..seq_len {
-                    let q_off = s * (3 * d_model) + h * d_head;
-                    let k_off = t * (3 * d_model) + d_model + h * d_head;
-                    let mut dot = 0.0f64;
-                    for d in 0..d_head {
-                        dot += f64::from(qkv_vec[q_off + d]) * f64::from(qkv_vec[k_off + d]);
-                    }
-                    scores[t] = dot * scale;
-                }
+        // Batched scores = Q_heads @ K_heads^T → [n_heads * seq_len, seq_len]
+        let scores = B::matmul_strided_batched(
+            &q_heads, &k_heads, n_heads, seq_len, d_head, seq_len, false, true,
+        );
 
-                let max_s = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                let mut exp_sum = 0.0f64;
-                for v in &mut scores {
-                    *v = (*v - max_s).exp();
-                    exp_sum += *v;
-                }
-                for v in &mut scores {
-                    *v /= exp_sum;
-                }
+        // Fused scale + softmax
+        let scale = 1.0 / (d_head as f32).sqrt();
+        let attn = B::scaled_softmax(
+            &scores,
+            scale,
+            &Shape::new(&[n_heads * seq_len, seq_len]),
+        );
 
-                for d in 0..d_head {
-                    let mut acc = 0.0f64;
-                    for t in 0..seq_len {
-                        let v_off = t * (3 * d_model) + 2 * d_model + h * d_head + d;
-                        acc += scores[t] * f64::from(qkv_vec[v_off]);
-                    }
-                    head_concat[s * d_model + h * d_head + d] = acc as f32;
-                }
-            }
-        }
+        // Batched out = attn @ V_heads → [n_heads * seq_len, d_head]
+        let out_heads = B::matmul_strided_batched(
+            &attn, &v_heads, n_heads, seq_len, seq_len, d_head, false, false,
+        );
 
-        let hc = Tensor::<B>::from_vec(head_concat, Shape::new(&[seq_len, d_model]));
-        let out_raw = scry_llm::ops::matmul(
+        // Reshape [n_heads * seq_len, d_head] → [seq_len, d_model]
+        let head_concat = B::reshape_from_heads(&out_heads, 1, seq_len, n_heads, d_head);
+
+        // Output projection (fused matmul + bias)
+        let hc = Tensor::<B>::new(head_concat, Shape::new(&[seq_len, d_model]));
+        scry_llm::ops::matmul_bias(
             &hc,
             &self.out_weight,
+            &self.out_bias,
             seq_len,
             d_model,
             d_model,
             false,
             false,
-        );
-        scry_llm::ops::add(&out_raw, &Tensor::from_vec(
-            self.out_bias.to_vec(),
-            Shape::new(&[1, d_model]),
-        ))
+        )
     }
 }
 

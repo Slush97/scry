@@ -313,16 +313,22 @@ pub fn encode_mouse_scroll(
 // ── Paste handling ─────────────────────────────────────────────────
 
 /// Encode pasted text, wrapping in bracketed paste markers if enabled.
+///
+/// When bracketed paste is active, the closing marker `\x1b[201~` is stripped
+/// from the paste content to prevent paste-jacking attacks (where malicious
+/// clipboard text terminates bracketed paste early and injects raw commands).
 pub fn encode_paste(text: &str, bracketed_paste: bool) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(text.len() + 12);
     if bracketed_paste {
+        // Strip the bracketed paste terminator from the content.
+        let sanitized = text.replace("\x1b[201~", "");
+        let mut bytes = Vec::with_capacity(sanitized.len() + 12);
         bytes.extend_from_slice(b"\x1b[200~");
-    }
-    bytes.extend_from_slice(text.as_bytes());
-    if bracketed_paste {
+        bytes.extend_from_slice(sanitized.as_bytes());
         bytes.extend_from_slice(b"\x1b[201~");
+        bytes
+    } else {
+        text.as_bytes().to_vec()
     }
-    bytes
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -434,5 +440,23 @@ mod tests {
     fn scroll_encoding() {
         let result = encode_mouse_scroll(true, 10, 5, MouseMode::Press, MouseEncoding::Sgr);
         assert_eq!(result, Some(b"\x1b[<64;11;6M".to_vec()));
+    }
+
+    #[test]
+    fn paste_strips_bracketed_terminator() {
+        // Malicious clipboard: tries to break out of bracketed paste
+        let evil = "echo safe\x1b[201~\necho PWNED";
+        let result = encode_paste(evil, true);
+        // The closing marker should be stripped from content
+        assert_eq!(
+            result,
+            b"\x1b[200~echo safe\necho PWNED\x1b[201~"
+        );
+        // Verify the terminator only appears once (at the end)
+        let count = result
+            .windows(b"\x1b[201~".len())
+            .filter(|w| *w == b"\x1b[201~")
+            .count();
+        assert_eq!(count, 1, "terminator should appear exactly once (at the end)");
     }
 }

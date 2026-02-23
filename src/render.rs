@@ -32,7 +32,7 @@ use crate::scene::PixelCanvas;
 use crate::transport::backend::{
     FontSize, ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition,
 };
-use crate::transport::halfblock::{HalfblockBackend, HalfblockCell};
+use crate::transport::halfblock::{self, HalfblockCell};
 use crate::transport::Picker;
 use crate::PixelCanvasError;
 
@@ -249,7 +249,7 @@ impl IncrementalRenderer {
         pixmap: &tiny_skia::Pixmap,
     ) -> Result<(), PixelCanvasError> {
         let (cell_rows, cell_cols) =
-            HalfblockBackend::render_to_cells_flat(pixmap, &mut self.halfblock_buf);
+            halfblock::render_to_cells_flat(pixmap, &mut self.halfblock_buf);
 
         if cell_cols == 0 || cell_rows == 0 {
             return Ok(());
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn halfblock_renderer_renders() {
-        let backend = HalfblockBackend::new();
+        let backend = halfblock::HalfblockBackend::new();
         let mut renderer = IncrementalRenderer::new(Box::new(backend), FontSize::default());
 
         let canvas = PixelCanvas::new(16, 16)

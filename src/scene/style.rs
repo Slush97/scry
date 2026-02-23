@@ -458,6 +458,7 @@ impl DashPattern {
 
 /// Describes how the outline of a shape is rendered.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StrokeStyle {
     /// Stroke color.
     pub color: Color,
@@ -509,6 +510,7 @@ impl Default for StrokeStyle {
 
 /// A color stop in a gradient.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GradientStop {
     /// Position along the gradient (0.0–1.0).
     pub position: f32,
@@ -527,6 +529,7 @@ impl Hash for GradientStop {
 
 /// Definition of a gradient (linear or radial).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GradientDef {
     /// The type of gradient.
     pub kind: GradientKind,
@@ -536,6 +539,7 @@ pub struct GradientDef {
 
 /// Whether a gradient is linear or radial.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum GradientKind {
     /// A gradient interpolated along a line between two points.
@@ -605,6 +609,7 @@ impl FillRule {
 
 /// Describes how the interior of a shape is filled.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum FillStyle {
     /// A single solid color.
@@ -627,6 +632,7 @@ impl Default for FillStyle {
 
 /// Combined fill and stroke configuration for a shape.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ShapeStyle {
     /// How the interior is filled. `None` means no fill.
     pub fill: Option<FillStyle>,
@@ -683,6 +689,7 @@ impl Default for ShapeStyle {
 
 /// A 2D point.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Point {
     /// X coordinate.
     pub x: f32,
@@ -709,6 +716,7 @@ impl Point {
 
 /// A 2D axis-aligned rectangle.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rect {
     /// X coordinate of the top-left corner.
     pub x: f32,
@@ -814,6 +822,7 @@ impl Rect {
 /// Used on [`Group`](crate::scene::command::DrawCommand::Group) to clip
 /// all child drawing commands.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum ClipRegion {
     /// Clip to a rectangle.
@@ -830,6 +839,7 @@ pub enum ClipRegion {
 ///
 /// Determines how source pixels are combined with destination pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum BlendMode {
     /// Normal alpha compositing (default).
@@ -882,6 +892,7 @@ impl BlendMode {
 
 /// A 2D affine transform.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Transform {
     /// Scale X.
     pub sx: f32,

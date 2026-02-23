@@ -57,6 +57,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Map local position to texture UV
     let tex_uv = local / region.region_size;
     var color = textureSample(overlay_texture, overlay_sampler, tex_uv);
-    color = vec4<f32>(color.rgb * region.global_alpha, color.a * region.global_alpha);
+    // Data is premultiplied RGBA — multiply all 4 channels uniformly by
+    // global_alpha for fade effects.  The blend state uses premultiplied
+    // blending (src_factor: One, dst_factor: OneMinusSrcAlpha).
+    color = color * region.global_alpha;
     return color;
 }

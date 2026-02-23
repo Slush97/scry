@@ -31,6 +31,16 @@ pub trait DeviceBackend: Sized {
         Self::from_vec(data, shape)
     }
     fn to_vec(storage: &Self::Storage) -> Vec<f32>;
+    /// Consume storage and return the underlying `Vec<f32>`.
+    /// Default clones via `to_vec`; backends with `Storage = Vec<f32>` override to move.
+    fn into_vec(storage: Self::Storage) -> Vec<f32> {
+        Self::to_vec(&storage)
+    }
+    /// Borrow storage as a `&[f32]` slice without cloning.
+    /// Default clones via `to_vec` — backends with `Storage = Vec<f32>` should override.
+    fn as_slice(storage: &Self::Storage) -> std::borrow::Cow<'_, [f32]> {
+        std::borrow::Cow::Owned(Self::to_vec(storage))
+    }
     fn clone_storage(storage: &Self::Storage) -> Self::Storage;
 }
 
@@ -83,6 +93,18 @@ pub trait MathBackend: DeviceBackend {
         b_shape: &Shape,
         out_shape: &Shape,
     ) -> Self::Storage;
+
+    /// In-place elementwise add: `dst[i] += src[i]` (same shape, no broadcast).
+    /// Eliminates an allocation compared to `add` + reassign.
+    fn add_inplace(dst: &mut Self::Storage, src: &Self::Storage) {
+        let mut d = Self::to_vec(dst);
+        let s = Self::to_vec(src);
+        for (di, si) in d.iter_mut().zip(s.iter()) {
+            *di += si;
+        }
+        let len = d.len();
+        *dst = Self::from_vec(d, &Shape::new(&[len]));
+    }
 
     /// Softmax along the last axis.
     fn softmax(input: &Self::Storage, shape: &Shape) -> Self::Storage;

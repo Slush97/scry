@@ -112,12 +112,74 @@ impl GpuDevice {
         ))
         .map_err(|e| GpuError::DeviceCreation(e.to_string()))?;
 
-        if crate::scry_debug_enabled() {
-            crate::scry_info!(
-                "[scry-gpu] Initialized: {} ({}, {})",
-                info.adapter_name, info.backend, info.device_type,
-            );
+        crate::scry_debug!(
+            "[scry-gpu] Initialized: {} ({}, {})",
+            info.adapter_name, info.backend, info.device_type,
+        );
+
+        let health = super::health::shared_health_monitor();
+        {
+            let mut h = health.lock().unwrap();
+            h.mark_initialized();
         }
+
+        Ok(Self {
+            device: Arc::new(device),
+            queue: Arc::new(queue),
+            info,
+            registry: PipelineRegistry::new(),
+            health,
+        })
+    }
+
+    /// Create a GPU device compatible with a specific window surface.
+    ///
+    /// Unlike [`new()`](Self::new), this requests an adapter that is compatible
+    /// with the given surface, ensuring the device can present frames to that
+    /// window. Uses the same backend priority (Vulkan/Metal/DX12 first),
+    /// `PIPELINE_CACHE` support, and health monitoring as [`new()`](Self::new).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no compatible GPU adapter is found.
+    pub fn new_for_surface(
+        instance: &wgpu::Instance,
+        surface: &wgpu::Surface<'_>,
+    ) -> Result<Self, GpuError> {
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(surface),
+            force_fallback_adapter: false,
+        }))
+        .ok_or(GpuError::NoAdapter)?;
+
+        let adapter_info = adapter.get_info();
+        let info = GpuInfo {
+            adapter_name: adapter_info.name.clone(),
+            backend: format!("{:?}", adapter_info.backend),
+            device_type: format!("{:?}", adapter_info.device_type),
+        };
+
+        let mut features = wgpu::Features::empty();
+        if adapter.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            features |= wgpu::Features::PIPELINE_CACHE;
+        }
+
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("scry-shared-gpu"),
+                required_features: features,
+                required_limits: adapter.limits(),
+                memory_hints: wgpu::MemoryHints::Performance,
+            },
+            None,
+        ))
+        .map_err(|e| GpuError::DeviceCreation(e.to_string()))?;
+
+        crate::scry_debug!(
+            "[scry-gpu] Initialized (surface): {} ({}, {})",
+            info.adapter_name, info.backend, info.device_type,
+        );
 
         let health = super::health::shared_health_monitor();
         {
@@ -191,8 +253,8 @@ impl GpuDevice {
                 // Must exceed the outer GpuRenderCtx timeout (10s) to prevent
                 // the OnceLock from permanently caching None on slow compilers.
                 let result = Self::try_new(std::time::Duration::from_secs(8));
-                if result.is_none() && crate::scry_debug_enabled() {
-                    crate::scry_warn!("[scry-gpu] Global GPU init failed: no adapter found or init timed out");
+                if result.is_none() {
+                    crate::scry_debug!("[scry-gpu] Global GPU init failed: no adapter found or init timed out");
                 }
                 result
             })
@@ -275,6 +337,15 @@ impl GpuDevice {
     #[must_use]
     pub fn queue_arc(&self) -> Arc<wgpu::Queue> {
         Arc::clone(&self.queue)
+    }
+
+    /// Get the device limits that were used to create this device.
+    ///
+    /// Useful for surface configuration clamping (e.g. ensuring texture
+    /// dimensions don't exceed `max_texture_dimension_2d`).
+    #[must_use]
+    pub fn limits(&self) -> wgpu::Limits {
+        self.device.limits()
     }
 
     /// Get the lazy pipeline registry.

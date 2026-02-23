@@ -18,6 +18,7 @@ auto = ["scry-llm/auto"]
 safetensors = ["dep:safetensors", "dep:memmap2", "dep:half"]
 quantize = ["scry-llm/quantize"]
 live = ["dep:cpal"]
+dictate = ["live", "safetensors"]
 
 [dependencies]
 scry-llm = { path = "../scry-llm", default-features = false }
@@ -30,6 +31,16 @@ half = { version = "2", optional = true }
 rayon = "1"
 serde_json = "1"
 cpal = { version = "0.15", optional = true }
+libc = "0.2"
+
+[[bin]]
+name = "scry-dictate"
+path = "src/bin/dictate.rs"
+required-features = ["dictate"]
+
+[[bin]]
+name = "scry-dictate-ctl"
+path = "src/bin/dictate_ctl.rs"
 
 [dev-dependencies]
 pretty_assertions = "1"

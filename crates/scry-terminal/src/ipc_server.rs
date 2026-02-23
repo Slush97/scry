@@ -54,6 +54,8 @@ pub enum OverlayOp {
         px_h: u32,
         /// The shared memory mapping (moved to main thread).
         memfd: Memfd,
+        /// If true, this overlay survives client disconnection.
+        persist: bool,
     },
     /// Refresh an existing overlay (re-read its memfd).
     Refresh {
@@ -69,9 +71,47 @@ pub enum OverlayOp {
     ClearAll {
         /// Client identifier (usually the thread/connection index).
         client_id: u64,
+        /// Overlay IDs that are persistent and should NOT be cleared.
+        persistent_ids: Vec<u32>,
     },
-    /// Trigger the native fetch overlay display.
-    ShowFetch,
+    /// Add a scene graph (deserialized on the server for GPU rendering).
+    AddScene {
+        /// Overlay ID.
+        id: u32,
+        /// Client connection ID (for routing events back).
+        client_id: u64,
+        /// Where to anchor the overlay.
+        anchor: OverlayAnchor,
+        /// Z-index for compositing order.
+        z: i32,
+        /// The deserialized scene graph.
+        scene: scry_engine::scene::PixelCanvas,
+        /// If true, the overlay survives client disconnection.
+        persist: bool,
+    },
+    /// Add a terminal-autonomous animation.
+    AddAnimation {
+        /// Overlay ID.
+        id: u32,
+        /// Client connection ID (for routing events back).
+        client_id: u64,
+        /// Where to anchor the overlay.
+        anchor: OverlayAnchor,
+        /// Z-index for compositing order.
+        z: i32,
+        /// The animation program to run.
+        program: scry_engine::sdf::AnimationProgram,
+        /// Duration in seconds (0 = infinite loop).
+        duration_secs: u32,
+        /// Target FPS.
+        fps: u32,
+        /// Pixel width for SDF rendering.
+        width: u32,
+        /// Pixel height for SDF rendering.
+        height: u32,
+        /// If true, the overlay survives client disconnection.
+        persist: bool,
+    },
 }
 
 /// Information about the terminal for `QueryInfo` responses.
@@ -108,6 +148,15 @@ impl Default for TerminalInfo {
 /// directly to the owning client's handler thread — no MPMC fan-out.
 type ClientEventMap = Arc<Mutex<HashMap<u64, Sender<IpcEvent>>>>;
 
+/// Maximum concurrent IPC client connections.
+const MAX_CLIENTS: usize = 16;
+
+/// Maximum overlay dimensions in total pixels (16384×16384 = ~1 GB RGBA).
+const MAX_OVERLAY_PIXELS: u64 = 16_384 * 16_384;
+
+/// Idle timeout for IPC client connections (30 seconds).
+const CLIENT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 // ---------------------------------------------------------------------------
 // IPC Server
 // ---------------------------------------------------------------------------
@@ -135,10 +184,16 @@ impl IpcServer {
     /// and spawns a background thread that accepts connections and forwards
     /// overlay operations to `ops_tx`.
     ///
+    /// The optional `waker` callback is invoked after each overlay operation
+    /// is forwarded to the main thread — this wakes the winit event loop so
+    /// overlays are rendered immediately rather than waiting for the next
+    /// keyboard / PTY event.
+    ///
     /// Returns the server and the socket path (to set as env var).
     pub fn start(
         ops_tx: Sender<OverlayOp>,
         info: Arc<std::sync::RwLock<TerminalInfo>>,
+        waker: Option<Box<dyn Fn() + Send + Sync>>,
     ) -> Result<Self, String> {
         let sock_path = Self::socket_path();
 
@@ -176,6 +231,13 @@ impl IpcServer {
         let client_events: ClientEventMap = Arc::new(Mutex::new(HashMap::new()));
         let client_events_clone = client_events.clone();
 
+        // Wrap the waker in an Arc to share it across client handler threads.
+        let waker: Arc<dyn Fn() + Send + Sync> = match waker {
+            Some(w) => Arc::from(w),
+            None => Arc::new(|| {}),
+        };
+        let waker_clone = waker.clone();
+
         let handle = thread::Builder::new()
             .name("scry-ipc-server".to_string())
             .spawn(move || {
@@ -186,6 +248,7 @@ impl IpcServer {
                     client_events_clone,
                     shutdown_clone,
                     &path_clone,
+                    waker_clone,
                 );
             })
             .map_err(|e| format!("failed to spawn IPC server thread: {e}"))?;
@@ -199,9 +262,27 @@ impl IpcServer {
     }
 
     /// The socket path for the current process.
+    ///
+    /// Uses `$XDG_RUNTIME_DIR` when available, falling back to a
+    /// per-UID subdirectory under `/tmp` with restrictive permissions
+    /// to avoid TOCTOU race conditions on the world-writable `/tmp`.
     pub fn socket_path() -> PathBuf {
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-            .unwrap_or_else(|_| "/tmp".to_string());
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| {
+            #[allow(unsafe_code)]
+            let uid = unsafe { libc::getuid() };
+            let fallback = format!("/tmp/scry-{uid}");
+            // Create the directory with owner-only permissions if it doesn't exist.
+            let path = std::path::Path::new(&fallback);
+            if !path.exists() {
+                let _ = std::fs::create_dir_all(path);
+                #[allow(unsafe_code)]
+                unsafe {
+                    let c_path = std::ffi::CString::new(fallback.as_str()).unwrap();
+                    libc::chmod(c_path.as_ptr(), 0o700);
+                }
+            }
+            fallback
+        });
         PathBuf::from(runtime_dir).join(format!("scry-term-{}.sock", std::process::id()))
     }
 
@@ -246,6 +327,7 @@ impl IpcServer {
         client_events: ClientEventMap,
         shutdown: Arc<AtomicBool>,
         _path: &Path,
+        waker: Arc<dyn Fn() + Send + Sync>,
     ) {
         let mut client_counter: u64 = 0;
 
@@ -254,7 +336,18 @@ impl IpcServer {
                 Ok((stream, _addr)) => {
                     // Verify connecting process is owned by the same user
                     if !Self::verify_peer_uid(&stream) {
-                        eprintln!("[scry-ipc] rejected connection from different UID");
+                        #[cfg(feature = "logging")]
+                        tracing::warn!("rejected IPC connection from different UID");
+                        continue;
+                    }
+
+                    // Enforce max clients.
+                    let at_capacity = client_events
+                        .lock()
+                        .map_or(true, |m| m.len() >= MAX_CLIENTS);
+                    if at_capacity {
+                        #[cfg(feature = "logging")]
+                        tracing::warn!("IPC connection rejected: at max {MAX_CLIENTS} clients");
                         continue;
                     }
 
@@ -264,12 +357,14 @@ impl IpcServer {
                     let info = info.clone();
                     let shutdown = shutdown.clone();
                     let client_events = client_events.clone();
+                    let waker = waker.clone();
 
-                    // Set blocking mode for the client connection.
+                    // Set blocking mode with read timeout for the client connection.
                     let _ = stream.set_nonblocking(false);
+                    let _ = stream.set_read_timeout(Some(CLIENT_IDLE_TIMEOUT));
 
-                    // Create a dedicated per-client (one sender, one receiver).
-                    let (event_tx, event_rx) = crossbeam_channel::unbounded::<IpcEvent>();
+                    // Create a dedicated bounded per-client channel.
+                    let (event_tx, event_rx) = crossbeam_channel::bounded::<IpcEvent>(64);
 
                     // Register the sender in the shared map.
                     if let Ok(mut map) = client_events.lock() {
@@ -281,7 +376,7 @@ impl IpcServer {
                         .spawn(move || {
                             Self::client_handler(
                                 stream, client_id, ops_tx, info, event_rx, shutdown,
-                                client_events,
+                                client_events, waker,
                             );
                         })
                         .ok();
@@ -292,7 +387,9 @@ impl IpcServer {
                 }
                 Err(e) => {
                     if !shutdown.load(Ordering::SeqCst) {
-                        eprintln!("[scry-ipc] accept error: {e}");
+                        #[cfg(feature = "logging")]
+                        tracing::warn!("IPC accept error: {e}");
+                        let _ = e;
                     }
                     break;
                 }
@@ -347,17 +444,21 @@ impl IpcServer {
         event_rx: Receiver<IpcEvent>,
         shutdown: Arc<AtomicBool>,
         client_events: ClientEventMap,
+        waker: Arc<dyn Fn() + Send + Sync>,
     ) {
-        eprintln!("[scry-ipc] client {client_id} connected");
+        #[cfg(feature = "logging")]
+        tracing::info!("IPC client {client_id} connected");
+
+        // Track which overlay IDs were created with persist=true.
+        let mut persistent_ids: Vec<u32> = Vec::new();
 
         while !shutdown.load(Ordering::SeqCst) {
             // Drain any pending events for this client (non-blocking).
-            // Since this is a per-client channel, every message here is
-            // guaranteed to be for *this* client — no filtering needed.
             while let Ok(event) = event_rx.try_recv() {
                 if let Err(e) = ipc::send_event(&mut stream, &event) {
-                    eprintln!("[scry-ipc] client {client_id} event send error: {e}");
-                    // Fall through to command loop which will detect the broken pipe.
+                    #[cfg(feature = "logging")]
+                    tracing::warn!("IPC client {client_id} event send error: {e}");
+                    let _ = e;
                 }
             }
 
@@ -365,40 +466,63 @@ impl IpcServer {
             let (cmd, fd) = match ipc::recv_command_with_fd(&mut stream) {
                 Ok(result) => result,
                 Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut
+                    {
+                        #[cfg(feature = "logging")]
+                        tracing::info!("IPC client {client_id} idle timeout");
+                        break;
+                    }
                     if e.kind() != std::io::ErrorKind::ConnectionReset
                         && e.kind() != std::io::ErrorKind::UnexpectedEof
                     {
-                        eprintln!("[scry-ipc] client {client_id} recv error: {e}");
+                        #[cfg(feature = "logging")]
+                        tracing::debug!("IPC client {client_id} recv error: {e}");
+                        let _ = e;
                     }
                     break;
                 }
             };
 
+            // Track persistent overlay IDs.
+            if let IpcCommand::Transmit { id, persist: true, .. }
+                | IpcCommand::SubmitScene { id, persist: true, .. }
+                | IpcCommand::SubmitAnimation { id, persist: true, .. } = &cmd
+            {
+                persistent_ids.push(*id);
+            }
+
             let response = Self::process_command(
-                cmd, fd, client_id, &ops_tx, &info,
+                cmd, fd, client_id, &ops_tx, &info, &*waker,
             );
 
             if let Err(e) = ipc::send_response(&mut stream, &response) {
-                eprintln!("[scry-ipc] client {client_id} send error: {e}");
+                #[cfg(feature = "logging")]
+                tracing::warn!("IPC client {client_id} send error: {e}");
+                let _ = e;
                 break;
             }
         }
 
-        // Client disconnected — clean up all its overlays and remove its sender.
-        let _ = ops_tx.send(OverlayOp::ClearAll { client_id });
+        // Client disconnected — clean up non-persistent overlays.
+        let _ = ops_tx.send(OverlayOp::ClearAll {
+            client_id,
+            persistent_ids,
+        });
         if let Ok(mut map) = client_events.lock() {
             map.remove(&client_id);
         }
-        eprintln!("[scry-ipc] client {client_id} disconnected");
+        #[cfg(feature = "logging")]
+        tracing::info!("IPC client {client_id} disconnected");
     }
 
-    /// Process a single command and return the response.
     fn process_command(
         cmd: IpcCommand,
         fd: Option<RawFd>,
         client_id: u64,
         ops_tx: &Sender<OverlayOp>,
         info: &Arc<std::sync::RwLock<TerminalInfo>>,
+        waker: &(dyn Fn() + Send + Sync),
     ) -> IpcResponse {
         match cmd {
             IpcCommand::Transmit {
@@ -409,7 +533,19 @@ impl IpcServer {
                 z,
                 px_w,
                 px_h,
+                persist,
             } => {
+                // Validate overlay dimensions before mmap.
+                let total_pixels = px_w as u64 * px_h as u64;
+                if total_pixels == 0 || total_pixels > MAX_OVERLAY_PIXELS {
+                    return IpcResponse::Error {
+                        msg: format!(
+                            "overlay dimensions {}x{} invalid (max {}x{})",
+                            px_w, px_h, 16_384, 16_384
+                        ),
+                    };
+                }
+
                 let Some(raw_fd) = fd else {
                     return IpcResponse::Error {
                         msg: "Transmit requires a memfd (no fd received)".into(),
@@ -429,12 +565,14 @@ impl IpcServer {
                             px_w,
                             px_h,
                             memfd,
+                            persist,
                         };
                         if ops_tx.send(op).is_err() {
                             return IpcResponse::Error {
                                 msg: "compositor channel closed".into(),
                             };
                         }
+                        waker();
                         IpcResponse::Ok { id }
                     }
                     Err(e) => IpcResponse::Error {
@@ -449,6 +587,7 @@ impl IpcServer {
                         msg: "compositor channel closed".into(),
                     };
                 }
+                waker();
                 IpcResponse::Ok { id }
             }
 
@@ -458,18 +597,20 @@ impl IpcServer {
                         msg: "compositor channel closed".into(),
                     };
                 }
+                waker();
                 IpcResponse::Ok { id }
             }
 
             IpcCommand::ClearAll => {
                 if ops_tx
-                    .send(OverlayOp::ClearAll { client_id })
+                    .send(OverlayOp::ClearAll { client_id, persistent_ids: Vec::new() })
                     .is_err()
                 {
                     return IpcResponse::Error {
                         msg: "compositor channel closed".into(),
                     };
                 }
+                waker();
                 IpcResponse::Ok { id: 0 }
             }
 
@@ -483,14 +624,106 @@ impl IpcServer {
                 }
             }
 
-            IpcCommand::ShowFetch => {
-                if ops_tx.send(OverlayOp::ShowFetch).is_err() {
+            IpcCommand::SubmitScene {
+                id,
+                anchor,
+                z_index,
+                scene_len,
+                persist,
+            } => {
+                let Some(raw_fd) = fd else {
                     return IpcResponse::Error {
-                        msg: "compositor channel closed".into(),
+                        msg: "SubmitScene requires a memfd (no fd received)".into(),
                     };
+                };
+
+                // Map the memfd and read the scene bytes.
+                match Memfd::from_fd(raw_fd, scene_len as usize) {
+                    Ok(memfd) => {
+                        let scene_bytes = memfd.read_bytes();
+                        match postcard::from_bytes::<scry_engine::scene::PixelCanvas>(&scene_bytes) {
+                            Ok(scene) => {
+                                let op = OverlayOp::AddScene {
+                                    id,
+                                    client_id,
+                                    anchor,
+                                    z: z_index,
+                                    scene,
+                                    persist,
+                                };
+                                if ops_tx.send(op).is_err() {
+                                    return IpcResponse::Error {
+                                        msg: "compositor channel closed".into(),
+                                    };
+                                }
+                                waker();
+                                IpcResponse::Ok { id }
+                            }
+                            Err(e) => IpcResponse::Error {
+                                msg: format!("failed to deserialize scene: {e}"),
+                            },
+                        }
+                    }
+                    Err(e) => IpcResponse::Error {
+                        msg: format!("failed to mmap received fd: {e}"),
+                    },
                 }
-                IpcResponse::Ok { id: 0 }
             }
+
+            IpcCommand::SubmitAnimation {
+                id,
+                anchor,
+                z_index,
+                program_len,
+                duration_secs,
+                fps,
+                width,
+                height,
+                persist,
+            } => {
+                let Some(raw_fd) = fd else {
+                    return IpcResponse::Error {
+                        msg: "SubmitAnimation requires a memfd (no fd received)".into(),
+                    };
+                };
+
+                match Memfd::from_fd(raw_fd, program_len as usize) {
+                    Ok(memfd) => {
+                        let program_bytes = memfd.read_bytes();
+                        match postcard::from_bytes::<scry_engine::sdf::AnimationProgram>(&program_bytes) {
+                            Ok(program) => {
+                                let op = OverlayOp::AddAnimation {
+                                    id,
+                                    client_id,
+                                    anchor,
+                                    z: z_index,
+                                    program,
+                                    duration_secs,
+                                    fps,
+                                    width,
+                                    height,
+                                    persist,
+                                };
+                                if ops_tx.send(op).is_err() {
+                                    return IpcResponse::Error {
+                                        msg: "compositor channel closed".into(),
+                                    };
+                                }
+                                waker();
+                                IpcResponse::Ok { id }
+                            }
+                            Err(e) => IpcResponse::Error {
+                                msg: format!("failed to deserialize animation program: {e}"),
+                            },
+                        }
+                    }
+                    Err(e) => IpcResponse::Error {
+                        msg: format!("failed to mmap received fd: {e}"),
+                    },
+                }
+            }
+
+
         }
     }
 }

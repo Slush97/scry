@@ -9,6 +9,8 @@
 //! This is the lowest-quality fallback but works in every terminal that
 //! supports 24-bit color.
 
+use std::io::Write;
+
 use tiny_skia::Pixmap;
 
 use crate::transport::backend::{ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
@@ -20,97 +22,137 @@ use crate::PixelCanvasError;
 
 /// Fallback backend using Unicode halfblock characters.
 ///
-/// This backend does not transmit persistent images — instead, it renders
-/// directly into a Ratatui `Buffer` during the widget's `render()` call.
-/// The `transmit()` / `remove()` methods are no-ops that return dummy handles.
+/// Renders images using ANSI 24-bit color escape sequences with Unicode
+/// upper-half-block characters (▀, U+2580). Each character cell represents
+/// 1×2 pixels — the foreground color covers the top pixel and the
+/// background covers the bottom.
 ///
-/// The actual rendering logic lives in the widget layer, which calls
-/// [`render_to_cells`](HalfblockBackend::render_to_cells) to get the
-/// cell data.
+/// When used via the Ratatui widget layer, call
+/// [`render_to_cells`](HalfblockBackend::render_to_cells) directly.
+/// When used standalone (e.g. `scry see text`), the [`ProtocolBackend`]
+/// `transmit()` / `replace()` methods write directly to a configurable
+/// writer (stdout by default).
 #[derive(Debug)]
-pub struct HalfblockBackend {
+pub struct HalfblockBackend<W: Write + std::fmt::Debug = std::io::Stdout> {
     next_id: u32,
+    writer: W,
+    /// Row of the last transmitted image (for `replace()` cursor repositioning).
+    last_row: u16,
+    /// Number of halfblock rows in the last transmitted image.
+    last_rows: u16,
+    /// Reusable cell buffer to avoid per-frame allocation.
+    cell_buf: Vec<HalfblockCell>,
+    /// Reusable string buffer for building ANSI output.
+    line_buf: String,
 }
 
-impl HalfblockBackend {
-    /// Create a new halfblock backend.
+impl HalfblockBackend<std::io::Stdout> {
+    /// Create a new halfblock backend that writes to stdout.
     #[must_use]
-    pub const fn new() -> Self {
-        Self { next_id: 1 }
+    pub fn new() -> Self {
+        Self {
+            next_id: 1,
+            writer: std::io::stdout(),
+            last_row: 0,
+            last_rows: 0,
+            cell_buf: Vec::new(),
+            line_buf: String::new(),
+        }
+    }
+}
+
+impl<W: Write + std::fmt::Debug> HalfblockBackend<W> {
+    /// Create a new halfblock backend with a custom writer (useful for testing).
+    pub fn with_writer(writer: W) -> Self {
+        Self {
+            next_id: 1,
+            writer,
+            last_row: 0,
+            last_rows: 0,
+            cell_buf: Vec::new(),
+            line_buf: String::new(),
+        }
     }
 
-    /// Render a pixmap into a grid of halfblock cell data.
+    /// Consume the backend and return the underlying writer.
     ///
-    /// Returns a 2D grid where each entry contains the character and the
-    /// (top, bottom) pixel colors for that cell position.
-    ///
-    /// The grid dimensions are `(pixmap.width(), pixmap.height() / 2)`.
-    ///
-    /// **Tip**: For animation loops, use [`render_to_cells_flat`](Self::render_to_cells_flat)
-    /// with a reusable buffer to avoid per-frame allocation.
-    #[must_use]
-    pub fn render_to_cells(pixmap: &Pixmap) -> Vec<Vec<HalfblockCell>> {
-        let w = pixmap.width() as usize;
-        let h = pixmap.height() as usize;
-        let rows = h.div_ceil(2);
-        let mut flat = Vec::with_capacity(rows * w);
-        Self::fill_cells_flat(pixmap, &mut flat);
-        flat.chunks(w).map(<[HalfblockCell]>::to_vec).collect()
+    /// Useful for inspecting written output in tests.
+    pub fn into_writer(self) -> W {
+        self.writer
     }
 
-    /// Render a pixmap into a pre-allocated flat buffer (row-major order).
+    /// Write downsampled halfblock output to the writer as ANSI escape sequences.
     ///
-    /// The buffer is resized (never shrunk) to fit `rows × width` cells.
-    /// Reuse the same `Vec` across frames to avoid per-frame allocation —
-    /// this is **significantly faster** for animation loops.
-    ///
-    /// To index into the flat buffer: `buf[row * width + col]`.
-    ///
-    /// Returns `(rows, cols)` — the logical grid dimensions.
-    pub fn render_to_cells_flat(pixmap: &Pixmap, buf: &mut Vec<HalfblockCell>) -> (usize, usize) {
-        Self::fill_cells_flat(pixmap, buf);
-        let w = pixmap.width() as usize;
-        let h = pixmap.height() as usize;
-        (h.div_ceil(2), w)
-    }
+    /// The pixmap is mapped onto `position.width_cells` columns ×
+    /// `position.height_cells` halfblock rows.  Each halfblock character
+    /// represents one column and two pixel rows, so we sample the source
+    /// pixmap proportionally to fit the target cell dimensions.
+    fn write_cells(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+    ) -> Result<(), PixelCanvasError> {
+        use std::fmt::Write as FmtWrite;
 
-    /// Internal: fill a flat buffer with halfblock cells from a pixmap.
-    fn fill_cells_flat(pixmap: &Pixmap, buf: &mut Vec<HalfblockCell>) {
-        let w = pixmap.width() as usize;
-        let h = pixmap.height() as usize;
-        let rows = h.div_ceil(2);
-        let total = rows * w;
+        let src_w = pixmap.width() as usize;
+        let src_h = pixmap.height() as usize;
+        if src_w == 0 || src_h == 0 {
+            return Ok(());
+        }
+
         let data = pixmap.data();
 
-        // Resize without shrinking — reuses existing allocation.
-        buf.resize(
-            total,
-            HalfblockCell {
-                char: '▀',
-                fg: (0, 0, 0),
-                bg: (0, 0, 0),
-            },
-        );
+        // Target dimensions in terminal cells.
+        let out_cols = (position.width_cells as usize).max(1);
+        let out_rows = (position.height_cells as usize).max(1);
 
-        for row in 0..rows {
-            for col in 0..w {
-                let top_y = row * 2;
-                let bot_y = top_y + 1;
+        // ANSI positions are 1-indexed.
+        let start_row = position.row + 1;
+        let start_col = position.col + 1;
 
-                let top = pixel_at(data, w, col, top_y);
-                let bot = if bot_y < h {
-                    pixel_at(data, w, col, bot_y)
+        for row in 0..out_rows {
+            self.line_buf.clear();
+            let ansi_row = start_row + row as u16;
+            let _ = write!(self.line_buf, "\x1b[{ansi_row};{start_col}H");
+
+            // Each halfblock row represents two pixel rows.
+            // Map top/bottom pixel rows from the source via proportional sampling.
+            let top_y = (row * 2) * src_h / (out_rows * 2);
+            let bot_y = (row * 2 + 1) * src_h / (out_rows * 2);
+
+            for col in 0..out_cols {
+                // Map terminal column to source pixel column.
+                let px = col * src_w / out_cols;
+
+                let top = sample_pixel(data, src_w, px, top_y.min(src_h - 1));
+                let bot = if bot_y < src_h {
+                    sample_pixel(data, src_w, px, bot_y)
                 } else {
                     (0, 0, 0)
                 };
 
-                buf[row * w + col] = HalfblockCell {
-                    char: '▀',
-                    fg: top,
-                    bg: bot,
-                };
+                let (fr, fg, fb) = top;
+                let (br, bg, bb) = bot;
+                let _ = write!(
+                    self.line_buf,
+                    "\x1b[38;2;{fr};{fg};{fb}m\x1b[48;2;{br};{bg};{bb}m▀"
+                );
             }
+            let _ = write!(self.line_buf, "\x1b[0m");
+
+            self.writer
+                .write_all(self.line_buf.as_bytes())
+                .map_err(PixelCanvasError::Transmission)?;
         }
+
+        self.writer
+            .flush()
+            .map_err(PixelCanvasError::Transmission)?;
+
+        self.last_row = position.row;
+        self.last_rows = out_rows as u16;
+
+        Ok(())
     }
 }
 
@@ -139,7 +181,95 @@ fn pixel_at(data: &[u8], width: usize, x: usize, y: usize) -> (u8, u8, u8) {
     }
 }
 
-impl Default for HalfblockBackend {
+/// Sample a pixel for downsampled halfblock output (same as [`pixel_at`]).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[inline]
+fn sample_pixel(data: &[u8], width: usize, x: usize, y: usize) -> (u8, u8, u8) {
+    pixel_at(data, width, x, y)
+}
+
+// ---------------------------------------------------------------------------
+// Module-level rendering functions
+// ---------------------------------------------------------------------------
+
+/// Fill a flat buffer with halfblock cells from a pixmap.
+///
+/// This is the core rendering routine shared by both the widget layer
+/// and the `ProtocolBackend` implementation.
+pub fn fill_cells_flat(pixmap: &Pixmap, buf: &mut Vec<HalfblockCell>) {
+    let w = pixmap.width() as usize;
+    let h = pixmap.height() as usize;
+    let rows = h.div_ceil(2);
+    let total = rows * w;
+    let data = pixmap.data();
+
+    // Resize without shrinking — reuses existing allocation.
+    buf.resize(
+        total,
+        HalfblockCell {
+            char: '▀',
+            fg: (0, 0, 0),
+            bg: (0, 0, 0),
+        },
+    );
+
+    for row in 0..rows {
+        for col in 0..w {
+            let top_y = row * 2;
+            let bot_y = top_y + 1;
+
+            let top = pixel_at(data, w, col, top_y);
+            let bot = if bot_y < h {
+                pixel_at(data, w, col, bot_y)
+            } else {
+                (0, 0, 0)
+            };
+
+            buf[row * w + col] = HalfblockCell {
+                char: '▀',
+                fg: top,
+                bg: bot,
+            };
+        }
+    }
+}
+
+/// Render a pixmap into a grid of halfblock cell data.
+///
+/// Returns a 2D grid where each entry contains the character and the
+/// (top, bottom) pixel colors for that cell position.
+///
+/// The grid dimensions are `(pixmap.width(), pixmap.height() / 2)`.
+///
+/// **Tip**: For animation loops, use [`render_to_cells_flat`]
+/// with a reusable buffer to avoid per-frame allocation.
+#[must_use]
+pub fn render_to_cells(pixmap: &Pixmap) -> Vec<Vec<HalfblockCell>> {
+    let w = pixmap.width() as usize;
+    let h = pixmap.height() as usize;
+    let rows = h.div_ceil(2);
+    let mut flat = Vec::with_capacity(rows * w);
+    fill_cells_flat(pixmap, &mut flat);
+    flat.chunks(w).map(<[HalfblockCell]>::to_vec).collect()
+}
+
+/// Render a pixmap into a pre-allocated flat buffer (row-major order).
+///
+/// The buffer is resized (never shrunk) to fit `rows × width` cells.
+/// Reuse the same `Vec` across frames to avoid per-frame allocation —
+/// this is **significantly faster** for animation loops.
+///
+/// To index into the flat buffer: `buf[row * width + col]`.
+///
+/// Returns `(rows, cols)` — the logical grid dimensions.
+pub fn render_to_cells_flat(pixmap: &Pixmap, buf: &mut Vec<HalfblockCell>) -> (usize, usize) {
+    fill_cells_flat(pixmap, buf);
+    let w = pixmap.width() as usize;
+    let h = pixmap.height() as usize;
+    (h.div_ceil(2), w)
+}
+
+impl Default for HalfblockBackend<std::io::Stdout> {
     fn default() -> Self {
         Self::new()
     }
@@ -156,19 +286,35 @@ pub struct HalfblockCell {
     pub bg: (u8, u8, u8),
 }
 
-impl ProtocolBackend for HalfblockBackend {
+impl<W: Write + std::fmt::Debug + Send> ProtocolBackend for HalfblockBackend<W> {
     fn transmit(
         &mut self,
-        _pixmap: &Pixmap,
-        _position: TerminalPosition,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
         _z_index: i32,
     ) -> Result<ImageHandle, PixelCanvasError> {
-        // Halfblock rendering doesn't use persistent images.
-        // Return a dummy handle.
+        self.write_cells(pixmap, position)?;
+
         let id = self.next_id;
         self.next_id += 1;
         Ok(ImageHandle {
             id,
+            protocol: ProtocolKind::Halfblock,
+        })
+    }
+
+    fn replace(
+        &mut self,
+        handle: &ImageHandle,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        _z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        // Overwrite the same region by repositioning the cursor.
+        self.write_cells(pixmap, position)?;
+
+        Ok(ImageHandle {
+            id: handle.id(),
             protocol: ProtocolKind::Halfblock,
         })
     }
@@ -222,7 +368,7 @@ mod tests {
                 (0, 0, 255, 255), // row 1: blue
             ],
         );
-        let cells = HalfblockBackend::render_to_cells(&pm);
+        let cells = render_to_cells(&pm);
 
         // Should produce 1 row of 2 cells (2 pixel rows → 1 halfblock row)
         assert_eq!(cells.len(), 1);
@@ -246,7 +392,7 @@ mod tests {
                 (0, 0, 255, 255), // row 2
             ],
         );
-        let cells = HalfblockBackend::render_to_cells(&pm);
+        let cells = render_to_cells(&pm);
 
         assert_eq!(cells.len(), 2); // ceil(3/2) = 2 rows
         assert_eq!(cells[0][0].fg, (255, 0, 0));
@@ -266,7 +412,7 @@ mod tests {
                 (255, 0, 0, 0),       // fully transparent red → black
             ],
         );
-        let cells = HalfblockBackend::render_to_cells(&pm);
+        let cells = render_to_cells(&pm);
 
         // Top pixel: 255 * (128/255) ≈ 128
         assert!((i16::from(cells[0][0].fg.0) - 128).unsigned_abs() <= 1);
@@ -317,9 +463,9 @@ mod tests {
                 (255, 255, 0, 255),
             ],
         );
-        let cells_2d = HalfblockBackend::render_to_cells(&pm);
+        let cells_2d = render_to_cells(&pm);
         let mut flat = Vec::new();
-        let (rows, cols) = HalfblockBackend::render_to_cells_flat(&pm, &mut flat);
+        let (rows, cols) = render_to_cells_flat(&pm, &mut flat);
         assert_eq!(rows, 1);
         assert_eq!(cols, 2);
         assert_eq!(flat.len(), rows * cols);
@@ -344,10 +490,10 @@ mod tests {
             ],
         );
         let mut buf = Vec::new();
-        HalfblockBackend::render_to_cells_flat(&pm, &mut buf);
+        render_to_cells_flat(&pm, &mut buf);
         let ptr1 = buf.as_ptr();
         // Render again — should reuse the same allocation
-        HalfblockBackend::render_to_cells_flat(&pm, &mut buf);
+        render_to_cells_flat(&pm, &mut buf);
         let ptr2 = buf.as_ptr();
         assert_eq!(ptr1, ptr2, "flat buffer should reuse allocation");
     }

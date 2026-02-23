@@ -268,9 +268,7 @@ impl AutoBackend {
                     };
                 }
                 Err(e) => {
-                    if crate::scry_debug_enabled() {
-                        crate::scry_warn!("[scry] GPU init failed, using CPU backend: {e}");
-                    }
+                    crate::scry_debug!("[scry] GPU init failed, using CPU backend: {e}");
                 }
             }
 

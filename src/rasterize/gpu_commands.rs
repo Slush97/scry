@@ -5,6 +5,10 @@
 //! `MeshBatch`, `GradientDraw`, `ImageOverlay`), command dispatch
 //! (`process_command`, `process_commands`), CPU fallback, and style
 //! extraction helpers.
+//!
+//! The standalone [`collect_gpu_batches`] function provides the same GPU
+//! batch collection without requiring a `WgpuRasterizer` — used by the
+//! compositor to render directly into its render pass.
 
 use super::skia::Rasterizer;
 use super::tessellate;
@@ -45,7 +49,208 @@ pub(super) struct ImageOverlay {
 }
 
 // ---------------------------------------------------------------------------
-// Command processing
+// Standalone GPU batch collection (no WgpuRasterizer dependency)
+// ---------------------------------------------------------------------------
+
+/// Collected GPU batches ready for direct render pass submission.
+///
+/// Contains flattened vertex/instance data for all GPU-compatible commands.
+/// Commands that require CPU fallback (images, text, SDF) are silently
+/// skipped — the compositor's existing overlay blit path handles those.
+pub struct GpuBatches {
+    /// Shape instances (circles, rects, ellipses).
+    pub shapes: Vec<ShapeInstance>,
+    /// Line vertices (6 per segment).
+    pub lines: Vec<LineVertex>,
+    /// Tessellated mesh vertices (paths, arcs, polygons).
+    pub meshes: Vec<MeshVertex>,
+    /// Gradient draw uniforms (one per gradient command).
+    pub gradients: Vec<GradientUniforms>,
+}
+
+/// Collect GPU-compatible draw batches from a canvas scene.
+///
+/// This is the standalone entry point for direct render pass integration.
+/// It walks the canvas display list and sorts commands into GPU batches
+/// without creating a `WgpuRasterizer` or any GPU resources.
+///
+/// Commands that would need CPU fallback (images, text, complex groups)
+/// are silently skipped.
+#[allow(clippy::cast_precision_loss)]
+pub fn collect_gpu_batches(
+    canvas: &crate::scene::PixelCanvas,
+    viewport_width: u32,
+    viewport_height: u32,
+) -> GpuBatches {
+    let mut batches = GpuBatches {
+        shapes: Vec::new(),
+        lines: Vec::new(),
+        meshes: Vec::new(),
+        gradients: Vec::new(),
+    };
+    let mut mesh_groups: Vec<Vec<MeshVertex>> = Vec::new();
+
+    for cmd in canvas.commands() {
+        collect_command(
+            cmd,
+            viewport_width,
+            viewport_height,
+            &mut batches.shapes,
+            &mut batches.lines,
+            &mut mesh_groups,
+            &mut batches.gradients,
+        );
+    }
+
+    if !mesh_groups.is_empty() {
+        batches.meshes = mesh_groups.into_iter().flatten().collect();
+    }
+
+    batches
+}
+
+/// Process a single command for standalone batch collection.
+///
+/// GPU-incompatible commands (images, text, SDF, complex groups) are
+/// silently skipped.
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
+fn collect_command(
+    cmd: &DrawCommand,
+    viewport_width: u32,
+    viewport_height: u32,
+    shapes: &mut Vec<ShapeInstance>,
+    lines: &mut Vec<LineVertex>,
+    meshes: &mut Vec<Vec<MeshVertex>>,
+    gradients: &mut Vec<GradientUniforms>,
+) {
+    match cmd {
+        DrawCommand::Clear { .. } => {}
+
+        DrawCommand::Circle { cx, cy, radius, style } => {
+            let (fill_color, stroke_color, stroke_width) = extract_style(style);
+            shapes.push(ShapeInstance {
+                pos: [*cx, *cy],
+                size: [*radius, *radius, 0.0, 0.0],
+                fill_color,
+                stroke_color,
+                stroke_width,
+                shape_type: 0,
+            });
+        }
+
+        DrawCommand::Rectangle { rect, corner_radius, style } => {
+            let (fill_color, stroke_color, stroke_width) = extract_style(style);
+            shapes.push(ShapeInstance {
+                pos: [rect.x, rect.y],
+                size: [rect.width, rect.height, *corner_radius, 0.0],
+                fill_color,
+                stroke_color,
+                stroke_width,
+                shape_type: 1,
+            });
+        }
+
+        DrawCommand::Ellipse { cx, cy, rx, ry, rotation, style } => {
+            let (fill_color, stroke_color, stroke_width) = extract_style(style);
+            shapes.push(ShapeInstance {
+                pos: [*cx, *cy],
+                size: [*rx, *ry, *rotation, 0.0],
+                fill_color,
+                stroke_color,
+                stroke_width,
+                shape_type: 2,
+            });
+        }
+
+        DrawCommand::Line { x1, y1, x2, y2, stroke, .. } => {
+            let color = [stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a];
+            emit_line_segment(lines, *x1, *y1, *x2, *y2, stroke.width, color);
+        }
+
+        DrawCommand::Polyline { points, style, closed } => {
+            if points.len() < 2 { return; }
+            if let Some(stroke) = &style.stroke {
+                let color = [stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a];
+                for window in points.windows(2) {
+                    emit_line_segment(lines, window[0].0, window[0].1, window[1].0, window[1].1, stroke.width, color);
+                }
+                if *closed && points.len() > 2 {
+                    let first = points[0];
+                    let last = points[points.len() - 1];
+                    emit_line_segment(lines, last.0, last.1, first.0, first.1, stroke.width, color);
+                }
+            }
+            if let Some(color) = solid_fill_color(style) {
+                let verts = tessellate::tessellate_polygon(points, color);
+                if !verts.is_empty() { meshes.push(verts); }
+            }
+        }
+
+        DrawCommand::Gradient { rect, gradient, .. } => {
+            let mut stops = [GpuGradientStop {
+                color: [0.0; 4], position: 0.0,
+                _pad1: 0.0, _pad2: 0.0, _pad3: 0.0,
+            }; 8];
+            let num_stops = gradient.stops.len().min(8);
+            for (i, s) in gradient.stops.iter().take(8).enumerate() {
+                stops[i] = GpuGradientStop {
+                    color: [s.color.r, s.color.g, s.color.b, s.color.a],
+                    position: s.position,
+                    _pad1: 0.0, _pad2: 0.0, _pad3: 0.0,
+                };
+            }
+            let (grad_start, grad_end, grad_type) = match &gradient.kind {
+                GradientKind::Linear { start, end } => ([start.x, start.y], [end.x, end.y], 0.0),
+                GradientKind::Radial { center, radius } => ([center.x, center.y], [*radius, 0.0], 1.0),
+            };
+            gradients.push(GradientUniforms {
+                viewport: [viewport_width as f32, viewport_height as f32],
+                rect_pos: [rect.x, rect.y],
+                rect_size: [rect.width, rect.height],
+                grad_start,
+                grad_end,
+                grad_type,
+                num_stops: num_stops as f32,
+                _pad: [0.0, 0.0],
+                _pre_stops_pad: [0.0, 0.0],
+                stops,
+            });
+        }
+
+        DrawCommand::Path { path, style } => {
+            if let Some(color) = solid_fill_color(style) {
+                let verts = tessellate::tessellate_path(path.path(), color);
+                if !verts.is_empty() { meshes.push(verts); }
+            }
+            // Gradient fills / strokes are skipped in direct path
+        }
+
+        DrawCommand::Arc { cx, cy, radius, start_angle, sweep_angle, style } => {
+            if let Some(color) = solid_fill_color(style) {
+                let verts = tessellate::tessellate_arc(*cx, *cy, *radius, *start_angle, *sweep_angle, color);
+                if !verts.is_empty() { meshes.push(verts); }
+            }
+        }
+
+        DrawCommand::Group { commands, opacity, blend_mode, clip, transform } => {
+            let needs_compositing = *opacity < 1.0
+                || clip.is_some()
+                || *blend_mode != crate::scene::style::BlendMode::SrcOver;
+            if !needs_compositing && *transform == crate::scene::style::Transform::IDENTITY {
+                for child in commands {
+                    collect_command(child, viewport_width, viewport_height, shapes, lines, meshes, gradients);
+                }
+            }
+            // Complex groups are silently skipped in direct path
+        }
+
+        // Image, Text, SDF — skip in direct render (no CPU fallback available)
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Command processing (WgpuRasterizer path — used by rasterize-to-pixmap)
 // ---------------------------------------------------------------------------
 
 /// Walk canvas commands and batch them for GPU submission.

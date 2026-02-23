@@ -25,6 +25,7 @@
 //! assert_eq!(pixmap.width(), 200);
 //! ```
 
+pub mod animation_program;
 pub mod error;
 mod lighting;
 pub mod materials;
@@ -64,3 +65,4 @@ pub use upscale::upscale_bicubic;
 pub use gpu_renderer::{SdfGpuContext, SdfGpuRenderer};
 
 pub use pipeline::{SdfBackend, SdfPipeline, SdfRenderResult};
+pub use animation_program::AnimationProgram;

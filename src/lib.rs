@@ -96,6 +96,7 @@
 #![deny(unsafe_code)]
 
 pub mod camera3d;
+pub mod diagnostics;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod math3d;
@@ -185,6 +186,77 @@ macro_rules! scry_error {
     };
 }
 
+/// Log a debug-level diagnostic message.
+///
+/// When the `logging` feature is enabled, emits a `tracing::debug!` event.
+/// Otherwise, falls back to `eprintln!` when `SCRY_DEBUG` is set.
+///
+/// Use this for internal implementation details (GPU init, pipeline selection,
+/// backend fallback decisions) that are useful during development but too
+/// noisy for normal operation.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! scry_debug {
+    ($($arg:tt)*) => {
+        {
+            #[cfg(feature = "logging")]
+            ::tracing::debug!($($arg)*);
+            #[cfg(not(feature = "logging"))]
+            if $crate::scry_debug_enabled() {
+                eprintln!($($arg)*);
+            }
+        }
+    };
+}
+
+/// Log a trace-level diagnostic message.
+///
+/// When the `logging` feature is enabled, emits a `tracing::trace!` event.
+/// Without the `logging` feature, this is a **silent no-op** — trace messages
+/// are too granular for `eprintln!` output.
+///
+/// Use this for per-pixel, per-command, or per-iteration diagnostics that
+/// would overwhelm any non-structured output.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! scry_trace {
+    ($($arg:tt)*) => {
+        {
+            #[cfg(feature = "logging")]
+            ::tracing::trace!($($arg)*);
+            // Silent without the logging feature — trace is too noisy for eprintln.
+        }
+    };
+}
+
+/// Enter a tracing span for pipeline stage instrumentation.
+///
+/// When the `logging` feature is enabled, creates a `tracing::info_span!` and
+/// returns its `Entered` guard. When disabled, returns a no-op `()` guard.
+///
+/// # Usage
+///
+/// ```ignore
+/// let _span = scry_span!("rasterize", width = 200, height = 200);
+/// // ... work happens inside the span ...
+/// // span is exited when `_span` is dropped
+/// ```
+#[macro_export]
+#[doc(hidden)]
+macro_rules! scry_span {
+    ($name:expr $(, $($field:tt)*)?) => {
+        {
+            #[cfg(feature = "logging")]
+            {
+                let _span = ::tracing::info_span!($name $(, $($field)*)?);
+                _span.entered()
+            }
+            #[cfg(not(feature = "logging"))]
+            { () }
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
@@ -202,8 +274,11 @@ pub enum PixelCanvasError {
     Rasterization(String),
 
     /// Failed to transmit image data to the terminal.
+    ///
+    /// Note: this variant wraps a raw `io::Error`. For transport-layer
+    /// errors with more context, see [`Transport`](Self::Transport).
     #[error("protocol transmission failed: {0}")]
-    Transmission(#[from] std::io::Error),
+    Transmission(std::io::Error),
 
     /// No graphics protocol is available.
     #[error("terminal does not support any graphics protocol")]
@@ -216,6 +291,33 @@ pub enum PixelCanvasError {
     /// Terminal probing failed.
     #[error("terminal probe failed: {0}")]
     ProbeFailed(String),
+
+    /// Rasterization subsystem error (pixmap allocation, GPU backend, etc.).
+    #[error(transparent)]
+    #[cfg(feature = "gpu")]
+    Raster(#[from] crate::rasterize::error::RasterError),
+
+    /// Transport layer error (I/O, PNG encoding, compression, SHM, etc.).
+    #[error(transparent)]
+    TransportLayer(#[from] crate::transport::error::TransportError),
+
+    /// GPU subsystem error (adapter, device, pipeline, buffer).
+    #[error(transparent)]
+    #[cfg(feature = "gpu")]
+    Gpu(#[from] crate::gpu::error::GpuError),
+
+    /// SDF renderer error (readback, timeout, shader compilation).
+    #[error(transparent)]
+    #[cfg(feature = "sdf")]
+    Sdf(#[from] crate::sdf::error::SdfError),
+}
+
+// Manual `From<io::Error>` since we removed `#[from]` on `Transmission`
+// to avoid conflicting with `TransportError::Io(#[from] io::Error)`.
+impl From<std::io::Error> for PixelCanvasError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Transmission(err)
+    }
 }
 
 // ---------------------------------------------------------------------------

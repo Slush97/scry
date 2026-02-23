@@ -138,6 +138,22 @@ impl Default for FontSize {
     }
 }
 
+/// Terminal information returned by `query_info`.
+///
+/// A feature-agnostic representation of the terminal's
+/// grid and font metrics, used by backends that support it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalInfoResponse {
+    /// Font cell width in pixels.
+    pub font_w: u16,
+    /// Font cell height in pixels.
+    pub font_h: u16,
+    /// Grid columns.
+    pub cols: u16,
+    /// Grid rows.
+    pub rows: u16,
+}
+
 // ---------------------------------------------------------------------------
 // Protocol backend trait
 // ---------------------------------------------------------------------------
@@ -225,5 +241,27 @@ pub trait ProtocolBackend: std::fmt::Debug + Send {
     /// Only meaningful for `NativeBackend` — other backends always return false.
     fn is_overlay_paused(&self, _id: u32) -> bool {
         false
+    }
+
+    /// Transmit a persistent overlay that survives client disconnection.
+    ///
+    /// Only meaningful for `NativeBackend` — other backends fall back to
+    /// regular `transmit()`.
+    fn transmit_persistent(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        self.transmit(pixmap, position, z_index)
+    }
+
+    /// Query terminal info (font size, grid dimensions).
+    ///
+    /// Only meaningful for `NativeBackend` — other backends return an error.
+    fn query_info(&mut self) -> Result<TerminalInfoResponse, PixelCanvasError> {
+        Err(PixelCanvasError::Rasterization(
+            "query_info not supported by this backend".into(),
+        ))
     }
 }

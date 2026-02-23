@@ -82,6 +82,91 @@ impl PathData {
     }
 }
 
+// ---------------------------------------------------------------------------
+// PathData serde (custom: tiny_skia::Path has no serde)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for PathData {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let verbs: Vec<u8> = self.path.verbs().iter().map(|v| *v as u8).collect();
+        let points: Vec<(f32, f32)> = self
+            .path
+            .points()
+            .iter()
+            .map(|p| (p.x, p.y))
+            .collect();
+        let mut s = serializer.serialize_struct("PathData", 2)?;
+        s.serialize_field("verbs", &verbs)?;
+        s.serialize_field("points", &points)?;
+        s.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for PathData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct PathRepr {
+            verbs: Vec<u8>,
+            points: Vec<(f32, f32)>,
+        }
+
+        let repr = PathRepr::deserialize(deserializer)?;
+        let mut pb = tiny_skia::PathBuilder::new();
+        let mut pt_idx = 0;
+
+        for &verb in &repr.verbs {
+            match verb {
+                0 => {
+                    // MoveTo
+                    let (x, y) = repr.points.get(pt_idx).copied().unwrap_or((0.0, 0.0));
+                    pb.move_to(x, y);
+                    pt_idx += 1;
+                }
+                1 => {
+                    // LineTo
+                    let (x, y) = repr.points.get(pt_idx).copied().unwrap_or((0.0, 0.0));
+                    pb.line_to(x, y);
+                    pt_idx += 1;
+                }
+                2 => {
+                    // QuadTo
+                    let (x1, y1) = repr.points.get(pt_idx).copied().unwrap_or((0.0, 0.0));
+                    let (x, y) = repr.points.get(pt_idx + 1).copied().unwrap_or((0.0, 0.0));
+                    pb.quad_to(x1, y1, x, y);
+                    pt_idx += 2;
+                }
+                3 => {
+                    // CubicTo
+                    let (x1, y1) = repr.points.get(pt_idx).copied().unwrap_or((0.0, 0.0));
+                    let (x2, y2) = repr.points.get(pt_idx + 1).copied().unwrap_or((0.0, 0.0));
+                    let (x, y) = repr.points.get(pt_idx + 2).copied().unwrap_or((0.0, 0.0));
+                    pb.cubic_to(x1, y1, x2, y2, x, y);
+                    pt_idx += 3;
+                }
+                4 => {
+                    // Close
+                    pb.close();
+                }
+                _ => {} // skip unknown verbs
+            }
+        }
+
+        let path = pb
+            .finish()
+            .unwrap_or_else(|| {
+                // Empty/invalid path — create a degenerate one
+                let mut pb2 = tiny_skia::PathBuilder::new();
+                pb2.move_to(0.0, 0.0);
+                pb2.finish().unwrap()
+            });
+
+        Ok(Self::new(path))
+    }
+}
+
 /// Note: equality is based on geometry hash plus verb/point counts.
 /// False positives are theoretically possible but astronomically unlikely.
 impl PartialEq for PathData {
@@ -109,6 +194,7 @@ impl Hash for PathData {
 /// Stores pixel data as a flat RGBA byte buffer alongside dimensions.
 /// Supports `Hash` and `Eq` by hashing the raw bytes.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ImageData {
     /// Width in pixels.
     width: u32,
@@ -206,6 +292,7 @@ impl Hash for ImageData {
 /// Shadow effect for text rendering.
 #[cfg(feature = "text")]
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TextShadow {
     /// Horizontal offset in pixels (positive = right).
     pub offset_x: f32,
@@ -237,6 +324,7 @@ impl Hash for TextShadow {
 /// Horizontal alignment for text rendering.
 #[cfg(feature = "text")]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TextAlign {
     /// Left-aligned (default). The x coordinate is the left edge.
     #[default]
@@ -259,6 +347,21 @@ pub enum TextAlign {
 #[cfg(feature = "text")]
 #[derive(Clone, Debug)]
 pub struct FontData(Arc<Vec<u8>>);
+
+#[cfg(all(feature = "text", feature = "serde"))]
+impl serde::Serialize for FontData {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+#[cfg(all(feature = "text", feature = "serde"))]
+impl<'de> serde::Deserialize<'de> for FontData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+        Ok(Self::new(bytes))
+    }
+}
 
 #[cfg(feature = "text")]
 impl FontData {
@@ -435,6 +538,7 @@ impl Hash for SdfSceneRef {
 /// Commands are created by the fluent API on [`PixelCanvas`](crate::scene::PixelCanvas)
 /// and consumed by the rasterizer.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum DrawCommand {
     /// Fill the entire canvas with a solid color.
@@ -588,6 +692,7 @@ pub enum DrawCommand {
     /// The SDF ray marcher renders the scene into a pixmap at the given
     /// dimensions and composites it at `(rect.x, rect.y)`.
     #[cfg(feature = "sdf")]
+    #[cfg_attr(feature = "serde", serde(skip))]
     Sdf3D {
         /// The shared SDF scene with generation counter.
         scene: SdfSceneRef,
@@ -834,5 +939,120 @@ mod tests {
             style: ShapeStyle::default(),
         };
         assert_ne!(hash_of(&a), hash_of(&b));
+    }
+
+    #[cfg(feature = "serde")]
+    mod scene_serde {
+        use super::*;
+
+        /// Round-trip a DrawCommand through postcard.
+        fn roundtrip_cmd(cmd: &DrawCommand) -> DrawCommand {
+            let bytes = postcard::to_allocvec(cmd).expect("serialize");
+            postcard::from_bytes(&bytes).expect("deserialize")
+        }
+
+        #[test]
+        fn scene_serde_clear_roundtrip() {
+            let cmd = DrawCommand::Clear { color: Color::RED };
+            assert_eq!(roundtrip_cmd(&cmd), cmd);
+        }
+
+        #[test]
+        fn scene_serde_circle_roundtrip() {
+            let cmd = DrawCommand::Circle {
+                cx: 100.0,
+                cy: 200.0,
+                radius: 50.0,
+                style: ShapeStyle {
+                    fill: Some(crate::scene::style::FillStyle::Solid(Color::BLUE)),
+                    ..ShapeStyle::default()
+                },
+            };
+            assert_eq!(roundtrip_cmd(&cmd), cmd);
+        }
+
+        #[test]
+        fn scene_serde_rectangle_roundtrip() {
+            let cmd = DrawCommand::Rectangle {
+                rect: crate::scene::style::Rect::new(10.0, 20.0, 100.0, 50.0),
+                corner_radius: 5.0,
+                style: ShapeStyle::default(),
+            };
+            assert_eq!(roundtrip_cmd(&cmd), cmd);
+        }
+
+        #[test]
+        fn scene_serde_path_roundtrip() {
+            // Build a path with MoveTo, LineTo, CubicTo, Close
+            let mut pb = tiny_skia::PathBuilder::new();
+            pb.move_to(0.0, 0.0);
+            pb.line_to(100.0, 0.0);
+            pb.cubic_to(100.0, 50.0, 50.0, 100.0, 0.0, 100.0);
+            pb.close();
+            let path = pb.finish().unwrap();
+
+            let cmd = DrawCommand::Path {
+                path: PathData::new(path),
+                style: ShapeStyle::default(),
+            };
+
+            let decoded = roundtrip_cmd(&cmd);
+            // PathData equality is based on geometry hash — verify it matches.
+            assert_eq!(decoded, cmd);
+        }
+
+        #[test]
+        fn scene_serde_image_roundtrip() {
+            let img = ImageData::new(2, 2, vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 128, 128, 255]);
+            let cmd = DrawCommand::Image {
+                image: img,
+                x: 10.0,
+                y: 20.0,
+                opacity: 0.8,
+            };
+            assert_eq!(roundtrip_cmd(&cmd), cmd);
+        }
+
+        #[test]
+        fn scene_serde_group_roundtrip() {
+            let cmd = DrawCommand::Group {
+                commands: vec![
+                    DrawCommand::Clear { color: Color::BLACK },
+                    DrawCommand::Circle {
+                        cx: 50.0,
+                        cy: 50.0,
+                        radius: 25.0,
+                        style: ShapeStyle::default(),
+                    },
+                ],
+                transform: crate::scene::style::Transform::translate(10.0, 20.0),
+                clip: None,
+                opacity: 0.9,
+                blend_mode: crate::scene::style::BlendMode::SrcOver,
+            };
+            assert_eq!(roundtrip_cmd(&cmd), cmd);
+        }
+
+        #[test]
+        fn scene_serde_pixel_canvas_roundtrip() {
+            let canvas = crate::scene::PixelCanvas::new(200, 100)
+                .background(Color::WHITE)
+                .circle(100.0, 50.0, 30.0)
+                    .fill(Color::RED)
+                    .done()
+                .rect(10.0, 10.0, 50.0, 30.0)
+                    .fill(Color::GREEN)
+                    .stroke(Color::BLACK, 2.0)
+                    .done();
+
+            let bytes = postcard::to_allocvec(&canvas).expect("serialize canvas");
+            let decoded: crate::scene::PixelCanvas = postcard::from_bytes(&bytes).expect("deserialize canvas");
+
+            assert_eq!(decoded.width(), canvas.width());
+            assert_eq!(decoded.height(), canvas.height());
+            assert_eq!(decoded.background_color(), canvas.background_color());
+            assert_eq!(decoded.commands().len(), canvas.commands().len());
+            assert_eq!(decoded.commands(), canvas.commands());
+        }
     }
 }

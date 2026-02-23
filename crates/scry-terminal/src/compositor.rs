@@ -56,14 +56,34 @@ struct RegionUniforms {
     _pad: f32,
 }
 
+/// Pre-uploaded GPU resources for direct engine 2D scene rendering.
+///
+/// Created before the render pass by `prepare_scene_draw_data()`, consumed
+/// inside the render pass by `draw_scene_batches()`. Avoids intermediate
+/// textures — shapes, lines, meshes, and gradients render at native GPU speed.
+struct SceneDrawData {
+    /// Viewport uniform bind group (shared by shape/line/mesh pipelines).
+    uniform_bind_group: wgpu::BindGroup,
+    /// Shape instance buffer (instanced circles, rects, ellipses).
+    shape_buffer: Option<wgpu::Buffer>,
+    shape_count: u32,
+    /// Line vertex buffer (6 vertices per segment).
+    line_buffer: Option<wgpu::Buffer>,
+    line_count: u32,
+    /// Tessellated mesh vertex buffer (paths, arcs, polygons).
+    mesh_buffer: Option<wgpu::Buffer>,
+    mesh_count: u32,
+    /// Per-gradient uniform bind groups.
+    gradient_bind_groups: Vec<wgpu::BindGroup>,
+}
+
 /// The GPU compositor.
 pub struct Compositor {
     /// wgpu surface for presenting frames.
     surface: wgpu::Surface<'static>,
-    /// GPU device.
-    device: Arc<wgpu::Device>,
-    /// GPU command queue.
-    queue: Arc<wgpu::Queue>,
+    /// Shared scry-engine GPU device — single instance for terminal + engine.
+    /// Leaked for `'static` lifetime (matches `GpuDevice::global()` pattern).
+    gpu: &'static scry_engine::gpu::GpuDevice,
     /// Surface configuration.
     surface_config: wgpu::SurfaceConfiguration,
 
@@ -88,21 +108,12 @@ pub struct Compositor {
     width: u32,
     height: u32,
 
-    // ── Cursor blink ─────────────────────────────────────────────
-    /// Whether the cursor is currently visible (blink state).
-    cursor_blink_visible: bool,
-    /// Last time the cursor blink state changed.
-    last_blink: Instant,
-
     // ── Visual bell ──────────────────────────────────────────────
     /// When the visual bell was triggered (None = no bell active).
     bell_start: Option<Instant>,
 
     /// Content padding in pixels (applied on all four sides).
     padding: f32,
-
-    /// Shared scry-engine GPU device (bridges terminal GPU to engine pipelines).
-    engine_gpu: &'static scry_engine::gpu::GpuDevice,
 
     // ── Graphics overlay (scry-engine) ──────────────────────────
     /// Overlay render pipeline (fullscreen triangle with texture sampling).
@@ -117,7 +128,7 @@ pub struct Compositor {
     overlay_texture: Option<wgpu::Texture>,
     /// Overlay bind group (texture + sampler).
     overlay_bind_group: Option<wgpu::BindGroup>,
-    /// The current overlay scene (rasterized by scry-engine's CPU backend).
+    /// The current overlay scene (rasterized by scry-engine's GPU backend, CPU fallback).
     overlay_scene: Option<scry_engine::scene::PixelCanvas>,
     /// Whether the overlay needs re-rasterization.
     overlay_dirty: bool,
@@ -138,9 +149,12 @@ impl Compositor {
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        // Initialize wgpu
+        // Initialize wgpu — use scry-engine's backend priority
+        // (Vulkan/Metal/DX12 first, avoids GL/EGL panics)
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::Backends::VULKAN
+                | wgpu::Backends::METAL
+                | wgpu::Backends::DX12,
             ..Default::default()
         });
 
@@ -148,35 +162,27 @@ impl Compositor {
             .create_surface(window)
             .map_err(|e| TerminalError::Compositor(format!("failed to create GPU surface: {e}")))?;
 
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-        .ok_or_else(|| TerminalError::Gpu("no suitable GPU adapter found".to_string()))?;
+        // Use scry-engine's device init — surface-compatible, with PIPELINE_CACHE,
+        // health monitor, and GpuInfo diagnostics
+        let gpu: &'static scry_engine::gpu::GpuDevice = Box::leak(Box::new(
+            scry_engine::gpu::GpuDevice::new_for_surface(&instance, &surface)
+                .map_err(|e| TerminalError::Gpu(format!("{e}")))?,
+        ));
 
-        let (raw_device, raw_queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("scry-terminal"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        ))
-        .map_err(|e| TerminalError::Gpu(format!("failed to create GPU device: {e}")))?;
+        let device = gpu.device_arc();
+        let queue = gpu.queue_arc();
 
-        let device = Arc::new(raw_device);
-        let queue = Arc::new(raw_queue);
-
-        // Bridge to scry-engine: wrap our device/queue so engine pipelines
-        // (shapes, gradients, SDF) can render into the terminal viewport.
-        let engine_gpu = Box::leak(Box::new(scry_engine::gpu::GpuDevice::from_existing(
-            Arc::clone(&device),
-            Arc::clone(&queue),
-        )));
-
-        let surface_caps = surface.get_capabilities(&adapter);
+        // Need adapter capabilities for surface format selection.
+        // Re-request adapter info from the surface (cheap — no device creation).
+        let surface_caps = {
+            let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            }))
+            .ok_or_else(|| TerminalError::Gpu("no suitable GPU adapter found".to_string()))?;
+            surface.get_capabilities(&adapter)
+        };
         let surface_format = surface_caps
             .formats
             .iter()
@@ -370,7 +376,10 @@ impl Compositor {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    // tiny-skia produces premultiplied RGBA — must use
+                    // premultiplied blend (src_factor: One) to avoid
+                    // double-multiplying alpha on semi-transparent pixels.
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -394,8 +403,7 @@ impl Compositor {
 
         Ok(Self {
             surface,
-            device,
-            queue,
+            gpu,
             surface_config,
             text_engine,
             bg_pipeline,
@@ -406,11 +414,8 @@ impl Compositor {
             config: config.clone(),
             width,
             height,
-            cursor_blink_visible: true,
-            last_blink: Instant::now(),
             bell_start: None,
             padding: config.window.padding,
-            engine_gpu,
             overlay_pipeline,
             overlay_bgl,
             overlay_sampler,
@@ -439,23 +444,22 @@ impl Compositor {
         self.padding
     }
 
-    /// Get the bridged scry-engine GPU device.
+    /// Get the scry-engine GPU device.
     ///
-    /// This shares the same underlying wgpu device/queue as the compositor,
-    /// enabling scry-engine's rendering pipelines (shapes, gradients, SDF)
-    /// to render into the terminal viewport.
-    pub fn engine_gpu(&self) -> &'static scry_engine::gpu::GpuDevice {
-        self.engine_gpu
+    /// This is the ONLY GPU device in the process. All engine pipelines
+    /// (shapes, gradients, SDF) use this same device/queue.
+    pub fn gpu(&self) -> &scry_engine::gpu::GpuDevice {
+        self.gpu
     }
 
     /// Get a clone of the `Arc<Device>`.
     pub fn device_arc(&self) -> Arc<wgpu::Device> {
-        Arc::clone(&self.device)
+        self.gpu.device_arc()
     }
 
     /// Get a clone of the `Arc<Queue>`.
     pub fn queue_arc(&self) -> Arc<wgpu::Queue> {
-        Arc::clone(&self.queue)
+        self.gpu.queue_arc()
     }
 
     /// Current font size in pixels.
@@ -478,7 +482,7 @@ impl Compositor {
         self.height = height;
         self.surface_config.width = width;
         self.surface_config.height = height;
-        self.surface.configure(&self.device, &self.surface_config);
+        self.surface.configure(self.gpu.device(), &self.surface_config);
         self.overlay_dirty = true;
     }
 
@@ -494,31 +498,18 @@ impl Compositor {
 
     /// Get the next deadline the event loop should wake at for cursor blink.
     ///
-    /// Returns `None` if cursor blink is disabled.
+    /// Cursor blink is disabled — always returns `None`.
     pub fn next_blink_deadline(&self) -> Option<Instant> {
-        // TEMP: disabled for release-mode stability debugging
-        return None;
-
-        #[allow(unreachable_code)]
-        {
-            let interval = std::time::Duration::from_millis(530);
-            let mut deadline = self.last_blink + interval;
-            let now = Instant::now();
-            // Advance past any stale deadlines so we never return a time in the past.
-            // This prevents a hot spin loop when the blink state hasn't been
-            // toggled recently (e.g., during startup or when render_frame is
-            // throttled by the render scheduler).
-            while deadline <= now {
-                deadline += interval;
-            }
-            Some(deadline)
-        }
+        None
     }
 
-    /// Reset cursor blink visibility (e.g. after user input).
-    pub fn reset_blink(&mut self) {
-        self.cursor_blink_visible = true;
-        self.last_blink = Instant::now();
+    /// Reset cursor blink visibility (no-op — blink is disabled).
+    pub fn reset_blink(&mut self) {}
+
+    /// Whether the event loop should schedule a redraw for cursor blink.
+    /// Always false — blink is disabled.
+    pub fn blink_needs_redraw(&self) -> bool {
+        false
     }
 
     /// Set the global overlay alpha (0.0–1.0) for fade-in/out effects.
@@ -542,9 +533,10 @@ impl Compositor {
 
     /// Set or clear the graphics overlay scene.
     ///
-    /// When set, the scene is rasterized (via scry-engine's CPU backend) and
-    /// composited between cell backgrounds and text. Pass `None` to remove
-    /// the overlay entirely (zero overhead when no overlay is active).
+    /// When set, the scene is GPU-rasterized (via scry-engine's `WgpuRasterizer`,
+    /// with CPU fallback) and composited between cell backgrounds and text.
+    /// Pass `None` to remove the overlay entirely (zero overhead when no
+    /// overlay is active).
     pub fn set_overlay_scene(&mut self, scene: Option<scry_engine::scene::PixelCanvas>) {
         let new_hash = scene.as_ref().map_or(0, scry_engine::scene::PixelCanvas::content_hash);
         if new_hash != self.overlay_hash {
@@ -585,7 +577,7 @@ impl Compositor {
         });
 
         if needs_new_texture {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            let texture = self.gpu.device().create_texture(&wgpu::TextureDescriptor {
                 label: Some("overlay_texture_ipc"),
                 size: wgpu::Extent3d {
                     width,
@@ -601,7 +593,7 @@ impl Compositor {
             });
 
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = self.gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("overlay_bind_group_ipc"),
                 layout: &self.overlay_bgl,
                 entries: &[
@@ -626,7 +618,7 @@ impl Compositor {
 
         // Upload pixel data
         if let Some(texture) = &self.overlay_texture {
-            self.queue.write_texture(
+            self.gpu.queue().write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture,
                     mip_level: 0,
@@ -656,7 +648,7 @@ impl Compositor {
             global_alpha: self.overlay_alpha,
             _pad: 0.0,
         };
-        self.queue.write_buffer(
+        self.gpu.queue().write_buffer(
             &self.overlay_region_buffer,
             0,
             bytemuck::bytes_of(&region),
@@ -678,107 +670,24 @@ impl Compositor {
     }
 
     /// Rasterize the overlay scene to a GPU texture when dirty.
+    ///
+    /// Only handles IPC overlays (`set_overlay_rgba`). Scene overlays
+    /// (`overlay_scene`) are rendered directly in the render pass by
+    /// `render_engine_scene()` — no intermediate texture needed.
     fn update_overlay(&mut self) {
+        // Scene overlays are drawn directly — skip rasterization
+        if self.overlay_scene.is_some() {
+            return;
+        }
+
         if !self.overlay_dirty {
             return;
         }
         self.overlay_dirty = false;
 
-        let Some(scene) = &self.overlay_scene else {
-            self.overlay_texture = None;
-            self.overlay_bind_group = None;
-            return;
-        };
-
-        // Rasterize via scry-engine's CPU backend (tiny-skia)
-        let Ok(pixmap) = scry_engine::rasterize::Rasterizer::rasterize(scene) else {
-            return;
-        };
-
-        let tex_width = pixmap.width();
-        let tex_height = pixmap.height();
-
-        // Recreate texture if dimensions changed
-        let needs_new_texture = self.overlay_texture.as_ref().is_none_or(|t| {
-            t.width() != tex_width || t.height() != tex_height
-        });
-
-        if needs_new_texture {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("overlay_texture"),
-                size: wgpu::Extent3d {
-                    width: tex_width,
-                    height: tex_height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("overlay_bind_group"),
-                layout: &self.overlay_bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.overlay_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.overlay_region_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-            self.overlay_texture = Some(texture);
-            self.overlay_bind_group = Some(bind_group);
-        }
-
-        // Upload pixel data
-        if let Some(texture) = &self.overlay_texture {
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                pixmap.data(),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4 * tex_width),
-                    rows_per_image: Some(tex_height),
-                },
-                wgpu::Extent3d {
-                    width: tex_width,
-                    height: tex_height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
-        // Upload region uniforms (overlay covers the full screen)
-        let region = RegionUniforms {
-            screen_size: [self.width as f32, self.height as f32],
-            region_origin: [0.0, 0.0],
-            region_size: [self.width as f32, self.height as f32],
-            global_alpha: self.overlay_alpha,
-            _pad: 0.0,
-        };
-        self.queue.write_buffer(
-            &self.overlay_region_buffer,
-            0,
-            bytemuck::bytes_of(&region),
-        );
+        // No scene and dirty → clear overlay resources
+        self.overlay_texture = None;
+        self.overlay_bind_group = None;
     }
 
     /// Render a complete frame.
@@ -802,15 +711,16 @@ impl Compositor {
             a: alpha,
         };
 
-        // Update cursor blink state
         let now = Instant::now();
-        if now.duration_since(self.last_blink).as_millis() >= 530 {
-            self.cursor_blink_visible = !self.cursor_blink_visible;
-            self.last_blink = now;
-        }
 
-        // Update overlay texture if dirty
+        // Update overlay texture if dirty (IPC path only)
         self.update_overlay();
+
+        // ── Prepare scene overlay GPU resources (before render pass) ──────
+        // Scene overlays are rendered directly via engine 2D pipelines —
+        // collect batches and upload vertex/instance buffers here so the
+        // render pass only needs to record draw calls.
+        let scene_draw = self.prepare_scene_draw_data();
 
         // Build cell background instances
         let instances = self.build_bg_instances(grid);
@@ -834,7 +744,7 @@ impl Compositor {
         // Grow instance buffer if needed
         if total_instances > self.bg_instance_capacity {
             self.bg_instance_capacity = total_instances.next_power_of_two();
-            self.bg_instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            self.bg_instance_buffer = self.gpu.device().create_buffer(&wgpu::BufferDescriptor {
                 label: Some("bg_instances"),
                 size: (self.bg_instance_capacity as usize * std::mem::size_of::<CellBgInstance>())
                     as u64,
@@ -847,11 +757,11 @@ impl Compositor {
         let uniforms = BgUniforms {
             screen_size: [self.width as f32, self.height as f32],
         };
-        self.queue
+        self.gpu.queue()
             .write_buffer(&self.bg_uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
         if !all_instances.is_empty() {
-            self.queue.write_buffer(
+            self.gpu.queue().write_buffer(
                 &self.bg_instance_buffer,
                 0,
                 bytemuck::cast_slice(&all_instances),
@@ -860,8 +770,8 @@ impl Compositor {
 
         // Prepare text
         let _ = self.text_engine.prepare(
-            &self.device,
-            &self.queue,
+            self.gpu.device(),
+            self.gpu.queue(),
             grid,
             &self.config.colors,
             self.width,
@@ -871,7 +781,7 @@ impl Compositor {
 
         // Encode render pass
         let mut encoder = self
-            .device
+            .gpu.device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
@@ -901,7 +811,11 @@ impl Compositor {
             }
 
             // Draw overlay (scry-engine graphics layer)
-            if let Some(bg) = &self.overlay_bind_group {
+            // Scene overlays: render directly via 2D pipelines (zero intermediate textures)
+            // IPC overlays: blit pre-rasterized texture via fullscreen triangle
+            if let Some(ref sd) = scene_draw {
+                Self::draw_scene_batches(&mut pass, sd, self.gpu);
+            } else if let Some(bg) = &self.overlay_bind_group {
                 pass.set_pipeline(&self.overlay_pipeline);
                 pass.set_bind_group(0, bg, &[]);
                 pass.draw(0..3, 0..1); // Fullscreen triangle
@@ -911,13 +825,170 @@ impl Compositor {
             let _ = self.text_engine.render(&mut pass);
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.gpu.queue().submit(std::iter::once(encoder.finish()));
         output.present();
 
         // Trim atlas periodically
         self.text_engine.trim();
 
         Ok(())
+    }
+
+    /// Pre-uploaded GPU resources for direct engine scene rendering.
+    ///
+    /// Created by `prepare_scene_draw_data()` before the render pass, then
+    /// consumed by `draw_scene_batches()` inside the render pass.
+    #[allow(clippy::cast_precision_loss)]
+    fn prepare_scene_draw_data(&self) -> Option<SceneDrawData> {
+        use scry_engine::gpu::pipeline_registry::Uniforms;
+        use wgpu::util::DeviceExt;
+
+        let scene = self.overlay_scene.as_ref()?;
+        let device = self.gpu.device();
+
+        // Collect GPU batches from the canvas scene
+        let batches = scry_engine::rasterize::collect_gpu_batches(
+            scene,
+            self.width,
+            self.height,
+        );
+
+        let has_shapes = !batches.shapes.is_empty();
+        let has_lines = !batches.lines.is_empty();
+        let has_meshes = !batches.meshes.is_empty();
+        let has_gradients = !batches.gradients.is_empty();
+
+        if !has_shapes && !has_lines && !has_meshes && !has_gradients {
+            return None;
+        }
+
+        // Get the 2D pipelines (lazily compiled, cached)
+        let pipelines = self.gpu.pipelines().get_2d(device);
+
+        // Create viewport uniform bind group
+        let uniform_data = Uniforms {
+            viewport: [self.width as f32, self.height as f32],
+            _pad: [0.0, 0.0],
+        };
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("scene_uniforms"),
+            contents: bytemuck::bytes_of(&uniform_data),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("scene_uniform_bg"),
+            layout: &pipelines.uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        // Upload shape instances
+        let shape_buffer = if has_shapes {
+            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("scene_shapes"),
+                contents: bytemuck::cast_slice(&batches.shapes),
+                usage: wgpu::BufferUsages::VERTEX,
+            }))
+        } else {
+            None
+        };
+
+        // Upload line vertices
+        let line_buffer = if has_lines {
+            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("scene_lines"),
+                contents: bytemuck::cast_slice(&batches.lines),
+                usage: wgpu::BufferUsages::VERTEX,
+            }))
+        } else {
+            None
+        };
+
+        // Upload mesh vertices
+        let mesh_buffer = if has_meshes {
+            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("scene_meshes"),
+                contents: bytemuck::cast_slice(&batches.meshes),
+                usage: wgpu::BufferUsages::VERTEX,
+            }))
+        } else {
+            None
+        };
+
+        // Create gradient bind groups
+        let gradient_bind_groups: Vec<wgpu::BindGroup> = batches.gradients.iter().map(|gu| {
+            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("scene_gradient"),
+                contents: bytemuck::bytes_of(gu),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("scene_gradient_bg"),
+                layout: &pipelines.gradient_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buf.as_entire_binding(),
+                }],
+            })
+        }).collect();
+
+        Some(SceneDrawData {
+            uniform_bind_group,
+            shape_buffer,
+            shape_count: batches.shapes.len() as u32,
+            line_buffer,
+            line_count: batches.lines.len() as u32,
+            mesh_buffer,
+            mesh_count: batches.meshes.len() as u32,
+            gradient_bind_groups,
+        })
+    }
+
+    /// Issue draw calls for a pre-prepared scene into the current render pass.
+    ///
+    /// Uses the engine's 2D pipelines (shape, line, gradient, mesh) to render
+    /// directly — no intermediate texture, no readback.
+    fn draw_scene_batches(
+        pass: &mut wgpu::RenderPass<'_>,
+        data: &SceneDrawData,
+        gpu: &scry_engine::gpu::GpuDevice,
+    ) {
+        let pipelines = gpu.pipelines().get_2d(gpu.device());
+
+        // 1. Gradients (background layer)
+        if !data.gradient_bind_groups.is_empty() {
+            pass.set_pipeline(&pipelines.gradient_pipeline);
+            for bg in &data.gradient_bind_groups {
+                pass.set_bind_group(0, bg, &[]);
+                pass.draw(0..6, 0..1);
+            }
+        }
+
+        // 2. Shapes (instanced)
+        if let Some(ref buf) = data.shape_buffer {
+            pass.set_pipeline(&pipelines.shape_pipeline);
+            pass.set_bind_group(0, &data.uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..6, 0..data.shape_count);
+        }
+
+        // 3. Meshes (tessellated paths, arcs, polygons)
+        if let Some(ref buf) = data.mesh_buffer {
+            pass.set_pipeline(&pipelines.mesh_pipeline);
+            pass.set_bind_group(0, &data.uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..data.mesh_count, 0..1);
+        }
+
+        // 4. Lines
+        if let Some(ref buf) = data.line_buffer {
+            pass.set_pipeline(&pipelines.line_pipeline);
+            pass.set_bind_group(0, &data.uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..data.line_count, 0..1);
+        }
     }
 
     /// Build cell background instances for cells with non-default backgrounds.
@@ -993,10 +1064,8 @@ impl Compositor {
             return Vec::new();
         }
 
-        // If cursor blink is enabled and cursor is in the "off" phase, hide it
-        if grid.cursor.blink && !self.cursor_blink_visible {
-            return Vec::new();
-        }
+        // Cursor blink is disabled — cursor is always visible when
+        // grid.cursor.visible is true.
 
         let cw = self.text_engine.cell_width();
         let ch = self.text_engine.cell_height();

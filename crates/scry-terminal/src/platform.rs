@@ -41,11 +41,28 @@ pub const COLORTERM_VALUE: &str = "truecolor";
 pub fn setup_child_env(cmd: &mut portable_pty::CommandBuilder, sock_path: Option<&str>) {
     cmd.env("TERM", TERM_VALUE);
     cmd.env("COLORTERM", COLORTERM_VALUE);
-    // Clear TERM_PROGRAM so shells don't think they're inside another terminal
     cmd.env("TERM_PROGRAM", "scry-terminal");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     if let Some(path) = sock_path {
         cmd.env("SCRY_TERMINAL_SOCK", path);
+    }
+
+    // Clear env vars from the parent terminal that would confuse protocol
+    // detection inside scry-terminal. Without this, scry-cli inherits e.g.
+    // KITTY_WINDOW_ID from the outer kitty and thinks it's running in kitty
+    // instead of native mode — causing a GPU init thread that segfaults.
+    for var in &[
+        "KITTY_WINDOW_ID",
+        "KITTY_PID",
+        "KITTY_PUBLIC_KEY",
+        "ITERM_SESSION_ID",
+        "ITERM_PROFILE",
+        "LC_TERMINAL",
+        "WEZTERM_EXECUTABLE",
+        "WEZTERM_PANE",
+        "GHOSTTY_RESOURCES_DIR",
+    ] {
+        cmd.env(var, "");
     }
 }
 

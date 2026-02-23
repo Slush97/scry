@@ -34,7 +34,7 @@ pub struct Pipelines2D {
 /// Per-instance data for shape rendering (circles, rectangles, ellipses).
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
-pub(crate) struct ShapeInstance {
+pub struct ShapeInstance {
     /// Center or top-left position in pixels.
     pub pos: [f32; 2],
     /// Shape-type-dependent params: (radius/w, radius/h, `corner_radius`/rotation, 0).
@@ -52,7 +52,7 @@ pub(crate) struct ShapeInstance {
 /// Per-vertex data for line rendering.
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
-pub(crate) struct LineVertex {
+pub struct LineVertex {
     /// Screen-space pixel position.
     pub position: [f32; 2],
     /// Perpendicular normal direction.
@@ -68,7 +68,7 @@ pub(crate) struct LineVertex {
 /// Per-vertex data for tessellated mesh rendering (paths, arcs, polygons).
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
-pub(crate) struct MeshVertex {
+pub struct MeshVertex {
     /// Screen-space pixel position.
     pub position: [f32; 2],
     /// RGBA color.
@@ -78,7 +78,7 @@ pub(crate) struct MeshVertex {
 /// Viewport uniform data for shape and line shaders.
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
-pub(crate) struct Uniforms {
+pub struct Uniforms {
     pub viewport: [f32; 2],
     pub _pad: [f32; 2],
 }
@@ -86,7 +86,7 @@ pub(crate) struct Uniforms {
 /// Gradient stop for GPU upload (matches WGSL layout).
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
-pub(crate) struct GpuGradientStop {
+pub struct GpuGradientStop {
     pub color: [f32; 4],
     pub position: f32,
     pub _pad1: f32,
@@ -97,7 +97,7 @@ pub(crate) struct GpuGradientStop {
 /// Gradient uniform data (matches WGSL layout).
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
-pub(crate) struct GradientUniforms {
+pub struct GradientUniforms {
     pub viewport: [f32; 2],   // offset 0,  size 8
     pub rect_pos: [f32; 2],   // offset 8,  size 8
     pub rect_size: [f32; 2],  // offset 16, size 8
@@ -115,7 +115,7 @@ pub(crate) struct GradientUniforms {
 
 impl Pipelines2D {
     /// Compile all 2D rasterization pipelines for the given device.
-    pub(crate) fn compile(device: &wgpu::Device) -> Self {
+    pub fn compile(device: &wgpu::Device) -> Self {
         let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("uniform_bgl_2d"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -397,10 +397,8 @@ impl PipelinesSdf {
     /// Compile the SDF compute pipeline for the given device.
     pub(crate) fn compile(device: &wgpu::Device) -> Self {
         let t0 = std::time::Instant::now();
-        if crate::scry_debug_enabled() {
-            crate::scry_info!("[scry-gpu] Compiling SDF shader module ({} bytes WGSL)...",
-                include_str!("../sdf/shaders/sdf_compute.wgsl").len());
-        }
+        crate::scry_debug!("[scry-gpu] Compiling SDF shader module ({} bytes WGSL)...",
+            include_str!("../sdf/shaders/sdf_compute.wgsl").len());
 
         let shader_source = include_str!("../sdf/shaders/sdf_compute.wgsl");
         crate::scry_info!("[scry-gpu] compiling SDF shader ({} lines)…", shader_source.lines().count());
@@ -491,10 +489,8 @@ impl PipelinesSdf {
         let had_cache = Self::cache_path()
             .as_ref()
             .is_some_and(|p| p.exists());
-        if crate::scry_debug_enabled() {
-            crate::scry_info!("[scry-gpu] Layout created in {:?}, creating compute pipeline (cache={})...",
-                t0.elapsed(), if had_cache { "loaded" } else { "cold" });
-        }
+        crate::scry_debug!("[scry-gpu] Layout created in {:?}, creating compute pipeline (cache={})...",
+            t0.elapsed(), if had_cache { "loaded" } else { "cold" });
 
         crate::scry_info!("[scry-gpu] creating compute pipeline (cache={})…",
             if had_cache { "warm" } else { "cold" });
@@ -549,9 +545,7 @@ impl PipelineRegistry {
     /// Get or compile the 2D rasterization pipelines.
     pub fn get_2d(&self, device: &wgpu::Device) -> &Pipelines2D {
         self.pipelines_2d.get_or_init(|| {
-            if crate::scry_debug_enabled() {
-                crate::scry_info!("[scry-gpu] Compiling 2D pipelines...");
-            }
+            crate::scry_debug!("[scry-gpu] Compiling 2D pipelines...");
             Pipelines2D::compile(device)
         })
     }
@@ -559,9 +553,7 @@ impl PipelineRegistry {
     /// Get or compile the SDF compute pipeline.
     pub fn get_sdf(&self, device: &wgpu::Device) -> &PipelinesSdf {
         self.pipelines_sdf.get_or_init(|| {
-            if crate::scry_debug_enabled() {
-                crate::scry_info!("[scry-gpu] Compiling SDF pipeline...");
-            }
+            crate::scry_debug!("[scry-gpu] Compiling SDF pipeline...");
             PipelinesSdf::compile(device)
         })
     }
@@ -569,9 +561,7 @@ impl PipelineRegistry {
     /// Get or compile the 3D chart pipelines.
     pub fn get_3d(&self, device: &wgpu::Device) -> &Pipelines3D {
         self.pipelines_3d.get_or_init(|| {
-            if crate::scry_debug_enabled() {
-                crate::scry_info!("[scry-gpu] Compiling 3D pipelines...");
-            }
+            crate::scry_debug!("[scry-gpu] Compiling 3D pipelines...");
             Pipelines3D::compile(device)
         })
     }
@@ -582,7 +572,7 @@ impl PipelineRegistry {
 // ---------------------------------------------------------------------------
 
 /// Create per-frame resources: texture, texture view, and uniform bind group.
-pub(crate) fn create_frame_resources(
+pub fn create_frame_resources(
     device: &wgpu::Device,
     bgl: &wgpu::BindGroupLayout,
     width: u32,

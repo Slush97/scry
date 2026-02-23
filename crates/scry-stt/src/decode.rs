@@ -77,6 +77,30 @@ fn suppress_special_tokens(logits: &mut [f32]) {
     }
 }
 
+/// Fused argmax with token suppression — zero allocations.
+///
+/// Scans logits once, skipping suppressed token indices (GPT-2 endoftext 50256
+/// and all tokens >= SOT 50258), returning the index of the maximum allowed logit.
+/// EOT (50257) is allowed so the model can terminate naturally.
+fn argmax_suppressed(logits: &[f32]) -> usize {
+    let mut best_idx = 0;
+    let mut best_val = f32::NEG_INFINITY;
+    for (i, &v) in logits.iter().enumerate() {
+        // Skip suppressed tokens: GPT-2 endoftext and SOT+
+        if i == GPT2_ENDOFTEXT || i >= SOT_TOKEN {
+            // Allow EOT through
+            if i != EOT_TOKEN {
+                continue;
+            }
+        }
+        if v > best_val {
+            best_val = v;
+            best_idx = i;
+        }
+    }
+    best_idx
+}
+
 /// Greedy decode: generate tokens until EOT or max length.
 ///
 /// Force-feeds the `prompt_tokens` (conditioning prefix) before switching to
@@ -98,17 +122,22 @@ pub fn greedy_decode<B: MathBackend>(
 
     let profile = std::env::var("SCRY_DECODE_PROFILE").is_ok();
 
+    let greedy = config.temperature < 1e-8;
+
     // Phase 1: Force-feed conditioning prompt tokens.
+    // For all but the last prompt token, skip the logit projection entirely
+    // (saves ~1-2ms × (prompt_len-1) by avoiding the vocab GEMV).
     for (pos, &tok) in prompt.iter().enumerate() {
         if pos < prompt.len() - 1 {
-            let _ = model.decode_step(tok, pos, &mut self_kv_cache, &cross_kv_caches);
+            model.decode_step_no_logits(tok, pos, &mut self_kv_cache, &cross_kv_caches);
         } else {
-            let logits = model.decode_step(tok, pos, &mut self_kv_cache, &cross_kv_caches);
-            let mut logits_vec = logits.to_vec();
-            suppress_special_tokens(&mut logits_vec);
-            let next_token = if config.temperature < 1e-8 {
-                argmax(&logits_vec)
+            let logits = model.decode_step_profiled(tok, pos, &mut self_kv_cache, &cross_kv_caches, profile);
+            let next_token = if greedy {
+                // Zero-alloc: borrow logits directly with fused suppression
+                argmax_suppressed(&logits.as_slice())
             } else {
+                let mut logits_vec = logits.to_vec();
+                suppress_special_tokens(&mut logits_vec);
                 sample_with_temperature(&logits_vec, config.temperature)
             };
             if next_token == config.eot_token {
@@ -125,20 +154,20 @@ pub fn greedy_decode<B: MathBackend>(
         let current_token = *tokens.last().unwrap();
 
         let t_step = std::time::Instant::now();
-        let logits = model.decode_step(
+        let logits = model.decode_step_profiled(
             current_token,
             pos,
             &mut self_kv_cache,
             &cross_kv_caches,
+            profile,
         );
         let step_ms = t_step.elapsed().as_secs_f64() * 1000.0;
 
-        let mut logits_vec = logits.to_vec();
-        suppress_special_tokens(&mut logits_vec);
-
-        let next_token = if config.temperature < 1e-8 {
-            argmax(&logits_vec)
+        let next_token = if greedy {
+            argmax_suppressed(&logits.as_slice())
         } else {
+            let mut logits_vec = logits.to_vec();
+            suppress_special_tokens(&mut logits_vec);
             sample_with_temperature(&logits_vec, config.temperature)
         };
 
@@ -154,15 +183,6 @@ pub fn greedy_decode<B: MathBackend>(
     }
 
     tokens
-}
-
-/// Argmax over a slice.
-fn argmax(logits: &[f32]) -> usize {
-    logits
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map_or(0, |(i, _)| i)
 }
 
 /// Sample with temperature scaling.

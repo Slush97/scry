@@ -41,6 +41,14 @@ impl DeviceBackend for CpuBackend {
         storage.clone()
     }
 
+    fn into_vec(storage: Vec<f32>) -> Vec<f32> {
+        storage
+    }
+
+    fn as_slice(storage: &Vec<f32>) -> std::borrow::Cow<'_, [f32]> {
+        std::borrow::Cow::Borrowed(storage.as_slice())
+    }
+
     fn clone_storage(storage: &Vec<f32>) -> Vec<f32> {
         storage.clone()
     }
@@ -70,6 +78,12 @@ impl MathBackend for CpuBackend {
         trans_b: bool,
     ) -> Vec<f32> {
         matmul_tiled(a, b, m, k, n, trans_a, trans_b)
+    }
+
+    fn add_inplace(dst: &mut Vec<f32>, src: &Vec<f32>) {
+        for (d, s) in dst.iter_mut().zip(src.iter()) {
+            *d += s;
+        }
     }
 
     fn add(
@@ -730,10 +744,55 @@ impl MathBackend for CpuBackend {
 /// Computes `out[j] = sum_p vec[p] * mat[p * n + j]` for row-major `mat[k, n]`.
 /// Falls back to a tight scalar loop that auto-vectorizes well on x86-64.
 /// Avoids BLAS dispatch overhead which dominates at small dimensions (e.g. 384).
-#[inline]
+/// Minimum output columns before parallelizing GEMV with rayon.
+/// Below this threshold, thread spawn overhead exceeds the parallelism benefit.
+const GEMV_PAR_THRESHOLD: usize = 8192;
+
+/// Column chunk size for parallel GEMV — sized to fit in L2 cache.
+/// Each thread processes a contiguous slice of output columns.
+const GEMV_PAR_CHUNK: usize = 4096;
+
 fn gemv_f32(vec: &[f32], mat: &[f32], k: usize, n: usize) -> Vec<f32> {
+    // Parallel path: split output columns across threads for large n.
+    // The logit projection [1,384]×[384,51865] is bandwidth-bound at ~1ms;
+    // splitting across cores reduces wall time proportionally.
+    if n >= GEMV_PAR_THRESHOLD {
+        let mut out = vec![0.0f32; n];
+        out.par_chunks_mut(GEMV_PAR_CHUNK)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let col_start = chunk_idx * GEMV_PAR_CHUNK;
+                let chunk_n = chunk.len();
+                let k4 = k & !3;
+                for p in (0..k4).step_by(4) {
+                    let v0 = vec[p];
+                    let v1 = vec[p + 1];
+                    let v2 = vec[p + 2];
+                    let v3 = vec[p + 3];
+                    let base0 = p * n + col_start;
+                    let base1 = (p + 1) * n + col_start;
+                    let base2 = (p + 2) * n + col_start;
+                    let base3 = (p + 3) * n + col_start;
+                    for j in 0..chunk_n {
+                        chunk[j] += v0 * mat[base0 + j]
+                            + v1 * mat[base1 + j]
+                            + v2 * mat[base2 + j]
+                            + v3 * mat[base3 + j];
+                    }
+                }
+                for p in k4..k {
+                    let v = vec[p];
+                    let base = p * n + col_start;
+                    for j in 0..chunk_n {
+                        chunk[j] += v * mat[base + j];
+                    }
+                }
+            });
+        return out;
+    }
+
+    // Sequential path for small n
     let mut out = vec![0.0f32; n];
-    // Process in blocks of 4 along k to give the compiler more ILP
     let k4 = k & !3;
     for p in (0..k4).step_by(4) {
         let v0 = vec[p];
@@ -875,9 +934,12 @@ fn matmul_tiled(
     trans_b: bool,
 ) -> Vec<f32> {
     // Fast path: single-row matmul → GEMV (avoids BLAS dispatch overhead).
-    // Only for small matrices — large ones (e.g. logit projection [1,384]×[51865,384]^T)
-    // are faster with BLAS's cache-optimized sgemm.
-    if m == 1 && !trans_a && k * n <= 1_000_000 {
+    // For m=1, GEMV is always faster than sgemm regardless of n — the n dimension
+    // is just independent dot products, perfectly sequential and cache-friendly.
+    // BLAS sgemm dispatch overhead alone is 50-100µs, and for Whisper's logit
+    // projection [1,384]×[51865,384]^T this caused 0.6-11ms variance vs ~0.8ms
+    // consistent with GEMV.
+    if m == 1 && !trans_a {
         if trans_b {
             return gemv_trans_b_f32(a, b, k, n);
         } else {
@@ -1267,7 +1329,31 @@ fn matmul_strided_batched_impl(
         let ldb = if trans_b { k as i64 } else { n as i64 };
         let ldc = n as i64;
 
-        for i in 0..batch_count {
+        if batch_count >= 2 {
+            // Parallel across batches — each dnnl_sgemm writes to its own
+            // non-overlapping slice so this is safe.
+            c.par_chunks_mut(c_stride)
+                .enumerate()
+                .for_each(|(i, out_chunk)| {
+                    unsafe {
+                        dnnl_ffi::dnnl_sgemm(
+                            transa_c,
+                            transb_c,
+                            m as i64,
+                            n as i64,
+                            k as i64,
+                            1.0,
+                            a[i * a_stride..].as_ptr(),
+                            lda,
+                            b[i * b_stride..].as_ptr(),
+                            ldb,
+                            0.0,
+                            out_chunk.as_mut_ptr(),
+                            ldc,
+                        );
+                    }
+                });
+        } else {
             unsafe {
                 dnnl_ffi::dnnl_sgemm(
                     transa_c,
@@ -1276,12 +1362,12 @@ fn matmul_strided_batched_impl(
                     n as i64,
                     k as i64,
                     1.0,
-                    a[i * a_stride..].as_ptr(),
+                    a.as_ptr(),
                     lda,
-                    b[i * b_stride..].as_ptr(),
+                    b.as_ptr(),
                     ldb,
                     0.0,
-                    c[i * c_stride..].as_mut_ptr(),
+                    c.as_mut_ptr(),
                     ldc,
                 );
             }
@@ -1306,7 +1392,35 @@ fn matmul_strided_batched_impl(
             (CBLAS_TRANSPOSE::CblasNoTrans, n as i32)
         };
 
-        for i in 0..batch_count {
+        if batch_count >= 2 {
+            // Parallel across batches (attention heads) — each cblas_sgemm
+            // writes to its own non-overlapping slice so this is safe.
+            // For encoder attention ([1500,64]×[64,1500] per head), BLAS
+            // runs single-threaded per head; rayon parallelism across heads
+            // gives near-linear speedup.
+            c.par_chunks_mut(c_stride)
+                .enumerate()
+                .for_each(|(i, out_chunk)| {
+                    unsafe {
+                        cblas_sgemm(
+                            CBLAS_LAYOUT::CblasRowMajor,
+                            transa,
+                            transb,
+                            m as i32,
+                            n as i32,
+                            k as i32,
+                            1.0,
+                            a[i * a_stride..].as_ptr(),
+                            lda,
+                            b[i * b_stride..].as_ptr(),
+                            ldb,
+                            0.0,
+                            out_chunk.as_mut_ptr(),
+                            n as i32,
+                        );
+                    }
+                });
+        } else {
             unsafe {
                 cblas_sgemm(
                     CBLAS_LAYOUT::CblasRowMajor,
@@ -1316,12 +1430,12 @@ fn matmul_strided_batched_impl(
                     n as i32,
                     k as i32,
                     1.0,
-                    a[i * a_stride..].as_ptr(),
+                    a.as_ptr(),
                     lda,
-                    b[i * b_stride..].as_ptr(),
+                    b.as_ptr(),
                     ldb,
                     0.0,
-                    c[i * c_stride..].as_mut_ptr(),
+                    c.as_mut_ptr(),
                     n as i32,
                 );
             }
@@ -1331,14 +1445,20 @@ fn matmul_strided_batched_impl(
 
     #[cfg(not(any(feature = "blas", feature = "mkl", feature = "dnnl")))]
     {
-        let mut c = Vec::with_capacity(batch_count * c_stride);
-        for i in 0..batch_count {
-            let a_slice = &a[i * a_stride..(i + 1) * a_stride];
-            let b_slice = &b[i * b_stride..(i + 1) * b_stride];
-            let tile = matmul_tiled_fallback(a_slice, b_slice, m, k, n, trans_a, trans_b);
-            c.extend_from_slice(&tile);
+        if batch_count >= 2 {
+            let mut c = vec![0.0f32; batch_count * c_stride];
+            c.par_chunks_mut(c_stride)
+                .enumerate()
+                .for_each(|(i, out_chunk)| {
+                    let a_slice = &a[i * a_stride..(i + 1) * a_stride];
+                    let b_slice = &b[i * b_stride..(i + 1) * b_stride];
+                    let tile = matmul_tiled_fallback(a_slice, b_slice, m, k, n, trans_a, trans_b);
+                    out_chunk.copy_from_slice(&tile);
+                });
+            c
+        } else {
+            matmul_tiled_fallback(a, b, m, k, n, trans_a, trans_b)
         }
-        c
     }
 }
 

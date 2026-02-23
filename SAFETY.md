@@ -123,12 +123,33 @@ Two log-scale tests were updated to use tolerance-based assertions
 (`1e-9` epsilon) because Miri's software-float emulation rounds
 `10.0_f64.powf(3.0)` to `999.999…95` instead of exactly `1000.0`.
 
-**Fuzz targets (6 total):**
+**Fuzz targets (7 total):**
 | Target | Crate | Coverage |
 |--------|-------|----------|
 | `fuzz_kitty_escape` | core | Kitty escape sequence parser |
 | `fuzz_rasterize` | core | Scene rasterization pipeline |
 | `fuzz_scene_hash` | core | Content hash determinism |
+| `fuzz_vte_terminal` | scry-terminal | VTE → SecurityGate → Grid pipeline |
 | `fuzz_scale` | scry-chart | LinearScale, LogScale, CategoricalScale |
 | `fuzz_chart_render` | scry-chart | Full render pipeline, all 7 chart types |
 | `fuzz_chart_builder` | scry-chart | Builder chain with arbitrary method combos |
+
+---
+
+## scry-terminal
+
+The `scry-terminal` crate sets `unsafe_code = "deny"` in `Cargo.toml` lints.
+Four blocks use `#[allow(unsafe_code)]`:
+
+| File | Block | Justification | Risk |
+|------|-------|---------------|------|
+| `ipc_server.rs` | `getsockopt(SO_PEERCRED)` | Verify connecting peer UID. Fixed-size `ucred` struct, valid socket fd. | Low |
+| `ipc_server.rs` | `getuid()` | Get own UID for peer comparison. No side effects. | Low |
+| `ipc_server.rs` | `chmod()` | Set `/tmp/scry-{uid}/` to `0o700`. Path is a valid `CString`. | Low |
+| `platform.rs` | `signal(SIGPIPE, SIG_IGN)` | Standard Unix daemon practice. `SIG_IGN` is a valid handler. | Low |
+
+**Pre-conditions:** All FFI calls use `libc` crate constants and types. Socket fd is valid (just accepted). Path strings are ASCII-only.
+
+**Post-conditions:** No memory is allocated or freed across FFI boundary. Return values are checked where applicable.
+
+**Panic conditions:** None — all paths handle errors via `Result` or ignore failures.

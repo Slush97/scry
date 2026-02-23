@@ -39,6 +39,13 @@ jobs:
           components: clippy
       - run: cargo clippy --workspace --all-features --all-targets
 
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
   test:
     name: Test (${{ matrix.features }})
     runs-on: ubuntu-latest
@@ -167,7 +174,7 @@ jobs:
         run: cargo +nightly fuzz build
       - name: Run core fuzz targets (30s each)
         run: |
-          for target in fuzz_rasterize fuzz_kitty_escape fuzz_scene_hash; do
+          for target in fuzz_rasterize fuzz_kitty_escape fuzz_scene_hash fuzz_vte_terminal; do
             echo "::group::$target"
             cargo +nightly fuzz run "$target" -- -max_total_time=30
             echo "::endgroup::"

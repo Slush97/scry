@@ -67,9 +67,14 @@ impl<B: MathBackend> WhisperModel<B> {
             .collect()
     }
 
-    /// Create a new empty decoder KV cache.
+    /// Create a new pre-allocated decoder KV cache.
     pub fn new_decoder_kv_cache(&self) -> DecoderKvCache<B> {
-        DecoderKvCache::new(self.config.n_decoder_layers, self.config.d_model)
+        DecoderKvCache::new(
+            self.config.n_decoder_layers,
+            self.config.n_decoder_heads,
+            self.config.d_head_decoder(),
+            self.config.n_text_ctx,
+        )
     }
 
     /// Decode a single token, returning logits `[1, vocab_size]`.
@@ -82,6 +87,34 @@ impl<B: MathBackend> WhisperModel<B> {
     ) -> Tensor<B> {
         self.decoder
             .forward_step(token_id, position, self_kv_cache, cross_kv_caches)
+    }
+
+    /// Decode a single token with optional sub-block profiling.
+    pub fn decode_step_profiled(
+        &self,
+        token_id: usize,
+        position: usize,
+        self_kv_cache: &mut DecoderKvCache<B>,
+        cross_kv_caches: &[CrossKvCache<B>],
+        profile: bool,
+    ) -> Tensor<B> {
+        self.decoder
+            .forward_step_profiled(token_id, position, self_kv_cache, cross_kv_caches, profile)
+    }
+
+    /// Run decoder blocks only — updates KV caches but skips the logit projection.
+    ///
+    /// Use for prompt tokens whose logits are discarded (saves ~1-2ms per call
+    /// by skipping the `[1, d_model] × [vocab_size, d_model]^T` GEMV).
+    pub fn decode_step_no_logits(
+        &self,
+        token_id: usize,
+        position: usize,
+        self_kv_cache: &mut DecoderKvCache<B>,
+        cross_kv_caches: &[CrossKvCache<B>],
+    ) {
+        self.decoder
+            .forward_step_blocks_only(token_id, position, self_kv_cache, cross_kv_caches)
     }
 }
 

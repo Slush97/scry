@@ -22,7 +22,7 @@ use std::os::unix::net::UnixStream;
 
 use tiny_skia::Pixmap;
 
-use crate::transport::backend::{ImageHandle, ProtocolBackend, ProtocolKind, TerminalPosition};
+use crate::transport::backend::{ImageHandle, ProtocolBackend, ProtocolKind, TerminalInfoResponse, TerminalPosition};
 use crate::transport::ipc::{
     classify_payload, IpcCommand, IpcEvent, IpcResponse, Memfd, MessageKind, OverlayAnchor,
 };
@@ -223,18 +223,172 @@ impl NativeBackend {
     pub fn query_info(&mut self) -> Result<IpcResponse, PixelCanvasError> {
         self.send_recv(&IpcCommand::QueryInfo, None)
     }
+
+    /// Submit a scene graph for server-side GPU rendering.
+    ///
+    /// Instead of rasterizing locally and transferring pixels, this sends
+    /// the serialized scene description to scry-terminal, which renders it
+    /// on its own GPU. Falls back to [`transmit`](Self::transmit_inner) if
+    /// serialization or the terminal rejects the scene.
+    ///
+    /// The scene is serialized with `postcard` and passed via memfd (same
+    /// mechanism as pixel data, reusing `SCM_RIGHTS` fd passing).
+    pub fn submit_scene(
+        &mut self,
+        scene: &crate::scene::PixelCanvas,
+        anchor: OverlayAnchor,
+        z_index: i32,
+        persist: bool,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        let id = self.alloc_id();
+
+        // Serialize the scene graph with postcard.
+        let scene_bytes = postcard::to_allocvec(scene).map_err(|e| {
+            PixelCanvasError::Rasterization(format!("native IPC: scene serialize failed: {e}"))
+        })?;
+
+        let scene_len = scene_bytes.len();
+
+        // Write serialized bytes to a memfd.
+        let memfd = Memfd::create(&format!("scry-scene-{id}"), scene_len).map_err(|e| {
+            PixelCanvasError::Rasterization(format!("native IPC: memfd_create failed: {e}"))
+        })?;
+        memfd.write(&scene_bytes).map_err(|e| {
+            PixelCanvasError::Rasterization(format!("native IPC: memfd write failed: {e}"))
+        })?;
+
+        let fd = memfd.as_raw_fd();
+
+        let cmd = IpcCommand::SubmitScene {
+            id,
+            anchor,
+            z_index,
+            scene_len: scene_len as u32,
+            persist,
+        };
+
+        let resp = self.send_recv(&cmd, Some(fd))?;
+
+        match resp {
+            IpcResponse::Ok { id: resp_id } => {
+                self.memfds.insert(resp_id, memfd);
+                self.visible.insert(resp_id, true);
+                Ok(ImageHandle {
+                    id: resp_id,
+                    protocol: ProtocolKind::Native,
+                })
+            }
+            IpcResponse::Error { msg } => Err(PixelCanvasError::Rasterization(format!(
+                "native IPC: submit_scene rejected: {msg}"
+            ))),
+            _ => Err(PixelCanvasError::Rasterization(
+                "native IPC: unexpected response to submit_scene".into(),
+            )),
+        }
+    }
+
+    /// Submit an animation program for terminal-autonomous rendering.
+    ///
+    /// The terminal will create an SDF pipeline and drive the animation
+    /// in its own render loop. The CLI can exit immediately after this
+    /// call succeeds.
+    #[cfg(feature = "sdf")]
+    pub fn submit_animation(
+        &mut self,
+        program: &crate::sdf::AnimationProgram,
+        anchor: OverlayAnchor,
+        z_index: i32,
+        duration_secs: u32,
+        fps: u32,
+        width: u32,
+        height: u32,
+        persist: bool,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        let id = self.alloc_id();
+
+        // Serialize the animation program with postcard.
+        let program_bytes = postcard::to_allocvec(program).map_err(|e| {
+            PixelCanvasError::Rasterization(format!(
+                "native IPC: animation program serialize failed: {e}"
+            ))
+        })?;
+
+        let program_len = program_bytes.len();
+
+        // Write serialized bytes to a memfd.
+        let memfd =
+            Memfd::create(&format!("scry-anim-{id}"), program_len).map_err(|e| {
+                PixelCanvasError::Rasterization(format!(
+                    "native IPC: memfd_create failed: {e}"
+                ))
+            })?;
+        memfd.write(&program_bytes).map_err(|e| {
+            PixelCanvasError::Rasterization(format!(
+                "native IPC: memfd write failed: {e}"
+            ))
+        })?;
+
+        let fd = memfd.as_raw_fd();
+
+        let cmd = IpcCommand::SubmitAnimation {
+            id,
+            anchor,
+            z_index,
+            program_len: program_len as u32,
+            duration_secs,
+            fps,
+            width,
+            height,
+            persist,
+        };
+
+        let resp = self.send_recv(&cmd, Some(fd))?;
+
+        match resp {
+            IpcResponse::Ok { id: resp_id } => {
+                self.memfds.insert(resp_id, memfd);
+                self.visible.insert(resp_id, true);
+                Ok(ImageHandle {
+                    id: resp_id,
+                    protocol: ProtocolKind::Native,
+                })
+            }
+            IpcResponse::Error { msg } => Err(PixelCanvasError::Rasterization(
+                format!("native IPC: submit_animation rejected: {msg}"),
+            )),
+            _ => Err(PixelCanvasError::Rasterization(
+                "native IPC: unexpected response to submit_animation".into(),
+            )),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // ProtocolBackend implementation
 // ---------------------------------------------------------------------------
 
-impl ProtocolBackend for NativeBackend {
-    fn transmit(
+impl NativeBackend {
+    /// Transmit a persistent overlay that survives client disconnection.
+    ///
+    /// Used for static images and charts that should remain visible after
+    /// the CLI process exits. The terminal will keep the overlay until
+    /// explicitly removed or the terminal is closed.
+    pub fn transmit_persistent(
         &mut self,
         pixmap: &Pixmap,
         position: TerminalPosition,
         z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        self.transmit_inner(pixmap, position, z_index, true)
+    }
+
+    /// Common transmit logic shared by trait `transmit` and `transmit_persistent`.
+    fn transmit_inner(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+        persist: bool,
     ) -> Result<ImageHandle, PixelCanvasError> {
         let id = self.alloc_id();
         let rgba = pixmap.data();
@@ -252,11 +406,6 @@ impl ProtocolBackend for NativeBackend {
 
         let cmd = IpcCommand::Transmit {
             id,
-            // Use Viewport anchor so the overlay is positioned relative to the
-            // *visible* terminal window, not the scrollback buffer.
-            // Canvas rows are absolute scrollback-buffer indices that the
-            // compositor compares against scrollback_len — a viewport-relative
-            // row (e.g. 23) would always be culled as "above the viewport".
             anchor: OverlayAnchor::Viewport {
                 col: position.col,
                 row: position.row,
@@ -266,6 +415,7 @@ impl ProtocolBackend for NativeBackend {
             z: z_index,
             px_w: pixmap.width(),
             px_h: pixmap.height(),
+            persist,
         };
 
         let resp = self.send_recv(&cmd, Some(fd))?;
@@ -286,6 +436,17 @@ impl ProtocolBackend for NativeBackend {
                 "native IPC: unexpected response to transmit".into(),
             )),
         }
+    }
+}
+
+impl ProtocolBackend for NativeBackend {
+    fn transmit(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        self.transmit_inner(pixmap, position, z_index, false)
     }
 
     fn remove(&mut self, handle: &ImageHandle) -> Result<(), PixelCanvasError> {
@@ -378,6 +539,27 @@ impl ProtocolBackend for NativeBackend {
 
     fn is_overlay_paused(&self, id: u32) -> bool {
         self.is_paused(id)
+    }
+
+    fn transmit_persistent(
+        &mut self,
+        pixmap: &Pixmap,
+        position: TerminalPosition,
+        z_index: i32,
+    ) -> Result<ImageHandle, PixelCanvasError> {
+        self.transmit_inner(pixmap, position, z_index, true)
+    }
+
+    fn query_info(&mut self) -> Result<TerminalInfoResponse, PixelCanvasError> {
+        let resp = NativeBackend::query_info(self)?;
+        match resp {
+            IpcResponse::Info { font_w, font_h, cols, rows } => {
+                Ok(TerminalInfoResponse { font_w, font_h, cols, rows })
+            }
+            _ => Err(PixelCanvasError::Rasterization(
+                "native IPC: unexpected response to QueryInfo".into(),
+            )),
+        }
     }
 }
 

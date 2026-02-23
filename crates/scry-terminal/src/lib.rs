@@ -6,7 +6,6 @@
 pub mod compositor;
 pub mod config;
 pub mod error;
-pub mod fetch;
 pub mod grid;
 pub mod input;
 #[cfg(unix)]

@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use scry_llm::backend::MathBackend;
 use scry_llm::nn::Module;
 use scry_llm::tensor::shape::Shape;
@@ -26,6 +28,8 @@ pub struct Conv1d<B: MathBackend> {
     pub stride: usize,
     /// Padding added to both sides of the input.
     pub padding: usize,
+    /// Reusable im2col workspace buffer to avoid per-forward allocation.
+    pub workspace: RefCell<Vec<f32>>,
 }
 
 impl<B: MathBackend> Conv1d<B> {
@@ -46,6 +50,12 @@ impl<B: MathBackend> Conv1d<B> {
             .collect();
         let b_data = vec![0.0f32; out_channels];
 
+        // Pre-allocate workspace for the expected input length (3000 frames for 30s audio).
+        let expected_len = 3000;
+        let expected_out = (expected_len + 2 * padding - kernel_size) / stride + 1;
+        let col_rows = kernel_size * in_channels;
+        let workspace = RefCell::new(vec![0.0f32; col_rows * expected_out]);
+
         Self {
             weight: Tensor::from_vec(
                 w_data,
@@ -57,12 +67,15 @@ impl<B: MathBackend> Conv1d<B> {
             kernel_size,
             stride,
             padding,
+            workspace,
         }
     }
 
     /// Forward pass: `input` is `[in_channels, length]` → `[out_channels, out_length]`.
     ///
     /// Performs convolution by unrolling to matrix multiplication for efficiency.
+    /// Reuses an internal workspace buffer for the im2col matrix to avoid
+    /// allocating on every call.
     pub fn forward(&self, input: &Tensor<B>) -> Tensor<B> {
         let length = input.shape.dims()[1];
         let padded_len = length + 2 * self.padding;
@@ -72,7 +85,11 @@ impl<B: MathBackend> Conv1d<B> {
 
         // Build im2col matrix: [kernel_size * in_channels, out_length]
         let col_rows = self.kernel_size * self.in_channels;
-        let mut col = vec![0.0f32; col_rows * out_length];
+        let needed = col_rows * out_length;
+        let mut col = self.workspace.borrow_mut();
+        if col.len() < needed {
+            col.resize(needed, 0.0);
+        }
 
         for out_pos in 0..out_length {
             let in_start = out_pos * self.stride;
@@ -89,7 +106,7 @@ impl<B: MathBackend> Conv1d<B> {
             }
         }
 
-        let col_storage = B::from_vec(col, &Shape::new(&[col_rows, out_length]));
+        let col_storage = B::from_vec(col[..needed].to_vec(), &Shape::new(&[col_rows, out_length]));
 
         // Weight [out_channels, in_channels, kernel_size] has the same flat layout as
         // [out_channels, in_channels * kernel_size] in row-major — use directly, no clone.

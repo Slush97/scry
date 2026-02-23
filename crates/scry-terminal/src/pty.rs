@@ -162,7 +162,8 @@ impl PtyManager {
                 }));
 
                 if result.is_err() {
-                    eprintln!("[scry-term] PTY reader thread panicked");
+                    #[cfg(feature = "logging")]
+                    tracing::error!("PTY reader thread panicked");
                     let _ = sender.send(PtyEvent::ChildExited);
                     if let Some(w) = &waker {
                         w();

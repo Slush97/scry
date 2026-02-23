@@ -1581,6 +1581,178 @@ fn legend_avoids_data_overlap() {
 }
 
 // ===========================================================================
+// Legend z-order (overlay) tests
+// ===========================================================================
+
+/// The legend background and border rectangles must appear *after* the data
+/// polylines in the draw command list — painter's algorithm means later
+/// commands are drawn on top, ensuring the legend overlays the data.
+#[test]
+fn legend_draws_after_data_series() {
+    use scry_engine::scene::command::DrawCommand;
+
+    let chart = LineChart::new(vec![
+        Series::new("Alpha", vec![1.0, 4.0, 2.0, 8.0, 5.0]),
+        Series::new("Beta", vec![3.0, 1.0, 6.0, 3.0, 7.0]),
+    ])
+    .title("Z-Order Test")
+    .build();
+
+    let rendered = layout::render_chart(&chart, 500, 350);
+    let cmds = rendered.canvas.commands();
+
+    // Find the index of the last data polyline (open, non-legend).
+    let last_polyline_idx = cmds
+        .iter()
+        .rposition(|cmd| matches!(cmd, DrawCommand::Polyline { closed: false, .. }))
+        .expect("should have data polylines");
+
+    // Find the index of the first small, rounded-corner filled rect after the
+    // data — this is the legend background.
+    let first_legend_rect_idx = cmds
+        .iter()
+        .enumerate()
+        .position(|(_, cmd)| {
+            matches!(cmd, DrawCommand::Rectangle { corner_radius, style, .. }
+                if *corner_radius > 0.0 && style.fill.is_some())
+        })
+        .expect("should have a legend background rect");
+
+    assert!(
+        first_legend_rect_idx > last_polyline_idx,
+        "Legend rect (idx {first_legend_rect_idx}) must draw after the last \
+         data polyline (idx {last_polyline_idx})"
+    );
+}
+
+/// Legend background must use a near-opaque fill so it genuinely overlays data.
+/// Academic charting convention (matplotlib, ggplot2, D3): legends should never
+/// be fully transparent or they become unreadable against chart data.
+#[test]
+fn legend_background_has_opaque_fill() {
+    use scry_engine::scene::command::DrawCommand;
+    use scry_engine::style::FillStyle;
+
+    let chart = LineChart::new(vec![
+        Series::new("A", vec![1.0, 5.0, 3.0]),
+        Series::new("B", vec![4.0, 2.0, 6.0]),
+    ])
+    .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+
+    // Find the legend background rect (filled, with rounded corners).
+    let legend_bg = rendered
+        .canvas
+        .commands()
+        .iter()
+        .find(|cmd| {
+            matches!(cmd, DrawCommand::Rectangle { corner_radius, style, .. }
+                if *corner_radius > 0.0 && style.fill.is_some())
+        })
+        .expect("should have legend background rect");
+
+    if let DrawCommand::Rectangle { style, .. } = legend_bg {
+        if let Some(FillStyle::Solid(color)) = &style.fill {
+            // Alpha 200/255 ≈ 0.78 is a reasonable minimum for readability.
+            assert!(
+                color.a >= 200.0 / 255.0,
+                "Legend background alpha ({:.2}) should be >= 0.78 for readability",
+                color.a
+            );
+        } else {
+            panic!("Legend background fill should be a solid color");
+        }
+    }
+}
+
+/// Legend border must draw *after* the legend background so the border line
+/// appears on top of the fill — not buried underneath it.
+#[test]
+fn legend_border_draws_after_background() {
+    use scry_engine::scene::command::DrawCommand;
+
+    let chart = LineChart::new(vec![
+        Series::new("X", vec![2.0, 6.0, 4.0]),
+        Series::new("Y", vec![5.0, 3.0, 7.0]),
+    ])
+    .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+    let cmds = rendered.canvas.commands();
+
+    // Legend background: filled rect with rounded corners.
+    let bg_idx = cmds
+        .iter()
+        .position(|cmd| {
+            matches!(cmd, DrawCommand::Rectangle { corner_radius, style, .. }
+                if *corner_radius > 0.0 && style.fill.is_some() && style.stroke.is_none())
+        })
+        .expect("should have legend background (fill only) rect");
+
+    // Legend border: stroked rect with the same rounded corners.
+    let border_idx = cmds
+        .iter()
+        .position(|cmd| {
+            matches!(cmd, DrawCommand::Rectangle { corner_radius, style, .. }
+                if *corner_radius > 0.0 && style.stroke.is_some())
+        })
+        .expect("should have legend border (stroke) rect");
+
+    assert!(
+        border_idx > bg_idx,
+        "Legend border (idx {border_idx}) must draw after background (idx {bg_idx})"
+    );
+}
+
+/// When the legend is hidden via `.no_legend()`, no legend background or
+/// border rectangles should be emitted into the draw command list.
+#[test]
+fn legend_hidden_produces_no_legend_commands() {
+    use scry_engine::scene::command::DrawCommand;
+
+    let chart = LineChart::new(vec![
+        Series::new("A", vec![1.0, 5.0, 3.0]),
+        Series::new("B", vec![4.0, 2.0, 6.0]),
+    ])
+    .no_legend()
+    .build();
+
+    let rendered = layout::render_chart(&chart, 400, 300);
+
+    // With legend hidden, there should be no small rounded-corner rects
+    // (legend background/border). The only rects should be axes/gridlines
+    // which use corner_radius == 0.
+    let legend_rects: Vec<_> = rendered
+        .canvas
+        .commands()
+        .iter()
+        .filter(|cmd| {
+            matches!(cmd, DrawCommand::Rectangle { corner_radius, .. }
+                if *corner_radius > 0.0)
+        })
+        .collect();
+
+    assert!(
+        legend_rects.is_empty(),
+        "Hidden legend should produce no rounded-corner rects, \
+         found {} candidate(s)",
+        legend_rects.len()
+    );
+
+    // Legend series labels should also be absent from text overlays.
+    let labels = rendered.text_labels();
+    assert!(
+        !labels.contains(&"A"),
+        "Hidden legend should not emit series label 'A'"
+    );
+    assert!(
+        !labels.contains(&"B"),
+        "Hidden legend should not emit series label 'B'"
+    );
+}
+
+// ===========================================================================
 // Gantt chart tests
 // ===========================================================================
 

@@ -18,6 +18,9 @@ fastrand = "2"
 path = ".."
 features = ["kitty"]
 
+[dependencies.scry-terminal]
+path = "../crates/scry-terminal"
+
 [dependencies.scry-chart]
 path = "../crates/scry-chart"
 
@@ -312,6 +315,17 @@ bench = false
 [[bin]]
 name = "fuzz_ipc_deserialize"
 path = "fuzz_targets/fuzz_ipc_deserialize.rs"
+test = false
+doc = false
+bench = false
+
+# ═══════════════════════════════════════════
+# Phase 9: Terminal security fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_vte_terminal"
+path = "fuzz_targets/fuzz_vte_terminal.rs"
 test = false
 doc = false
 bench = false

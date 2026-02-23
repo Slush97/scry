@@ -60,13 +60,17 @@ def run_once(wav_path: str, threads: int, model_path: str) -> dict:
     batchd_ms = parse_ms_per_run("batchd time")
     total_ms = parse_ms("total time")
 
+    # Subtract model load — whisper.cpp "total time" is wall clock including load.
+    # For fair comparison with Rust (model pre-loaded), report inference-only time.
+    inference_ms = total_ms - load_ms if total_ms > load_ms else total_ms
+
     return {
         "text": text,
         "load_ms": load_ms,
         "mel_ms": mel_ms,
         "encode_ms": encode_ms,
         "decode_ms": round(decode_ms + batchd_ms, 2),
-        "total_inference_ms": total_ms,
+        "total_inference_ms": round(inference_ms, 2),
     }
 
 
@@ -77,7 +81,8 @@ def main():
 
     wav_path = sys.argv[1]
     model_name = sys.argv[2] if len(sys.argv) > 2 else "tiny"
-    threads = int(sys.argv[3]) if len(sys.argv) > 3 else 4
+    # Default to all cores (matching Rust rayon default) for fair comparison
+    threads = int(sys.argv[3]) if len(sys.argv) > 3 else os.cpu_count()
 
     model_path = f"{MODELS_DIR}/ggml-{model_name}.bin"
 
@@ -91,7 +96,8 @@ def main():
     # Cold run
     cold = run_once(wav_path, threads, model_path)
 
-    # Warm runs (3x)
+    # Warm runs (3x) — each is a separate process so model reloads each time.
+    # Subtract load_ms for fair comparison (Rust model is pre-loaded).
     warm_runs = []
     for _ in range(3):
         w = run_once(wav_path, threads, model_path)

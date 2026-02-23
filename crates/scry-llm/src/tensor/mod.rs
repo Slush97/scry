@@ -66,6 +66,18 @@ impl<B: DeviceBackend> Tensor<B> {
         B::to_vec(&self.data)
     }
 
+    /// Consume the tensor and return the underlying data as `Vec<f32>`.
+    /// Avoids cloning when `Storage = Vec<f32>` (e.g. CpuBackend).
+    pub fn into_vec(self) -> Vec<f32> {
+        B::into_vec(self.data)
+    }
+
+    /// Borrow the tensor data as a `&[f32]` slice without cloning.
+    /// Returns `Cow::Borrowed` on CpuBackend, `Cow::Owned` on GPU backends.
+    pub fn as_slice(&self) -> std::borrow::Cow<'_, [f32]> {
+        B::as_slice(&self.data)
+    }
+
     pub fn numel(&self) -> usize {
         self.shape.numel()
     }

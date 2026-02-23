@@ -165,7 +165,81 @@ fn ops_micro(c: &mut Criterion) {
 }
 
 // ============================================================
-// Group 3: GPU ops (only with cuda feature)
+// Group 3: GEMV benchmarks (decode-relevant dimensions)
+// ============================================================
+
+fn gemv_bench(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gemv_bench");
+
+    // Self-attn QKV: [1, 384] @ [384, 1152] — gemv_f32
+    {
+        let a = vec![0.01f32; 384];
+        let b = vec![0.01f32; 384 * 1152];
+        for _ in 0..2 {
+            let _ = black_box(CpuBackend::matmul(&a, &b, 1, 384, 1152, false, false));
+        }
+        group.bench_function("qkv_384x1152", |bench| {
+            bench.iter(|| {
+                black_box(CpuBackend::matmul(
+                    black_box(&a), black_box(&b), 1, 384, 1152, false, false,
+                ))
+            });
+        });
+    }
+
+    // Cross-attn Q@K^T with trans_b=true: [1, 64] @ [1500, 64]^T — gemv_trans_b (current)
+    {
+        let q = vec![0.01f32; 64];
+        let k = vec![0.01f32; 1500 * 64];
+        for _ in 0..2 {
+            let _ = black_box(CpuBackend::matmul(&q, &k, 1, 64, 1500, false, true));
+        }
+        group.bench_function("cross_qkt_trans_64x1500", |bench| {
+            bench.iter(|| {
+                black_box(CpuBackend::matmul(
+                    black_box(&q), black_box(&k), 1, 64, 1500, false, true,
+                ))
+            });
+        });
+    }
+
+    // Cross-attn Q@K_t with trans_b=false: [1, 64] @ [64, 1500] — gemv_f32 (proposed)
+    {
+        let q = vec![0.01f32; 64];
+        let kt = vec![0.01f32; 64 * 1500];
+        for _ in 0..2 {
+            let _ = black_box(CpuBackend::matmul(&q, &kt, 1, 64, 1500, false, false));
+        }
+        group.bench_function("cross_qkt_notrans_64x1500", |bench| {
+            bench.iter(|| {
+                black_box(CpuBackend::matmul(
+                    black_box(&q), black_box(&kt), 1, 64, 1500, false, false,
+                ))
+            });
+        });
+    }
+
+    // Logit projection: [1, 384] @ [384, 51865] — gemv_f32
+    {
+        let a = vec![0.01f32; 384];
+        let b = vec![0.01f32; 384 * 51865];
+        for _ in 0..2 {
+            let _ = black_box(CpuBackend::matmul(&a, &b, 1, 384, 51865, false, false));
+        }
+        group.bench_function("logit_384x51865", |bench| {
+            bench.iter(|| {
+                black_box(CpuBackend::matmul(
+                    black_box(&a), black_box(&b), 1, 384, 51865, false, false,
+                ))
+            });
+        });
+    }
+
+    group.finish();
+}
+
+// ============================================================
+// Group 4: GPU ops (only with cuda feature)
 // ============================================================
 
 #[cfg(feature = "cuda")]
@@ -235,7 +309,7 @@ fn gpu_ops(c: &mut Criterion) {
 }
 
 #[cfg(feature = "cuda")]
-criterion_group!(benches, forward_pass, ops_matmul, ops_micro, gpu_ops);
+criterion_group!(benches, forward_pass, ops_matmul, ops_micro, gemv_bench, gpu_ops);
 #[cfg(not(feature = "cuda"))]
-criterion_group!(benches, forward_pass, ops_matmul, ops_micro);
+criterion_group!(benches, forward_pass, ops_matmul, ops_micro, gemv_bench);
 criterion_main!(benches);
