@@ -308,15 +308,31 @@ fn parse_params(s: &str) -> GfxParams {
 }
 
 /// Decompress zlib-compressed data.
+///
+/// Output is capped at `MAX_DECOMPRESSED` to prevent decompression bombs
+/// (a tiny compressed payload that inflates to gigabytes).
 fn decompress_zlib(data: &[u8]) -> Result<Vec<u8>, String> {
     use flate2::read::ZlibDecoder;
     use std::io::Read;
 
-    let mut decoder = ZlibDecoder::new(data);
+    // MAX_IMAGE_PIXELS (64M) × 4 (RGBA) = 256 MiB max reasonable image.
+    const MAX_DECOMPRESSED: u64 = 256 * 1024 * 1024;
+
+    let decoder = ZlibDecoder::new(data);
     let mut output = Vec::new();
     decoder
+        .take(MAX_DECOMPRESSED)
         .read_to_end(&mut output)
         .map_err(|e| format!("zlib: {e}"))?;
+
+    // If we filled exactly to the limit, probe for more data to detect overflow.
+    if output.len() as u64 >= MAX_DECOMPRESSED {
+        return Err(format!(
+            "decompressed data exceeds {} MiB limit",
+            MAX_DECOMPRESSED / (1024 * 1024)
+        ));
+    }
+
     Ok(output)
 }
 

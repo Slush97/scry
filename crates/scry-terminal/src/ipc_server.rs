@@ -70,6 +70,8 @@ pub enum OverlayOp {
         /// Client identifier (usually the thread/connection index).
         client_id: u64,
     },
+    /// Trigger the native fetch overlay display.
+    ShowFetch,
 }
 
 /// Information about the terminal for `QueryInfo` responses.
@@ -154,6 +156,14 @@ impl IpcServer {
         let listener = UnixListener::bind(&sock_path)
             .map_err(|e| format!("failed to bind IPC socket at {}: {e}", sock_path.display()))?;
 
+        // Restrict socket to owner-only access (rwx------)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o700);
+            let _ = std::fs::set_permissions(&sock_path, perms);
+        }
+
         // Set non-blocking so we can check the shutdown flag periodically.
         listener
             .set_nonblocking(true)
@@ -179,11 +189,6 @@ impl IpcServer {
                 );
             })
             .map_err(|e| format!("failed to spawn IPC server thread: {e}"))?;
-
-        eprintln!(
-            "[scry-term] IPC server started at {}",
-            sock_path.display()
-        );
 
         Ok(Self {
             sock_path,
@@ -247,6 +252,12 @@ impl IpcServer {
         while !shutdown.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((stream, _addr)) => {
+                    // Verify connecting process is owned by the same user
+                    if !Self::verify_peer_uid(&stream) {
+                        eprintln!("[scry-ipc] rejected connection from different UID");
+                        continue;
+                    }
+
                     client_counter += 1;
                     let client_id = client_counter;
                     let ops_tx = ops_tx.clone();
@@ -287,6 +298,41 @@ impl IpcServer {
                 }
             }
         }
+    }
+
+    /// Verify that the connecting peer runs as the same UID as this process.
+    ///
+    /// Uses `SO_PEERCRED` to retrieve the peer's credentials from the Unix
+    /// domain socket. Rejects connections from other users.
+    #[cfg(unix)]
+    fn verify_peer_uid(stream: &UnixStream) -> bool {
+        use std::os::unix::io::AsRawFd;
+        let fd = stream.as_raw_fd();
+        let mut cred: libc::ucred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: `getsockopt(SO_PEERCRED)` is a well-defined POSIX call that
+        // populates a `ucred` struct. Both `fd` and `cred` are valid.
+        #[allow(unsafe_code)]
+        let ret = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                std::ptr::addr_of_mut!(cred).cast::<libc::c_void>(),
+                &mut len,
+            )
+        };
+        if ret != 0 {
+            return false;
+        }
+        // SAFETY: `getuid()` is a trivial POSIX call with no preconditions.
+        #[allow(unsafe_code)]
+        let our_uid = unsafe { libc::getuid() };
+        cred.uid == our_uid
     }
 
     /// Handle a single client connection.
@@ -435,6 +481,15 @@ impl IpcServer {
                     cols: info.cols,
                     rows: info.rows,
                 }
+            }
+
+            IpcCommand::ShowFetch => {
+                if ops_tx.send(OverlayOp::ShowFetch).is_err() {
+                    return IpcResponse::Error {
+                        msg: "compositor channel closed".into(),
+                    };
+                }
+                IpcResponse::Ok { id: 0 }
             }
         }
     }

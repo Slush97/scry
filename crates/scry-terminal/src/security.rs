@@ -105,12 +105,17 @@ impl SecurityGate {
 
     /// Filter clipboard OSC 52 commands.
     fn filter_clipboard(&self, params: &[&[u8]]) -> OscAction {
+        /// Maximum clipboard payload size (1 MiB base64 ≈ 768 KiB decoded).
+        const MAX_CLIPBOARD_B64: usize = 1024 * 1024;
+
         // OSC 52 format: 52;target;data
         // SET (data is base64) — allowed, the program is pushing to clipboard
         // QUERY (data is "?") — blocked, could leak clipboard contents to PTY
         if let Some(data) = params.get(2) {
             if data == b"?" {
                 OscAction::Block // Query → blocked
+            } else if data.len() > MAX_CLIPBOARD_B64 {
+                OscAction::Block // Oversized clipboard payload
             } else {
                 OscAction::ClipboardSet // Set → allowed
             }
@@ -269,5 +274,23 @@ mod tests {
         let gate = SecurityGate::new(ResponsePolicy::default());
         let result = gate.filter_osc(&[b"8", b"", b""]);
         assert_eq!(result, OscAction::HyperlinkClose);
+    }
+
+    #[test]
+    fn osc_clipboard_set_oversized_blocked() {
+        let gate = SecurityGate::new(ResponsePolicy::default());
+        // 2 MiB of base64 — should be blocked
+        let big = vec![b'A'; 2 * 1024 * 1024];
+        let result = gate.filter_osc(&[b"52", b"c", &big]);
+        assert_eq!(result, OscAction::Block);
+    }
+
+    #[test]
+    fn osc_clipboard_set_small_allowed() {
+        let gate = SecurityGate::new(ResponsePolicy::default());
+        // 100 bytes — well under the limit
+        let small = vec![b'A'; 100];
+        let result = gate.filter_osc(&[b"52", b"c", &small]);
+        assert_eq!(result, OscAction::ClipboardSet);
     }
 }

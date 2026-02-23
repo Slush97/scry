@@ -25,6 +25,79 @@ pub struct TerminalConfig {
     pub shell: Option<String>,
     /// Initial window dimensions in cells.
     pub window: WindowConfig,
+    /// Fetch splash configuration.
+    pub fetch: FetchConfig,
+    /// Bell (BEL character) behaviour.
+    pub bell: BellConfig,
+}
+
+// ── Fetch splash configuration ──────────────────────────────────
+
+/// Configuration for the native fetch splash display.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct FetchConfig {
+    /// Whether to show fetch on terminal startup.
+    pub show_on_startup: bool,
+    /// Auto-dismiss after this many seconds (0 = keypress only).
+    pub duration: f32,
+    /// Logo source: `"auto"` (distro detection), `"geometry"` (sacred geometry),
+    /// `"none"`, or a file path to a custom image/SVG.
+    pub logo: String,
+    /// Fade-out duration in seconds.
+    pub fade_duration: f32,
+    /// Theme settings for the fetch display.
+    pub theme: FetchTheme,
+    /// Ordered list of field IDs to display.
+    pub fields: Vec<String>,
+}
+
+/// Theme colors for the fetch display.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct FetchTheme {
+    /// Color for the username part of user@host.
+    pub title_user: String,
+    /// Color for the hostname part of user@host.
+    pub title_host: String,
+    /// Color for the `@` separator.
+    pub title_at: String,
+    /// Color for the separator line.
+    pub separator: String,
+    /// Color for field icons.
+    pub icon: String,
+    /// Color for field values.
+    pub value: String,
+}
+
+impl Default for FetchConfig {
+    fn default() -> Self {
+        Self {
+            show_on_startup: true,
+            duration: 3.0,
+            logo: "auto".into(),
+            fade_duration: 0.5,
+            theme: FetchTheme::default(),
+            fields: vec![
+                "os".into(), "kernel".into(), "uptime".into(), "shell".into(),
+                "terminal".into(), "de_wm".into(), "packages".into(),
+                "memory".into(), "cpu".into(),
+            ],
+        }
+    }
+}
+
+impl Default for FetchTheme {
+    fn default() -> Self {
+        Self {
+            title_user: "#A8D5BA".into(),
+            title_host: "#F2B5D4".into(),
+            title_at: "#787268".into(),
+            separator: "#CBB6FF".into(),
+            icon: "#CBB6FF".into(),
+            value: "#E8E2D7".into(),
+        }
+    }
 }
 
 /// Font configuration.
@@ -94,6 +167,23 @@ pub struct WindowConfig {
     pub rows: u16,
     /// Padding around terminal content in pixels.
     pub padding: f32,
+    /// Background opacity (0.0 = fully transparent, 1.0 = fully opaque).
+    /// Compositor support required for values below 1.0.
+    pub opacity: f32,
+}
+
+/// Bell (BEL character) configuration.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+pub struct BellConfig {
+    /// Master on/off switch. When false, BEL (0x07) is silently ignored.
+    pub enabled: bool,
+    /// Flash the screen briefly on BEL.
+    pub visual: bool,
+    /// Duration of the visual flash in milliseconds.
+    pub flash_duration_ms: u32,
+    /// Emit a system audio beep on BEL.
+    pub audio: bool,
 }
 
 // ── Defaults ───────────────────────────────────────────────────────
@@ -107,6 +197,8 @@ impl Default for TerminalConfig {
             cursor: CursorConfig::default(),
             shell: None,
             window: WindowConfig::default(),
+            fetch: FetchConfig::default(),
+            bell: BellConfig::default(),
         }
     }
 }
@@ -170,7 +262,19 @@ impl Default for WindowConfig {
         Self {
             columns: 80,
             rows: 24,
-            padding: 6.0,
+            padding: 20.0,
+            opacity: 1.0,
+        }
+    }
+}
+
+impl Default for BellConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            visual: false,
+            flash_duration_ms: 120,
+            audio: false,
         }
     }
 }
@@ -286,7 +390,11 @@ impl TerminalConfig {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _ = std::fs::write(&path, output);
+        // Atomic write: write to temp file, then rename (prevents corruption on crash)
+        let tmp_path = path.with_extension("toml.tmp");
+        if std::fs::write(&tmp_path, &output).is_ok() {
+            let _ = std::fs::rename(&tmp_path, &path);
+        }
     }
 }
 
@@ -362,5 +470,42 @@ mod tests {
         let config: TerminalConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.cursor.style, CursorStyleConfig::Bar);
         assert!(!config.cursor.blink);
+    }
+
+    #[test]
+    fn opacity_config() {
+        // Default is fully opaque
+        let config = TerminalConfig::default();
+        assert!((config.window.opacity - 1.0).abs() < f32::EPSILON);
+
+        // Deserialize custom opacity
+        let toml_str = r#"
+            [window]
+            opacity = 0.9
+        "#;
+        let config: TerminalConfig = toml::from_str(toml_str).unwrap();
+        assert!((config.window.opacity - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn bell_config_defaults() {
+        let config = TerminalConfig::default();
+        assert!(config.bell.enabled);
+        assert!(!config.bell.visual);
+        assert!(!config.bell.audio);
+        assert_eq!(config.bell.flash_duration_ms, 120);
+    }
+
+    #[test]
+    fn bell_config_deserialize() {
+        let toml_str = r#"
+            [bell]
+            enabled = true
+            visual = true
+            flash_duration_ms = 200
+        "#;
+        let config: TerminalConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.bell.visual);
+        assert_eq!(config.bell.flash_duration_ms, 200);
     }
 }

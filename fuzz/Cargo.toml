@@ -304,3 +304,14 @@ path = "fuzz_targets/fuzz_llm_training_step.rs"
 test = false
 doc = false
 bench = false
+
+# ═══════════════════════════════════════════
+# Phase 8: Security hardening fuzz targets
+# ═══════════════════════════════════════════
+
+[[bin]]
+name = "fuzz_ipc_deserialize"
+path = "fuzz_targets/fuzz_ipc_deserialize.rs"
+test = false
+doc = false
+bench = false

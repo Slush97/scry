@@ -46,7 +46,7 @@ impl PtyManager {
         pixel_width: u16,
         pixel_height: u16,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::spawn_internal(shell, cols, rows, pixel_width, pixel_height, None)
+        Self::spawn_internal(shell, cols, rows, pixel_width, pixel_height, None, None)
     }
 
     /// Spawn a new PTY with a waker callback.
@@ -60,8 +60,9 @@ impl PtyManager {
         pixel_width: u16,
         pixel_height: u16,
         waker: Box<dyn Fn() + Send + Sync>,
+        sock_path: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::spawn_internal(shell, cols, rows, pixel_width, pixel_height, Some(Arc::new(waker)))
+        Self::spawn_internal(shell, cols, rows, pixel_width, pixel_height, Some(Arc::new(waker)), sock_path)
     }
 
     /// Internal spawning logic.
@@ -72,6 +73,7 @@ impl PtyManager {
         pixel_width: u16,
         pixel_height: u16,
         waker: Option<Arc<Box<dyn Fn() + Send + Sync>>>,
+        sock_path: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let pty_size = PtySize {
             rows,
@@ -86,7 +88,7 @@ impl PtyManager {
 
         // Build the shell command
         let mut cmd = CommandBuilder::new(shell);
-        platform::setup_child_env(&mut cmd);
+        platform::setup_child_env(&mut cmd, sock_path);
 
         // Spawn the child process
         let child = pair.slave.spawn_command(cmd)?;
@@ -112,6 +114,7 @@ impl PtyManager {
             size: pty_size,
         })
     }
+
 
     /// Start the background PTY reader thread.
     fn start_reader_thread(

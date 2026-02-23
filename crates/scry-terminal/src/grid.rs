@@ -858,9 +858,17 @@ impl TerminalGrid {
     }
 
     /// Backspace — move cursor left by 1 (does not erase).
+    ///
+    /// If a wrap is pending (cursor just reached the right margin),
+    /// BS cancels the wrap without moving. At column 0, BS is a no-op.
     pub fn backspace(&mut self) {
-        self.cursor.col = self.cursor.col.saturating_sub(1);
-        self.cursor.pending_wrap = false;
+        if self.cursor.pending_wrap {
+            // Cancel the pending wrap; cursor stays at cols-1.
+            self.cursor.pending_wrap = false;
+        } else if self.cursor.col > 0 {
+            self.cursor.col -= 1;
+        }
+        // At col 0 with no pending wrap: no-op (cannot backspace further).
     }
 
     // ── Scrolling ──────────────────────────────────────────────────
@@ -1489,4 +1497,50 @@ mod tests {
         grid.scroll_up(1);
         assert!(grid.scrollback_len() == 1);
     }
+
+    #[test]
+    fn backspace_at_col_zero_is_noop() {
+        let mut grid = TerminalGrid::new(80, 24, 0);
+        assert_eq!(grid.cursor.col, 0);
+        assert_eq!(grid.cursor.row, 0);
+        grid.backspace();
+        assert_eq!(grid.cursor.col, 0);
+        assert_eq!(grid.cursor.row, 0);
+        // Repeated backspace still no-op
+        grid.backspace();
+        grid.backspace();
+        assert_eq!(grid.cursor.col, 0);
+    }
+
+    #[test]
+    fn backspace_cancels_pending_wrap() {
+        let mut grid = TerminalGrid::new(3, 2, 0);
+        grid.put_char('A');
+        grid.put_char('B');
+        grid.put_char('C'); // triggers pending_wrap, cursor at col 2
+        assert!(grid.cursor.pending_wrap);
+        assert_eq!(grid.cursor.col, 2);
+        grid.backspace();
+        assert!(!grid.cursor.pending_wrap);
+        // Cursor stays at cols-1 (wrap cancelled, no movement)
+        assert_eq!(grid.cursor.col, 2);
+    }
+
+    #[test]
+    fn backspace_from_mid_line() {
+        let mut grid = TerminalGrid::new(80, 24, 0);
+        grid.put_char('A');
+        grid.put_char('B');
+        grid.put_char('C');
+        assert_eq!(grid.cursor.col, 3);
+        grid.backspace();
+        assert_eq!(grid.cursor.col, 2);
+        grid.backspace();
+        assert_eq!(grid.cursor.col, 1);
+        grid.backspace();
+        assert_eq!(grid.cursor.col, 0);
+        grid.backspace(); // should be no-op
+        assert_eq!(grid.cursor.col, 0);
+    }
 }
+

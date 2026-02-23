@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crossbeam_channel::Receiver;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
@@ -16,8 +17,11 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 use scry_terminal::compositor::Compositor;
 use scry_terminal::config::TerminalConfig;
+use scry_terminal::fetch::FetchOverlay;
 use scry_terminal::grid::TerminalGrid;
 use scry_terminal::input;
+use scry_terminal::ipc_server::{IpcServer, OverlayOp, TerminalInfo};
+use scry_engine::transport::ipc::{Memfd, OverlayAnchor};
 use scry_terminal::performance::{ParseThrottler, RenderScheduler};
 use scry_terminal::platform::{self, TerminalSize};
 use scry_terminal::pty::PtyManager;
@@ -29,6 +33,26 @@ use scry_terminal::selection::Selection;
 enum TerminalEvent {
     /// New PTY data is available for reading.
     PtyDataReady,
+}
+
+/// State for the currently active IPC overlay.
+///
+/// Retains the memfd so `Refresh` commands can re-read updated pixel data
+/// without needing a new file descriptor transfer.
+#[allow(dead_code)]
+struct ActiveOverlay {
+    /// The shared memory mapping (kept alive for in-place updates).
+    memfd: Memfd,
+    /// Pixel width of the overlay.
+    px_w: u32,
+    /// Pixel height of the overlay.
+    px_h: u32,
+    /// Anchor position.
+    anchor: OverlayAnchor,
+    /// Width in terminal cells.
+    w_cells: u16,
+    /// Height in terminal cells.
+    h_cells: u16,
 }
 
 /// The terminal application.
@@ -77,6 +101,16 @@ struct TerminalState {
     original_font_size: f32,
     /// Content padding in pixels.
     padding: f32,
+    /// IPC server for scry-cli overlay communication.
+    _ipc_server: Option<IpcServer>,
+    /// Receiver for overlay operations from the IPC server.
+    ipc_ops_rx: Option<Receiver<OverlayOp>>,
+    /// Terminal info shared with the IPC server.
+    ipc_info: Option<Arc<std::sync::RwLock<TerminalInfo>>>,
+    /// Currently active IPC overlay (retains memfd for Refresh re-reads).
+    active_overlay: Option<ActiveOverlay>,
+    /// Native fetch splash overlay.
+    fetch_overlay: Option<FetchOverlay>,
 }
 
 impl TerminalApp {
@@ -91,6 +125,7 @@ impl TerminalApp {
 
 impl ApplicationHandler<TerminalEvent> for TerminalApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let resumed_start = Instant::now();
         if self.state.is_some() {
             return; // Already initialized
         }
@@ -159,6 +194,33 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
         // Create security gate
         let security = SecurityGate::new(ResponsePolicy::default());
 
+        // ── IPC server ─────────────────────────────────────────────
+        // Start the IPC server so that scry-cli (and other tools) can
+        // send overlay operations via shared memory.
+        let (ipc_ops_tx, ipc_ops_rx) = crossbeam_channel::unbounded::<OverlayOp>();
+        let ipc_info = Arc::new(std::sync::RwLock::new(TerminalInfo {
+            font_w: compositor.cell_width() as u16,
+            font_h: compositor.cell_height() as u16,
+            cols: term_size.cols,
+            rows: term_size.rows,
+        }));
+
+        let ipc_server: Option<IpcServer> = match IpcServer::start(ipc_ops_tx, ipc_info.clone()) {
+            Ok(server) => {
+                eprintln!("[scry-term] IPC server started at {}", server.sock_path_str());
+                Some(server)
+            }
+            Err(e) => {
+                eprintln!("[scry-term] IPC server failed to start: {e} (overlays disabled)");
+                None
+            }
+        };
+
+        // Get the socket path for the child environment
+        let sock_path: Option<String> = ipc_server
+            .as_ref()
+            .map(|s: &IpcServer| s.sock_path_str().to_string());
+
         // Determine shell
         let shell = self
             .config
@@ -174,7 +236,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
             let _ = proxy.send_event(TerminalEvent::PtyDataReady);
         });
 
-        // Spawn PTY with waker
+        // Spawn PTY with waker and IPC socket path
         let pty = match PtyManager::spawn_with_waker(
             &shell,
             term_size.cols,
@@ -182,6 +244,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
             term_size.pixel_width,
             term_size.pixel_height,
             waker,
+            sock_path.as_deref(),
         ) {
             Ok(pty) => pty,
             Err(e) => {
@@ -202,6 +265,17 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
         // Initialize clipboard (may fail on headless systems)
         let clipboard = arboard::Clipboard::new().ok();
 
+        // Initialize fetch overlay if configured
+        let fetch_overlay = if self.config.fetch.show_on_startup {
+            let mut overlay = FetchOverlay::new(&self.config.fetch);
+            overlay.compute_banner_height(compositor.cell_height(), padding);
+            overlay.activate();
+            eprintln!("[scry-term] fetch overlay activated on startup");
+            Some(overlay)
+        } else {
+            None
+        };
+
         self.state = Some(TerminalState {
             window: window.clone(),
             compositor,
@@ -220,9 +294,17 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
             exit_deadline: None,
             original_font_size: self.config.font.size,
             padding,
+            _ipc_server: ipc_server,
+            ipc_ops_rx: Some(ipc_ops_rx),
+            ipc_info: Some(ipc_info),
+            active_overlay: None,
+            fetch_overlay,
         });
 
-        eprintln!("[scry-term] initialization complete, requesting first redraw...");
+        eprintln!(
+            "[scry-term] initialization complete in {:.1}ms, requesting first redraw...",
+            resumed_start.elapsed().as_secs_f64() * 1000.0
+        );
 
         // Kick-start the render loop
         window.request_redraw();
@@ -230,6 +312,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
 
     /// Handle custom user events (PTY data ready).
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: TerminalEvent) {
+        eprintln!("[scry-term] DIAG: user_event received: {event:?}");
         match event {
             TerminalEvent::PtyDataReady => {
                 // PTY has data — request a redraw to process it
@@ -251,8 +334,11 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
             return;
         };
 
+        eprintln!("[scry-term] DIAG: window_event: {event:?}");
+
         match event {
             WindowEvent::CloseRequested => {
+                eprintln!("[scry-term] DIAG: CloseRequested received — exiting");
                 event_loop.exit();
             }
 
@@ -277,6 +363,14 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                         term_size.pixel_height,
                     );
 
+                    // Update IPC terminal info for QueryInfo responses
+                    if let Some(info) = &state.ipc_info {
+                        if let Ok(mut info) = info.write() {
+                            info.cols = term_size.cols;
+                            info.rows = term_size.rows;
+                        }
+                    }
+
                     state.scheduler.request_redraw();
                 }
             }
@@ -286,6 +380,16 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
+                // Dismiss fetch overlay on any keypress
+                if event.state == ElementState::Pressed {
+                    if let Some(fetch) = &mut state.fetch_overlay {
+                        if fetch.is_active() {
+                            fetch.dismiss();
+                            state.scheduler.request_redraw();
+                        }
+                    }
+                }
+
                 // Intercept Shift+PageUp/Down for viewport scrolling
                 if event.state == ElementState::Pressed && state.modifiers.shift_key() {
                     match &event.logical_key {
@@ -491,6 +595,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                     }
 
                     if Instant::now() >= deadline {
+                        eprintln!("[scry-term] DIAG: drain deadline reached — exiting");
                         event_loop.exit();
                         return;
                     }
@@ -516,6 +621,11 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                 }
 
                 if result.child_exited {
+                    let elapsed = state.spawn_time.elapsed();
+                    eprintln!(
+                        "[scry-term] DIAG: poll_pty reported child_exited after {:.1}ms (via channel)",
+                        elapsed.as_secs_f64() * 1000.0
+                    );
                     state.child_exited = true;
                     state.exit_deadline =
                         Some(Instant::now() + Duration::from_millis(100));
@@ -525,6 +635,103 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
 
                 if result.bytes_consumed > 0 {
                     state.scheduler.request_redraw();
+                }
+
+                // ── IPC overlay operations ─────────────────────────
+                if let Some(rx) = &state.ipc_ops_rx {
+                    while let Ok(op) = rx.try_recv() {
+                        match op {
+                            OverlayOp::Add { memfd, px_w, px_h, anchor, w_cells, h_cells, .. } => {
+                                let rgba = memfd.read_bytes();
+
+                                // Compute pixel origin from the anchor.
+                                let cw = state.compositor.cell_width();
+                                let ch = state.compositor.cell_height();
+                                let pad = state.compositor.padding();
+                                let (origin_x, origin_y) = match &anchor {
+                                    OverlayAnchor::Viewport { col, row } => {
+                                        (pad + *col as f32 * cw, pad + *row as f32 * ch)
+                                    }
+                                    OverlayAnchor::Canvas { col, row } => {
+                                        (pad + *col as f32 * cw, pad + *row as f32 * ch)
+                                    }
+                                };
+
+                                state.compositor.set_overlay_rgba(
+                                    px_w, px_h, &rgba, origin_x, origin_y,
+                                );
+
+                                // Retain the overlay state so Refresh can re-read.
+                                state.active_overlay = Some(ActiveOverlay {
+                                    memfd,
+                                    px_w,
+                                    px_h,
+                                    anchor,
+                                    w_cells,
+                                    h_cells,
+                                });
+                                state.scheduler.request_redraw();
+                            }
+                            OverlayOp::Refresh { id: _ } => {
+                                // Re-read the memfd — the CLI has written
+                                // new pixel data in-place for this frame.
+                                if let Some(ov) = &state.active_overlay {
+                                    let rgba = ov.memfd.read_bytes();
+                                    let cw = state.compositor.cell_width();
+                                    let ch = state.compositor.cell_height();
+                                    let pad = state.compositor.padding();
+                                    let (ox, oy) = match &ov.anchor {
+                                        OverlayAnchor::Viewport { col, row } => {
+                                            (pad + *col as f32 * cw, pad + *row as f32 * ch)
+                                        }
+                                        OverlayAnchor::Canvas { col, row } => {
+                                            (pad + *col as f32 * cw, pad + *row as f32 * ch)
+                                        }
+                                    };
+                                    state.compositor.set_overlay_rgba(
+                                        ov.px_w, ov.px_h, &rgba, ox, oy,
+                                    );
+                                }
+                                state.scheduler.request_redraw();
+                            }
+                            OverlayOp::Remove { id: _ } | OverlayOp::ClearAll { .. } => {
+                                state.active_overlay = None;
+                                state.compositor.clear_overlay();
+                                state.scheduler.request_redraw();
+                            }
+                            OverlayOp::ShowFetch => {
+                                // Clear any IPC overlay first
+                                state.active_overlay = None;
+                                state.compositor.clear_overlay();
+                                // Activate fetch overlay
+                                let mut overlay = FetchOverlay::new(&self.config.fetch);
+                                overlay.compute_banner_height(
+                                    state.compositor.cell_height(),
+                                    state.padding,
+                                );
+                                overlay.activate();
+                                state.fetch_overlay = Some(overlay);
+                                state.scheduler.request_redraw();
+                                eprintln!("[scry-term] fetch overlay activated via IPC");
+                            }
+                        }
+                    }
+                }
+
+                // ── Fetch overlay tick ──────────────────────────
+                if let Some(fetch) = &mut state.fetch_overlay {
+                    if fetch.is_active() {
+                        if let Some(frame) = fetch.tick(state.compositor.width()) {
+                            state.compositor.set_overlay_scene(Some(frame.canvas));
+                            state.compositor.set_overlay_alpha(frame.alpha);
+                            state.scheduler.request_redraw();
+                        } else {
+                            // Fully faded out — remove overlay
+                            state.compositor.clear_overlay();
+                            state.compositor.set_overlay_alpha(1.0);
+                            state.fetch_overlay = None;
+                        }
+                    }
                 }
 
                 // Check clipboard paste (OSC 52)
@@ -537,8 +744,10 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                 // Check visual bell
                 if state.grid.bell_pending {
                     state.grid.bell_pending = false;
-                    state.compositor.trigger_bell();
-                    state.scheduler.request_redraw();
+                    if self.config.bell.enabled && self.config.bell.visual {
+                        state.compositor.trigger_bell();
+                        state.scheduler.request_redraw();
+                    }
                 }
 
                 // Render
@@ -572,7 +781,12 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                 // Skip during startup grace period to avoid racing with
                 // shell initialization.
                 if state.spawn_time.elapsed() > Duration::from_millis(500) {
-                    if let Some(_status) = state.pty.try_wait() {
+                    if let Some(status) = state.pty.try_wait() {
+                        eprintln!(
+                            "[scry-term] DIAG: try_wait returned exit status {:?} after {:.1}ms",
+                            status,
+                            state.spawn_time.elapsed().as_secs_f64() * 1000.0
+                        );
                         state.child_exited = true;
                         state.exit_deadline =
                             Some(Instant::now() + Duration::from_millis(100));
@@ -584,10 +798,11 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
                 // With ControlFlow::Wait, we don't need to continuously request
                 // redraws — the PTY waker will send a user event when data arrives.
                 // But if cursor blink or bell is active, keep rendering.
-                if state.compositor.next_blink_deadline().is_some()
+                let needs_blink = state.compositor.next_blink_deadline().is_some()
                     && state.grid.cursor.blink
-                    && state.grid.cursor.visible
-                {
+                    && state.grid.cursor.visible;
+                let needs_bell = state.compositor.is_bell_active();
+                if needs_blink || needs_bell {
                     state.window.request_redraw();
                 }
             }
@@ -628,8 +843,18 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Use WaitUntil for cursor blink timing
+        eprintln!("[scry-term] DIAG: about_to_wait");
         if let Some(state) = &self.state {
+            // Continuous redraw during fetch overlay animation (~60fps)
+            if state.fetch_overlay.as_ref().is_some_and(FetchOverlay::is_active) {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + Duration::from_millis(16),
+                ));
+                state.window.request_redraw();
+                return;
+            }
+
+            // Use WaitUntil for cursor blink timing
             if state.grid.cursor.blink && state.grid.cursor.visible {
                 if let Some(deadline) = state.compositor.next_blink_deadline() {
                     event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
@@ -641,7 +866,7 @@ impl ApplicationHandler<TerminalEvent> for TerminalApp {
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        eprintln!("[scry-term] SUSPENDED event received");
+        eprintln!("[scry-term] DIAG: SUSPENDED event received, state={}", if self.state.is_some() { "Some" } else { "None" });
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
@@ -685,8 +910,11 @@ fn zoom_to(state: &mut TerminalState, new_size: f32) {
 }
 
 fn main() {
+    eprintln!("[scry-term] DIAG: main() entered, pid={}", std::process::id());
+
     // Load config
     let config = TerminalConfig::load();
+    eprintln!("[scry-term] DIAG: config loaded");
 
     // Create event loop with user events (for PTY wakeup)
     let event_loop = match EventLoop::<TerminalEvent>::with_user_event().build() {
@@ -696,17 +924,23 @@ fn main() {
             std::process::exit(1);
         }
     };
+    eprintln!("[scry-term] DIAG: event loop created");
     event_loop.set_control_flow(ControlFlow::Wait);
 
     let proxy = event_loop.create_proxy();
 
     // Run
     let mut app = TerminalApp::new(config, proxy);
-    match event_loop.run_app(&mut app) {
-        Ok(()) => {}
-        Err(e) => {
-            // ExitFailure is normal when event_loop.exit() is called
-            eprintln!("scry-terminal: event loop exited: {e}");
+    eprintln!("[scry-term] DIAG: calling run_app...");
+    let result = event_loop.run_app(&mut app);
+    eprintln!("[scry-term] DIAG: run_app returned: {result:?}");
+    if let Err(e) = result {
+        // winit returns ExitFailure(1) as normal behavior when
+        // event_loop.exit() is called — this is not an actual error.
+        let msg = format!("{e}");
+        if !msg.contains("Exit Failure") {
+            eprintln!("scry-terminal: event loop error: {e}");
         }
     }
+    eprintln!("[scry-term] DIAG: main() exiting");
 }

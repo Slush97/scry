@@ -12,6 +12,9 @@ struct RegionUniforms {
     region_origin: vec2<f32>,
     // Region size in pixels.
     region_size: vec2<f32>,
+    // Global alpha multiplier (0.0 = invisible, 1.0 = fully opaque).
+    global_alpha: f32,
+    _pad: f32,
 };
 
 @group(0) @binding(0)
@@ -53,5 +56,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Map local position to texture UV
     let tex_uv = local / region.region_size;
-    return textureSample(overlay_texture, overlay_sampler, tex_uv);
+    var color = textureSample(overlay_texture, overlay_sampler, tex_uv);
+    color = vec4<f32>(color.rgb * region.global_alpha, color.a * region.global_alpha);
+    return color;
 }

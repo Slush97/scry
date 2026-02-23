@@ -91,6 +91,8 @@ pub enum IpcCommand {
     ClearAll,
     /// Query terminal info (font size, grid dimensions).
     QueryInfo,
+    /// Trigger the native fetch overlay display.
+    ShowFetch,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +161,7 @@ const TAG_CMD_REFRESH: u8 = 0x81;
 const TAG_CMD_REMOVE: u8 = 0x82;
 const TAG_CMD_CLEAR_ALL: u8 = 0x83;
 const TAG_CMD_QUERY_INFO: u8 = 0x84;
+const TAG_CMD_SHOW_FETCH: u8 = 0x85;
 
 // Event tags: 0xC0–0xFF
 const TAG_EVT_CLICKED: u8 = 0xC0;
@@ -249,6 +252,10 @@ impl Memfd {
     ///
     /// Used by the terminal side after receiving an fd via `SCM_RIGHTS`.
     pub fn from_fd(fd: RawFd, size: usize) -> io::Result<Self> {
+        // Validate that the fd's actual size is at least `size` bytes.
+        // Prevents SIGBUS from mapping beyond the file's backing storage.
+        Self::validate_fd_size(fd, size)?;
+
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -268,6 +275,29 @@ impl Memfd {
             ptr: ptr.cast::<u8>(),
             len: size,
         })
+    }
+
+    /// Validate that this fd's actual backing size is at least `expected` bytes.
+    ///
+    /// Uses `fstat` to check — prevents mapping more memory than the fd
+    /// actually backs, which would cause SIGBUS on access.
+    fn validate_fd_size(fd: RawFd, expected: usize) -> io::Result<()> {
+        // SAFETY: `fstat` is a well-defined POSIX call; stat is zero-initialized.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        let ret = unsafe { libc::fstat(fd, &mut stat) };
+        if ret != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let actual = stat.st_size as usize;
+        if actual < expected {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "memfd size mismatch: fd has {actual} bytes, expected {expected}"
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Write pixel data into the shared memory region.
@@ -299,7 +329,7 @@ impl Memfd {
     ///
     /// The caller must ensure no other process is concurrently writing to the
     /// same region while this slice is live.
-    pub unsafe fn as_slice(&self) -> &[u8] {
+    pub(crate) unsafe fn as_slice(&self) -> &[u8] {
         std::slice::from_raw_parts(self.ptr, self.len)
     }
 
@@ -462,6 +492,9 @@ impl IpcCommand {
             Self::QueryInfo => {
                 payload.push(TAG_CMD_QUERY_INFO);
             }
+            Self::ShowFetch => {
+                payload.push(TAG_CMD_SHOW_FETCH);
+            }
         }
 
         // Prepend 2-byte LE length (of payload, not including the length field itself).
@@ -537,6 +570,7 @@ impl IpcCommand {
             }
             TAG_CMD_CLEAR_ALL => Ok(Self::ClearAll),
             TAG_CMD_QUERY_INFO => Ok(Self::QueryInfo),
+            TAG_CMD_SHOW_FETCH => Ok(Self::ShowFetch),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown command tag: {tag:#x}"),
@@ -878,7 +912,9 @@ fn send_with_fd(sock_fd: RawFd, data: &[u8], fd: RawFd) -> io::Result<()> {
 
 /// Receive data + optional file descriptor from a Unix socket using `recvmsg`.
 fn recv_with_fd(sock_fd: RawFd) -> io::Result<(Vec<u8>, Option<RawFd>)> {
-    let mut data_buf = vec![0u8; 4096];
+    // Max IPC frame is 2 (length prefix) + 65535 (payload) = 65537 bytes.
+    // Use 66000 to detect truncation with margin.
+    let mut data_buf = vec![0u8; 66_000];
 
     let mut iov = libc::iovec {
         iov_base: data_buf.as_mut_ptr().cast(),
@@ -906,6 +942,14 @@ fn recv_with_fd(sock_fd: RawFd) -> io::Result<(Vec<u8>, Option<RawFd>)> {
     }
 
     data_buf.truncate(n as usize);
+
+    // Detect truncation — reject messages that were too large for the buffer.
+    if msg.msg_flags & libc::MSG_TRUNC != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "IPC message was truncated",
+        ));
+    }
 
     // Extract fd from ancillary data.
     let mut received_fd = None;

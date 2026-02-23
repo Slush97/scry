@@ -40,6 +40,22 @@ struct BgUniforms {
     screen_size: [f32; 2],
 }
 
+/// Uniform data for the overlay region shader (mirrors WGSL `RegionUniforms`).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct RegionUniforms {
+    /// Screen size in pixels.
+    screen_size: [f32; 2],
+    /// Region top-left in pixels.
+    region_origin: [f32; 2],
+    /// Region size in pixels.
+    region_size: [f32; 2],
+    /// Global alpha multiplier (0.0 = invisible, 1.0 = fully opaque).
+    global_alpha: f32,
+    /// Padding for 16-byte alignment.
+    _pad: f32,
+}
+
 /// The GPU compositor.
 pub struct Compositor {
     /// wgpu surface for presenting frames.
@@ -95,6 +111,8 @@ pub struct Compositor {
     overlay_bgl: wgpu::BindGroupLayout,
     /// Overlay sampler (linear filtering).
     overlay_sampler: wgpu::Sampler,
+    /// Overlay region uniform buffer.
+    overlay_region_buffer: wgpu::Buffer,
     /// Overlay texture (Rgba8UnormSrgb, matches scry-engine output).
     overlay_texture: Option<wgpu::Texture>,
     /// Overlay bind group (texture + sampler).
@@ -105,6 +123,8 @@ pub struct Compositor {
     overlay_dirty: bool,
     /// Cached content hash of the last rasterized scene.
     overlay_hash: u64,
+    /// Global alpha for the overlay (0.0–1.0). Used for fade-in/out effects.
+    overlay_alpha: f32,
 }
 
 impl Compositor {
@@ -170,7 +190,11 @@ impl Compositor {
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo, // Vsync
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode: if surface_caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+                wgpu::CompositeAlphaMode::PreMultiplied
+            } else {
+                surface_caps.alpha_modes[0]
+            },
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -305,6 +329,16 @@ impl Compositor {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -351,6 +385,13 @@ impl Compositor {
             ..Default::default()
         });
 
+        let overlay_region_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("overlay_region_uniforms"),
+            size: std::mem::size_of::<RegionUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Ok(Self {
             surface,
             device,
@@ -373,11 +414,13 @@ impl Compositor {
             overlay_pipeline,
             overlay_bgl,
             overlay_sampler,
+            overlay_region_buffer,
             overlay_texture: None,
             overlay_bind_group: None,
             overlay_scene: None,
             overlay_dirty: false,
             overlay_hash: 0,
+            overlay_alpha: 1.0,
         })
     }
 
@@ -444,17 +487,57 @@ impl Compositor {
         self.bell_start = Some(Instant::now());
     }
 
+    /// Whether the visual bell animation is still in progress.
+    pub fn is_bell_active(&self) -> bool {
+        self.bell_start.is_some()
+    }
+
     /// Get the next deadline the event loop should wake at for cursor blink.
     ///
     /// Returns `None` if cursor blink is disabled.
     pub fn next_blink_deadline(&self) -> Option<Instant> {
-        Some(self.last_blink + std::time::Duration::from_millis(530))
+        // TEMP: disabled for release-mode stability debugging
+        return None;
+
+        #[allow(unreachable_code)]
+        {
+            let interval = std::time::Duration::from_millis(530);
+            let mut deadline = self.last_blink + interval;
+            let now = Instant::now();
+            // Advance past any stale deadlines so we never return a time in the past.
+            // This prevents a hot spin loop when the blink state hasn't been
+            // toggled recently (e.g., during startup or when render_frame is
+            // throttled by the render scheduler).
+            while deadline <= now {
+                deadline += interval;
+            }
+            Some(deadline)
+        }
     }
 
     /// Reset cursor blink visibility (e.g. after user input).
     pub fn reset_blink(&mut self) {
         self.cursor_blink_visible = true;
         self.last_blink = Instant::now();
+    }
+
+    /// Set the global overlay alpha (0.0–1.0) for fade-in/out effects.
+    pub fn set_overlay_alpha(&mut self, alpha: f32) {
+        let alpha = alpha.clamp(0.0, 1.0);
+        if (self.overlay_alpha - alpha).abs() > f32::EPSILON {
+            self.overlay_alpha = alpha;
+            self.overlay_dirty = true;
+        }
+    }
+
+    /// Current screen width in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Current screen height in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     /// Set or clear the graphics overlay scene.
@@ -473,6 +556,125 @@ impl Compositor {
             self.overlay_bind_group = None;
         }
         self.overlay_scene = scene;
+    }
+
+    /// Set a raw RGBA overlay from pre-rasterized pixel data.
+    ///
+    /// Used by the IPC server path: the CLI renders via GPU/CPU and sends
+    /// finished RGBA frames through shared memory. This bypasses the
+    /// `PixelCanvas` → rasterize path entirely.
+    pub fn set_overlay_rgba(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        origin_x: f32,
+        origin_y: f32,
+    ) {
+        if width == 0 || height == 0 || rgba.len() != (width * height * 4) as usize {
+            // Invalid data — clear overlay
+            self.overlay_texture = None;
+            self.overlay_bind_group = None;
+            self.overlay_scene = None;
+            return;
+        }
+
+        // Recreate texture if dimensions changed
+        let needs_new_texture = self.overlay_texture.as_ref().is_none_or(|t| {
+            t.width() != width || t.height() != height
+        });
+
+        if needs_new_texture {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("overlay_texture_ipc"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("overlay_bind_group_ipc"),
+                layout: &self.overlay_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.overlay_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.overlay_region_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+
+            self.overlay_texture = Some(texture);
+            self.overlay_bind_group = Some(bind_group);
+        }
+
+        // Upload pixel data
+        if let Some(texture) = &self.overlay_texture {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        // Upload region uniforms — position and size the overlay at its
+        // actual pixel dimensions instead of stretching to full screen.
+        let region = RegionUniforms {
+            screen_size: [self.width as f32, self.height as f32],
+            region_origin: [origin_x, origin_y],
+            region_size: [width as f32, height as f32],
+            global_alpha: self.overlay_alpha,
+            _pad: 0.0,
+        };
+        self.queue.write_buffer(
+            &self.overlay_region_buffer,
+            0,
+            bytemuck::bytes_of(&region),
+        );
+
+        // Clear the PixelCanvas scene — IPC overlay takes over
+        self.overlay_scene = None;
+        self.overlay_dirty = false;
+        self.overlay_hash = 0;
+    }
+
+    /// Clear the overlay (removes any active IPC or scene overlay).
+    pub fn clear_overlay(&mut self) {
+        self.overlay_texture = None;
+        self.overlay_bind_group = None;
+        self.overlay_scene = None;
+        self.overlay_dirty = false;
+        self.overlay_hash = 0;
     }
 
     /// Rasterize the overlay scene to a GPU texture when dirty.
@@ -530,6 +732,10 @@ impl Compositor {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.overlay_sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.overlay_region_buffer.as_entire_binding(),
+                    },
                 ],
             });
 
@@ -559,6 +765,20 @@ impl Compositor {
                 },
             );
         }
+
+        // Upload region uniforms (overlay covers the full screen)
+        let region = RegionUniforms {
+            screen_size: [self.width as f32, self.height as f32],
+            region_origin: [0.0, 0.0],
+            region_size: [self.width as f32, self.height as f32],
+            global_alpha: self.overlay_alpha,
+            _pad: 0.0,
+        };
+        self.queue.write_buffer(
+            &self.overlay_region_buffer,
+            0,
+            bytemuck::bytes_of(&region),
+        );
     }
 
     /// Render a complete frame.
@@ -572,13 +792,14 @@ impl Compositor {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Background color
+        // Background color (alpha from window.opacity for compositor transparency)
         let (bg_r, bg_g, bg_b) = self.config.colors.bg_rgb();
+        let alpha = self.config.window.opacity as f64;
         let clear_color = wgpu::Color {
-            r: bg_r as f64 / 255.0,
-            g: bg_g as f64 / 255.0,
-            b: bg_b as f64 / 255.0,
-            a: 1.0,
+            r: bg_r as f64 / 255.0 * alpha,
+            g: bg_g as f64 / 255.0 * alpha,
+            b: bg_b as f64 / 255.0 * alpha,
+            a: alpha,
         };
 
         // Update cursor blink state

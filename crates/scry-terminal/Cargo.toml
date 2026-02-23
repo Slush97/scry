@@ -31,7 +31,7 @@ pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 
 # scry-engine integration
-scry-engine = { path = "../..", features = ["gpu"] }
+scry-engine = { path = "../..", features = ["gpu", "native-ipc", "text"] }
 
 # Threading + I/O
 crossbeam-channel = "0.5"

@@ -6,8 +6,11 @@
 pub mod compositor;
 pub mod config;
 pub mod error;
+pub mod fetch;
 pub mod grid;
 pub mod input;
+#[cfg(unix)]
+pub mod ipc_server;
 pub mod performance;
 pub mod platform;
 pub mod pty;
