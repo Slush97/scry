@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-learn", "crates/scry-llm", "crates/scry-pipe", "crates/scry-stt", "crates/scry-terminal"]
+members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-pipe"]
 exclude = ["fuzz"]
 resolver = "2"
 
@@ -93,7 +93,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1"
 postcard = { version = "1", features = ["alloc"] }
 scry-chart = { path = "crates/scry-chart", features = ["widget"] }
-scry-learn = { path = "crates/scry-learn" }
+
 
 [[example]]
 name = "line_drawing"
