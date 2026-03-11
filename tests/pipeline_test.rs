@@ -11,7 +11,7 @@ use scry_engine::transport::backend::{FontSize, ProtocolBackend, TerminalPositio
 #[cfg(feature = "kitty")]
 use scry_engine::transport::kitty::KittyBackend;
 
-use scry_engine::transport::halfblock::HalfblockBackend;
+use scry_engine::transport::halfblock;
 
 // ---------------------------------------------------------------------------
 // Kitty pipeline
@@ -96,7 +96,7 @@ fn full_pipeline_halfblock() {
 
     let pixmap = Rasterizer::rasterize(&canvas).expect("rasterization should succeed");
 
-    let cells = HalfblockBackend::render_to_cells(&pixmap);
+    let cells = halfblock::render_to_cells(&pixmap);
     // 20px height → 10 halfblock rows
     assert_eq!(cells.len(), 10);
     // 20px width → 20 columns

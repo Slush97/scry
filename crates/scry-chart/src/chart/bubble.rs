@@ -168,7 +168,12 @@ impl ChartSpec for BubbleChart {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::bubble::render_bubble(self, w, h)
     }
-    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+    fn render_with_viewport(
+        &self,
+        w: u32,
+        h: u32,
+        vp: Option<(f64, f64, f64, f64)>,
+    ) -> crate::layout::RenderedChart {
         if let Some((x0, x1, y0, y1)) = vp {
             let mut c = self.clone();
             c.config.axes.x_range = Some((x0, x1));
@@ -178,12 +183,18 @@ impl ChartSpec for BubbleChart {
             self.render(w, h)
         }
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
     fn data_extent(&self) -> Option<(f64, f64, f64, f64)> {
         let xs = self.x.values();
         let ys = self.y.values();
-        if xs.is_empty() { return None; }
+        if xs.is_empty() {
+            return None;
+        }
         let mut x_min = f64::INFINITY;
         let mut x_max = f64::NEG_INFINITY;
         let mut y_min = f64::INFINITY;
@@ -198,5 +209,7 @@ impl ChartSpec for BubbleChart {
         }
         Some((x_min, x_max, y_min, y_max))
     }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }

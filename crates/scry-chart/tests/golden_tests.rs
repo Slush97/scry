@@ -195,12 +195,7 @@ fn golden_bar() {
 #[test]
 fn golden_bar_grouped() {
     let chart = Charts::bar(
-        vec![
-            "Q1".into(),
-            "Q2".into(),
-            "Q3".into(),
-            "Q4".into(),
-        ],
+        vec!["Q1".into(), "Q2".into(), "Q3".into(), "Q4".into()],
         &[10.0, 15.0, 12.0, 18.0],
     )
     .add_series(Series::new("Product B", vec![8.0, 12.0, 14.0, 16.0]))
@@ -228,9 +223,18 @@ fn golden_histogram() {
 #[test]
 fn golden_boxplot() {
     let chart = Charts::boxplot(vec![
-        ("Group A", vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]),
-        ("Group B", vec![3.0, 4.0, 5.0, 6.0, 6.0, 7.0, 7.0, 8.0, 12.0, 15.0]),
-        ("Group C", vec![0.5, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 20.0]),
+        (
+            "Group A",
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+        ),
+        (
+            "Group B",
+            vec![3.0, 4.0, 5.0, 6.0, 6.0, 7.0, 7.0, 8.0, 12.0, 15.0],
+        ),
+        (
+            "Group C",
+            vec![0.5, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 20.0],
+        ),
     ])
     .title("Box Plot")
     .y_label("Score")
@@ -286,11 +290,41 @@ fn golden_radar() {
 #[test]
 fn golden_candlestick() {
     let data = vec![
-        OhlcEntry { x: 1.0, open: 100.0, high: 110.0, low: 95.0, close: 105.0 },
-        OhlcEntry { x: 2.0, open: 105.0, high: 115.0, low: 100.0, close: 98.0 },
-        OhlcEntry { x: 3.0, open: 98.0, high: 108.0, low: 92.0, close: 106.0 },
-        OhlcEntry { x: 4.0, open: 106.0, high: 120.0, low: 104.0, close: 118.0 },
-        OhlcEntry { x: 5.0, open: 118.0, high: 125.0, low: 112.0, close: 110.0 },
+        OhlcEntry {
+            x: 1.0,
+            open: 100.0,
+            high: 110.0,
+            low: 95.0,
+            close: 105.0,
+        },
+        OhlcEntry {
+            x: 2.0,
+            open: 105.0,
+            high: 115.0,
+            low: 100.0,
+            close: 98.0,
+        },
+        OhlcEntry {
+            x: 3.0,
+            open: 98.0,
+            high: 108.0,
+            low: 92.0,
+            close: 106.0,
+        },
+        OhlcEntry {
+            x: 4.0,
+            open: 106.0,
+            high: 120.0,
+            low: 104.0,
+            close: 118.0,
+        },
+        OhlcEntry {
+            x: 5.0,
+            open: 118.0,
+            high: 125.0,
+            low: 112.0,
+            close: 110.0,
+        },
     ];
     let chart = Charts::candlestick(data)
         .title("OHLC Chart")

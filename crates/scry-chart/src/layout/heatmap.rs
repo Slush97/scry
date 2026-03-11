@@ -141,7 +141,11 @@ pub(crate) fn render_heatmap(hm: &Heatmap, w: u32, h: u32) -> RenderedChart {
             |cmap| cmap.color_at(t as f32),
         );
         let sy = bar_y + s as f32 * step_h;
-        ctx.draw(|canv| canv.rect(bar_x, sy, legend_bar_w, step_h + 0.5).fill(c).done());
+        ctx.draw(|canv| {
+            canv.rect(bar_x, sy, legend_bar_w, step_h + 0.5)
+                .fill(c)
+                .done()
+        });
     }
     // Outline around the bar
     let bar_outline = theme.text_color().with_alpha(0.3);

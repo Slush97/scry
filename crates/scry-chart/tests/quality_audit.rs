@@ -63,7 +63,9 @@ fn contrast_ratio_across_themes() {
         // Verify cell value labels are present (contrast color is now
         // baked into DrawCommand::Text and not inspectable via public API)
         let labels = rendered.text_labels();
-        let has_cell_value = labels.iter().any(|t| t.contains('.') && t.parse::<f64>().is_ok());
+        let has_cell_value = labels
+            .iter()
+            .any(|t| t.contains('.') && t.parse::<f64>().is_ok());
         assert!(
             has_cell_value,
             "Heatmap [{theme_name}]: should have cell value labels, got: {labels:?}"
@@ -237,8 +239,14 @@ fn proportional_offsets_gauge_radar() {
     let large = layout::render_chart(&gauge, 2000, 1200);
 
     // Find the value label position (the "75%" text)
-    let small_label = small.text_positions().into_iter().find(|(_, _, t)| *t == "75%");
-    let large_label = large.text_positions().into_iter().find(|(_, _, t)| *t == "75%");
+    let small_label = small
+        .text_positions()
+        .into_iter()
+        .find(|(_, _, t)| *t == "75%");
+    let large_label = large
+        .text_positions()
+        .into_iter()
+        .find(|(_, _, t)| *t == "75%");
 
     if let (Some((_, sy, _)), Some((_, ly, _))) = (small_label, large_label) {
         // The y-offset from center should scale — not be a fixed 16px at both sizes

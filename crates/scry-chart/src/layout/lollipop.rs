@@ -85,7 +85,16 @@ fn render_lollipop_vertical(lc: &LollipopChart, w: u32, h: u32) -> RenderedChart
             } else {
                 vy + lc.dot_radius + data_fs * 0.6
             };
-            ctx.add_text(cx, label_y, &format_value(value), theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
+            ctx.add_text(
+                cx,
+                label_y,
+                &format_value(value),
+                theme.text_color(),
+                TextAlign::Center,
+                data_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -142,7 +151,16 @@ fn render_lollipop_horizontal(lc: &LollipopChart, w: u32, h: u32) -> RenderedCha
 
     // Category labels on the left
     for (ci, label) in lc.labels.iter().enumerate().take(n) {
-        ctx.add_text(px - super::y_tick_label_offset(w), cat_scale.center(ci) as f32, label, theme.text_color(), TextAlign::Right, tick_fs, false, 0.0);
+        ctx.add_text(
+            px - super::y_tick_label_offset(w),
+            cat_scale.center(ci) as f32,
+            label,
+            theme.text_color(),
+            TextAlign::Right,
+            tick_fs,
+            false,
+            0.0,
+        );
     }
 
     for i in 0..n {
@@ -171,7 +189,16 @@ fn render_lollipop_horizontal(lc: &LollipopChart, w: u32, h: u32) -> RenderedCha
             } else {
                 (vx - lc.dot_radius - 4.0, TextAlign::Right)
             };
-            ctx.add_text(label_x, cy, &format_value(value), theme.text_color(), align, data_fs, false, 0.0);
+            ctx.add_text(
+                label_x,
+                cy,
+                &format_value(value),
+                theme.text_color(),
+                align,
+                data_fs,
+                false,
+                0.0,
+            );
         }
     }
 

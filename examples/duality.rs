@@ -145,10 +145,7 @@ fn build_scene(t: f32) -> SdfScene {
                 },
             )
             .at(Vec3::new(0.0, center_y, 0.0))
-            .rotate(
-                Vec3::new(1.0, 0.0, 0.0),
-                flip_angle + std::f32::consts::PI,
-            ),
+            .rotate(Vec3::new(1.0, 0.0, 0.0), flip_angle + std::f32::consts::PI),
         )
         // ── Mandelbulb heart at the junction ──
         // Pulses with a morph between low and high power
@@ -181,12 +178,7 @@ fn build_scene(t: f32) -> SdfScene {
         ))
         // ── Counter-orbiting glass shards — gyroid fragments ──
         .object(orbiting_gyroid(t, 0.0, 3.5, center_y))
-        .object(orbiting_gyroid(
-            t,
-            std::f32::consts::PI,
-            3.5,
-            center_y,
-        ))
+        .object(orbiting_gyroid(t, std::f32::consts::PI, 3.5, center_y))
         // ── Ground plane — dark mirror ──
         .object(SdfObject::new(
             SdfShape::Plane,
@@ -195,11 +187,7 @@ fn build_scene(t: f32) -> SdfScene {
         // ── Lighting: warm vs cool duality ──
         // Warm amber light — orbits with the mania side
         .light(SdfLight::new(
-            Vec3::new(
-                (t * 0.4).cos() * 6.0,
-                center_y + 4.0,
-                (t * 0.4).sin() * 6.0,
-            ),
+            Vec3::new((t * 0.4).cos() * 6.0, center_y + 4.0, (t * 0.4).sin() * 6.0),
             C::from_rgba8(255, 200, 120, 255),
             0.9,
         ))
@@ -239,13 +227,7 @@ fn build_scene(t: f32) -> SdfScene {
 }
 
 /// Create a mirror sentinel sphere orbiting at given phase.
-fn sentinel_sphere(
-    t: f32,
-    phase: f32,
-    orbit_radius: f32,
-    center_y: f32,
-    radius: f32,
-) -> SdfObject {
+fn sentinel_sphere(t: f32, phase: f32, orbit_radius: f32, center_y: f32, radius: f32) -> SdfObject {
     let angle = t * 0.5 + phase;
     let bob = (t * 1.2 + phase * 2.0).sin() * 0.8;
     SdfObject::new(
@@ -295,8 +277,7 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
     use winit::keyboard::KeyCode as WKey;
 
     #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx =
-        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
+    let mut gpu_ctx = scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
 
     let mut paused = false;
     let start = Instant::now();
@@ -367,12 +348,7 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
                         scry_engine::sdf::SdfProfile::total_only((gpu_ms * 1000.0) as u64, w, h);
                     profile_history.push(gpu_profile);
                     let summary = profile_history.summary();
-                    stats_overlay.render_overlay(
-                        &mut pixmap,
-                        &summary,
-                        pct,
-                        "Duality  [GPU]",
-                    );
+                    stats_overlay.render_overlay(&mut pixmap, &summary, pct, "Duality  [GPU]");
                 }
 
                 let _ = backend.blit(&pixmap);
@@ -380,7 +356,11 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let (mut pixmap, profile) = match SdfRenderer::render_to_pixmap_upscaled_profiled(
-                &scene, w, h, render_scale, elapsed,
+                &scene,
+                w,
+                h,
+                render_scale,
+                elapsed,
             ) {
                 Ok(r) => r,
                 Err(_) => return LoopAction::Continue,
@@ -426,8 +406,7 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
     let mut handle: Option<transport::backend::ImageHandle> = None;
 
     #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx =
-        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
+    let mut gpu_ctx = scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
 
     let mut profiling = false;
     let mut profile_history = SdfProfileHistory::new(32);

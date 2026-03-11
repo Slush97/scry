@@ -117,20 +117,35 @@ impl SdfPipeline {
             let t0 = std::time::Instant::now();
             glog!("[gpu-thread] calling GpuDevice::global()...");
             let Some(gpu) = GpuDevice::global() else {
-                glog!("[gpu-thread] GpuDevice::global() returned None after {:?}", t0.elapsed());
+                glog!(
+                    "[gpu-thread] GpuDevice::global() returned None after {:?}",
+                    t0.elapsed()
+                );
                 return None;
             };
-            glog!("[gpu-thread] device ready in {:?}: {} ({} {})",
-                t0.elapsed(), gpu.info().adapter_name, gpu.info().backend, gpu.info().device_type);
+            glog!(
+                "[gpu-thread] device ready in {:?}: {} ({} {})",
+                t0.elapsed(),
+                gpu.info().adapter_name,
+                gpu.info().backend,
+                gpu.info().device_type
+            );
             glog!("[gpu-thread] compiling SDF shader...");
             let t1 = std::time::Instant::now();
             match super::gpu_renderer::SdfGpuContext::with_device(gpu) {
                 Ok(ctx) => {
-                    glog!("[gpu-thread] SDF context ready in {:?} (total {:?})", t1.elapsed(), t0.elapsed());
+                    glog!(
+                        "[gpu-thread] SDF context ready in {:?} (total {:?})",
+                        t1.elapsed(),
+                        t0.elapsed()
+                    );
                     Some(ctx)
                 }
                 Err(e) => {
-                    glog!("[gpu-thread] SDF context FAILED after {:?}: {e}", t1.elapsed());
+                    glog!(
+                        "[gpu-thread] SDF context FAILED after {:?}: {e}",
+                        t1.elapsed()
+                    );
                     None
                 }
             }
@@ -357,7 +372,14 @@ impl SdfPipeline {
             if use_gpu {
                 if let Some(Some(ctx)) = self.gpu_ctx.as_mut() {
                     self.frame_graph.submit(
-                        ctx, scene, render_w, render_h, width, height, time, &self.health,
+                        ctx,
+                        scene,
+                        render_w,
+                        render_h,
+                        width,
+                        height,
+                        time,
+                        &self.health,
                     );
                 }
             }
@@ -457,8 +479,6 @@ impl SdfPipeline {
 
     // ── Internal helpers ──
 
-
-
     #[allow(clippy::unused_self)]
     fn render_cpu(
         &self,
@@ -524,7 +544,10 @@ impl Default for SdfPipeline {
 impl std::fmt::Debug for SdfPipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SdfPipeline")
-            .field("gpu_available", &self.health.lock().is_ok_and(|h| h.is_gpu_available()))
+            .field(
+                "gpu_available",
+                &self.health.lock().is_ok_and(|h| h.is_gpu_available()),
+            )
             .field("render_scale", &self.render_scale)
             .finish_non_exhaustive()
     }
@@ -550,11 +573,7 @@ mod tests {
                 Material::matte(Color::from_rgba8(180, 180, 180, 255)),
             ))
             .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.0))
-            .camera(SdfCamera::new(
-                Vec3::new(0.0, 3.0, 6.0),
-                Vec3::ZERO,
-                45.0,
-            ))
+            .camera(SdfCamera::new(Vec3::new(0.0, 3.0, 6.0), Vec3::ZERO, 45.0))
     }
 
     #[test]

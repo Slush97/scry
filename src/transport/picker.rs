@@ -97,8 +97,7 @@ impl Picker {
         match self.protocol {
             #[cfg(feature = "native-ipc")]
             ProtocolKind::Native => {
-                let sock = std::env::var("SCRY_TERMINAL_SOCK")
-                    .unwrap_or_default();
+                let sock = std::env::var("SCRY_TERMINAL_SOCK").unwrap_or_default();
                 Box::new(crate::transport::native::NativeBackend::connect(&sock))
             }
             #[cfg(feature = "kitty")]

@@ -259,7 +259,8 @@ impl SdfShape {
         letter_spacing: f32,
         grid_resolution: u32,
     ) -> Option<Self> {
-        let layout = glyph::layout_text(font_data, text, font_size, letter_spacing, grid_resolution)?;
+        let layout =
+            glyph::layout_text(font_data, text, font_size, letter_spacing, grid_resolution)?;
         Some(Self::Text3D { layout, depth })
     }
 }
@@ -491,7 +492,7 @@ impl SdfScene {
                 half_height,
             } => Some(radius.hypot(*half_height)),
             SdfShape::SmoothBlend { .. } => Some(3.0), // conservative estimate
-            SdfShape::Subtract { .. } => Some(3.0), // conservative estimate
+            SdfShape::Subtract { .. } => Some(3.0),    // conservative estimate
             SdfShape::Capsule {
                 radius,
                 half_height,
@@ -503,7 +504,13 @@ impl SdfScene {
             SdfShape::Cone { radius, height } => Some(radius.hypot(*height)),
             SdfShape::Mandelbulb { .. } => Some(1.5), // bulb fits roughly in r=1.5
             SdfShape::MengerSponge { .. } => Some(1.8), // unit cube diagonal ≈ 1.73
-            SdfShape::Gyroid { bound, .. } => if *bound > 0.0 { Some(*bound) } else { Some(5.0) },
+            SdfShape::Gyroid { bound, .. } => {
+                if *bound > 0.0 {
+                    Some(*bound)
+                } else {
+                    Some(5.0)
+                }
+            }
             SdfShape::Morph { .. } => Some(3.0), // conservative estimate
             #[cfg(feature = "sdf-text")]
             SdfShape::Text3D { layout, depth } => {
@@ -564,7 +571,13 @@ impl SdfScene {
                     SdfShape::Cone { radius, height } => radius.hypot(*height),
                     SdfShape::Mandelbulb { .. } => 1.5,
                     SdfShape::MengerSponge { .. } => 1.8,
-                    SdfShape::Gyroid { bound, .. } => if *bound > 0.0 { *bound } else { 5.0 },
+                    SdfShape::Gyroid { bound, .. } => {
+                        if *bound > 0.0 {
+                            *bound
+                        } else {
+                            5.0
+                        }
+                    }
                     SdfShape::Morph { .. } => 3.0,
                     #[cfg(feature = "sdf-text")]
                     SdfShape::Text3D { layout, depth } => {

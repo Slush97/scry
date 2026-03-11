@@ -151,10 +151,22 @@ pub(crate) struct SdfRunParams {
 
 impl PlayArgs {
     pub(crate) fn to_sdf_params(&self) -> SdfRunParams {
-        let default = if self.low_res { SDF_LOW_RES } else { sdf_default_res() };
+        let default = if self.low_res {
+            SDF_LOW_RES
+        } else {
+            sdf_default_res()
+        };
         SdfRunParams {
-            width: if self.width != 960 { self.width } else { default },
-            height: if self.height != 640 { self.height } else { default },
+            width: if self.width != 960 {
+                self.width
+            } else {
+                default
+            },
+            height: if self.height != 640 {
+                self.height
+            } else {
+                default
+            },
             fps: self.fps,
             duration: self.duration,
         }
@@ -175,9 +187,10 @@ impl GpuRenderCtx {
     /// Create a new render context backed by `SdfPipeline`.
     pub fn new() -> Self {
         let pipeline = scry_engine::sdf::SdfPipeline::new();
-        Self { pipeline: Some(pipeline) }
+        Self {
+            pipeline: Some(pipeline),
+        }
     }
-
 
     /// Render a scene, using GPU if available, otherwise CPU.
     ///
@@ -249,10 +262,7 @@ fn enter_raw_mode_unless_native(driver: &display::FrameDriver) -> Result<(), Str
 /// Returns `true` if the animation loop should break.
 /// Only `q` and `Esc` are treated as quit keys — all other keypresses
 /// are ignored so they don't trigger an unexpected exit.
-fn poll_should_exit(
-    driver: &display::FrameDriver,
-    deadline: Option<std::time::Instant>,
-) -> bool {
+fn poll_should_exit(driver: &display::FrameDriver, deadline: Option<std::time::Instant>) -> bool {
     if !driver.is_native() {
         use crossterm::event::{self, Event, KeyCode, KeyEventKind};
         if event::poll(std::time::Duration::ZERO).unwrap_or(false) {
@@ -359,9 +369,7 @@ pub fn run(args: &PlayArgs) -> Result<(), String> {
 /// and presets that don't have an `AnimationProgram` counterpart yet
 /// (Mirror, GradientDescent, NeuralNet, KMeans — these use custom logic
 /// not yet ported to the engine).
-fn preset_to_animation_program(
-    preset: &PlayPreset,
-) -> Option<scry_engine::sdf::AnimationProgram> {
+fn preset_to_animation_program(preset: &PlayPreset) -> Option<scry_engine::sdf::AnimationProgram> {
     use scry_engine::sdf::AnimationProgram;
     match preset {
         PlayPreset::Cube => Some(AnimationProgram::Cube),
@@ -392,8 +400,8 @@ fn try_native_animation_offload(
     use scry_engine::transport::native::NativeBackend;
 
     // Check if we're inside scry-terminal.
-    let sock = std::env::var("SCRY_TERMINAL_SOCK")
-        .map_err(|_| "not inside scry-terminal".to_string())?;
+    let sock =
+        std::env::var("SCRY_TERMINAL_SOCK").map_err(|_| "not inside scry-terminal".to_string())?;
 
     let mut backend = NativeBackend::connect(&sock);
 
@@ -420,9 +428,7 @@ fn try_native_animation_offload(
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -435,8 +441,6 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
     } else {
         None
     };
-
-
 
     let mut driver = display::FrameDriver::detect();
     let mut gpu_ctx = make_gpu_ctx(&driver);
@@ -458,14 +462,10 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
             let angle_y = t * 0.7;
             let angle_x = t * 0.4;
 
-            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0),
-                angle_x,
-            );
-            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 1.0, 0.0),
-                angle_y,
-            );
+            let qx =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), angle_x);
+            let qy =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), angle_y);
             let orientation = qy * qx;
 
             let cube = SdfObject::new(
@@ -489,15 +489,16 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
             );
 
             // Transparent sky — no background, just the cube
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(cube)
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 8.0, 5.0),
-                    Color::WHITE,
-                    1.2,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 8.0, 5.0), Color::WHITE, 1.2))
                 .light(SdfLight::new(
                     Vec3::new(-4.0, 3.0, -2.0),
                     Color::from_rgba8(100, 150, 255, 255),
@@ -508,10 +509,12 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -536,9 +539,7 @@ pub(crate) fn run_cube(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -551,8 +552,6 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
     } else {
         None
     };
-
-
 
     let mut driver = display::FrameDriver::detect();
     let mut gpu_ctx = make_gpu_ctx(&driver);
@@ -571,18 +570,12 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
             }
 
             // Triple-axis rotation for the torus
-            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0),
-                t * 0.5,
-            );
-            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 1.0, 0.0),
-                t * 0.3,
-            );
-            let qz = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 0.0, 1.0),
-                t * 0.2,
-            );
+            let qx =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), t * 0.5);
+            let qy =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), t * 0.3);
+            let qz =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), t * 0.2);
             let orientation = qz * qy * qx;
 
             // Glass torus — refracts the fire light inside
@@ -591,42 +584,33 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
                     major: 1.6,
                     minor: 0.45,
                 },
-                Material::glass(
-                    Color::from_rgba8(200, 220, 255, 255),
-                    1.45,
-                ),
+                Material::glass(Color::from_rgba8(200, 220, 255, 255), 1.45),
             )
             .at(Vec3::ZERO)
             .orient(orientation);
 
             // Pulsating fire core inside the torus
             let pulse = 0.4 + (t * 1.5).sin() * 0.15;
-            let fire_core = SdfObject::new(
-                SdfShape::Sphere { radius: pulse },
-                Material::fire(),
-            )
-            .at(Vec3::ZERO);
+            let fire_core =
+                SdfObject::new(SdfShape::Sphere { radius: pulse }, Material::fire()).at(Vec3::ZERO);
 
             // Camera orbits slowly
             let cam_angle = t * 0.25;
             let cam_r = 5.0;
             let cam_y = 2.0 + (t * 0.15).sin() * 0.5;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(torus)
                 .object(fire_core)
-                .light(SdfLight::new(
-                    Vec3::new(4.0, 6.0, 4.0),
-                    Color::WHITE,
-                    1.4,
-                ))
+                .light(SdfLight::new(Vec3::new(4.0, 6.0, 4.0), Color::WHITE, 1.4))
                 .light(SdfLight::new(
                     Vec3::new(-3.0, 2.0, -5.0),
                     Color::from_rgba8(255, 140, 60, 255),
@@ -637,10 +621,12 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.06)
                 .max_bounces(2);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -665,9 +651,7 @@ pub(crate) fn run_vortex(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -680,8 +664,6 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
     } else {
         None
     };
-
-
 
     let mut driver = display::FrameDriver::detect();
     let mut gpu_ctx = make_gpu_ctx(&driver);
@@ -753,21 +735,18 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
             let cam_y = 2.5 + (t * 0.4).sin() * 0.3;
             let cam_angle = t * 0.12;
             let cam_r = 4.5;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(blob)
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 8.0, 3.0),
-                    Color::WHITE,
-                    1.3,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 8.0, 3.0), Color::WHITE, 1.3))
                 .light(SdfLight::new(
                     Vec3::new(-4.0, 2.0, -3.0),
                     Color::from_rgba8(180, 100, 255, 255),
@@ -783,10 +762,12 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.10)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -811,9 +792,7 @@ pub(crate) fn run_pulse(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -826,8 +805,6 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
     } else {
         None
     };
-
-
 
     let mut driver = display::FrameDriver::detect();
     let mut gpu_ctx = make_gpu_ctx(&driver);
@@ -857,11 +834,8 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
             let a1 = t * 1.2;
             let r1 = 2.2;
             let pos1 = Vec3::new(a1.cos() * r1, (a1 * 0.5).sin() * 0.3, a1.sin() * r1);
-            let orbiter1 = SdfObject::new(
-                SdfShape::Sphere { radius: 0.3 },
-                Material::fire(),
-            )
-            .at(pos1);
+            let orbiter1 =
+                SdfObject::new(SdfShape::Sphere { radius: 0.3 }, Material::fire()).at(pos1);
 
             // Orbiter 2: Glass — medium speed, tilted orbital plane
             let a2 = t * 0.7 + pi * 2.0 / 3.0;
@@ -874,26 +848,16 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
             );
             let orbiter2 = SdfObject::new(
                 SdfShape::Sphere { radius: 0.35 },
-                Material::glass_dispersive(
-                    Color::from_rgba8(180, 240, 255, 255),
-                    1.5,
-                    0.03,
-                ),
+                Material::glass_dispersive(Color::from_rgba8(180, 240, 255, 255), 1.5, 0.03),
             )
             .at(pos2);
 
             // Orbiter 3: Rainbow torus — slow, polar orbit
             let a3 = t * 0.4 + pi * 4.0 / 3.0;
             let r3 = 2.8;
-            let pos3 = Vec3::new(
-                a3.sin() * r3 * 0.3,
-                a3.cos() * r3,
-                a3.sin() * r3 * 0.95,
-            );
-            let qr3 = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0),
-                a3,
-            );
+            let pos3 = Vec3::new(a3.sin() * r3 * 0.3, a3.cos() * r3, a3.sin() * r3 * 0.95);
+            let qr3 =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), a3);
             let orbiter3 = SdfObject::new(
                 SdfShape::Torus {
                     major: 0.25,
@@ -908,24 +872,21 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.15;
             let cam_r = 6.0;
             let cam_y = 3.0 + (t * 0.1).sin() * 0.5;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(center)
                 .object(orbiter1)
                 .object(orbiter2)
                 .object(orbiter3)
-                .light(SdfLight::new(
-                    Vec3::new(6.0, 8.0, 4.0),
-                    Color::WHITE,
-                    1.3,
-                ))
+                .light(SdfLight::new(Vec3::new(6.0, 8.0, 4.0), Color::WHITE, 1.3))
                 .light(SdfLight::new(
                     Vec3::new(-5.0, 3.0, -3.0),
                     Color::from_rgba8(100, 140, 255, 255),
@@ -936,10 +897,12 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.06)
                 .max_bounces(3);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -957,8 +920,6 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
     result
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Mandelbulb preset — iconic 3D fractal in rainbow chrome
 // ---------------------------------------------------------------------------
@@ -966,9 +927,7 @@ pub(crate) fn run_orbit(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -999,10 +958,8 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
             }
 
             // Slow Y-axis rotation
-            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 1.0, 0.0),
-                t * 0.3,
-            );
+            let qy =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), t * 0.3);
 
             // Breathing power: oscillates subtly around 8
             let power = 8.0 + (t * 0.2).sin() * 0.5;
@@ -1026,21 +983,18 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.15;
             let cam_r = 3.5;
             let cam_y = 1.5 + (t * 0.1).sin() * 0.5;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(bulb)
-                .light(SdfLight::new(
-                    Vec3::new(4.0, 6.0, 4.0),
-                    Color::WHITE,
-                    1.2,
-                ))
+                .light(SdfLight::new(Vec3::new(4.0, 6.0, 4.0), Color::WHITE, 1.2))
                 .light(SdfLight::new(
                     Vec3::new(-3.0, 2.0, -4.0),
                     Color::from_rgba8(180, 120, 255, 255),
@@ -1056,10 +1010,12 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.06)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -1083,9 +1039,7 @@ pub(crate) fn run_mandelbulb(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -1129,10 +1083,7 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
             // Glass Menger sponge — light refracts through the fractal holes
             let sponge = SdfObject::new(
                 SdfShape::MengerSponge { iterations: 4 },
-                Material::glass(
-                    Color::from_rgba8(220, 230, 255, 255),
-                    1.35,
-                ),
+                Material::glass(Color::from_rgba8(220, 230, 255, 255), 1.35),
             )
             .at(Vec3::ZERO)
             .orient(orientation);
@@ -1153,22 +1104,19 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.2;
             let cam_r = 4.0;
             let cam_y = 2.0 + (t * 0.12).sin() * 0.6;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(sponge)
                 .object(fire_core)
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 7.0, 4.0),
-                    Color::WHITE,
-                    1.4,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 7.0, 4.0), Color::WHITE, 1.4))
                 .light(SdfLight::new(
                     Vec3::new(-3.0, 3.0, -5.0),
                     Color::from_rgba8(255, 180, 100, 255),
@@ -1179,10 +1127,12 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(2);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -1206,9 +1156,7 @@ pub(crate) fn run_menger(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -1239,18 +1187,14 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
             }
 
             // Slow tumbling rotation
-            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0),
-                t * 0.2,
-            );
+            let qx =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), t * 0.2);
             let qy = scry_engine::math3d::Quaternion::from_axis_angle(
                 Vec3::new(0.0, 1.0, 0.0),
                 t * 0.35,
             );
-            let qz = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 0.0, 1.0),
-                t * 0.1,
-            );
+            let qz =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), t * 0.1);
             let orientation = qz * qy * qx;
 
             // Animated scale for a subtly morphing organic feel
@@ -1276,21 +1220,18 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.18;
             let cam_r = 4.2;
             let cam_y = 2.0 + (t * 0.1).sin() * 0.6;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(gyroid_obj)
-                .light(SdfLight::new(
-                    Vec3::new(4.0, 6.0, 5.0),
-                    Color::WHITE,
-                    1.3,
-                ))
+                .light(SdfLight::new(Vec3::new(4.0, 6.0, 5.0), Color::WHITE, 1.3))
                 .light(SdfLight::new(
                     Vec3::new(-4.0, 2.0, -3.0),
                     Color::from_rgba8(200, 150, 255, 255),
@@ -1306,10 +1247,12 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.07)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -1333,9 +1276,7 @@ pub(crate) fn run_gyroid(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -1366,14 +1307,10 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
             }
 
             // Slow rotation
-            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0),
-                t * 0.3,
-            );
-            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 1.0, 0.0),
-                t * 0.5,
-            );
+            let qx =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), t * 0.3);
+            let qy =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), t * 0.5);
             let orientation = qy * qx;
 
             // Animate the slice: oscillates from closed to open and back.
@@ -1429,22 +1366,19 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.2;
             let cam_r = 4.5;
             let cam_y = 2.0 + (t * 0.15).sin() * 0.8;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(torus_obj)
                 .object(swirl)
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 8.0, 4.0),
-                    Color::WHITE,
-                    1.5,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 8.0, 4.0), Color::WHITE, 1.5))
                 .light(SdfLight::new(
                     Vec3::new(-4.0, 3.0, -5.0),
                     Color::from_rgba8(200, 100, 255, 255),
@@ -1460,10 +1394,12 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(2);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -1489,8 +1425,7 @@ pub(crate) fn run_torus(args: &SdfRunParams) -> Result<(), String> {
 pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
     use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, SdfTextLabel,
-        Vec3,
+        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, SdfTextLabel, Vec3,
     };
     use std::time::{Duration, Instant};
 
@@ -1563,11 +1498,7 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
                     }
                 };
 
-                let orbiter = SdfObject::new(
-                    SdfShape::Sphere { radius: 0.2 },
-                    mat,
-                )
-                .at(pos);
+                let orbiter = SdfObject::new(SdfShape::Sphere { radius: 0.2 }, mat).at(pos);
                 scene = scene.object(orbiter);
             }
 
@@ -1581,11 +1512,7 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
 
                 // Spiral height that oscillates
                 let y = (a * 0.4).sin() * 1.5;
-                let pos = Vec3::new(
-                    a.cos() * orbit_r,
-                    y,
-                    a.sin() * orbit_r,
-                );
+                let pos = Vec3::new(a.cos() * orbit_r, y, a.sin() * orbit_r);
 
                 // Psychedelic cycling colors
                 let hue = ((t * 40.0 + i as f32 * 60.0) % 360.0) / 360.0;
@@ -1615,23 +1542,20 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
                     Color::from_rgba8(lr2, lg2, lb2, 255),
                     0.8,
                 ))
-                .light(SdfLight::new(
-                    Vec3::new(0.0, -3.0, 5.0),
-                    Color::WHITE,
-                    0.5,
-                ));
+                .light(SdfLight::new(Vec3::new(0.0, -3.0, 5.0), Color::WHITE, 0.5));
 
             // Camera orbits slowly
             let cam_angle = t * 0.2;
             let cam_r = 5.5;
             let cam_y = 2.5 + (t * 0.12).sin() * 1.0;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             scene = scene
                 .camera(SdfCamera::new(eye, Vec3::ZERO, 45.0))
@@ -1639,10 +1563,12 @@ pub(crate) fn run_mirror(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.05)
                 .max_bounces(3);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -1669,15 +1595,22 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
 
     // Auto-size from terminal dimensions for the illusion grid.
     let (w, h) = {
-        let (term_cols, term_rows) =
-            crossterm::terminal::size().unwrap_or((120, 40));
+        let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
         let (cw, ch) = crate::display::detect_cell_size();
         let auto_w = (term_cols as u32) * u32::from(cw);
         let auto_h = (term_rows as u32).saturating_sub(4) * u32::from(ch);
         let default_res = sdf_default_res();
         // Use the params width/height only if they differ from the SDF default
-        let w = if args.width != default_res && args.width != SDF_LOW_RES { args.width } else { auto_w.max(320) };
-        let h = if args.height != default_res && args.height != SDF_LOW_RES { args.height } else { auto_h.max(200) };
+        let w = if args.width != default_res && args.width != SDF_LOW_RES {
+            args.width
+        } else {
+            auto_w.max(320)
+        };
+        let h = if args.height != default_res && args.height != SDF_LOW_RES {
+            args.height
+        } else {
+            auto_h.max(200)
+        };
         (w, h)
     };
 
@@ -1688,8 +1621,6 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
     } else {
         None
     };
-
-
 
     let mut driver = display::FrameDriver::detect();
     let mut frame: u64 = 0;
@@ -1709,9 +1640,10 @@ fn run_illusion(args: &SdfRunParams) -> Result<(), String> {
 
             // Build and rasterize
             let canvas = build_illusions(w, h, t);
-            let pixmap = Rasterizer::rasterize(&canvas)
-                .map_err(|e| format!("rasterization failed: {e}"))?;
-            driver.display_frame(&pixmap, frame)
+            let pixmap =
+                Rasterizer::rasterize(&canvas).map_err(|e| format!("rasterization failed: {e}"))?;
+            driver
+                .display_frame(&pixmap, frame)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame += 1;
@@ -1997,9 +1929,7 @@ fn build_illusions(w: u32, h: u32, t: f32) -> PixelCanvas {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -2062,12 +1992,9 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
                 t * 0.08,
             );
 
-            let landscape = SdfObject::new(
-                terrain_shape,
-                Material::rainbow_animated(t * 0.15),
-            )
-            .at(Vec3::new(0.0, -1.0, 0.0))
-            .orient(qy);
+            let landscape = SdfObject::new(terrain_shape, Material::rainbow_animated(t * 0.15))
+                .at(Vec3::new(0.0, -1.0, 0.0))
+                .orient(qy);
 
             // Particle descent: spiral path converging to global minimum
             // Cycle: 12s descent, 2s hold, then reset
@@ -2087,7 +2014,9 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
             );
 
             let particle = SdfObject::new(
-                SdfShape::Sphere { radius: 0.15 + (t * 4.0).sin() * 0.03 },
+                SdfShape::Sphere {
+                    radius: 0.15 + (t * 4.0).sin() * 0.03,
+                },
                 Material::fire(),
             )
             .at(particle_pos);
@@ -2106,7 +2035,9 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
 
                 let alpha = 1.0 - (i as f32 / (trail_count as f32 + 1.0));
                 let trail_sphere = SdfObject::new(
-                    SdfShape::Sphere { radius: 0.06 * alpha },
+                    SdfShape::Sphere {
+                        radius: 0.06 * alpha,
+                    },
                     Material::Solid {
                         color: Color {
                             r: 1.0,
@@ -2126,7 +2057,12 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
             // Subtle ground reference plane
             let ground = SdfObject::new(
                 SdfShape::Plane,
-                Material::matte(Color { r: 0.05, g: 0.05, b: 0.08, a: 1.0 }),
+                Material::matte(Color {
+                    r: 0.05,
+                    g: 0.05,
+                    b: 0.08,
+                    a: 1.0,
+                }),
             )
             .at(Vec3::new(0.0, -2.0, 0.0));
 
@@ -2134,19 +2070,11 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.2;
             let cam_r = 7.0;
             let cam_y = 4.5 + (t * 0.12).sin() * 0.5;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
             let scene = scene
                 .object(ground)
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 10.0, 5.0),
-                    Color::WHITE,
-                    1.3,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.3))
                 .light(SdfLight::new(
                     Vec3::new(-4.0, 6.0, -3.0),
                     Color::from_rgba8(100, 180, 255, 255),
@@ -2161,10 +2089,12 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -2190,9 +2120,7 @@ pub(crate) fn run_gradient_descent(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -2270,17 +2198,10 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
                             specular: 64.0,
                         }
                     } else {
-                        Material::glass(
-                            Color::from_rgba8(140, 180, 255, 255),
-                            1.4,
-                        )
+                        Material::glass(Color::from_rgba8(140, 180, 255, 255), 1.4)
                     };
 
-                    let neuron = SdfObject::new(
-                        SdfShape::Sphere { radius: pulse_r },
-                        mat,
-                    )
-                    .at(pos);
+                    let neuron = SdfObject::new(SdfShape::Sphere { radius: pulse_r }, mat).at(pos);
 
                     scene = scene.object(neuron);
                 }
@@ -2337,20 +2258,17 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.15;
             let cam_r = 8.0;
             let cam_y = 1.5 + (t * 0.1).sin() * 0.8;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = scene
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 8.0, 6.0),
-                    Color::WHITE,
-                    1.3,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 8.0, 6.0), Color::WHITE, 1.3))
                 .light(SdfLight::new(
                     Vec3::new(-5.0, 4.0, -4.0),
                     Color::from_rgba8(80, 140, 255, 255),
@@ -2366,10 +2284,12 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -2394,9 +2314,7 @@ pub(crate) fn run_neural_net(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -2417,9 +2335,24 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
 
     // Cluster colors: warm red, teal green, electric blue
     let cluster_colors: [Color; 3] = [
-        Color { r: 1.0, g: 0.25, b: 0.2, a: 1.0 },   // red
-        Color { r: 0.2, g: 0.9, b: 0.5, a: 1.0 },     // green
-        Color { r: 0.2, g: 0.4, b: 1.0, a: 1.0 },     // blue
+        Color {
+            r: 1.0,
+            g: 0.25,
+            b: 0.2,
+            a: 1.0,
+        }, // red
+        Color {
+            r: 0.2,
+            g: 0.9,
+            b: 0.5,
+            a: 1.0,
+        }, // green
+        Color {
+            r: 0.2,
+            g: 0.4,
+            b: 1.0,
+            a: 1.0,
+        }, // blue
     ];
 
     // True cluster centers
@@ -2524,12 +2457,10 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
             for (ci, &cpos) in centroids.iter().enumerate() {
                 let pulse = 1.0 + (t * 2.0 + ci as f32).sin() * 0.08;
                 let centroid_sphere = SdfObject::new(
-                    SdfShape::Sphere { radius: 0.3 * pulse },
-                    Material::glass_dispersive(
-                        cluster_colors[ci],
-                        1.5,
-                        0.02,
-                    ),
+                    SdfShape::Sphere {
+                        radius: 0.3 * pulse,
+                    },
+                    Material::glass_dispersive(cluster_colors[ci], 1.5, 0.02),
                 )
                 .at(cpos);
 
@@ -2540,7 +2471,9 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
                 if phase < 0.98 {
                     let pull_alpha = 1.0 - phase;
                     let pull_sphere = SdfObject::new(
-                        SdfShape::Sphere { radius: 0.04 * pull_alpha },
+                        SdfShape::Sphere {
+                            radius: 0.04 * pull_alpha,
+                        },
                         Material::Solid {
                             color: Color {
                                 r: cluster_colors[ci].r * 0.5,
@@ -2562,20 +2495,17 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.2;
             let cam_r = 7.0;
             let cam_y = 3.0 + (t * 0.15).sin() * 1.0;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = scene
-                .light(SdfLight::new(
-                    Vec3::new(6.0, 8.0, 5.0),
-                    Color::WHITE,
-                    1.2,
-                ))
+                .light(SdfLight::new(Vec3::new(6.0, 8.0, 5.0), Color::WHITE, 1.2))
                 .light(SdfLight::new(
                     Vec3::new(-5.0, 4.0, -4.0),
                     Color::from_rgba8(120, 160, 255, 255),
@@ -2591,10 +2521,12 @@ pub(crate) fn run_kmeans(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.10)
                 .max_bounces(2);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -2629,9 +2561,7 @@ pub(crate) struct TextOptions {
 pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyCode, KeyEventKind};
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     // Uppercase the message for a bolder 3D look.
@@ -2644,8 +2574,12 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
     let font_size = 1.4_f32;
 
     // Build the Text3D shape.
-    let text_shape = SdfShape::text_3d(FONT, &text, font_size, font_size * 0.4)
-        .ok_or_else(|| format!("Failed to build 3D text for \"{text}\" — font may not support these characters"))?;
+    let text_shape =
+        SdfShape::text_3d(FONT, &text, font_size, font_size * 0.4).ok_or_else(|| {
+            format!(
+                "Failed to build 3D text for \"{text}\" — font may not support these characters"
+            )
+        })?;
 
     // Extract actual bounding-box width from the layout for camera framing.
     let text_width = match &text_shape {
@@ -2665,15 +2599,12 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
                 hue_offset: t * 0.5,
                 specular: 128.0,
             },
-            crate::see::TextMaterial::Chrome => Material::mirror(
-                Color::from_rgba8(220, 220, 230, 255),
-                0.9,
-            ),
-            crate::see::TextMaterial::Glass => Material::glass_dispersive(
-                Color::from_rgba8(220, 240, 255, 255),
-                1.5,
-                0.03,
-            ),
+            crate::see::TextMaterial::Chrome => {
+                Material::mirror(Color::from_rgba8(220, 220, 230, 255), 0.9)
+            }
+            crate::see::TextMaterial::Glass => {
+                Material::glass_dispersive(Color::from_rgba8(220, 240, 255, 255), 1.5, 0.03)
+            }
             crate::see::TextMaterial::Fire => Material::Fire {
                 intensity: 2.0,
                 noise_scale: 2.0,
@@ -2691,22 +2622,17 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
     let build_scene = |yaw: f32, pitch: f32, t: f32| -> SdfScene {
         let mat = build_material(t);
 
-        let mut obj = SdfObject::new(text_shape.clone(), mat)
-            .at(Vec3::new(0.0, 1.0, 0.0));
+        let mut obj = SdfObject::new(text_shape.clone(), mat).at(Vec3::new(0.0, 1.0, 0.0));
 
         // No base rotation needed — the text SDF faces -Z by default,
         // and we place the camera at -Z so it reads left-to-right.
-        let mut q = scry_engine::math3d::Quaternion::from_axis_angle(
-            Vec3::new(0.0, 1.0, 0.0), 0.0,
-        );
+        let mut q = scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.0);
 
         if yaw.abs() > 0.001 || pitch.abs() > 0.001 {
-            let qy = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 1.0, 0.0), yaw,
-            );
-            let qx = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0), pitch,
-            );
+            let qy =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), yaw);
+            let qx =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), pitch);
             q = qy * qx * q;
         }
 
@@ -2714,7 +2640,8 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         if opts.wiggle {
             let wiggle_angle = (t * 2.0).sin() * 0.15;
             let qw = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(0.0, 0.0, 1.0), wiggle_angle,
+                Vec3::new(0.0, 0.0, 1.0),
+                wiggle_angle,
             );
             q = qw * q;
         }
@@ -2755,7 +2682,12 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
                 Vec3::new(0.0, 0.8, 0.0),
                 50.0,
             ))
-            .sky_color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 })
+            .sky_color(Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            })
             .ambient(0.08)
             .max_bounces(2);
 
@@ -2770,7 +2702,8 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
                 let wz = (phase + t * 0.5).sin() * 1.2;
                 let (hr, hg, hb) = hsl_to_rgb(
                     ((i as f32 / num_warp as f32) * 360.0 + t * 40.0) % 360.0,
-                    0.9, 0.6,
+                    0.9,
+                    0.6,
                 );
                 scene = scene.object(
                     SdfObject::new(
@@ -2798,7 +2731,8 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
         let t = if opts.wiggle || opts.warp { 0.5 } else { 0.0 };
         let scene = build_scene(0.0, 0.0, t);
 
-        let pixmap = gpu_ctx.render(&scene, w, h, t)
+        let pixmap = gpu_ctx
+            .render(&scene, w, h, t)
             .map_err(|e| format!("SDF render failed: {e}"))?;
 
         driver.display_static(&pixmap)?;
@@ -2829,9 +2763,7 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
             let t = start.elapsed().as_secs_f32();
 
             // Handle input: arrow keys rotate, q/Esc quits
-            if !driver.is_native()
-                && event::poll(Duration::ZERO).unwrap_or(false)
-            {
+            if !driver.is_native() && event::poll(Duration::ZERO).unwrap_or(false) {
                 if let Ok(Event::Key(key)) = event::read() {
                     if key.kind == KeyEventKind::Press {
                         match key.code {
@@ -2854,10 +2786,12 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
 
             let scene = build_scene(yaw, pitch, t);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -2874,7 +2808,6 @@ pub(crate) fn run_text(args: &SdfRunParams, opts: &TextOptions) -> Result<(), St
 
     result
 }
-
 
 // ─── Utility: HSL to RGB ──────────────────────────────────────────────────────
 
@@ -2911,9 +2844,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
     use crossterm::event::{self, Event, KeyEventKind};
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -2983,11 +2914,7 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
 
             // Bright point light positioned behind the sponge
             let light_angle = t * 0.3;
-            let light_pos = Vec3::new(
-                light_angle.sin() * 6.0,
-                3.0,
-                -4.0 + light_angle.cos() * 2.0,
-            );
+            let light_pos = Vec3::new(light_angle.sin() * 6.0, 3.0, -4.0 + light_angle.cos() * 2.0);
 
             // Camera orbiting in front
             let cam_angle = t * 0.12;
@@ -2998,7 +2925,12 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
                 cam_angle.sin() * cam_r,
             );
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(sponge)
@@ -3018,10 +2950,12 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
                 .max_bounces(1)
                 .god_rays(0.4, 12);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             gpu_ctx.flush(); // overlap GPU compute with terminal I/O
@@ -3048,9 +2982,7 @@ pub(crate) fn run_godrays(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -3108,10 +3040,8 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
             .at(Vec3::new(1.5, 1.0, 0.0));
 
             // Marble torus — cool white with pinkish scatter
-            let qr = scry_engine::math3d::Quaternion::from_axis_angle(
-                Vec3::new(1.0, 0.0, 0.0),
-                t * 0.3,
-            );
+            let qr =
+                scry_engine::math3d::Quaternion::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), t * 0.3);
             let marble = SdfObject::new(
                 SdfShape::Torus {
                     major: 0.8,
@@ -3142,7 +3072,12 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
                 cam_angle.sin() * cam_r,
             );
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(jade)
@@ -3154,20 +3089,18 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
                     Color::from_rgba8(255, 240, 220, 255),
                     2.0,
                 ))
-                .light(SdfLight::new(
-                    Vec3::new(4.0, 6.0, 4.0),
-                    Color::WHITE,
-                    0.8,
-                ))
+                .light(SdfLight::new(Vec3::new(4.0, 6.0, 4.0), Color::WHITE, 0.8))
                 .camera(SdfCamera::new(eye, Vec3::new(0.0, 1.0, 0.0), 45.0))
                 .sky_color(transparent)
                 .ambient(0.06)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;
@@ -3191,9 +3124,7 @@ pub(crate) fn run_sss(args: &SdfRunParams) -> Result<(), String> {
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
     use scry_engine::scene::style::Color;
-    use scry_engine::sdf::{
-        Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-    };
+    use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
     use std::time::{Duration, Instant};
 
     let w = args.width;
@@ -3245,21 +3176,18 @@ pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
             let cam_angle = t * 0.2;
             let cam_r = 5.0;
             let cam_y = 2.5 + (t * 0.15).sin() * 0.5;
-            let eye = Vec3::new(
-                cam_angle.cos() * cam_r,
-                cam_y,
-                cam_angle.sin() * cam_r,
-            );
+            let eye = Vec3::new(cam_angle.cos() * cam_r, cam_y, cam_angle.sin() * cam_r);
 
-            let transparent = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+            let transparent = Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            };
 
             let scene = SdfScene::new()
                 .object(morph)
-                .light(SdfLight::new(
-                    Vec3::new(5.0, 8.0, 5.0),
-                    Color::WHITE,
-                    1.3,
-                ))
+                .light(SdfLight::new(Vec3::new(5.0, 8.0, 5.0), Color::WHITE, 1.3))
                 .light(SdfLight::new(
                     Vec3::new(-4.0, 3.0, -3.0),
                     Color::from_rgba8(100, 150, 255, 255),
@@ -3270,10 +3198,12 @@ pub(crate) fn run_morph(args: &SdfRunParams) -> Result<(), String> {
                 .ambient(0.08)
                 .max_bounces(1);
 
-            let pixmap = gpu_ctx.render(&scene, w, h, t)
+            let pixmap = gpu_ctx
+                .render(&scene, w, h, t)
                 .map_err(|e| format!("SDF render failed: {e}"))?;
 
-            driver.display_frame(&pixmap, frame_count)
+            driver
+                .display_frame(&pixmap, frame_count)
                 .map_err(|e| format!("display failed: {e}"))?;
 
             frame_count += 1;

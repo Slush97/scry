@@ -135,7 +135,6 @@ impl SdfGpuContext {
     pub(super) fn take_cached_pixmap(&mut self) -> Option<Pixmap> {
         self.cached_pixmap.take()
     }
-
 }
 
 // ── GPU renderer ───────────────────────────────────────────────────
@@ -258,7 +257,8 @@ impl SdfGpuRenderer {
             &ctx.device,
             "sdf-glyph-grids",
         );
-        ctx.queue.write_buffer(glyph_grids_buf, 0, &glyph_grids_bytes);
+        ctx.queue
+            .write_buffer(glyph_grids_buf, 0, &glyph_grids_bytes);
 
         let output_size = (width * height * 4) as u64;
 
@@ -287,12 +287,30 @@ impl SdfGpuRenderer {
             || ctx.cached_bind_group.is_none();
         if need_new_bind_group {
             // Re-borrow from pool (needed because previous borrows ended)
-            let uniform_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfUniforms).unwrap();
-            let objects_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfObjects).unwrap();
-            let lights_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfLights).unwrap();
-            let output_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfOutput).unwrap();
-            let glyph_meta_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfGlyphMeta).unwrap();
-            let glyph_grids_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfGlyphGrids).unwrap();
+            let uniform_buf = ctx
+                .pool
+                .get(crate::gpu::buffer_pool::BufferKey::SdfUniforms)
+                .unwrap();
+            let objects_buf = ctx
+                .pool
+                .get(crate::gpu::buffer_pool::BufferKey::SdfObjects)
+                .unwrap();
+            let lights_buf = ctx
+                .pool
+                .get(crate::gpu::buffer_pool::BufferKey::SdfLights)
+                .unwrap();
+            let output_buf = ctx
+                .pool
+                .get(crate::gpu::buffer_pool::BufferKey::SdfOutput)
+                .unwrap();
+            let glyph_meta_buf = ctx
+                .pool
+                .get(crate::gpu::buffer_pool::BufferKey::SdfGlyphMeta)
+                .unwrap();
+            let glyph_grids_buf = ctx
+                .pool
+                .get(crate::gpu::buffer_pool::BufferKey::SdfGlyphGrids)
+                .unwrap();
 
             let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("sdf-compute-bg"),
@@ -335,8 +353,14 @@ impl SdfGpuRenderer {
         }
 
         // Dispatch compute shader
-        let output_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfOutput).unwrap();
-        let readback_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfReadback).unwrap();
+        let output_buf = ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfOutput)
+            .unwrap();
+        let readback_buf = ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfReadback)
+            .unwrap();
 
         let mut encoder = ctx
             .device
@@ -385,7 +409,10 @@ impl SdfGpuRenderer {
             })?,
         };
 
-        let readback_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfReadback).unwrap();
+        let readback_buf = ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfReadback)
+            .unwrap();
 
         let readback_slice = readback_buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
@@ -430,7 +457,10 @@ impl SdfGpuRenderer {
         let expected = (width as usize) * (height as usize) * 4;
         buf.resize(expected, 0);
 
-        let readback_buf = ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfReadback).unwrap();
+        let readback_buf = ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfReadback)
+            .unwrap();
 
         let readback_slice = readback_buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
@@ -524,8 +554,14 @@ mod tests {
             "same scene should produce identical frames"
         );
         // Verify buffers were cached (pool should have entries after first render)
-        assert!(ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfOutput).is_some());
-        assert!(ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfReadback).is_some());
+        assert!(ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfOutput)
+            .is_some());
+        assert!(ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfReadback)
+            .is_some());
     }
 
     #[cfg(feature = "sdf-text")]
@@ -537,12 +573,15 @@ mod tests {
         };
 
         let font = include_bytes!("../../crates/scry-chart/src/fonts/Inter-Bold.ttf");
-        let text_shape = SdfShape::text_3d(font.as_slice(), "AB", 1.0, 0.3)
-            .expect("font parse failed");
+        let text_shape =
+            SdfShape::text_3d(font.as_slice(), "AB", 1.0, 0.3).expect("font parse failed");
         let scene = SdfScene::new()
             .object(
-                SdfObject::new(text_shape, Material::matte(Color::from_rgba8(200, 200, 200, 255)))
-                    .at(Vec3::new(0.0, 1.0, 0.0)),
+                SdfObject::new(
+                    text_shape,
+                    Material::matte(Color::from_rgba8(200, 200, 200, 255)),
+                )
+                .at(Vec3::new(0.0, 1.0, 0.0)),
             )
             .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.0))
             .camera(SdfCamera::new(
@@ -558,7 +597,10 @@ mod tests {
         let has_nonblack = pixels
             .iter()
             .any(|p| p.red() > 0 || p.green() > 0 || p.blue() > 0);
-        assert!(has_nonblack, "GPU Text3D render produced an all-black image");
+        assert!(
+            has_nonblack,
+            "GPU Text3D render produced an all-black image"
+        );
 
         // Check that it's NOT a uniform block — text should have varied silhouette
         let first = pixels[0];
@@ -575,8 +617,8 @@ mod tests {
         };
 
         let font = include_bytes!("../../crates/scry-chart/src/fonts/Inter-Bold.ttf");
-        let text_shape = SdfShape::text_3d(font.as_slice(), "A", 1.0, 0.3)
-            .expect("font parse failed");
+        let text_shape =
+            SdfShape::text_3d(font.as_slice(), "A", 1.0, 0.3).expect("font parse failed");
         let scene = SdfScene::new()
             .object(
                 SdfObject::new(
@@ -592,10 +634,8 @@ mod tests {
                 45.0,
             ));
 
-        let gpu_pm =
-            SdfGpuRenderer::render_to_pixmap(&mut ctx, &scene, 32, 24, 0.0).unwrap();
-        let cpu_pm =
-            super::super::SdfRenderer::render_to_pixmap(&scene, 32, 24, 0.0).unwrap();
+        let gpu_pm = SdfGpuRenderer::render_to_pixmap(&mut ctx, &scene, 32, 24, 0.0).unwrap();
+        let cpu_pm = super::super::SdfRenderer::render_to_pixmap(&scene, 32, 24, 0.0).unwrap();
 
         // Count how many pixels match roughly (within tolerance)
         let gpu_px = gpu_pm.pixels();
@@ -631,6 +671,9 @@ mod tests {
         let p2 = SdfGpuRenderer::render_to_pixmap(&mut ctx, &scene, 128, 96, 0.0).unwrap();
         assert_eq!(p2.width(), 128);
         // Pool should have the output buffer after rendering
-        assert!(ctx.pool.get(crate::gpu::buffer_pool::BufferKey::SdfOutput).is_some());
+        assert!(ctx
+            .pool
+            .get(crate::gpu::buffer_pool::BufferKey::SdfOutput)
+            .is_some());
     }
 }

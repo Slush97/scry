@@ -7,9 +7,7 @@ use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
 use scry_engine::style::{GradientDef, GradientKind, GradientStop, Point};
 
-use super::{
-    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign,
-};
+use super::{resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign};
 
 /// A contiguous segment of pixel-space points with their original data indices.
 struct Segment {
@@ -242,7 +240,8 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         sy_cfg.tick_font_size = tick_fs;
         let plot = ctx.plot;
         let (sy_ticks, sy_grids, sy_tmarks) = ctx.draw_with(|c| {
-            let (c, ticks, grids, tmarks, _rot) = crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg);
+            let (c, ticks, grids, tmarks, _rot) =
+                crate::axis::draw_axis(c, plot, &sy_scale, &sy_cfg);
             (c, (ticks, grids, tmarks))
         });
         // Draw secondary axis grid + tick marks for proper z-ordering
@@ -474,15 +473,23 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
                 }
 
                 let (lo_off, hi_off) = if let (Some(lo), Some(hi)) = (asym_lo, asym_hi) {
-                    if i >= lo.len() || i >= hi.len() { continue; }
+                    if i >= lo.len() || i >= hi.len() {
+                        continue;
+                    }
                     let l = lo[i];
                     let h = hi[i];
-                    if !l.is_finite() || !h.is_finite() { continue; }
+                    if !l.is_finite() || !h.is_finite() {
+                        continue;
+                    }
                     (l, h)
                 } else if let Some(errs) = sym_errors {
-                    if i >= errs.len() { continue; }
+                    if i >= errs.len() {
+                        continue;
+                    }
                     let ev = errs[i];
-                    if !ev.is_finite() || ev <= 0.0 { continue; }
+                    if !ev.is_finite() || ev <= 0.0 {
+                        continue;
+                    }
                     (ev, ev)
                 } else {
                     continue;
@@ -578,7 +585,11 @@ pub(crate) fn render_line(lc: &LineChart, w: u32, h: u32) -> RenderedChart {
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
         // Line charts use line-segment swatches (Cleveland 1985 — match chart type)
         legend_cfg.swatch_shape = crate::legend::SwatchShape::Line;
-        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let data_pts = if all_points.is_empty() {
+            None
+        } else {
+            Some(all_points.as_slice())
+        };
         let legend_text = ctx.draw_with(|c| {
             legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });

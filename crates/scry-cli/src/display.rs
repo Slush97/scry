@@ -85,8 +85,8 @@ impl FrameDriver {
     /// Used by `scry chart`, `scry render`, etc.
     /// Decodes PNG to [`Pixmap`], then transmits at the current cursor row.
     pub fn display_png(&mut self, png_data: &[u8]) -> Result<(), String> {
-        let pixmap = Pixmap::decode_png(png_data)
-            .map_err(|e| format!("failed to decode PNG: {e}"))?;
+        let pixmap =
+            Pixmap::decode_png(png_data).map_err(|e| format!("failed to decode PNG: {e}"))?;
         self.display_static(&pixmap)
     }
 
@@ -113,7 +113,8 @@ impl FrameDriver {
             let col = native_cols.saturating_sub(cols) / 2;
             let position = TerminalPosition::new(col, 0, cols, rows);
 
-            let handle = self.backend
+            let handle = self
+                .backend
                 .transmit_persistent(pixmap, position, 0)
                 .map_err(|e| format!("display failed: {e}"))?;
             self.handle = Some(handle);
@@ -143,7 +144,8 @@ impl FrameDriver {
         let col = term_cols.saturating_sub(cols) / 2;
         let position = TerminalPosition::new(col, anchor_row, cols, rows);
 
-        let handle = self.backend
+        let handle = self
+            .backend
             .transmit(pixmap, position, 0)
             .map_err(|e| format!("display failed: {e}"))?;
         self.handle = Some(handle);
@@ -187,8 +189,7 @@ impl FrameDriver {
         let ch = self.font_size.height.max(1);
 
         // Fit image to terminal, maintaining aspect ratio.
-        let (cols_to_use, img_rows) =
-            self.fit_to_terminal(pixmap, term_cols, term_rows, cw, ch);
+        let (cols_to_use, img_rows) = self.fit_to_terminal(pixmap, term_cols, term_rows, cw, ch);
 
         if frame == 0 {
             let mut stdout = io::stdout().lock();
@@ -219,12 +220,14 @@ impl FrameDriver {
         let position = TerminalPosition::new(col, self.anchor_row, cols_to_use, img_rows);
 
         if let Some(ref prev_handle) = self.handle {
-            let new_handle = self.backend
+            let new_handle = self
+                .backend
                 .replace(prev_handle, pixmap, position, 0)
                 .map_err(|e| format!("frame replace failed: {e}"))?;
             self.handle = Some(new_handle);
         } else {
-            let new_handle = self.backend
+            let new_handle = self
+                .backend
                 .transmit(pixmap, position, 0)
                 .map_err(|e| format!("frame transmit failed: {e}"))?;
             self.handle = Some(new_handle);
@@ -253,12 +256,14 @@ impl FrameDriver {
         let position = TerminalPosition::new(col, 0, cols, rows);
 
         if let Some(ref prev_handle) = self.handle {
-            let new_handle = self.backend
+            let new_handle = self
+                .backend
                 .replace(prev_handle, pixmap, position, 0)
                 .map_err(|e| format!("frame replace failed: {e}"))?;
             self.handle = Some(new_handle);
         } else {
-            let new_handle = self.backend
+            let new_handle = self
+                .backend
                 .transmit(pixmap, position, 0)
                 .map_err(|e| format!("frame transmit failed: {e}"))?;
             self.handle = Some(new_handle);
@@ -354,7 +359,10 @@ pub fn terminal_pixel_size() -> (u32, u32) {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let cw = font.width.max(1);
     let ch = font.height.max(1);
-    (u32::from(cols) * u32::from(cw), u32::from(rows) * u32::from(ch))
+    (
+        u32::from(cols) * u32::from(cw),
+        u32::from(rows) * u32::from(ch),
+    )
 }
 
 /// Detect the terminal cell size in pixels `(width, height)`.

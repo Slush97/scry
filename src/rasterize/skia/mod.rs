@@ -216,7 +216,10 @@ impl Rasterizer {
                 if let Some(path) = PathBuilder::from_circle(*cx, *cy, *radius) {
                     Self::render_shape(pixmap, &path, style, parent_transform);
                 } else if let Some(ref mut w) = warnings {
-                    w.push(RenderWarning { command_index, reason: "Circle: degenerate geometry (zero or negative radius)" });
+                    w.push(RenderWarning {
+                        command_index,
+                        reason: "Circle: degenerate geometry (zero or negative radius)",
+                    });
                 }
             }
 
@@ -237,14 +240,20 @@ impl Rasterizer {
                         ) {
                             Self::render_shape(pixmap, &path, style, parent_transform);
                         } else if let Some(ref mut w) = warnings {
-                            w.push(RenderWarning { command_index, reason: "Rectangle: round rect path construction failed" });
+                            w.push(RenderWarning {
+                                command_index,
+                                reason: "Rectangle: round rect path construction failed",
+                            });
                         }
                     } else {
                         let path = PathBuilder::from_rect(r);
                         Self::render_shape(pixmap, &path, style, parent_transform);
                     }
                 } else if let Some(ref mut w) = warnings {
-                    w.push(RenderWarning { command_index, reason: "Rectangle: degenerate geometry (zero or negative dimensions)" });
+                    w.push(RenderWarning {
+                        command_index,
+                        reason: "Rectangle: degenerate geometry (zero or negative dimensions)",
+                    });
                 }
             }
 
@@ -292,7 +301,10 @@ impl Rasterizer {
                     let skia_stroke = Self::to_skia_stroke(stroke);
                     pixmap.stroke_path(&path, &paint, &skia_stroke, parent_transform, None);
                 } else if let Some(ref mut w) = warnings {
-                    w.push(RenderWarning { command_index, reason: "Line: path construction failed" });
+                    w.push(RenderWarning {
+                        command_index,
+                        reason: "Line: path construction failed",
+                    });
                 }
             }
 
@@ -320,10 +332,16 @@ impl Rasterizer {
                             Self::render_shape(pixmap, &path, style, parent_transform);
                         }
                     } else if let Some(ref mut w) = warnings {
-                        w.push(RenderWarning { command_index, reason: "Ellipse: oval path construction failed" });
+                        w.push(RenderWarning {
+                            command_index,
+                            reason: "Ellipse: oval path construction failed",
+                        });
                     }
                 } else if let Some(ref mut w) = warnings {
-                    w.push(RenderWarning { command_index, reason: "Ellipse: degenerate geometry (zero or negative radii)" });
+                    w.push(RenderWarning {
+                        command_index,
+                        reason: "Ellipse: degenerate geometry (zero or negative radii)",
+                    });
                 }
             }
 
@@ -348,10 +366,16 @@ impl Rasterizer {
                     if let Some(path) = pb.finish() {
                         Self::render_shape(pixmap, &path, style, parent_transform);
                     } else if let Some(ref mut w) = warnings {
-                        w.push(RenderWarning { command_index, reason: "Polyline: path construction failed" });
+                        w.push(RenderWarning {
+                            command_index,
+                            reason: "Polyline: path construction failed",
+                        });
                     }
                 } else if let Some(ref mut w) = warnings {
-                    w.push(RenderWarning { command_index, reason: "Polyline: fewer than 2 points" });
+                    w.push(RenderWarning {
+                        command_index,
+                        reason: "Polyline: fewer than 2 points",
+                    });
                 }
             }
 
@@ -438,7 +462,10 @@ impl Rasterizer {
                 {
                     Self::render_shape(pixmap, &path, style, parent_transform);
                 } else if let Some(ref mut w) = warnings {
-                    w.push(RenderWarning { command_index, reason: "Arc: degenerate geometry" });
+                    w.push(RenderWarning {
+                        command_index,
+                        reason: "Arc: degenerate geometry",
+                    });
                 }
             }
 
@@ -656,7 +683,15 @@ impl Rasterizer {
                     };
 
                     for (i, child) in commands.iter().enumerate() {
-                        Self::render_command(&mut temp, child, child_transform, pool, grad_cache, warnings, command_index + i);
+                        Self::render_command(
+                            &mut temp,
+                            child,
+                            child_transform,
+                            pool,
+                            grad_cache,
+                            warnings,
+                            command_index + i,
+                        );
                     }
 
                     // Build clip mask if needed (only for non-rect clips or
@@ -702,7 +737,15 @@ impl Rasterizer {
                 } else {
                     // Fast path: no compositing needed
                     for (i, child) in commands.iter().enumerate() {
-                        Self::render_command(pixmap, child, combined, pool, grad_cache, warnings, command_index + i);
+                        Self::render_command(
+                            pixmap,
+                            child,
+                            combined,
+                            pool,
+                            grad_cache,
+                            warnings,
+                            command_index + i,
+                        );
                     }
                 }
             }

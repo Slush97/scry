@@ -172,11 +172,7 @@ impl RenderContext {
     /// Draw axis spines (border lines) for the plot area.
     ///
     /// Called after grid lines to ensure spines render on top of grids.
-    fn draw_axis_spines(
-        &mut self,
-        x_cfg: &axis::AxisConfig,
-        y_cfg: &axis::AxisConfig,
-    ) {
+    fn draw_axis_spines(&mut self, x_cfg: &axis::AxisConfig, y_cfg: &axis::AxisConfig) {
         let (px, py, pw, ph) = self.plot;
 
         // Bottom spine (X axis)

@@ -66,8 +66,14 @@ fn axis_spines_span_plot_area() {
         }
     }
 
-    assert!(found_bottom, "Bottom axis spine should span the full plot width");
-    assert!(found_left, "Left axis spine should span the full plot height");
+    assert!(
+        found_bottom,
+        "Bottom axis spine should span the full plot width"
+    );
+    assert!(
+        found_left,
+        "Left axis spine should span the full plot height"
+    );
 }
 
 // ===========================================================================
@@ -93,14 +99,14 @@ fn grid_lines_before_data() {
     let cmds = rendered.canvas.commands();
 
     // Find first grid line (dashed line command)
-    let first_grid = cmds.iter().position(|cmd| {
-        matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some())
-    });
+    let first_grid = cmds
+        .iter()
+        .position(|cmd| matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some()));
 
     // Find first data rectangle (filled rect — bars)
-    let first_data = cmds.iter().position(|cmd| {
-        matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some())
-    });
+    let first_data = cmds.iter().position(
+        |cmd| matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some()),
+    );
 
     if let (Some(g), Some(d)) = (first_grid, first_data) {
         assert!(
@@ -117,20 +123,27 @@ fn grid_lines_before_data() {
 /// Phase 1: grid lines, Phase 2: tick marks, Phase 3: axis spines.
 #[test]
 fn tick_marks_between_grids_and_spines() {
-    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0])
-        .build();
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0]).build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     let cmds = rendered.canvas.commands();
 
     // Grid lines are dashed
-    let last_grid = cmds.iter().rposition(|cmd| {
-        matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some())
-    });
+    let last_grid = cmds
+        .iter()
+        .rposition(|cmd| matches!(cmd, DrawCommand::Line { stroke, .. } if stroke.dash.is_some()));
 
     // Tick marks: short solid lines near axes (length < 10px)
     let first_tick = cmds.iter().position(|cmd| {
-        if let DrawCommand::Line { x1, y1, x2, y2, stroke, .. } = cmd {
+        if let DrawCommand::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            stroke,
+            ..
+        } = cmd
+        {
             let len = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
             len < 10.0 && len > 2.0 && stroke.dash.is_none()
         } else {
@@ -170,14 +183,17 @@ fn scatter_legend_uses_circle_swatch() {
     // in the legend area (not in the data area).
     let plot = rendered.plot_area.unwrap();
     let (px, py, pw, _ph) = plot;
-    let legend_circles = cmds.iter().filter(|cmd| {
-        if let DrawCommand::Circle { cx, cy, radius, .. } = cmd {
-            // Small radius (legend swatch) and in legend region
-            *radius < 10.0 && (*cx > px + pw * 0.5 || *cy < py + 30.0)
-        } else {
-            false
-        }
-    }).count();
+    let legend_circles = cmds
+        .iter()
+        .filter(|cmd| {
+            if let DrawCommand::Circle { cx, cy, radius, .. } = cmd {
+                // Small radius (legend swatch) and in legend region
+                *radius < 10.0 && (*cx > px + pw * 0.5 || *cy < py + 30.0)
+            } else {
+                false
+            }
+        })
+        .count();
 
     assert!(
         legend_circles >= 2,
@@ -200,16 +216,27 @@ fn line_legend_uses_line_swatch() {
     // Legend with line swatches: short horizontal line segments.
     // These are rendered inside the legend background rectangle.
     // We look for short horizontal lines (same Y, width < 20px).
-    let short_horiz_lines = cmds.iter().filter(|cmd| {
-        if let DrawCommand::Line { x1, y1, x2, y2, stroke, .. } = cmd {
-            let dx = (x2 - x1).abs();
-            let dy = (y2 - y1).abs();
-            // Horizontal, short, within legend swatch size range
-            dy < 1.0 && dx > 5.0 && dx < 20.0 && stroke.dash.is_none()
-        } else {
-            false
-        }
-    }).count();
+    let short_horiz_lines = cmds
+        .iter()
+        .filter(|cmd| {
+            if let DrawCommand::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                ..
+            } = cmd
+            {
+                let dx = (x2 - x1).abs();
+                let dy = (y2 - y1).abs();
+                // Horizontal, short, within legend swatch size range
+                dy < 1.0 && dx > 5.0 && dx < 20.0 && stroke.dash.is_none()
+            } else {
+                false
+            }
+        })
+        .count();
 
     assert!(
         short_horiz_lines >= 2,
@@ -220,27 +247,30 @@ fn line_legend_uses_line_swatch() {
 /// Bar chart legends must use rectangle swatches (default behavior).
 #[test]
 fn bar_legend_uses_rect_swatch() {
-    let chart = Charts::bar(
-        vec!["Q1".into(), "Q2".into()],
-        &[10.0, 20.0],
-    )
-    .add_series(Series::new("Product B", vec![15.0, 25.0]))
-    .build();
+    let chart = Charts::bar(vec!["Q1".into(), "Q2".into()], &[10.0, 20.0])
+        .add_series(Series::new("Product B", vec![15.0, 25.0]))
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
     let cmds = rendered.canvas.commands();
 
     // Legend area should contain small filled rectangles (swatches).
     let plot = rendered.plot_area.unwrap();
-    let small_rects = cmds.iter().filter(|cmd| {
-        if let DrawCommand::Rectangle { rect, style, .. } = cmd {
-            // Swatch-sized rect (< 20px) with fill
-            rect.width < 20.0 && rect.height < 20.0 && rect.width > 4.0 && style.fill.is_some()
-                && rect.x > plot.0  // in the plot area / legend area
-        } else {
-            false
-        }
-    }).count();
+    let small_rects = cmds
+        .iter()
+        .filter(|cmd| {
+            if let DrawCommand::Rectangle { rect, style, .. } = cmd {
+                // Swatch-sized rect (< 20px) with fill
+                rect.width < 20.0
+                    && rect.height < 20.0
+                    && rect.width > 4.0
+                    && style.fill.is_some()
+                    && rect.x > plot.0 // in the plot area / legend area
+            } else {
+                false
+            }
+        })
+        .count();
 
     assert!(
         small_rects >= 2,
@@ -292,8 +322,7 @@ fn aspect_ratio_fixed_produces_correct_ratio() {
 /// it should fill available space.
 #[test]
 fn aspect_ratio_auto_fills_space() {
-    let chart_auto = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
-        .build();
+    let chart_auto = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]).build();
 
     let chart_equal = Charts::scatter(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0])
         .aspect_ratio(AspectRatio::Equal)
@@ -329,23 +358,23 @@ fn legend_avoids_data_overlap() {
     use scry_chart::legend::LegendPosition;
 
     // Create data that fills the top-right corner
-    let chart = Charts::scatter(
-        &[3.5, 4.0, 4.5, 5.0, 4.8],
-        &[35.0, 40.0, 45.0, 50.0, 48.0],
-    )
-    .add_series(
-        Series::new("Extra", vec![3.8, 4.2, 4.7]),
-        Series::new("Extra Y", vec![38.0, 42.0, 47.0]),
-    )
-    .legend_position(LegendPosition::Best)
-    .build();
+    let chart = Charts::scatter(&[3.5, 4.0, 4.5, 5.0, 4.8], &[35.0, 40.0, 45.0, 50.0, 48.0])
+        .add_series(
+            Series::new("Extra", vec![3.8, 4.2, 4.7]),
+            Series::new("Extra Y", vec![38.0, 42.0, 47.0]),
+        )
+        .legend_position(LegendPosition::Best)
+        .build();
 
     let rendered = layout::render_chart(&chart, 400, 300);
 
     // Verify the chart rendered without panic and has legend text
     let labels = rendered.text_labels();
     let has_legend = labels.iter().any(|l| l.contains("Extra"));
-    assert!(has_legend, "Legend should be present even when data fills top-right");
+    assert!(
+        has_legend,
+        "Legend should be present even when data fills top-right"
+    );
 }
 
 // ===========================================================================
@@ -438,8 +467,12 @@ fn wcag_aa_contrast_all_themes() {
             ratio >= 4.5,
             "Theme '{name}': tick label contrast {ratio:.2}:1 is below WCAG AA (4.5:1). \
              tick=({:.2},{:.2},{:.2}), bg=({:.2},{:.2},{:.2})",
-            tick_rgb.0, tick_rgb.1, tick_rgb.2,
-            bg_rgb.0, bg_rgb.1, bg_rgb.2,
+            tick_rgb.0,
+            tick_rgb.1,
+            tick_rgb.2,
+            bg_rgb.0,
+            bg_rgb.1,
+            bg_rgb.2,
         );
 
         // Check axis label text color (from label_style)
@@ -450,8 +483,12 @@ fn wcag_aa_contrast_all_themes() {
             label_ratio >= 4.5,
             "Theme '{name}': axis label contrast {label_ratio:.2}:1 is below WCAG AA (4.5:1). \
              label=({:.2},{:.2},{:.2}), bg=({:.2},{:.2},{:.2})",
-            label_rgb.0, label_rgb.1, label_rgb.2,
-            bg_rgb.0, bg_rgb.1, bg_rgb.2,
+            label_rgb.0,
+            label_rgb.1,
+            label_rgb.2,
+            bg_rgb.0,
+            bg_rgb.1,
+            bg_rgb.2,
         );
     }
 }
@@ -521,8 +558,12 @@ fn palette_bg_contrast() {
                 ratio >= 2.5,
                 "Theme '{name}': palette[{i}] contrast {ratio:.2}:1 vs bg is below 2.5:1. \
                  color=({:.0},{:.0},{:.0}), bg=({:.0},{:.0},{:.0})",
-                color.r * 255.0, color.g * 255.0, color.b * 255.0,
-                bg.r * 255.0, bg.g * 255.0, bg.b * 255.0,
+                color.r * 255.0,
+                color.g * 255.0,
+                color.b * 255.0,
+                bg.r * 255.0,
+                bg.g * 255.0,
+                bg.b * 255.0,
             );
         }
     }
@@ -540,26 +581,39 @@ fn palette_bg_contrast() {
 #[test]
 fn tick_labels_uniform_precision() {
     let test_cases: Vec<(&str, Vec<f64>, Vec<f64>)> = vec![
-        ("integers", vec![1.0, 2.0, 3.0, 4.0], vec![10.0, 20.0, 30.0, 40.0]),
-        ("decimals", vec![0.1, 0.2, 0.3, 0.4], vec![1.5, 2.5, 3.5, 4.5]),
-        ("mixed_mag", vec![0.0, 1.0, 2.0, 3.0], vec![0.0, 1000.0, 2000.0, 3000.0]),
+        (
+            "integers",
+            vec![1.0, 2.0, 3.0, 4.0],
+            vec![10.0, 20.0, 30.0, 40.0],
+        ),
+        (
+            "decimals",
+            vec![0.1, 0.2, 0.3, 0.4],
+            vec![1.5, 2.5, 3.5, 4.5],
+        ),
+        (
+            "mixed_mag",
+            vec![0.0, 1.0, 2.0, 3.0],
+            vec![0.0, 1000.0, 2000.0, 3000.0],
+        ),
     ];
 
     for (label, x, y) in test_cases {
-        let chart = Charts::scatter(&x, &y)
-            .title("Precision Test")
-            .build();
+        let chart = Charts::scatter(&x, &y).title("Precision Test").build();
 
         let rendered = layout::render_chart(&chart, 800, 600);
         let texts = rendered.text_labels();
 
         // Collect numeric tick labels (skip the title)
-        let numeric_labels: Vec<&str> = texts.iter()
+        let numeric_labels: Vec<&str> = texts
+            .iter()
             .map(|s| s.as_ref())
             .filter(|t: &&str| {
                 *t != "Precision Test"
                     && !t.is_empty()
-                    && t.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '-')
+                    && t.chars()
+                        .next()
+                        .map_or(false, |c| c.is_ascii_digit() || c == '-')
             })
             .collect();
 
@@ -568,8 +622,11 @@ fn tick_labels_uniform_precision() {
         }
 
         // Get decimal place counts for plain number labels
-        let decimal_counts: Vec<usize> = numeric_labels.iter()
-            .filter(|l| !l.contains('K') && !l.contains('M') && !l.contains('G') && !l.contains('e'))
+        let decimal_counts: Vec<usize> = numeric_labels
+            .iter()
+            .filter(|l| {
+                !l.contains('K') && !l.contains('M') && !l.contains('G') && !l.contains('e')
+            })
             .filter_map(|l| l.find('.').map(|d| l.len() - d - 1))
             .collect();
 

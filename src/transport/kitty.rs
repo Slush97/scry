@@ -225,11 +225,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
     /// Zlib-compress raw pixel data into `compress_buf`, then base64-encode
     /// the result into `encode_buf`.
     fn compress_and_encode(&mut self, raw_data: &[u8]) -> Result<(), PixelCanvasError> {
-        kitty_encode::compress_and_encode(
-            raw_data,
-            &mut self.compress_buf,
-            &mut self.encode_buf,
-        )
+        kitty_encode::compress_and_encode(raw_data, &mut self.compress_buf, &mut self.encode_buf)
     }
 
     /// Send a Kitty graphics command with PNG payload.
@@ -277,7 +273,8 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         let placement_id = self.placement_id;
 
         self.encode_buf.clear();
-        base64::engine::general_purpose::STANDARD.encode_string(pixmap.data(), &mut self.encode_buf);
+        base64::engine::general_purpose::STANDARD
+            .encode_string(pixmap.data(), &mut self.encode_buf);
 
         let params = format!("a=T,q=2,f=32,s={pixel_width},v={pixel_height},i={image_id},p={placement_id},z={z_index}");
         self.send_encoded(&params, position)
@@ -346,7 +343,8 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
         // base64-encoded, including shared memory object names.
         use base64::Engine;
         self.encode_buf.clear();
-        base64::engine::general_purpose::STANDARD.encode_string(name.as_bytes(), &mut self.encode_buf);
+        base64::engine::general_purpose::STANDARD
+            .encode_string(name.as_bytes(), &mut self.encode_buf);
 
         // Store the buffer so the mmap stays alive until the terminal reads it.
         // Don't unlink on drop — Kitty handles that.

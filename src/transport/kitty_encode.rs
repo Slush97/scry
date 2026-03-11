@@ -36,17 +36,16 @@ pub(super) fn compress_and_encode(
     compress_buf.clear();
     {
         let mut encoder = ZlibEncoder::new(&mut *compress_buf, Compression::fast());
-        encoder.write_all(raw_data).map_err(|e| {
-            PixelCanvasError::Rasterization(format!("zlib compress failed: {e}"))
-        })?;
+        encoder
+            .write_all(raw_data)
+            .map_err(|e| PixelCanvasError::Rasterization(format!("zlib compress failed: {e}")))?;
         encoder
             .finish()
             .map_err(|e| PixelCanvasError::Rasterization(format!("zlib finish failed: {e}")))?;
     }
 
     encode_buf.clear();
-    base64::engine::general_purpose::STANDARD
-        .encode_string(compress_buf, encode_buf);
+    base64::engine::general_purpose::STANDARD.encode_string(compress_buf, encode_buf);
 
     Ok(())
 }
@@ -70,13 +69,8 @@ pub(super) fn send_encoded<W: Write>(
 
     // Begin synchronized update
     write!(send_buf, "\x1b[?2026h").map_err(PixelCanvasError::Transmission)?;
-    write!(
-        send_buf,
-        "\x1b[{};{}H",
-        position.row + 1,
-        position.col + 1
-    )
-    .map_err(PixelCanvasError::Transmission)?;
+    write!(send_buf, "\x1b[{};{}H", position.row + 1, position.col + 1)
+        .map_err(PixelCanvasError::Transmission)?;
 
     for i in 0..n_chunks {
         let start = i * CHUNK_SIZE;
@@ -103,9 +97,7 @@ pub(super) fn send_encoded<W: Write>(
     writer
         .write_all(send_buf)
         .map_err(PixelCanvasError::Transmission)?;
-    writer
-        .flush()
-        .map_err(PixelCanvasError::Transmission)?;
+    writer.flush().map_err(PixelCanvasError::Transmission)?;
 
     Ok(())
 }

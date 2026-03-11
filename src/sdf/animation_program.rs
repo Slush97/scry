@@ -9,6 +9,7 @@
 //! Each variant mirrors a `PlayPreset` from `scry-cli` but is decoupled
 //! from the CLI crate so it can live in `scry-engine`.
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::math3d::Quaternion;
@@ -22,7 +23,8 @@ use super::scene::{SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape};
 ///
 /// Sent over IPC from the CLI to the terminal. The terminal evaluates
 /// `build_scene(t)` each frame to produce the SDF scene for that instant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AnimationProgram {
     /// Spinning 3D cube with rainbow gradient.
     Cube,
@@ -114,11 +116,7 @@ fn build_cube(t: f32, sky: Color) -> SdfScene {
     SdfScene::new()
         .object(cube)
         .object(ground)
-        .light(SdfLight::new(
-            Vec3::new(5.0, 8.0, 5.0),
-            Color::WHITE,
-            1.0,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 8.0, 5.0), Color::WHITE, 1.0))
         .light(SdfLight::new(
             Vec3::new(-3.0, 4.0, -2.0),
             Color::from_rgba8(100, 150, 255, 255),
@@ -160,11 +158,7 @@ fn build_vortex(t: f32, sky: Color) -> SdfScene {
     SdfScene::new()
         .object(torus)
         .object(fire)
-        .light(SdfLight::new(
-            Vec3::new(5.0, 7.0, 4.0),
-            Color::WHITE,
-            1.2,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 7.0, 4.0), Color::WHITE, 1.2))
         .light(SdfLight::new(
             Vec3::new(-4.0, 3.0, -3.0),
             Color::from_rgba8(255, 180, 100, 255),
@@ -205,11 +199,7 @@ fn build_pulse(t: f32, sky: Color) -> SdfScene {
 
     SdfScene::new()
         .object(orb)
-        .light(SdfLight::new(
-            Vec3::new(4.0, 6.0, 4.0),
-            Color::WHITE,
-            1.3,
-        ))
+        .light(SdfLight::new(Vec3::new(4.0, 6.0, 4.0), Color::WHITE, 1.3))
         .light(SdfLight::new(
             Vec3::new(-3.0, 2.0, -4.0),
             Color::from_rgba8(180, 100, 255, 255),
@@ -282,11 +272,7 @@ fn build_orbit(t: f32, sky: Color) -> SdfScene {
         .object(orbiter1)
         .object(orbiter2)
         .object(orbiter3)
-        .light(SdfLight::new(
-            Vec3::new(6.0, 8.0, 4.0),
-            Color::WHITE,
-            1.3,
-        ))
+        .light(SdfLight::new(Vec3::new(6.0, 8.0, 4.0), Color::WHITE, 1.3))
         .light(SdfLight::new(
             Vec3::new(-5.0, 3.0, -3.0),
             Color::from_rgba8(100, 140, 255, 255),
@@ -305,10 +291,7 @@ fn build_torus(t: f32, sky: Color) -> SdfScene {
 
     let minor = 0.5 + (t * 0.8).sin() * 0.1;
     let torus = SdfObject::new(
-        SdfShape::Torus {
-            major: 1.5,
-            minor,
-        },
+        SdfShape::Torus { major: 1.5, minor },
         Material::Rainbow {
             saturation: 1.0,
             lightness: 0.45,
@@ -323,11 +306,7 @@ fn build_torus(t: f32, sky: Color) -> SdfScene {
 
     SdfScene::new()
         .object(torus)
-        .light(SdfLight::new(
-            Vec3::new(5.0, 7.0, 4.0),
-            Color::WHITE,
-            1.2,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 7.0, 4.0), Color::WHITE, 1.2))
         .light(SdfLight::new(
             Vec3::new(-4.0, 3.0, -3.0),
             Color::from_rgba8(255, 160, 80, 255),
@@ -361,11 +340,7 @@ fn build_mandelbulb(t: f32, sky: Color) -> SdfScene {
 
     SdfScene::new()
         .object(bulb)
-        .light(SdfLight::new(
-            Vec3::new(4.0, 6.0, 4.0),
-            Color::WHITE,
-            1.2,
-        ))
+        .light(SdfLight::new(Vec3::new(4.0, 6.0, 4.0), Color::WHITE, 1.2))
         .light(SdfLight::new(
             Vec3::new(-3.0, 2.0, -4.0),
             Color::from_rgba8(180, 120, 255, 255),
@@ -410,11 +385,7 @@ fn build_menger(t: f32, sky: Color) -> SdfScene {
     SdfScene::new()
         .object(sponge)
         .object(fire_core)
-        .light(SdfLight::new(
-            Vec3::new(5.0, 7.0, 4.0),
-            Color::WHITE,
-            1.4,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 7.0, 4.0), Color::WHITE, 1.4))
         .light(SdfLight::new(
             Vec3::new(-3.0, 3.0, -5.0),
             Color::from_rgba8(255, 180, 100, 255),
@@ -454,11 +425,7 @@ fn build_gyroid(t: f32, sky: Color) -> SdfScene {
 
     SdfScene::new()
         .object(gyroid)
-        .light(SdfLight::new(
-            Vec3::new(5.0, 7.0, 3.0),
-            Color::WHITE,
-            1.3,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 7.0, 3.0), Color::WHITE, 1.3))
         .light(SdfLight::new(
             Vec3::new(-4.0, 2.0, -4.0),
             Color::from_rgba8(255, 130, 200, 255),
@@ -520,11 +487,7 @@ fn build_sss(t: f32, sky: Color) -> SdfScene {
 
     SdfScene::new()
         .object(orb)
-        .light(SdfLight::new(
-            Vec3::new(4.0, 6.0, 4.0),
-            Color::WHITE,
-            1.4,
-        ))
+        .light(SdfLight::new(Vec3::new(4.0, 6.0, 4.0), Color::WHITE, 1.4))
         .light(SdfLight::new(
             Vec3::new(-3.0, 2.0, -3.0),
             Color::from_rgba8(255, 200, 150, 255),
@@ -562,11 +525,7 @@ fn build_morph(t: f32, sky: Color) -> SdfScene {
 
     SdfScene::new()
         .object(morph_obj)
-        .light(SdfLight::new(
-            Vec3::new(5.0, 7.0, 4.0),
-            Color::WHITE,
-            1.2,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 7.0, 4.0), Color::WHITE, 1.2))
         .light(SdfLight::new(
             Vec3::new(-4.0, 3.0, -3.0),
             Color::from_rgba8(120, 180, 255, 255),
@@ -613,6 +572,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native-ipc")]
     fn serialization_roundtrip() {
         let program = AnimationProgram::Mandelbulb;
         let bytes = postcard::to_allocvec(&program).unwrap();

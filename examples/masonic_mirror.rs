@@ -38,16 +38,13 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use scry_engine::prelude::{
-    Picker, PixelCanvasState, PixelCanvasWidget,
-    ProfileHistory, ProfiledRasterizer,
+    Picker, PixelCanvasState, PixelCanvasWidget, ProfileHistory, ProfiledRasterizer,
 };
+use scry_engine::scene::command::ImageData;
 use scry_engine::scene::style::Color;
 use scry_engine::scene::PixelCanvas;
-use scry_engine::scene::command::ImageData;
-use scry_engine::sdf::{
-    Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3,
-};
 use scry_engine::sdf::pipeline::SdfPipeline;
+use scry_engine::sdf::{Material, SdfCamera, SdfLight, SdfObject, SdfScene, SdfShape, Vec3};
 
 // ═══════════════════════════════════════════════════════════════════
 // State
@@ -115,8 +112,8 @@ fn build_sdf_scene(time: f32) -> SdfScene {
                 SdfShape::Sphere { radius: 1.2 },
                 Material::glass_dispersive(
                     Color::from_rgba8(230, 230, 255, 255), // slight cool tint
-                    1.45,  // glass-like IOR
-                    0.04,  // chromatic dispersion for prismatic edges
+                    1.45,                                  // glass-like IOR
+                    0.04, // chromatic dispersion for prismatic edges
                 ),
             )
             .at(Vec3::new(0.0, 1.2, 0.0)),
@@ -126,7 +123,7 @@ fn build_sdf_scene(time: f32) -> SdfScene {
             SdfObject::new(
                 SdfShape::Cylinder {
                     radius: 0.95,       // fits inside the 1.2-radius sphere
-                    half_height: 0.015,  // razor-thin disc
+                    half_height: 0.015, // razor-thin disc
                 },
                 Material::rainbow_animated(hue_spin),
             )
@@ -200,7 +197,7 @@ fn build_sdf_scene(time: f32) -> SdfScene {
             Vec3::new(0.0, 1.0, 0.0),
             50.0,
         ))
-        .max_bounces(3)  // extra bounce for glass refraction chains
+        .max_bounces(3) // extra bounce for glass refraction chains
         .sky_color(Color::from_rgba8(5, 5, 15, 255))
 }
 
@@ -208,11 +205,7 @@ fn build_sdf_scene(time: f32) -> SdfScene {
 // Scene assembly
 // ═══════════════════════════════════════════════════════════════════
 
-fn build_scene(
-    w: u32,
-    h: u32,
-    sdf_image: ImageData,
-) -> PixelCanvas {
+fn build_scene(w: u32, h: u32, sdf_image: ImageData) -> PixelCanvas {
     if w == 0 || h == 0 {
         return PixelCanvas::new(1, 1);
     }
@@ -262,11 +255,18 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
     writeln!(f, "Environment")?;
     writeln!(f, "-----------")?;
     writeln!(f, "  Resolution:  {}x{}", state.canvas_w, state.canvas_h)?;
-    writeln!(f, "  Pixels:      {}", u64::from(state.canvas_w) * u64::from(state.canvas_h))?;
+    writeln!(
+        f,
+        "  Pixels:      {}",
+        u64::from(state.canvas_w) * u64::from(state.canvas_h)
+    )?;
     writeln!(f, "  Protocol:    {protocol}")?;
-    writeln!(f, "  SDF render:  {} (scale {}%)",
+    writeln!(
+        f,
+        "  SDF render:  {} (scale {}%)",
         state.sdf_pipeline.backend_name(),
-        (state.sdf_pipeline.get_render_scale() * 100.0) as u32)?;
+        (state.sdf_pipeline.get_render_scale() * 100.0) as u32
+    )?;
     writeln!(f, "  Duration:    {duration:.1}s")?;
     writeln!(f, "  Frames:      {frame_count}")?;
     writeln!(f)?;
@@ -285,8 +285,18 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
 
         let safe_fps = |dt: f32| if dt > 0.0 { 1.0 / dt } else { 0.0 };
 
-        writeln!(f, "  Mean:    {:.1} fps  ({:.2}ms/frame)", safe_fps(mean_dt), mean_dt * 1000.0)?;
-        writeln!(f, "  Median:  {:.1} fps  ({:.2}ms/frame)", safe_fps(median_dt), median_dt * 1000.0)?;
+        writeln!(
+            f,
+            "  Mean:    {:.1} fps  ({:.2}ms/frame)",
+            safe_fps(mean_dt),
+            mean_dt * 1000.0
+        )?;
+        writeln!(
+            f,
+            "  Median:  {:.1} fps  ({:.2}ms/frame)",
+            safe_fps(median_dt),
+            median_dt * 1000.0
+        )?;
         writeln!(f, "  P5:      {:.1} fps  (fast frames)", safe_fps(p5_dt))?;
         writeln!(f, "  P95:     {:.1} fps  (slow frames)", safe_fps(p95_dt))?;
         writeln!(f, "  Min:     {:.1} fps", safe_fps(max_dt))?;
@@ -298,9 +308,15 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
 
     // Rasterization Profile
     let summary = state.profile_history.summary();
-    writeln!(f, "Rasterization Profile (median over {} frames)", summary.frame_count)?;
+    writeln!(
+        f,
+        "Rasterization Profile (median over {} frames)",
+        summary.frame_count
+    )?;
     writeln!(f, "-------------------------------------------")?;
-    writeln!(f, "  Total raster:  {:.3}ms (median)  {:.3}ms (P95)",
+    writeln!(
+        f,
+        "  Total raster:  {:.3}ms (median)  {:.3}ms (P95)",
         summary.total_median_us as f64 / 1000.0,
         summary.total_p95_us as f64 / 1000.0,
     )?;
@@ -308,7 +324,11 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
 
     let sorted = summary.sorted_types();
     if !sorted.is_empty() {
-        writeln!(f, "  {:<12} {:>5}  {:>10}  {:>10}  {:>6}", "Type", "Count", "Median", "P95", "% Tot")?;
+        writeln!(
+            f,
+            "  {:<12} {:>5}  {:>10}  {:>10}  {:>6}",
+            "Type", "Count", "Median", "P95", "% Tot"
+        )?;
         writeln!(f, "  {}", "-".repeat(50))?;
         for st in &sorted {
             let pct = if summary.total_median_us > 0 {
@@ -316,7 +336,9 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
             } else {
                 0.0
             };
-            writeln!(f, "  {:<12} {:>5}  {:>8.3}ms  {:>8.3}ms  {:>5.1}%",
+            writeln!(
+                f,
+                "  {:<12} {:>5}  {:>8.3}ms  {:>8.3}ms  {:>5.1}%",
                 st.cmd_type.name(),
                 st.count,
                 st.median_us as f64 / 1000.0,
@@ -340,17 +362,30 @@ fn save_benchmark_report(state: &MasonicState, protocol: &str) -> std::io::Resul
             }
             let pct = (st.median_us as f64 / summary.total_median_us as f64) * 100.0;
             if pct > 30.0 {
-                writeln!(f, "  DOMINATES: {} ({:.1}% of raster time, {}x count)",
-                    st.cmd_type.name(), pct, st.count)?;
+                writeln!(
+                    f,
+                    "  DOMINATES: {} ({:.1}% of raster time, {}x count)",
+                    st.cmd_type.name(),
+                    pct,
+                    st.count
+                )?;
                 found_bottleneck = true;
             } else if pct > 15.0 {
-                writeln!(f, "  SIGNIFICANT: {} ({:.1}% of raster time, {}x count)",
-                    st.cmd_type.name(), pct, st.count)?;
+                writeln!(
+                    f,
+                    "  SIGNIFICANT: {} ({:.1}% of raster time, {}x count)",
+                    st.cmd_type.name(),
+                    pct,
+                    st.count
+                )?;
                 found_bottleneck = true;
             }
         }
         if !found_bottleneck {
-            writeln!(f, "  No single command type dominates (>30%) or is significant (>15%).")?;
+            writeln!(
+                f,
+                "  No single command type dominates (>30%) or is significant (>15%)."
+            )?;
             writeln!(f, "  Raster load is well-distributed.")?;
         }
     }
@@ -373,37 +408,43 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
     let mut frozen_time = 0.0_f32;
     let mut last_time = 0.0_f32;
 
-    run_loop_continuous(960, 640, "Masonic Mirror", true, move |backend, keys, (w, h)| {
-        for key in keys {
-            if !key.pressed {
-                continue;
+    run_loop_continuous(
+        960,
+        640,
+        "Masonic Mirror",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::Space => state.paused = !state.paused,
+                    _ => {}
+                }
             }
-            match key.code {
-                WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
-                WKey::Space => state.paused = !state.paused,
-                _ => {}
+
+            let elapsed = if state.paused {
+                frozen_time
+            } else {
+                let e = start.elapsed().as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            let _dt = elapsed - last_time;
+            last_time = elapsed;
+
+            let sdf_scene = build_sdf_scene(elapsed);
+            let sdf_result = state.sdf_pipeline.render_sync(&sdf_scene, w, h, elapsed);
+            let canvas = build_scene(w, h, sdf_result.image);
+            if let Ok(pixmap) = scry_engine::rasterize::RasterPipeline::new().rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
             }
-        }
-
-        let elapsed = if state.paused {
-            frozen_time
-        } else {
-            let e = start.elapsed().as_secs_f32();
-            frozen_time = e;
-            e
-        };
-
-        let _dt = elapsed - last_time;
-        last_time = elapsed;
-
-        let sdf_scene = build_sdf_scene(elapsed);
-        let sdf_result = state.sdf_pipeline.render_sync(&sdf_scene, w, h, elapsed);
-        let canvas = build_scene(w, h, sdf_result.image);
-        if let Ok(pixmap) = scry_engine::rasterize::RasterPipeline::new().rasterize(&canvas) {
-            let _ = backend.blit(&pixmap);
-        }
-        LoopAction::Continue
-    })?;
+            LoopAction::Continue
+        },
+    )?;
     Ok(())
 }
 
@@ -436,9 +477,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     diag!("[1] initializing GPU pipeline...");
     let mut state = MasonicState::new();
-    diag!("[2] GPU pipeline ready: {}", state.sdf_pipeline.backend_name());
+    diag!(
+        "[2] GPU pipeline ready: {}",
+        state.sdf_pipeline.backend_name()
+    );
 
-    eprintln!("SDF backend: {} — entering terminal...", state.sdf_pipeline.backend_name());
+    eprintln!(
+        "SDF backend: {} — entering terminal...",
+        state.sdf_pipeline.backend_name()
+    );
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
@@ -469,7 +516,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             e
         };
 
-        let fps = if dt.as_secs_f32() > 0.0 { 1.0 / dt.as_secs_f32() } else { 0.0 };
+        let fps = if dt.as_secs_f32() > 0.0 {
+            1.0 / dt.as_secs_f32()
+        } else {
+            0.0
+        };
 
         // Build scene outside terminal.draw() so we can optionally profile it
         let term_size = terminal.size()?;
@@ -489,20 +540,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let render_start = Instant::now();
         let sdf_result = state.sdf_pipeline.render(&sdf_scene, w, h, elapsed);
         let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
-        if frame_num <= 5 || frame_num % 50 == 0
-            || (frame_num <= 200 && sdf_result.backend == scry_engine::sdf::pipeline::SdfBackend::Gpu)
+        if frame_num <= 5
+            || frame_num % 50 == 0
+            || (frame_num <= 200
+                && sdf_result.backend == scry_engine::sdf::pipeline::SdfBackend::Gpu)
         {
-            diag!("[frame {frame_num}] {render_ms:.1}ms backend={:?} gpu_active={} t={elapsed:.1}s",
-                sdf_result.backend, state.sdf_pipeline.is_gpu_active());
+            diag!(
+                "[frame {frame_num}] {render_ms:.1}ms backend={:?} gpu_active={} t={elapsed:.1}s",
+                sdf_result.backend,
+                state.sdf_pipeline.is_gpu_active()
+            );
         }
 
         // Diagnostic: dump first frames info + PNG
         if frame_num <= 2 {
             let img_data = sdf_result.image.data();
             let total_px = (sdf_result.width * sdf_result.height) as usize;
-            let non_black = (0..total_px).filter(|&i| {
-                img_data[i*4] > 10 || img_data[i*4+1] > 10 || img_data[i*4+2] > 10
-            }).count();
+            let non_black = (0..total_px)
+                .filter(|&i| {
+                    img_data[i * 4] > 10 || img_data[i * 4 + 1] > 10 || img_data[i * 4 + 2] > 10
+                })
+                .count();
             eprintln!("[diag] frame={frame_num} w={w} h={h} backend={:?} scale={:.0}% non_black={non_black}/{total_px}",
                 sdf_result.backend,
                 state.sdf_pipeline.get_render_scale() * 100.0);
@@ -588,12 +646,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         KeyCode::Char('s') => {
                             // Cycle: 1.0 → 0.75 → 0.5 → 0.25 → 1.0
-                            let new_scale = match (state.sdf_pipeline.get_render_scale() * 100.0) as u32 {
-                                100 => 0.75,
-                                75 => 0.5,
-                                50 => 0.25,
-                                _ => 1.0,
-                            };
+                            let new_scale =
+                                match (state.sdf_pipeline.get_render_scale() * 100.0) as u32 {
+                                    100 => 0.75,
+                                    75 => 0.5,
+                                    50 => 0.25,
+                                    _ => 1.0,
+                                };
                             state.sdf_pipeline.set_render_scale(new_scale);
                         }
                         KeyCode::Char('p') => {

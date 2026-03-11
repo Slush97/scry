@@ -93,7 +93,13 @@ impl ChartSpec for RadarChart {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::radar::render_radar(self, w, h)
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }

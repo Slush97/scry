@@ -12,18 +12,16 @@
 //!
 //! This module is only available when the `gpu` feature is enabled (default).
 
-use super::skia::Rasterizer;
-use super::wgpu_context::{
-    BufferPool, LineVertex, MeshVertex, ShapeInstance, WgpuContext2D,
-};
 use super::gpu_commands::{
-    GradientDraw, ImageOverlay, LineBatch, MeshBatch, ShapeBatch, process_commands,
+    process_commands, GradientDraw, ImageOverlay, LineBatch, MeshBatch, ShapeBatch,
 };
+use super::skia::Rasterizer;
+use super::wgpu_context::{BufferPool, LineVertex, MeshVertex, ShapeInstance, WgpuContext2D};
 use crate::scene::PixelCanvas;
 use crate::PixelCanvasError;
 use std::cell::RefCell;
-use wgpu::util::DeviceExt;
 use tiny_skia::Pixmap;
+use wgpu::util::DeviceExt;
 
 // ---------------------------------------------------------------------------
 // WgpuRasterizer
@@ -132,7 +130,12 @@ impl<'ctx> WgpuRasterizer<'ctx> {
     /// Create a GPU rasterizer that borrows from an existing [`WgpuContext2D`].
     fn with_context(ctx: &'ctx WgpuContext2D, width: u32, height: u32) -> Self {
         let (texture, texture_view, uniform_bind_group) =
-            super::wgpu_context::create_frame_resources(&ctx.device, &ctx.pipelines.uniform_bgl, width, height);
+            super::wgpu_context::create_frame_resources(
+                &ctx.device,
+                &ctx.pipelines.uniform_bgl,
+                width,
+                height,
+            );
 
         Self {
             device: &ctx.device,
@@ -181,53 +184,74 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             let mut pool = self.buffer_pool.borrow_mut();
 
             // Flatten all shape instances into a contiguous byte slice
-            let all_shapes: Vec<ShapeInstance> = self.shape_batches.iter()
+            let all_shapes: Vec<ShapeInstance> = self
+                .shape_batches
+                .iter()
                 .flat_map(|b| b.instances.iter().copied())
                 .collect();
             shape_buf = if all_shapes.is_empty() {
                 self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("shape_empty"), size: 16,
-                    usage: wgpu::BufferUsages::VERTEX, mapped_at_creation: false,
+                    label: Some("shape_empty"),
+                    size: 16,
+                    usage: wgpu::BufferUsages::VERTEX,
+                    mapped_at_creation: false,
                 })
             } else {
                 BufferPool::ensure_and_upload(
-                    self.device, self.queue, &mut pool.shape,
+                    self.device,
+                    self.queue,
+                    &mut pool.shape,
                     bytemuck::cast_slice(&all_shapes),
-                    wgpu::BufferUsages::VERTEX, "shape_instances_pooled",
+                    wgpu::BufferUsages::VERTEX,
+                    "shape_instances_pooled",
                 )
             };
 
             // Flatten all mesh vertices
-            let all_mesh: Vec<MeshVertex> = self.mesh_batches.iter()
+            let all_mesh: Vec<MeshVertex> = self
+                .mesh_batches
+                .iter()
                 .flat_map(|b| b.vertices.iter().copied())
                 .collect();
             mesh_buf = if all_mesh.is_empty() {
                 self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("mesh_empty"), size: 16,
-                    usage: wgpu::BufferUsages::VERTEX, mapped_at_creation: false,
+                    label: Some("mesh_empty"),
+                    size: 16,
+                    usage: wgpu::BufferUsages::VERTEX,
+                    mapped_at_creation: false,
                 })
             } else {
                 BufferPool::ensure_and_upload(
-                    self.device, self.queue, &mut pool.mesh,
+                    self.device,
+                    self.queue,
+                    &mut pool.mesh,
                     bytemuck::cast_slice(&all_mesh),
-                    wgpu::BufferUsages::VERTEX, "mesh_vertices_pooled",
+                    wgpu::BufferUsages::VERTEX,
+                    "mesh_vertices_pooled",
                 )
             };
 
             // Flatten all line vertices
-            let all_lines: Vec<LineVertex> = self.line_batches.iter()
+            let all_lines: Vec<LineVertex> = self
+                .line_batches
+                .iter()
                 .flat_map(|b| b.vertices.iter().copied())
                 .collect();
             line_buf = if all_lines.is_empty() {
                 self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("line_empty"), size: 16,
-                    usage: wgpu::BufferUsages::VERTEX, mapped_at_creation: false,
+                    label: Some("line_empty"),
+                    size: 16,
+                    usage: wgpu::BufferUsages::VERTEX,
+                    mapped_at_creation: false,
                 })
             } else {
                 BufferPool::ensure_and_upload(
-                    self.device, self.queue, &mut pool.line,
+                    self.device,
+                    self.queue,
+                    &mut pool.line,
                     bytemuck::cast_slice(&all_lines),
-                    wgpu::BufferUsages::VERTEX, "line_vertices_pooled",
+                    wgpu::BufferUsages::VERTEX,
+                    "line_vertices_pooled",
                 )
             };
         }

@@ -86,11 +86,7 @@ impl RasterPipeline {
     /// sentinel when `skip_cache` is true).
     ///
     /// Returns `None` if the pixmap could not be allocated.
-    pub fn rasterize_into_cache(
-        &mut self,
-        canvas: &PixelCanvas,
-        skip_cache: bool,
-    ) -> Option<u64> {
+    pub fn rasterize_into_cache(&mut self, canvas: &PixelCanvas, skip_cache: bool) -> Option<u64> {
         let content_hash = if skip_cache { 0 } else { canvas.content_hash() };
 
         // Cache hit — return early

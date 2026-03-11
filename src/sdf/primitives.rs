@@ -259,9 +259,7 @@ pub fn sd_menger_sponge(p: Vec3, iterations: u32) -> f32 {
 /// sphere so it renders as a finite object.
 pub fn sd_gyroid(p: Vec3, scale: f32, thickness: f32, bound: f32) -> f32 {
     let sp = p * scale;
-    let val = sp.x.sin() * sp.y.cos()
-            + sp.y.sin() * sp.z.cos()
-            + sp.z.sin() * sp.x.cos();
+    let val = sp.x.sin() * sp.y.cos() + sp.y.sin() * sp.z.cos() + sp.z.sin() * sp.x.cos();
     // Shell around the zero-isosurface
     let gyroid_d = (val.abs() - thickness) / scale;
 
@@ -273,7 +271,6 @@ pub fn sd_gyroid(p: Vec3, scale: f32, thickness: f32, bound: f32) -> f32 {
         gyroid_d
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -55,8 +55,8 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
 
     let mut current_angle = pc.start_angle;
     let segments = 64; // segments per arc for smooth circles
-    // Collect external labels for post-loop collision avoidance:
-    // (inner_x, inner_y, outer_x, outer_y, label_text, alignment)
+                       // Collect external labels for post-loop collision avoidance:
+                       // (inner_x, inner_y, outer_x, outer_y, label_text, alignment)
     let mut external_labels: Vec<(f32, f32, f32, f32, String, TextAlign)> = Vec::new();
 
     for (i, (&value, _label)) in pc.values.iter().zip(pc.labels.iter()).enumerate() {
@@ -135,7 +135,16 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
                 // Fits inside the slice
                 let lx = cx + label_r_inside * mid_angle.cos();
                 let ly = cy + label_r_inside * mid_angle.sin();
-                ctx.add_text(lx, ly, &label_text, contrast_text_color(color), TextAlign::Center, tick_fs, true, 0.0);
+                ctx.add_text(
+                    lx,
+                    ly,
+                    &label_text,
+                    contrast_text_color(color),
+                    TextAlign::Center,
+                    tick_fs,
+                    true,
+                    0.0,
+                );
             } else {
                 // Too small — collect for external placement with collision avoidance
                 let inner_pt_r = outer_r + 4.0;
@@ -144,7 +153,11 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
                 let iy = cy + inner_pt_r * mid_angle.sin();
                 let ox = cx + outer_pt_r * mid_angle.cos();
                 let oy = cy + outer_pt_r * mid_angle.sin();
-                let align = if mid_angle.cos() >= 0.0 { TextAlign::Left } else { TextAlign::Right };
+                let align = if mid_angle.cos() >= 0.0 {
+                    TextAlign::Left
+                } else {
+                    TextAlign::Right
+                };
                 external_labels.push((ix, iy, ox, oy, label_text, align));
             }
         }
@@ -178,8 +191,22 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
         // Draw external labels with leader lines
         let leader_color = theme.text_color().with_alpha(0.4);
         for (ix, iy, ox, oy, label_text, align) in &external_labels {
-            ctx.draw(|c| c.line(*ix, *iy, *ox, *oy).color(leader_color).width(0.8).done());
-            ctx.add_text(*ox, *oy, label_text, theme.foreground, *align, tick_fs * 0.9, false, 0.0);
+            ctx.draw(|c| {
+                c.line(*ix, *iy, *ox, *oy)
+                    .color(leader_color)
+                    .width(0.8)
+                    .done()
+            });
+            ctx.add_text(
+                *ox,
+                *oy,
+                label_text,
+                theme.foreground,
+                *align,
+                tick_fs * 0.9,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -204,7 +231,16 @@ pub(crate) fn render_pie(pc: &PieChart, w: u32, h: u32) -> RenderedChart {
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.foreground, TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.foreground,
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 

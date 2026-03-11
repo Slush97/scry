@@ -330,11 +330,11 @@ impl From<std::io::Error> for PixelCanvasError {
 /// use scry_engine::prelude::*;
 /// ```
 pub mod prelude {
+    #[cfg(feature = "gpu")]
+    pub use crate::rasterize::{rasterize_auto, GpuBackend, WgpuContext2D, WgpuRasterizer};
     pub use crate::rasterize::{
         AutoBackend, BackendKind, CpuBackend, RasterBackend, RasterPipeline, RasterResult,
     };
-    #[cfg(feature = "gpu")]
-    pub use crate::rasterize::{rasterize_auto, GpuBackend, WgpuContext2D, WgpuRasterizer};
     pub use crate::rasterize::{ProfileHistory, ProfiledRasterizer, RasterCache, Rasterizer};
     pub use crate::render::IncrementalRenderer;
     pub use crate::scene::animation::{
@@ -343,10 +343,10 @@ pub mod prelude {
     };
     pub use crate::scene::style::Color;
     pub use crate::scene::PixelCanvas;
-    pub use crate::transport::{FontSize, Picker, ProtocolKind};
-    pub use crate::PixelCanvasError;
     #[cfg(feature = "sdf")]
     pub use crate::sdf::{SdfBackend, SdfPipeline, SdfRenderResult};
+    pub use crate::transport::{FontSize, Picker, ProtocolKind};
+    pub use crate::PixelCanvasError;
 
     #[cfg(feature = "input")]
     pub use crate::scene::hit::{HitResult, HitTag, HitTestConfig, HitTester};

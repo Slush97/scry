@@ -109,7 +109,7 @@ fn engine_report_snapshot() {
 #[test]
 fn engine_report_for_canvas_includes_warnings() {
     let canvas = PixelCanvas::new(100, 100)
-        .circle(50.0, 50.0, -5.0)  // negative radius
+        .circle(50.0, 50.0, -5.0) // negative radius
         .fill(Color::RED)
         .done();
 

@@ -4,8 +4,8 @@
 //! Quick SDF shape viewer. Renders a single SDF object inline in the
 //! terminal at native resolution (auto-detected, 200×200 with `--low-res`).
 
+use crate::play::{self, sdf_default_res, SdfRunParams, SDF_LOW_RES};
 use clap::ValueEnum;
-use crate::play::{self, SdfRunParams, sdf_default_res, SDF_LOW_RES};
 
 // ---------------------------------------------------------------------------
 // CLI types
@@ -110,7 +110,11 @@ pub struct SeeArgs {
 // ---------------------------------------------------------------------------
 
 pub fn run(args: &SeeArgs) -> Result<(), String> {
-    let default = if args.low_res { SDF_LOW_RES } else { sdf_default_res() };
+    let default = if args.low_res {
+        SDF_LOW_RES
+    } else {
+        sdf_default_res()
+    };
     let params = SdfRunParams {
         width: args.width.unwrap_or(default),
         height: args.height.unwrap_or(default),
@@ -131,13 +135,15 @@ pub fn run(args: &SeeArgs) -> Result<(), String> {
         SeeShape::GradientDescent => play::run_gradient_descent(&params),
         SeeShape::NeuralNet => play::run_neural_net(&params),
         SeeShape::KMeans => play::run_kmeans(&params),
-        SeeShape::Text => play::run_text(&params, &play::TextOptions {
-            message: args.message.join(" "),
-            material: args.material,
-            animate: args.animate,
-            wiggle: args.wiggle,
-            warp: args.warp,
-        }),
+        SeeShape::Text => play::run_text(
+            &params,
+            &play::TextOptions {
+                message: args.message.join(" "),
+                material: args.material,
+                animate: args.animate,
+                wiggle: args.wiggle,
+                warp: args.warp,
+            },
+        ),
     }
 }
-

@@ -126,7 +126,12 @@ fn collect_command(
     match cmd {
         DrawCommand::Clear { .. } => {}
 
-        DrawCommand::Circle { cx, cy, radius, style } => {
+        DrawCommand::Circle {
+            cx,
+            cy,
+            radius,
+            style,
+        } => {
             let (fill_color, stroke_color, stroke_width) = extract_style(style);
             shapes.push(ShapeInstance {
                 pos: [*cx, *cy],
@@ -138,7 +143,11 @@ fn collect_command(
             });
         }
 
-        DrawCommand::Rectangle { rect, corner_radius, style } => {
+        DrawCommand::Rectangle {
+            rect,
+            corner_radius,
+            style,
+        } => {
             let (fill_color, stroke_color, stroke_width) = extract_style(style);
             shapes.push(ShapeInstance {
                 pos: [rect.x, rect.y],
@@ -150,7 +159,14 @@ fn collect_command(
             });
         }
 
-        DrawCommand::Ellipse { cx, cy, rx, ry, rotation, style } => {
+        DrawCommand::Ellipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            rotation,
+            style,
+        } => {
             let (fill_color, stroke_color, stroke_width) = extract_style(style);
             shapes.push(ShapeInstance {
                 pos: [*cx, *cy],
@@ -162,17 +178,48 @@ fn collect_command(
             });
         }
 
-        DrawCommand::Line { x1, y1, x2, y2, stroke, .. } => {
-            let color = [stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a];
+        DrawCommand::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            stroke,
+            ..
+        } => {
+            let color = [
+                stroke.color.r,
+                stroke.color.g,
+                stroke.color.b,
+                stroke.color.a,
+            ];
             emit_line_segment(lines, *x1, *y1, *x2, *y2, stroke.width, color);
         }
 
-        DrawCommand::Polyline { points, style, closed } => {
-            if points.len() < 2 { return; }
+        DrawCommand::Polyline {
+            points,
+            style,
+            closed,
+        } => {
+            if points.len() < 2 {
+                return;
+            }
             if let Some(stroke) = &style.stroke {
-                let color = [stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a];
+                let color = [
+                    stroke.color.r,
+                    stroke.color.g,
+                    stroke.color.b,
+                    stroke.color.a,
+                ];
                 for window in points.windows(2) {
-                    emit_line_segment(lines, window[0].0, window[0].1, window[1].0, window[1].1, stroke.width, color);
+                    emit_line_segment(
+                        lines,
+                        window[0].0,
+                        window[0].1,
+                        window[1].0,
+                        window[1].1,
+                        stroke.width,
+                        color,
+                    );
                 }
                 if *closed && points.len() > 2 {
                     let first = points[0];
@@ -182,26 +229,35 @@ fn collect_command(
             }
             if let Some(color) = solid_fill_color(style) {
                 let verts = tessellate::tessellate_polygon(points, color);
-                if !verts.is_empty() { meshes.push(verts); }
+                if !verts.is_empty() {
+                    meshes.push(verts);
+                }
             }
         }
 
         DrawCommand::Gradient { rect, gradient, .. } => {
             let mut stops = [GpuGradientStop {
-                color: [0.0; 4], position: 0.0,
-                _pad1: 0.0, _pad2: 0.0, _pad3: 0.0,
+                color: [0.0; 4],
+                position: 0.0,
+                _pad1: 0.0,
+                _pad2: 0.0,
+                _pad3: 0.0,
             }; 8];
             let num_stops = gradient.stops.len().min(8);
             for (i, s) in gradient.stops.iter().take(8).enumerate() {
                 stops[i] = GpuGradientStop {
                     color: [s.color.r, s.color.g, s.color.b, s.color.a],
                     position: s.position,
-                    _pad1: 0.0, _pad2: 0.0, _pad3: 0.0,
+                    _pad1: 0.0,
+                    _pad2: 0.0,
+                    _pad3: 0.0,
                 };
             }
             let (grad_start, grad_end, grad_type) = match &gradient.kind {
                 GradientKind::Linear { start, end } => ([start.x, start.y], [end.x, end.y], 0.0),
-                GradientKind::Radial { center, radius } => ([center.x, center.y], [*radius, 0.0], 1.0),
+                GradientKind::Radial { center, radius } => {
+                    ([center.x, center.y], [*radius, 0.0], 1.0)
+                }
             };
             gradients.push(GradientUniforms {
                 viewport: [viewport_width as f32, viewport_height as f32],
@@ -220,25 +276,57 @@ fn collect_command(
         DrawCommand::Path { path, style } => {
             if let Some(color) = solid_fill_color(style) {
                 let verts = tessellate::tessellate_path(path.path(), color);
-                if !verts.is_empty() { meshes.push(verts); }
+                if !verts.is_empty() {
+                    meshes.push(verts);
+                }
             }
             // Gradient fills / strokes are skipped in direct path
         }
 
-        DrawCommand::Arc { cx, cy, radius, start_angle, sweep_angle, style } => {
+        DrawCommand::Arc {
+            cx,
+            cy,
+            radius,
+            start_angle,
+            sweep_angle,
+            style,
+        } => {
             if let Some(color) = solid_fill_color(style) {
-                let verts = tessellate::tessellate_arc(*cx, *cy, *radius, *start_angle, *sweep_angle, color);
-                if !verts.is_empty() { meshes.push(verts); }
+                let verts = tessellate::tessellate_arc(
+                    *cx,
+                    *cy,
+                    *radius,
+                    *start_angle,
+                    *sweep_angle,
+                    color,
+                );
+                if !verts.is_empty() {
+                    meshes.push(verts);
+                }
             }
         }
 
-        DrawCommand::Group { commands, opacity, blend_mode, clip, transform } => {
+        DrawCommand::Group {
+            commands,
+            opacity,
+            blend_mode,
+            clip,
+            transform,
+        } => {
             let needs_compositing = *opacity < 1.0
                 || clip.is_some()
                 || *blend_mode != crate::scene::style::BlendMode::SrcOver;
             if !needs_compositing && *transform == crate::scene::style::Transform::IDENTITY {
                 for child in commands {
-                    collect_command(child, viewport_width, viewport_height, shapes, lines, meshes, gradients);
+                    collect_command(
+                        child,
+                        viewport_width,
+                        viewport_height,
+                        shapes,
+                        lines,
+                        meshes,
+                        gradients,
+                    );
                 }
             }
             // Complex groups are silently skipped in direct path
@@ -431,9 +519,7 @@ pub(super) fn process_command(
             }
 
             let (grad_start, grad_end, grad_type) = match &gradient.kind {
-                GradientKind::Linear { start, end } => {
-                    ([start.x, start.y], [end.x, end.y], 0.0)
-                }
+                GradientKind::Linear { start, end } => ([start.x, start.y], [end.x, end.y], 0.0),
                 GradientKind::Radial { center, radius } => {
                     ([center.x, center.y], [*radius, 0.0], 1.0)
                 }
@@ -568,7 +654,15 @@ pub(super) fn cpu_fallback_command(rast: &mut super::wgpu::WgpuRasterizer<'_>, c
     let offset = tiny_skia::Transform::from_translate(-x0, -y0);
     let mut pool = Vec::new();
     let mut grad_cache = std::collections::HashMap::new();
-    Rasterizer::render_command(&mut pixmap, cmd, offset, &mut pool, &mut grad_cache, &mut None, 0);
+    Rasterizer::render_command(
+        &mut pixmap,
+        cmd,
+        offset,
+        &mut pool,
+        &mut grad_cache,
+        &mut None,
+        0,
+    );
 
     rast.image_overlays.push(ImageOverlay {
         x: x0 as i32,

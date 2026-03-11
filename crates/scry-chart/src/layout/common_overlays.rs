@@ -195,7 +195,8 @@ impl RenderContext {
         let gap = 4.0_f32;
 
         // --- Determine rotation and stagger strategy ---
-        let user_set_rotation = config.ticks.x_tick_rotation != crate::axis::LabelRotation::Horizontal;
+        let user_set_rotation =
+            config.ticks.x_tick_rotation != crate::axis::LabelRotation::Horizontal;
 
         let (rot_deg, stagger) = if user_set_rotation {
             // User explicitly chose a rotation — respect it, no stagger.
@@ -385,8 +386,14 @@ impl RenderContext {
         // Clamp to plot area so the trend line never bleeds outside axes.
         let (plot_x, plot_y, plot_w, plot_h) = self.plot;
         let Some((px1, py1, px2, py2)) = clip_line_to_rect(
-            px1, py1, px2, py2,
-            plot_x, plot_y, plot_x + plot_w, plot_y + plot_h,
+            px1,
+            py1,
+            px2,
+            py2,
+            plot_x,
+            plot_y,
+            plot_x + plot_w,
+            plot_y + plot_h,
         ) else {
             return; // entirely outside
         };
@@ -414,10 +421,16 @@ const TOP: u8 = 8;
 
 fn outcode(x: f32, y: f32, xmin: f32, ymin: f32, xmax: f32, ymax: f32) -> u8 {
     let mut code = INSIDE;
-    if x < xmin { code |= LEFT; }
-    else if x > xmax { code |= RIGHT; }
-    if y < ymin { code |= TOP; }
-    else if y > ymax { code |= BOTTOM; }
+    if x < xmin {
+        code |= LEFT;
+    } else if x > xmax {
+        code |= RIGHT;
+    }
+    if y < ymin {
+        code |= TOP;
+    } else if y > ymax {
+        code |= BOTTOM;
+    }
     code
 }
 
@@ -425,8 +438,14 @@ fn outcode(x: f32, y: f32, xmin: f32, ymin: f32, xmax: f32, ymax: f32) -> u8 {
 /// `[xmin,xmax] × [ymin,ymax]`.  Returns `None` if the entire segment
 /// is outside.
 fn clip_line_to_rect(
-    mut x0: f32, mut y0: f32, mut x1: f32, mut y1: f32,
-    xmin: f32, ymin: f32, xmax: f32, ymax: f32,
+    mut x0: f32,
+    mut y0: f32,
+    mut x1: f32,
+    mut y1: f32,
+    xmin: f32,
+    ymin: f32,
+    xmax: f32,
+    ymax: f32,
 ) -> Option<(f32, f32, f32, f32)> {
     let mut code0 = outcode(x0, y0, xmin, ymin, xmax, ymax);
     let mut code1 = outcode(x1, y1, xmin, ymin, xmax, ymax);
@@ -454,10 +473,12 @@ fn clip_line_to_rect(
             x = xmin;
         }
         if out == code0 {
-            x0 = x; y0 = y;
+            x0 = x;
+            y0 = y;
             code0 = outcode(x0, y0, xmin, ymin, xmax, ymax);
         } else {
-            x1 = x; y1 = y;
+            x1 = x;
+            y1 = y;
             code1 = outcode(x1, y1, xmin, ymin, xmax, ymax);
         }
     }

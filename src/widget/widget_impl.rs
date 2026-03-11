@@ -203,7 +203,11 @@ impl PixelCanvasState {
         if frame.incremental {
             // compute_dirty_tiles_cached() borrows &mut self.cache internally
             // and returns owned Vec<DirtyTile>, breaking the borrow.
-            let dirty_tiles = self.pipeline.cache.compute_dirty_tiles_cached().unwrap_or_default();
+            let dirty_tiles = self
+                .pipeline
+                .cache
+                .compute_dirty_tiles_cached()
+                .unwrap_or_default();
 
             if dirty_tiles.is_empty() {
                 // Nothing changed at pixel level — skip transmission.
@@ -388,7 +392,10 @@ impl StatefulWidget for PixelCanvasWidget {
         }
 
         // Rasterize via shared pipeline (GPU → CPU fallback handled inside)
-        let Some(store_hash) = state.pipeline.rasterize_into_cache(&canvas, self.skip_cache) else {
+        let Some(store_hash) = state
+            .pipeline
+            .rasterize_into_cache(&canvas, self.skip_cache)
+        else {
             return;
         };
 

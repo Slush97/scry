@@ -371,8 +371,7 @@ fn render_subplot_to_rgba_raw(
                 master[dst_idx + 2] = ((title_data[src_idx + 2] as u32 * sa
                     + master[dst_idx + 2] as u32 * inv)
                     / 255) as u8;
-                master[dst_idx + 3] =
-                    (sa + master[dst_idx + 3] as u32 * inv / 255).min(255) as u8;
+                master[dst_idx + 3] = (sa + master[dst_idx + 3] as u32 * inv / 255).min(255) as u8;
             }
         }
     }

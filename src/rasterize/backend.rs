@@ -171,8 +171,7 @@ impl GpuBackend {
     ///
     /// Returns an error string if GPU adapter/device creation fails.
     pub fn try_new() -> Result<Self, crate::gpu::GpuError> {
-        let gpu = crate::gpu::GpuDevice::global()
-            .ok_or(crate::gpu::GpuError::Unavailable)?;
+        let gpu = crate::gpu::GpuDevice::global().ok_or(crate::gpu::GpuError::Unavailable)?;
         let ctx = super::wgpu_context::WgpuContext2D::with_device(gpu)?;
         Ok(Self { ctx })
     }
@@ -193,8 +192,7 @@ impl GpuBackend {
 #[cfg(feature = "gpu")]
 impl RasterBackend for GpuBackend {
     fn rasterize(&self, canvas: &PixelCanvas) -> Result<RasterResult, PixelCanvasError> {
-        let pixmap =
-            super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas)?;
+        let pixmap = super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas)?;
         Ok(RasterResult {
             pixmap,
             backend: BackendKind::Gpu,
@@ -205,7 +203,9 @@ impl RasterBackend for GpuBackend {
     }
 
     fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta {
-        if let Ok(gpu_pixmap) = super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas) {
+        if let Ok(gpu_pixmap) =
+            super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas)
+        {
             pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
             RasterMeta {
                 backend: BackendKind::Gpu,
@@ -254,11 +254,10 @@ impl AutoBackend {
         #[cfg(feature = "gpu")]
         {
             // Try to get the health monitor from the global device
-            let health = crate::gpu::GpuDevice::global()
-                .map_or_else(
-                    crate::gpu::health::shared_cpu_only_monitor,
-                    crate::gpu::GpuDevice::health,
-                );
+            let health = crate::gpu::GpuDevice::global().map_or_else(
+                crate::gpu::health::shared_cpu_only_monitor,
+                crate::gpu::GpuDevice::health,
+            );
 
             match GpuBackend::try_new() {
                 Ok(gpu) => {
@@ -303,7 +302,9 @@ impl RasterBackend for AutoBackend {
         // Use the health monitor's sticky CPU hold logic instead of
         // checking gpu_suitable() per-frame (prevents backend flipping).
         if self.inner.kind() == BackendKind::Gpu {
-            let use_gpu = self.health.lock()
+            let use_gpu = self
+                .health
+                .lock()
                 .is_ok_and(|mut h| h.should_use_gpu_raster(canvas.gpu_suitable()));
             if !use_gpu {
                 return CpuBackend.rasterize(canvas);
@@ -315,7 +316,9 @@ impl RasterBackend for AutoBackend {
     fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta {
         // Same sticky guard as rasterize().
         if self.inner.kind() == BackendKind::Gpu {
-            let use_gpu = self.health.lock()
+            let use_gpu = self
+                .health
+                .lock()
                 .is_ok_and(|mut h| h.should_use_gpu_raster(canvas.gpu_suitable()));
             if !use_gpu {
                 return CpuBackend.rasterize_into(canvas, pixmap);

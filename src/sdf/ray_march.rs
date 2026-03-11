@@ -197,12 +197,12 @@ pub(super) fn shape_sdf(shape: &SdfShape, p: Vec3) -> f32 {
         SdfShape::Mandelbulb { power, iterations } => {
             primitives::sd_mandelbulb(p, *power, *iterations)
         }
-        SdfShape::MengerSponge { iterations } => {
-            primitives::sd_menger_sponge(p, *iterations)
-        }
-        SdfShape::Gyroid { scale, thickness, bound } => {
-            primitives::sd_gyroid(p, *scale, *thickness, *bound)
-        }
+        SdfShape::MengerSponge { iterations } => primitives::sd_menger_sponge(p, *iterations),
+        SdfShape::Gyroid {
+            scale,
+            thickness,
+            bound,
+        } => primitives::sd_gyroid(p, *scale, *thickness, *bound),
         SdfShape::Morph { a, b, t } => {
             let da = shape_sdf(a, p);
             let db = shape_sdf(b, p);

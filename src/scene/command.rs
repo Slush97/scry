@@ -91,12 +91,7 @@ impl serde::Serialize for PathData {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let verbs: Vec<u8> = self.path.verbs().iter().map(|v| *v as u8).collect();
-        let points: Vec<(f32, f32)> = self
-            .path
-            .points()
-            .iter()
-            .map(|p| (p.x, p.y))
-            .collect();
+        let points: Vec<(f32, f32)> = self.path.points().iter().map(|p| (p.x, p.y)).collect();
         let mut s = serializer.serialize_struct("PathData", 2)?;
         s.serialize_field("verbs", &verbs)?;
         s.serialize_field("points", &points)?;
@@ -154,14 +149,12 @@ impl<'de> serde::Deserialize<'de> for PathData {
             }
         }
 
-        let path = pb
-            .finish()
-            .unwrap_or_else(|| {
-                // Empty/invalid path — create a degenerate one
-                let mut pb2 = tiny_skia::PathBuilder::new();
-                pb2.move_to(0.0, 0.0);
-                pb2.finish().unwrap()
-            });
+        let path = pb.finish().unwrap_or_else(|| {
+            // Empty/invalid path — create a degenerate one
+            let mut pb2 = tiny_skia::PathBuilder::new();
+            pb2.move_to(0.0, 0.0);
+            pb2.finish().unwrap()
+        });
 
         Ok(Self::new(path))
     }
@@ -1003,7 +996,13 @@ mod tests {
 
         #[test]
         fn scene_serde_image_roundtrip() {
-            let img = ImageData::new(2, 2, vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 128, 128, 255]);
+            let img = ImageData::new(
+                2,
+                2,
+                vec![
+                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 128, 128, 255,
+                ],
+            );
             let cmd = DrawCommand::Image {
                 image: img,
                 x: 10.0,
@@ -1017,7 +1016,9 @@ mod tests {
         fn scene_serde_group_roundtrip() {
             let cmd = DrawCommand::Group {
                 commands: vec![
-                    DrawCommand::Clear { color: Color::BLACK },
+                    DrawCommand::Clear {
+                        color: Color::BLACK,
+                    },
                     DrawCommand::Circle {
                         cx: 50.0,
                         cy: 50.0,
@@ -1038,15 +1039,16 @@ mod tests {
             let canvas = crate::scene::PixelCanvas::new(200, 100)
                 .background(Color::WHITE)
                 .circle(100.0, 50.0, 30.0)
-                    .fill(Color::RED)
-                    .done()
+                .fill(Color::RED)
+                .done()
                 .rect(10.0, 10.0, 50.0, 30.0)
-                    .fill(Color::GREEN)
-                    .stroke(Color::BLACK, 2.0)
-                    .done();
+                .fill(Color::GREEN)
+                .stroke(Color::BLACK, 2.0)
+                .done();
 
             let bytes = postcard::to_allocvec(&canvas).expect("serialize canvas");
-            let decoded: crate::scene::PixelCanvas = postcard::from_bytes(&bytes).expect("deserialize canvas");
+            let decoded: crate::scene::PixelCanvas =
+                postcard::from_bytes(&bytes).expect("deserialize canvas");
 
             assert_eq!(decoded.width(), canvas.width());
             assert_eq!(decoded.height(), canvas.height());

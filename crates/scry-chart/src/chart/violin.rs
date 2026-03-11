@@ -104,7 +104,12 @@ impl ChartSpec for ViolinPlot {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::violin::render_violin(self, w, h)
     }
-    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+    fn render_with_viewport(
+        &self,
+        w: u32,
+        h: u32,
+        vp: Option<(f64, f64, f64, f64)>,
+    ) -> crate::layout::RenderedChart {
         if let Some((x0, x1, y0, y1)) = vp {
             let mut c = self.clone();
             c.config.axes.x_range = Some((x0, x1));
@@ -114,8 +119,16 @@ impl ChartSpec for ViolinPlot {
             self.render(w, h)
         }
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
-    fn data_extent(&self) -> Option<(f64, f64, f64, f64)> { None }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
+    fn data_extent(&self) -> Option<(f64, f64, f64, f64)> {
+        None
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }

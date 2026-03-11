@@ -69,7 +69,10 @@ pub fn surface_to_sdf_scene(surface: &Surface3D, camera: &Camera3D) -> SdfScene 
             let y_center = h_min + box_h;
 
             let color = if let Some(ref colors) = surface.colors {
-                colors.get(row * cols + col).copied().unwrap_or(Color::WHITE)
+                colors
+                    .get(row * cols + col)
+                    .copied()
+                    .unwrap_or(Color::WHITE)
             } else {
                 height_colormap((h - h_min) / h_range)
             };

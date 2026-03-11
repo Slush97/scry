@@ -108,9 +108,11 @@ impl LollipopChart {
             return Err(crate::error::ChartError::EmptyData);
         }
         if self.labels.len() != self.values.len() {
-            return Err(crate::error::ChartError::InvalidConfig(
-                format!("labels ({}) and values ({}) have different lengths", self.labels.len(), self.values.len()),
-            ));
+            return Err(crate::error::ChartError::InvalidConfig(format!(
+                "labels ({}) and values ({}) have different lengths",
+                self.labels.len(),
+                self.values.len()
+            )));
         }
         Ok(Box::new(self) as Chart)
     }
@@ -120,7 +122,12 @@ impl ChartSpec for LollipopChart {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::lollipop::render_lollipop(self, w, h)
     }
-    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+    fn render_with_viewport(
+        &self,
+        w: u32,
+        h: u32,
+        vp: Option<(f64, f64, f64, f64)>,
+    ) -> crate::layout::RenderedChart {
         if let Some((x0, x1, y0, y1)) = vp {
             let mut c = self.clone();
             c.config.axes.x_range = Some((x0, x1));
@@ -130,7 +137,13 @@ impl ChartSpec for LollipopChart {
             self.render(w, h)
         }
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }

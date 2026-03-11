@@ -42,14 +42,18 @@ fn all_themes() -> Vec<(&'static str, Theme)> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn build_line(theme: Theme) -> Chart {
-    let y1: Vec<f64> = (0..40).map(|i| {
-        let x = i as f64 * 0.15;
-        (x * 1.2).sin() * 30.0 + 50.0
-    }).collect();
-    let y2: Vec<f64> = (0..40).map(|i| {
-        let x = i as f64 * 0.15;
-        (x * 0.8).cos() * 25.0 + 45.0
-    }).collect();
+    let y1: Vec<f64> = (0..40)
+        .map(|i| {
+            let x = i as f64 * 0.15;
+            (x * 1.2).sin() * 30.0 + 50.0
+        })
+        .collect();
+    let y2: Vec<f64> = (0..40)
+        .map(|i| {
+            let x = i as f64 * 0.15;
+            (x * 0.8).cos() * 25.0 + 45.0
+        })
+        .collect();
 
     Charts::line(&y1)
         .add_named_series("Series B", &y2)
@@ -60,15 +64,19 @@ fn build_line(theme: Theme) -> Chart {
         .smooth()
         .with_points()
         .theme(theme)
-        .legend(|l| { l.visible = true; })
+        .legend(|l| {
+            l.visible = true;
+        })
         .build()
 }
 
 fn build_area(theme: Theme) -> Chart {
-    let y: Vec<f64> = (0..30).map(|i| {
-        let x = i as f64 * 0.2;
-        (x * 0.7).sin().abs() * 40.0 + 10.0
-    }).collect();
+    let y: Vec<f64> = (0..30)
+        .map(|i| {
+            let x = i as f64 * 0.2;
+            (x * 0.7).sin().abs() * 40.0 + 10.0
+        })
+        .collect();
 
     Charts::area(&y)
         .title("Area Chart")
@@ -80,8 +88,12 @@ fn build_area(theme: Theme) -> Chart {
 }
 
 fn build_scatter(theme: Theme) -> Chart {
-    let x: Vec<f64> = (0..50).map(|i| i as f64 * 0.5 + (i as f64 * 0.3).sin() * 3.0).collect();
-    let y: Vec<f64> = (0..50).map(|i| i as f64 * 0.4 + (i as f64 * 0.7).cos() * 5.0).collect();
+    let x: Vec<f64> = (0..50)
+        .map(|i| i as f64 * 0.5 + (i as f64 * 0.3).sin() * 3.0)
+        .collect();
+    let y: Vec<f64> = (0..50)
+        .map(|i| i as f64 * 0.4 + (i as f64 * 0.7).cos() * 5.0)
+        .collect();
 
     Charts::scatter(&x, &y)
         .title("Scatter Plot — 50 points")
@@ -93,7 +105,9 @@ fn build_scatter(theme: Theme) -> Chart {
 
 fn build_bar(theme: Theme) -> Chart {
     let labels: Vec<String> = vec!["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-        .into_iter().map(String::from).collect();
+        .into_iter()
+        .map(String::from)
+        .collect();
 
     Charts::bar(labels, &[42.0, 58.0, 35.0, 67.0, 49.0, 73.0])
         .add_named_series("Product B", &[30.0, 45.0, 50.0, 40.0, 60.0, 55.0])
@@ -102,20 +116,24 @@ fn build_bar(theme: Theme) -> Chart {
         .x_label("Month")
         .y_label("Revenue ($K)")
         .series_labels(&["Product A", "Product B"])
-        .legend(|l| { l.visible = true; })
+        .legend(|l| {
+            l.visible = true;
+        })
         .theme(theme)
         .build()
 }
 
 fn build_histogram(theme: Theme) -> Chart {
     // Simulated normal distribution
-    let data: Vec<f64> = (0..200).map(|i| {
-        let t = i as f64 / 200.0;
-        let u1 = (t * 7.3 + 0.1).sin().abs().max(0.001);
-        let u2 = (t * 13.7 + 0.5).cos().abs().max(0.001);
-        let z = (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos();
-        z * 15.0 + 50.0
-    }).collect();
+    let data: Vec<f64> = (0..200)
+        .map(|i| {
+            let t = i as f64 / 200.0;
+            let u1 = (t * 7.3 + 0.1).sin().abs().max(0.001);
+            let u2 = (t * 13.7 + 0.5).cos().abs().max(0.001);
+            let z = (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos();
+            z * 15.0 + 50.0
+        })
+        .collect();
 
     Charts::histogram(&data)
         .title("Histogram")
@@ -129,10 +147,22 @@ fn build_histogram(theme: Theme) -> Chart {
 
 fn build_boxplot(theme: Theme) -> Chart {
     Charts::boxplot(vec![
-        ("Control", vec![12.0, 15.0, 14.0, 10.0, 13.0, 18.0, 11.0, 16.0, 14.5, 13.2]),
-        ("Drug A",  vec![20.0, 22.0, 19.0, 25.0, 21.0, 18.0, 24.0, 23.0, 20.5, 26.0]),
-        ("Drug B",  vec![28.0, 30.0, 27.0, 35.0, 32.0, 29.0, 31.0, 33.0, 28.5, 34.0]),
-        ("Drug C",  vec![15.0, 18.0, 22.0, 12.0, 20.0, 17.0, 19.0, 16.0, 21.0, 14.0]),
+        (
+            "Control",
+            vec![12.0, 15.0, 14.0, 10.0, 13.0, 18.0, 11.0, 16.0, 14.5, 13.2],
+        ),
+        (
+            "Drug A",
+            vec![20.0, 22.0, 19.0, 25.0, 21.0, 18.0, 24.0, 23.0, 20.5, 26.0],
+        ),
+        (
+            "Drug B",
+            vec![28.0, 30.0, 27.0, 35.0, 32.0, 29.0, 31.0, 33.0, 28.5, 34.0],
+        ),
+        (
+            "Drug C",
+            vec![15.0, 18.0, 22.0, 12.0, 20.0, 17.0, 19.0, 16.0, 21.0, 14.0],
+        ),
     ])
     .title("Box Plot")
     .subtitle("Treatment group comparisons")
@@ -144,13 +174,17 @@ fn build_boxplot(theme: Theme) -> Chart {
 
 fn build_heatmap(theme: Theme) -> Chart {
     let size = 8;
-    let data: Vec<Vec<f64>> = (0..size).map(|r| {
-        (0..size).map(|c| {
-            let x = r as f64 / size as f64;
-            let y = c as f64 / size as f64;
-            (x * 3.0).sin() * (y * 3.0).cos() * 50.0 + 50.0
-        }).collect()
-    }).collect();
+    let data: Vec<Vec<f64>> = (0..size)
+        .map(|r| {
+            (0..size)
+                .map(|c| {
+                    let x = r as f64 / size as f64;
+                    let y = c as f64 / size as f64;
+                    (x * 3.0).sin() * (y * 3.0).cos() * 50.0 + 50.0
+                })
+                .collect()
+        })
+        .collect();
 
     Charts::heatmap(data)
         .title("Heatmap")
@@ -161,7 +195,9 @@ fn build_heatmap(theme: Theme) -> Chart {
 
 fn build_pie(theme: Theme) -> Chart {
     let labels: Vec<String> = vec!["Rust", "Python", "Go", "TypeScript", "C++"]
-        .into_iter().map(String::from).collect();
+        .into_iter()
+        .map(String::from)
+        .collect();
 
     Charts::pie(labels, &[35.0, 25.0, 15.0, 15.0, 10.0])
         .title("Pie Chart")
@@ -172,7 +208,9 @@ fn build_pie(theme: Theme) -> Chart {
 
 fn build_donut(theme: Theme) -> Chart {
     let labels: Vec<String> = vec!["Desktop", "Mobile", "Tablet", "Other"]
-        .into_iter().map(String::from).collect();
+        .into_iter()
+        .map(String::from)
+        .collect();
 
     Charts::pie(labels, &[45.0, 35.0, 12.0, 8.0])
         .donut(0.55)
@@ -183,14 +221,16 @@ fn build_donut(theme: Theme) -> Chart {
 }
 
 fn build_candlestick(theme: Theme) -> Chart {
-    let data: Vec<OhlcEntry> = (0..20).map(|i| {
-        let base = 100.0 + (i as f64 * 0.5).sin() * 20.0 + i as f64 * 0.5;
-        let open = base + (i as f64 * 1.3).cos() * 3.0;
-        let close = base + (i as f64 * 0.9).sin() * 4.0;
-        let high = open.max(close) + (i as f64 * 0.7).sin().abs() * 5.0 + 1.0;
-        let low = open.min(close) - (i as f64 * 0.4).cos().abs() * 5.0 - 1.0;
-        OhlcEntry::new(i as f64, open, high, low, close)
-    }).collect();
+    let data: Vec<OhlcEntry> = (0..20)
+        .map(|i| {
+            let base = 100.0 + (i as f64 * 0.5).sin() * 20.0 + i as f64 * 0.5;
+            let open = base + (i as f64 * 1.3).cos() * 3.0;
+            let close = base + (i as f64 * 0.9).sin() * 4.0;
+            let high = open.max(close) + (i as f64 * 0.7).sin().abs() * 5.0 + 1.0;
+            let low = open.min(close) - (i as f64 * 0.4).cos().abs() * 5.0 - 1.0;
+            OhlcEntry::new(i as f64, open, high, low, close)
+        })
+        .collect();
 
     Charts::candlestick(data)
         .title("Candlestick Chart")
@@ -214,8 +254,12 @@ fn build_radar(theme: Theme) -> Chart {
 
 fn build_bubble(theme: Theme) -> Chart {
     let x: Vec<f64> = (0..15).map(|i| i as f64 * 3.0 + 5.0).collect();
-    let y: Vec<f64> = (0..15).map(|i| (i as f64 * 0.4).sin() * 30.0 + 50.0).collect();
-    let sizes: Vec<f64> = (0..15).map(|i| (i as f64 * 0.6).cos().abs() * 40.0 + 5.0).collect();
+    let y: Vec<f64> = (0..15)
+        .map(|i| (i as f64 * 0.4).sin() * 30.0 + 50.0)
+        .collect();
+    let sizes: Vec<f64> = (0..15)
+        .map(|i| (i as f64 * 0.6).cos().abs() * 40.0 + 5.0)
+        .collect();
 
     Charts::bubble(&x, &y, &sizes)
         .title("Bubble Chart — 15 points")
@@ -227,14 +271,34 @@ fn build_bubble(theme: Theme) -> Chart {
 
 fn build_violin(theme: Theme) -> Chart {
     Charts::violin(vec![
-        ("Spring", vec![12.0, 14.0, 15.0, 13.0, 16.0, 11.0, 14.5, 15.5, 13.5, 12.5,
-                        14.0, 15.0, 13.0, 16.0, 14.5, 12.0, 15.5, 13.5, 14.0, 15.0]),
-        ("Summer", vec![25.0, 28.0, 30.0, 27.0, 32.0, 26.0, 29.0, 31.0, 28.0, 27.5,
-                        26.0, 30.0, 28.5, 29.5, 31.5, 27.0, 28.0, 30.5, 29.0, 26.5]),
-        ("Autumn", vec![18.0, 16.0, 15.0, 17.0, 14.0, 19.0, 16.5, 15.5, 17.5, 18.5,
-                        16.0, 15.0, 17.0, 14.5, 18.0, 19.5, 16.5, 15.0, 17.5, 18.0]),
-        ("Winter", vec![2.0, 0.0, -1.0, 3.0, 1.0, -2.0, 2.5, 0.5, 1.5, -0.5,
-                        3.0, 1.0, -1.0, 2.0, 0.0, -2.5, 1.5, 3.5, 0.5, -1.5]),
+        (
+            "Spring",
+            vec![
+                12.0, 14.0, 15.0, 13.0, 16.0, 11.0, 14.5, 15.5, 13.5, 12.5, 14.0, 15.0, 13.0, 16.0,
+                14.5, 12.0, 15.5, 13.5, 14.0, 15.0,
+            ],
+        ),
+        (
+            "Summer",
+            vec![
+                25.0, 28.0, 30.0, 27.0, 32.0, 26.0, 29.0, 31.0, 28.0, 27.5, 26.0, 30.0, 28.5, 29.5,
+                31.5, 27.0, 28.0, 30.5, 29.0, 26.5,
+            ],
+        ),
+        (
+            "Autumn",
+            vec![
+                18.0, 16.0, 15.0, 17.0, 14.0, 19.0, 16.5, 15.5, 17.5, 18.5, 16.0, 15.0, 17.0, 14.5,
+                18.0, 19.5, 16.5, 15.0, 17.5, 18.0,
+            ],
+        ),
+        (
+            "Winter",
+            vec![
+                2.0, 0.0, -1.0, 3.0, 1.0, -2.0, 2.5, 0.5, 1.5, -0.5, 3.0, 1.0, -1.0, 2.0, 0.0,
+                -2.5, 1.5, 3.5, 0.5, -1.5,
+            ],
+        ),
     ])
     .inner_box()
     .title("Violin Plot — Seasons")
@@ -245,19 +309,28 @@ fn build_violin(theme: Theme) -> Chart {
 }
 
 fn build_sparkline(_theme: Theme) -> Chart {
-    let values: Vec<f64> = (0..30).map(|i| {
-        let x = i as f64 * 0.3;
-        (x * 1.5).sin() * 20.0 + (x * 0.4).cos() * 10.0 + 30.0
-    }).collect();
+    let values: Vec<f64> = (0..30)
+        .map(|i| {
+            let x = i as f64 * 0.3;
+            (x * 1.5).sin() * 20.0 + (x * 0.4).cos() * 10.0 + 30.0
+        })
+        .collect();
 
-    Charts::sparkline(&values)
-        .filled()
-        .build()
+    Charts::sparkline(&values).filled().build()
 }
 
 fn build_waterfall(theme: Theme) -> Chart {
-    let labels: Vec<String> = vec!["Revenue", "COGS", "Gross Profit", "OpEx", "Tax", "Net Income"]
-        .into_iter().map(String::from).collect();
+    let labels: Vec<String> = vec![
+        "Revenue",
+        "COGS",
+        "Gross Profit",
+        "OpEx",
+        "Tax",
+        "Net Income",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
 
     Charts::waterfall(labels, &[500.0, -180.0, 0.0, -120.0, -50.0, 0.0])
         .title("Waterfall Chart")
@@ -269,7 +342,9 @@ fn build_waterfall(theme: Theme) -> Chart {
 
 fn build_funnel(theme: Theme) -> Chart {
     let labels: Vec<String> = vec!["Visitors", "Signups", "Trials", "Paid", "Enterprise"]
-        .into_iter().map(String::from).collect();
+        .into_iter()
+        .map(String::from)
+        .collect();
 
     Charts::funnel(labels, &[10000.0, 5200.0, 2100.0, 850.0, 320.0])
         .title("Funnel Chart")
@@ -293,7 +368,9 @@ fn build_gauge(theme: Theme) -> Chart {
 
 fn build_lollipop(theme: Theme) -> Chart {
     let labels: Vec<String> = vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        .into_iter().map(String::from).collect();
+        .into_iter()
+        .map(String::from)
+        .collect();
 
     Charts::lollipop(labels, &[12.0, 19.0, 8.0, 15.0, 22.0, 28.0, 18.0])
         .title("Lollipop Chart")
@@ -307,13 +384,17 @@ fn build_lollipop(theme: Theme) -> Chart {
 
 fn build_contour(theme: Theme) -> Chart {
     let size = 30;
-    let data: Vec<Vec<f64>> = (0..size).map(|r| {
-        (0..size).map(|c| {
-            let x = (c as f64 - size as f64 / 2.0) / 5.0;
-            let y = (r as f64 - size as f64 / 2.0) / 5.0;
-            (-(x * x + y * y) / 2.0).exp() * 100.0
-        }).collect()
-    }).collect();
+    let data: Vec<Vec<f64>> = (0..size)
+        .map(|r| {
+            (0..size)
+                .map(|c| {
+                    let x = (c as f64 - size as f64 / 2.0) / 5.0;
+                    let y = (r as f64 - size as f64 / 2.0) / 5.0;
+                    (-(x * x + y * y) / 2.0).exp() * 100.0
+                })
+                .collect()
+        })
+        .collect();
 
     Charts::contour(data)
         .levels(8)
@@ -332,25 +413,25 @@ type ChartBuilder = fn(Theme) -> Chart;
 
 fn all_charts() -> Vec<(&'static str, ChartBuilder)> {
     vec![
-        ("line",        build_line),
-        ("area",        build_area),
-        ("scatter",     build_scatter),
-        ("bar",         build_bar),
-        ("histogram",   build_histogram),
-        ("boxplot",     build_boxplot),
-        ("heatmap",     build_heatmap),
-        ("pie",         build_pie),
-        ("donut",       build_donut),
+        ("line", build_line),
+        ("area", build_area),
+        ("scatter", build_scatter),
+        ("bar", build_bar),
+        ("histogram", build_histogram),
+        ("boxplot", build_boxplot),
+        ("heatmap", build_heatmap),
+        ("pie", build_pie),
+        ("donut", build_donut),
         ("candlestick", build_candlestick),
-        ("radar",       build_radar),
-        ("bubble",      build_bubble),
-        ("violin",      build_violin),
-        ("sparkline",   build_sparkline),
-        ("waterfall",   build_waterfall),
-        ("funnel",      build_funnel),
-        ("gauge",       build_gauge),
-        ("lollipop",    build_lollipop),
-        ("contour",     build_contour),
+        ("radar", build_radar),
+        ("bubble", build_bubble),
+        ("violin", build_violin),
+        ("sparkline", build_sparkline),
+        ("waterfall", build_waterfall),
+        ("funnel", build_funnel),
+        ("gauge", build_gauge),
+        ("lollipop", build_lollipop),
+        ("contour", build_contour),
     ]
 }
 
@@ -370,8 +451,12 @@ fn main() {
     println!("╔══════════════════════════════════════════════════════════╗");
     println!("║          scry-chart  ·  Full Showcase Gallery           ║");
     println!("╠══════════════════════════════════════════════════════════╣");
-    println!("║  {} chart types × {} themes = {} images              ║",
-        charts.len(), themes.len(), total);
+    println!(
+        "║  {} chart types × {} themes = {} images              ║",
+        charts.len(),
+        themes.len(),
+        total
+    );
     println!("╚══════════════════════════════════════════════════════════╝");
     println!();
 
@@ -407,11 +492,7 @@ fn main() {
     println!("│  Chart Types    │  Themes                                │");
     println!("├─────────────────┼────────────────────────────────────────┤");
     for (i, (chart_name, _)) in charts.iter().enumerate() {
-        let theme_str = if i < themes.len() {
-            themes[i].0
-        } else {
-            ""
-        };
+        let theme_str = if i < themes.len() { themes[i].0 } else { "" };
         println!("│  {:14} │  {:37} │", chart_name, theme_str);
     }
     println!("└─────────────────┴────────────────────────────────────────┘");

@@ -6,9 +6,7 @@ use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
 
 use super::scatter::draw_marker;
-use super::{
-    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign,
-};
+use super::{resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
     let config = &bc.config;
@@ -136,7 +134,16 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
             let sy = y_scale.to_pixel(yv) as f32;
             let radius = map_radius(sv);
             let label = format_value(sv);
-            ctx.add_text(sx, sy - radius - 4.0, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
+            ctx.add_text(
+                sx,
+                sy - radius - 4.0,
+                &label,
+                theme.text_color(),
+                TextAlign::Center,
+                data_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -198,12 +205,25 @@ pub(crate) fn render_bubble(bc: &BubbleChart, w: u32, h: u32) -> RenderedChart {
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
         // Bubble charts use circle swatches (match marker shape)
         legend_cfg.swatch_shape = crate::legend::SwatchShape::Circle;
-        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let data_pts = if all_points.is_empty() {
+            None
+        } else {
+            Some(all_points.as_slice())
+        };
         let legend_text = ctx.draw_with(|c| {
             legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 

@@ -269,10 +269,15 @@ pub(crate) fn render_gantt(gc: &GanttChart, w: u32, h: u32) -> RenderedChart {
                     );
                 } else {
                     // Truncate with ellipsis and draw inside the bar
-                    let avail_chars = ((bar_w - 8.0) / super::char_width_for_size(bar_fs)).floor() as usize;
+                    let avail_chars =
+                        ((bar_w - 8.0) / super::char_width_for_size(bar_fs)).floor() as usize;
                     if avail_chars >= 2 {
                         let truncated: String = if task.label.chars().count() > avail_chars {
-                            let mut s: String = task.label.chars().take(avail_chars.saturating_sub(1)).collect();
+                            let mut s: String = task
+                                .label
+                                .chars()
+                                .take(avail_chars.saturating_sub(1))
+                                .collect();
                             s.push('…');
                             s
                         } else {
@@ -395,11 +400,7 @@ pub(crate) fn render_gantt(gc: &GanttChart, w: u32, h: u32) -> RenderedChart {
 // ---------------------------------------------------------------------------
 
 /// Draw a time-formatted X axis using the TimeScale.
-fn draw_time_x_axis(
-    ctx: &mut RenderContext,
-    config: &crate::chart::ChartConfig,
-    ts: &TimeScale,
-) {
+fn draw_time_x_axis(ctx: &mut RenderContext, config: &crate::chart::ChartConfig, ts: &TimeScale) {
     let theme = &config.theme;
     let (px, py, pw, ph) = ctx.plot;
     let w = ctx.width();

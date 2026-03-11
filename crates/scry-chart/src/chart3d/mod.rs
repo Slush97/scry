@@ -992,13 +992,15 @@ impl Chart3D {
         height: u32,
     ) -> Result<Vec<u8>, String> {
         let center = Vec3::new(0.5, 0.5, 0.5);
-        let cam = self.camera.clone().unwrap_or_else(|| {
-            Camera3D::orbiting(center, 3.0, 0.6, 0.35)
-        });
+        let cam = self
+            .camera
+            .clone()
+            .unwrap_or_else(|| Camera3D::orbiting(center, 3.0, 0.6, 0.35));
 
         let sdf_scene = sdf_surface::surface_to_sdf_scene(surface, &cam);
-        let pixmap = scry_engine::sdf::SdfRenderer::render_to_pixmap(&sdf_scene, width, height, 0.0)
-            .map_err(|e| format!("SDF render failed: {e}"))?;
+        let pixmap =
+            scry_engine::sdf::SdfRenderer::render_to_pixmap(&sdf_scene, width, height, 0.0)
+                .map_err(|e| format!("SDF render failed: {e}"))?;
 
         Ok(pixmap.take())
     }

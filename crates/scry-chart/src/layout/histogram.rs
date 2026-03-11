@@ -5,14 +5,11 @@ use crate::chart::histogram::Histogram;
 use crate::legend::{self, LegendEntry};
 use crate::scale::{LinearScale, Scale};
 
-use super::{
-    resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign,
-};
+use super::{resolve_x_extent, resolve_y_extent, RenderContext, RenderedChart, TextAlign};
 
 pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart {
     let config = &hc.config;
     let theme = &config.theme;
-
 
     // Compute shared x extent across all series
     let primary_extent = hc.data.extent().unwrap_or((0.0, 1.0));
@@ -101,7 +98,17 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
     // Draw extra series with translucent overlay
     for (si, bins) in extra_bins.iter().enumerate() {
         let color = theme.resolve_series_color(si + 1, hc.extra[si].series_style());
-        draw_bins_on_ctx(&mut ctx, bins, &x_scale, &y_scale, baseline_y, color, 0.5, hc.bar_gap, theme.series.bar_stroke_width);
+        draw_bins_on_ctx(
+            &mut ctx,
+            bins,
+            &x_scale,
+            &y_scale,
+            baseline_y,
+            color,
+            0.5,
+            hc.bar_gap,
+            theme.series.bar_stroke_width,
+        );
     }
 
     // Auto value labels above bins when not too dense (≤ 20 bins).
@@ -118,7 +125,16 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
                 } else {
                     super::bar::format_value(bin.count)
                 };
-                ctx.add_text(cx, top - data_fs * 0.8, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
+                ctx.add_text(
+                    cx,
+                    top - data_fs * 0.8,
+                    &label,
+                    theme.text_color(),
+                    TextAlign::Center,
+                    data_fs,
+                    false,
+                    0.0,
+                );
             }
         }
         super::bar::cull_overlapping_value_labels(&mut ctx.overlays, val_start, data_fs, false);
@@ -168,14 +184,27 @@ pub(crate) fn render_histogram(hc: &Histogram, w: u32, h: u32) -> RenderedChart 
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
-        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let data_pts = if all_points.is_empty() {
+            None
+        } else {
+            Some(all_points.as_slice())
+        };
         let legend_text = ctx.draw_with(|c| {
             legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         // Add legend text overlays
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 

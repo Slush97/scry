@@ -131,8 +131,7 @@ fn rasterize_bitmap(
         for pair in intersections.chunks(2) {
             if pair.len() == 2 {
                 let left = ((pair[0] * scale + offset_x) as isize).max(0) as usize;
-                let right =
-                    ((pair[1] * scale + offset_x).ceil() as usize).min(width);
+                let right = ((pair[1] * scale + offset_x).ceil() as usize).min(width);
                 for x in left..right {
                     bitmap[y * width + x] = true;
                 }
@@ -337,18 +336,18 @@ impl GlyphSdf {
         let fx3 = fx2 * fx;
         let wx = [
             -0.5 * fx3 + fx2 - 0.5 * fx,
-             1.5 * fx3 - 2.5 * fx2 + 1.0,
+            1.5 * fx3 - 2.5 * fx2 + 1.0,
             -1.5 * fx3 + 2.0 * fx2 + 0.5 * fx,
-             0.5 * fx3 - 0.5 * fx2,
+            0.5 * fx3 - 0.5 * fx2,
         ];
 
         let fy2 = fy * fy;
         let fy3 = fy2 * fy;
         let wy = [
             -0.5 * fy3 + fy2 - 0.5 * fy,
-             1.5 * fy3 - 2.5 * fy2 + 1.0,
+            1.5 * fy3 - 2.5 * fy2 + 1.0,
             -1.5 * fy3 + 2.0 * fy2 + 0.5 * fy,
-             0.5 * fy3 - 0.5 * fy2,
+            0.5 * fy3 - 0.5 * fy2,
         ];
 
         let w = self.width as i32;
@@ -425,11 +424,7 @@ fn point_to_segment_dist_sq(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32
 ///
 /// Rows are computed in parallel via rayon for performance — a 1024² grid
 /// with hundreds of edges per glyph is O(1M × edges) work.
-fn compute_sdf_from_edges(
-    edges: &[(f32, f32, f32, f32)],
-    width: usize,
-    height: usize,
-) -> Vec<f32> {
+fn compute_sdf_from_edges(edges: &[(f32, f32, f32, f32)], width: usize, height: usize) -> Vec<f32> {
     use rayon::prelude::*;
     let sdf: Vec<f32> = (0..height)
         .into_par_iter()
@@ -454,7 +449,11 @@ fn compute_sdf_from_edges(
                     }
                     let inside = (crossings & 1) == 1;
                     let dist = min_dist_sq.sqrt();
-                    if inside { -dist } else { dist }
+                    if inside {
+                        -dist
+                    } else {
+                        dist
+                    }
                 })
                 .collect::<Vec<f32>>()
         })
@@ -619,7 +618,9 @@ pub fn layout_text(
     for ch in text.chars() {
         let glyph_id = face.glyph_index(ch)?;
 
-        if let Some(glyph_sdf) = build_glyph_sdf(&face, font_ptr, glyph_id, font_size, grid_resolution) {
+        if let Some(glyph_sdf) =
+            build_glyph_sdf(&face, font_ptr, glyph_id, font_size, grid_resolution)
+        {
             glyphs.push((glyph_sdf.clone(), cursor_x));
             cursor_x += glyph_sdf.advance + letter_spacing;
         } else {

@@ -15,12 +15,12 @@
 //! let chart = spec.into_chart().unwrap();
 //! ```
 
+use crate::chart::gantt::GanttTask;
 use crate::chart::{
     BarChart, BoxPlot, BubbleChart, CandlestickChart, Chart, FunnelChart, GanttChart, GaugeChart,
     Heatmap, Histogram, LineChart, LollipopChart, OhlcEntry, PieChart, RadarChart, ScatterChart,
     Sparkline, ViolinPlot, WaterfallChart,
 };
-use crate::chart::gantt::GanttTask;
 use crate::data::Series;
 use crate::theme::Theme;
 use serde::Deserialize;

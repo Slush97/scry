@@ -88,7 +88,9 @@ impl MaxNLocator {
     /// Create a locator with a strict maximum tick count.
     #[must_use]
     pub fn new(max_n: usize) -> Self {
-        Self { max_n: max_n.max(2) }
+        Self {
+            max_n: max_n.max(2),
+        }
     }
 }
 
@@ -373,7 +375,10 @@ mod tests {
         let loc = SymlogLocator::new(1.0);
         let ticks = loc.tick_values((1.0, 10000.0), 5);
         for t in &ticks {
-            assert!(*t > 0.0, "positive domain should have no negative ticks: {ticks:?}");
+            assert!(
+                *t > 0.0,
+                "positive domain should have no negative ticks: {ticks:?}"
+            );
         }
     }
 

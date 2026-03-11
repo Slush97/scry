@@ -30,13 +30,10 @@ pub fn build_example(chart_type: ChartType, theme: Theme) -> Chart {
         ChartType::Lollipop => example_lollipop(theme),
         ChartType::Gantt => {
             // Gantt requires specialized data; show a placeholder message.
-            Charts::bar(
-                vec!["(Not available as example)".into()],
-                &[0.0],
-            )
-            .title("Gantt — use JSON input")
-            .theme(theme)
-            .build()
+            Charts::bar(vec!["(Not available as example)".into()], &[0.0])
+                .title("Gantt — use JSON input")
+                .theme(theme)
+                .build()
         }
     }
 }

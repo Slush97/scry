@@ -115,17 +115,16 @@ impl SdfFrameGraph {
                 })
             } else {
                 // Upscale needed — readback into pixmap, then upscale
-                Self::readback_with_timeout(ctx, render_w, render_h, self.poll_timeout)
-                    .map(|pm| {
-                        let upscaled = crate::sdf::upscale::upscale_bicubic(
-                            pm.data(),
-                            render_w,
-                            render_h,
-                            output_w,
-                            output_h,
-                        );
-                        ImageData::new(output_w, output_h, upscaled)
-                    })
+                Self::readback_with_timeout(ctx, render_w, render_h, self.poll_timeout).map(|pm| {
+                    let upscaled = crate::sdf::upscale::upscale_bicubic(
+                        pm.data(),
+                        render_w,
+                        render_h,
+                        output_w,
+                        output_h,
+                    );
+                    ImageData::new(output_w, output_h, upscaled)
+                })
             };
 
             match result {
@@ -301,7 +300,6 @@ impl SdfFrameGraph {
 
         Ok(())
     }
-
 }
 
 impl Default for SdfFrameGraph {

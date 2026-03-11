@@ -249,7 +249,16 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     .sum();
                 if total.is_finite() {
                     let top_y = y_scale.to_pixel(total) as f32;
-                    ctx.add_text(center, top_y - 4.0, &format_value(total), text_color, TextAlign::Center, data_fs, false, 0.0);
+                    ctx.add_text(
+                        center,
+                        top_y - 4.0,
+                        &format_value(total),
+                        text_color,
+                        TextAlign::Center,
+                        data_fs,
+                        false,
+                        0.0,
+                    );
                 }
             } else {
                 let bar_width = if n_series > 0 {
@@ -282,7 +291,16 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     } else {
                         top_y + 12.0 + err_offset
                     };
-                    ctx.add_text(label_x, label_y, &format_value(value), text_color, TextAlign::Center, data_fs, false, 0.0);
+                    ctx.add_text(
+                        label_x,
+                        label_y,
+                        &format_value(value),
+                        text_color,
+                        TextAlign::Center,
+                        data_fs,
+                        false,
+                        0.0,
+                    );
                 }
             }
         }
@@ -303,8 +321,21 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         for (ci, _label) in bc.labels.iter().enumerate() {
             let center = cat_scale.center(ci) as f32;
             if bc.stacked {
-                let total: f64 = bc.series.iter()
-                    .filter_map(|s| if ci < s.len() { let v = s.values()[ci]; if v.is_finite() { Some(v) } else { None } } else { None })
+                let total: f64 = bc
+                    .series
+                    .iter()
+                    .filter_map(|s| {
+                        if ci < s.len() {
+                            let v = s.values()[ci];
+                            if v.is_finite() {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
                     .sum();
                 if total.is_finite() {
                     let bar_w = inner_band;
@@ -316,7 +347,11 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     all_points.push((bar_x + bar_w, baseline_px));
                 }
             } else {
-                let bw = if n_series > 0 { inner_band / n_series as f32 } else { inner_band };
+                let bw = if n_series > 0 {
+                    inner_band / n_series as f32
+                } else {
+                    inner_band
+                };
                 let gl = center - inner_band / 2.0;
                 for (si, series) in bc.series.iter().enumerate() {
                     if ci < series.len() {
@@ -352,13 +387,26 @@ fn render_bar_vertical(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
-        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let data_pts = if all_points.is_empty() {
+            None
+        } else {
+            Some(all_points.as_slice())
+        };
         let legend_text = ctx.draw_with(|c| {
             legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -538,7 +586,16 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     .sum();
                 if total.is_finite() {
                     let right_x = x_scale.to_pixel(total) as f32;
-                    ctx.add_text(right_x + 4.0, center, &format_value(total), text_color, TextAlign::Left, data_fs, false, 0.0);
+                    ctx.add_text(
+                        right_x + 4.0,
+                        center,
+                        &format_value(total),
+                        text_color,
+                        TextAlign::Left,
+                        data_fs,
+                        false,
+                        0.0,
+                    );
                 }
             } else {
                 let bar_height = if n_series > 0 {
@@ -563,7 +620,16 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     } else {
                         (right_x - 4.0, TextAlign::Right)
                     };
-                    ctx.add_text(label_x, label_y, &format_value(value), text_color, align, data_fs, false, 0.0);
+                    ctx.add_text(
+                        label_x,
+                        label_y,
+                        &format_value(value),
+                        text_color,
+                        align,
+                        data_fs,
+                        false,
+                        0.0,
+                    );
                 }
             }
         }
@@ -573,7 +639,16 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
 
     // Category label overlays (on the left side)
     for (ci, label) in bc.labels.iter().enumerate() {
-        ctx.add_text(px - super::y_tick_label_offset(w), cat_scale.center(ci) as f32, label, theme.text_color(), TextAlign::Right, tick_fs, false, 0.0);
+        ctx.add_text(
+            px - super::y_tick_label_offset(w),
+            cat_scale.center(ci) as f32,
+            label,
+            theme.text_color(),
+            TextAlign::Right,
+            tick_fs,
+            false,
+            0.0,
+        );
     }
 
     // Legend for multi-series
@@ -583,8 +658,21 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         for (ci, _label) in bc.labels.iter().enumerate() {
             let center = cat_scale.center(ci) as f32;
             if bc.stacked {
-                let total: f64 = bc.series.iter()
-                    .filter_map(|s| if ci < s.len() { let v = s.values()[ci]; if v.is_finite() { Some(v) } else { None } } else { None })
+                let total: f64 = bc
+                    .series
+                    .iter()
+                    .filter_map(|s| {
+                        if ci < s.len() {
+                            let v = s.values()[ci];
+                            if v.is_finite() {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
                     .sum();
                 if total.is_finite() {
                     let bar_h = inner_band;
@@ -596,7 +684,11 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
                     all_points.push((right_x, bar_y + bar_h));
                 }
             } else {
-                let bh = if n_series > 0 { inner_band / n_series as f32 } else { inner_band };
+                let bh = if n_series > 0 {
+                    inner_band / n_series as f32
+                } else {
+                    inner_band
+                };
                 let gt = center - inner_band / 2.0;
                 for (si, series) in bc.series.iter().enumerate() {
                     if ci < series.len() {
@@ -632,13 +724,26 @@ fn render_bar_horizontal(bc: &BarChart, w: u32, h: u32) -> RenderedChart {
         let legend_fs = super::scaled_font_size(theme.legend.font_size, w, h);
         let mut legend_cfg = config.legend.clone();
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
-        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let data_pts = if all_points.is_empty() {
+            None
+        } else {
+            Some(all_points.as_slice())
+        };
         let legend_text = ctx.draw_with(|c| {
             legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -802,13 +907,12 @@ pub(crate) fn cull_overlapping_value_labels(
             slice[idx].y_px
         };
         if let Some(prev) = last_kept_pos {
-            if (pos - prev).abs() < min_dist
-                && !is_protected[idx] {
-                    remove[idx] = true;
-                    continue;
-                }
-                // Protected overlaps a previous one — keep this, remove the
-                // previous if it isn't also protected (backtrack).
+            if (pos - prev).abs() < min_dist && !is_protected[idx] {
+                remove[idx] = true;
+                continue;
+            }
+            // Protected overlaps a previous one — keep this, remove the
+            // previous if it isn't also protected (backtrack).
         }
         last_kept_pos = Some(pos);
     }

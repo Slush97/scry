@@ -92,9 +92,11 @@ impl FunnelChart {
             return Err(crate::error::ChartError::EmptyData);
         }
         if self.labels.len() != self.values.len() {
-            return Err(crate::error::ChartError::InvalidConfig(
-                format!("labels ({}) and values ({}) have different lengths", self.labels.len(), self.values.len()),
-            ));
+            return Err(crate::error::ChartError::InvalidConfig(format!(
+                "labels ({}) and values ({}) have different lengths",
+                self.labels.len(),
+                self.values.len()
+            )));
         }
         Ok(self.build())
     }
@@ -104,7 +106,13 @@ impl ChartSpec for FunnelChart {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::funnel::render_funnel(self, w, h)
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }

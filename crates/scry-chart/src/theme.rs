@@ -552,12 +552,12 @@ impl Theme {
             foreground: text_color,
             palette: vec![
                 Color::from_rgba8(0, 114, 178, 255),   // blue
-                Color::from_rgba8(200, 135, 0, 255),   // dark amber (deepened for white-bg contrast)
-                Color::from_rgba8(0, 158, 115, 255),   // bluish green
+                Color::from_rgba8(200, 135, 0, 255), // dark amber (deepened for white-bg contrast)
+                Color::from_rgba8(0, 158, 115, 255), // bluish green
                 Color::from_rgba8(204, 121, 167, 255), // reddish purple
-                Color::from_rgba8(60, 150, 210, 255),  // sky blue (deepened for white-bg)
-                Color::from_rgba8(213, 94, 0, 255),    // vermillion
-                Color::from_rgba8(155, 140, 0, 255),   // olive gold (white-bg safe)
+                Color::from_rgba8(60, 150, 210, 255), // sky blue (deepened for white-bg)
+                Color::from_rgba8(213, 94, 0, 255),  // vermillion
+                Color::from_rgba8(155, 140, 0, 255), // olive gold (white-bg safe)
                 Color::from_rgba8(100, 100, 100, 255), // dark gray
             ],
             title_style: TextStyle {

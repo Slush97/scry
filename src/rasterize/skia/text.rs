@@ -129,18 +129,13 @@ fn discover_fallback_fonts() -> Vec<FallbackFont> {
 
     let mut chain = Vec::new();
     // Cap at a reasonable limit to avoid loading hundreds of fonts
-    let candidates = priority
-        .into_iter()
-        .map(|(_, p)| p)
-        .chain(others)
-        .take(12);
+    let candidates = priority.into_iter().map(|(_, p)| p).chain(others).take(12);
 
     for path in candidates {
         if let Ok(bytes) = std::fs::read(&path) {
-            if let Ok(font) = fontdue::Font::from_bytes(
-                bytes.as_slice(),
-                fontdue::FontSettings::default(),
-            ) {
+            if let Ok(font) =
+                fontdue::Font::from_bytes(bytes.as_slice(), fontdue::FontSettings::default())
+            {
                 chain.push(FallbackFont {
                     data: FontData::new(bytes),
                     font,
@@ -240,8 +235,9 @@ pub fn measure_text(text: &str, font_data: Option<&FontData>, font_size: f32) ->
         }
 
         let line_metrics = font.horizontal_line_metrics(font_size);
-        let (ascent, descent) = line_metrics
-            .map_or((font_size * 0.8, font_size * 0.2), |lm| (lm.ascent, -lm.descent));
+        let (ascent, descent) = line_metrics.map_or((font_size * 0.8, font_size * 0.2), |lm| {
+            (lm.ascent, -lm.descent)
+        });
 
         TextMetrics {
             width,

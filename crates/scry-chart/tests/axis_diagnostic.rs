@@ -611,12 +611,18 @@ fn test_matrix() -> Vec<(
     // 14. Line — large base with tiny fractional offsets (e.g. "1000000.002")
     charts.push((
         "line_large_decimal_y".to_string(),
-        Charts::line(&[1000000.001, 1000000.003, 1000000.002, 1000000.005, 1000000.004])
-            .title("Large Decimal")
-            .x_label("Step")
-            .y_label("Measurement")
-            .theme(Theme::dark())
-            .build(),
+        Charts::line(&[
+            1000000.001,
+            1000000.003,
+            1000000.002,
+            1000000.005,
+            1000000.004,
+        ])
+        .title("Large Decimal")
+        .x_label("Step")
+        .y_label("Measurement")
+        .theme(Theme::dark())
+        .build(),
         Some("Large Decimal".to_string()),
         Some("Step".to_string()),
         Some("Measurement".to_string()),

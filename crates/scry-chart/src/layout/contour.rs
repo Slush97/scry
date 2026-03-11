@@ -75,9 +75,11 @@ pub(crate) fn render_contour(cc: &ContourChart, w: u32, h: u32) -> RenderedChart
 
                                 // Sub-cell pixel coordinates
                                 let x0 = x_scale.to_pixel(c as f64 + sc as f64 / sub_f) as f32;
-                                let x1 = x_scale.to_pixel(c as f64 + (sc + 1) as f64 / sub_f) as f32;
+                                let x1 =
+                                    x_scale.to_pixel(c as f64 + (sc + 1) as f64 / sub_f) as f32;
                                 let y0 = y_scale.to_pixel(r as f64 + sr as f64 / sub_f) as f32;
-                                let y1 = y_scale.to_pixel(r as f64 + (sr + 1) as f64 / sub_f) as f32;
+                                let y1 =
+                                    y_scale.to_pixel(r as f64 + (sr + 1) as f64 / sub_f) as f32;
                                 let rx = x0.min(x1);
                                 let ry = y0.min(y1);
                                 // +0.5 to avoid hairline gaps between sub-cells
@@ -99,7 +101,12 @@ pub(crate) fn render_contour(cc: &ContourChart, w: u32, h: u32) -> RenderedChart
             let y0 = y_scale.to_pixel(*r0) as f32;
             let x1 = x_scale.to_pixel(*c1) as f32;
             let y1 = y_scale.to_pixel(*r1) as f32;
-            ctx.draw(|cv| cv.line(x0, y0, x1, y1).color(color).width(line_width).done());
+            ctx.draw(|cv| {
+                cv.line(x0, y0, x1, y1)
+                    .color(color)
+                    .width(line_width)
+                    .done()
+            });
         }
     }
 
@@ -108,7 +115,11 @@ pub(crate) fn render_contour(cc: &ContourChart, w: u32, h: u32) -> RenderedChart
 }
 
 /// Linearly interpolate between two colors.
-fn lerp_color(a: scry_engine::style::Color, b: scry_engine::style::Color, t: f32) -> scry_engine::style::Color {
+fn lerp_color(
+    a: scry_engine::style::Color,
+    b: scry_engine::style::Color,
+    t: f32,
+) -> scry_engine::style::Color {
     let t = t.clamp(0.0, 1.0);
     scry_engine::style::Color::from_rgba(
         a.r + (b.r - a.r) * t,

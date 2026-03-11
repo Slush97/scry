@@ -14,10 +14,10 @@
 //! // Pass to any GPU context that accepts `with_device()`
 //! ```
 
-use std::sync::Arc;
 use super::error::GpuError;
 use super::health::SharedHealthMonitor;
 use super::pipeline_registry::PipelineRegistry;
+use std::sync::Arc;
 
 /// Diagnostic information about the GPU adapter.
 ///
@@ -66,9 +66,8 @@ impl GpuDevice {
         // GL/GLES backends can panic with EGL BadDisplay on headless/SSH
         // systems, and since try_new wraps us in catch_unwind, that panic
         // would prevent Vulkan from ever being tried.
-        let primary_backends = wgpu::Backends::VULKAN
-            | wgpu::Backends::METAL
-            | wgpu::Backends::DX12;
+        let primary_backends =
+            wgpu::Backends::VULKAN | wgpu::Backends::METAL | wgpu::Backends::DX12;
 
         Self::new_with_backends(primary_backends)
             .or_else(|_| Self::new_with_backends(wgpu::Backends::all()))
@@ -114,7 +113,9 @@ impl GpuDevice {
 
         crate::scry_debug!(
             "[scry-gpu] Initialized: {} ({}, {})",
-            info.adapter_name, info.backend, info.device_type,
+            info.adapter_name,
+            info.backend,
+            info.device_type,
         );
 
         let health = super::health::shared_health_monitor();
@@ -178,7 +179,9 @@ impl GpuDevice {
 
         crate::scry_debug!(
             "[scry-gpu] Initialized (surface): {} ({}, {})",
-            info.adapter_name, info.backend, info.device_type,
+            info.adapter_name,
+            info.backend,
+            info.device_type,
         );
 
         let health = super::health::shared_health_monitor();
@@ -212,9 +215,7 @@ impl GpuDevice {
             std::panic::set_hook(Box::new(|_| {}));
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(Self::new));
             std::panic::set_hook(prev_hook);
-            let _ = tx.send(
-                result.unwrap_or_else(|_| Err(GpuError::InitPanicked)),
-            );
+            let _ = tx.send(result.unwrap_or_else(|_| Err(GpuError::InitPanicked)));
         });
         match rx.recv_timeout(timeout) {
             Ok(Ok(gpu)) => Some(gpu),
@@ -254,7 +255,9 @@ impl GpuDevice {
                 // the OnceLock from permanently caching None on slow compilers.
                 let result = Self::try_new(std::time::Duration::from_secs(8));
                 if result.is_none() {
-                    crate::scry_debug!("[scry-gpu] Global GPU init failed: no adapter found or init timed out");
+                    crate::scry_debug!(
+                        "[scry-gpu] Global GPU init failed: no adapter found or init timed out"
+                    );
                 }
                 result
             })
@@ -272,8 +275,7 @@ impl GpuDevice {
     /// Returns an error string if no compatible GPU adapter is found or
     /// initialization timed out.
     pub fn global_or_init() -> Result<&'static Self, GpuError> {
-        Self::global()
-            .ok_or(GpuError::Unavailable)
+        Self::global().ok_or(GpuError::Unavailable)
     }
 
     /// Check whether a GPU is available without initialising one.

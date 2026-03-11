@@ -25,9 +25,9 @@ use std::hash::{Hash, Hasher};
 #[cfg(feature = "input")]
 use std::collections::HashMap;
 
+use crate::scene::command::{DrawCommand, ImageData, PathData};
 #[cfg(feature = "text")]
 use crate::scene::command::{FontData, TextAlign, TextStyle};
-use crate::scene::command::{DrawCommand, ImageData, PathData};
 use crate::scene::style::{
     BlendMode, ClipRegion, Color, DashPattern, FillRule, FillStyle, GradientDef, GradientKind,
     GradientStop, LineCap, LineJoin, Point, Rect, ShapeStyle, StrokeStyle, Transform,
@@ -77,7 +77,12 @@ impl<'de> serde::Deserialize<'de> for PixelCanvas {
             commands: Vec<DrawCommand>,
         }
         let repr = PixelCanvasRepr::deserialize(deserializer)?;
-        Ok(Self::from_commands(repr.width, repr.height, repr.commands, repr.background))
+        Ok(Self::from_commands(
+            repr.width,
+            repr.height,
+            repr.commands,
+            repr.background,
+        ))
     }
 }
 
@@ -584,9 +589,13 @@ impl PixelCanvas {
     ///     .save_png("output.png")
     ///     .unwrap();
     /// ```
-    pub fn save_png(&self, path: impl AsRef<std::path::Path>) -> Result<(), crate::PixelCanvasError> {
+    pub fn save_png(
+        &self,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<(), crate::PixelCanvasError> {
         let pixmap = crate::rasterize::skia::Rasterizer::rasterize(self)?;
-        pixmap.save_png(path.as_ref())
+        pixmap
+            .save_png(path.as_ref())
             .map_err(|e| crate::PixelCanvasError::Rasterization(e.to_string()))
     }
 

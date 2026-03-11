@@ -5,9 +5,9 @@
 //! point — and [`PipelineRegistry`] which lazily compiles GPU pipelines
 //! on first access.
 
-pub mod error;
-mod device;
 pub mod buffer_pool;
+mod device;
+pub mod error;
 pub mod health;
 pub mod pipeline_registry;
 pub mod pipelines_3d;

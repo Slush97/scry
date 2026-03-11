@@ -91,7 +91,10 @@ fn validate_command(
 ) {
     match cmd {
         DrawCommand::Circle {
-            cx, cy, radius, style,
+            cx,
+            cy,
+            radius,
+            style,
         } => {
             if *radius <= 0.0 {
                 out.push(SceneWarning {
@@ -120,9 +123,7 @@ fn validate_command(
             }
         }
 
-        DrawCommand::Rectangle {
-            rect, style, ..
-        } => {
+        DrawCommand::Rectangle { rect, style, .. } => {
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 out.push(SceneWarning {
                     command_index: index,
@@ -137,7 +138,8 @@ fn validate_command(
                     message: "Rectangle: no fill and no stroke (invisible)",
                 });
             }
-            if rect.x > canvas_w || rect.y > canvas_h
+            if rect.x > canvas_w
+                || rect.y > canvas_h
                 || rect.x + rect.width < 0.0
                 || rect.y + rect.height < 0.0
             {
@@ -150,7 +152,12 @@ fn validate_command(
         }
 
         DrawCommand::Ellipse {
-            cx: _, cy: _, rx, ry, style, ..
+            cx: _,
+            cy: _,
+            rx,
+            ry,
+            style,
+            ..
         } => {
             if *rx <= 0.0 || *ry <= 0.0 {
                 out.push(SceneWarning {
@@ -178,9 +185,7 @@ fn validate_command(
             }
         }
 
-        DrawCommand::Polyline {
-            points, style, ..
-        } => {
+        DrawCommand::Polyline { points, style, .. } => {
             if points.len() < 2 {
                 out.push(SceneWarning {
                     command_index: index,
@@ -197,9 +202,7 @@ fn validate_command(
             }
         }
 
-        DrawCommand::Arc {
-            radius, style, ..
-        } => {
+        DrawCommand::Arc { radius, style, .. } => {
             if *radius <= 0.0 {
                 out.push(SceneWarning {
                     command_index: index,
@@ -283,7 +286,10 @@ mod tests {
             .done();
 
         let warnings = validate_scene(&canvas);
-        assert!(warnings.is_empty(), "expected no warnings, got: {warnings:?}");
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {warnings:?}"
+        );
     }
 
     #[test]
@@ -308,7 +314,9 @@ mod tests {
 
         let warnings = validate_scene(&canvas);
         assert!(
-            warnings.iter().any(|w| w.message.contains("zero or negative dimensions")),
+            warnings
+                .iter()
+                .any(|w| w.message.contains("zero or negative dimensions")),
             "expected dimension warning, got: {warnings:?}",
         );
     }
@@ -330,7 +338,9 @@ mod tests {
 
         let warnings = validate_scene(&canvas);
         assert!(
-            warnings.iter().any(|w| w.severity == WarningSeverity::Error),
+            warnings
+                .iter()
+                .any(|w| w.severity == WarningSeverity::Error),
             "expected error-level warning for empty polyline",
         );
     }

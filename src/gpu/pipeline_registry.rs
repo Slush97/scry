@@ -5,8 +5,8 @@
 //! compiled on first access. This ensures each pipeline is compiled exactly
 //! once per process, regardless of how many rendering contexts are created.
 
-use std::sync::OnceLock;
 use super::pipelines_3d::Pipelines3D;
+use std::sync::OnceLock;
 
 // ---------------------------------------------------------------------------
 // Pipelines2D — 2D rasterization pipelines (shape, line, gradient, mesh)
@@ -140,7 +140,7 @@ impl Pipelines2D {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: std::num::NonZeroU64::new(
-                        std::mem::size_of::<GradientUniforms>() as u64
+                        std::mem::size_of::<GradientUniforms>() as u64,
                     ),
                 },
                 count: None,
@@ -168,7 +168,9 @@ impl Pipelines2D {
 
         let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shape_shader_2d"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../rasterize/shaders/shape.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../rasterize/shaders/shape.wgsl").into(),
+            ),
         });
         let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shape_pipeline_2d"),
@@ -181,12 +183,36 @@ impl Pipelines2D {
                     array_stride: std::mem::size_of::<ShapeInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &[
-                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
-                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 24, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 40, shader_location: 3, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 56, shader_location: 4, format: wgpu::VertexFormat::Float32 },   // stroke_width
-                        wgpu::VertexAttribute { offset: 60, shader_location: 5, format: wgpu::VertexFormat::Uint32 },    // shape_type
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 8,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 24,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 40,
+                            shader_location: 3,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 56,
+                            shader_location: 4,
+                            format: wgpu::VertexFormat::Float32,
+                        }, // stroke_width
+                        wgpu::VertexAttribute {
+                            offset: 60,
+                            shader_location: 5,
+                            format: wgpu::VertexFormat::Uint32,
+                        }, // shape_type
                     ],
                 }],
             },
@@ -196,7 +222,10 @@ impl Pipelines2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target.clone())],
             }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -218,11 +247,31 @@ impl Pipelines2D {
                     array_stride: std::mem::size_of::<LineVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
-                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
-                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
-                        wgpu::VertexAttribute { offset: 16, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
-                        wgpu::VertexAttribute { offset: 32, shader_location: 3, format: wgpu::VertexFormat::Float32 },
-                        wgpu::VertexAttribute { offset: 36, shader_location: 4, format: wgpu::VertexFormat::Float32 },
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 8,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 16,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 32,
+                            shader_location: 3,
+                            format: wgpu::VertexFormat::Float32,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 36,
+                            shader_location: 4,
+                            format: wgpu::VertexFormat::Float32,
+                        },
                     ],
                 }],
             },
@@ -232,7 +281,10 @@ impl Pipelines2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target.clone())],
             }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -241,7 +293,9 @@ impl Pipelines2D {
 
         let gradient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gradient_shader_2d"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../rasterize/shaders/gradient.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../rasterize/shaders/gradient.wgsl").into(),
+            ),
         });
         let gradient_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("gradient_pipeline_2d"),
@@ -258,7 +312,10 @@ impl Pipelines2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target.clone())],
             }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -280,8 +337,16 @@ impl Pipelines2D {
                     array_stride: std::mem::size_of::<MeshVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
-                        wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
-                        wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 8,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
                     ],
                 }],
             },
@@ -291,7 +356,10 @@ impl Pipelines2D {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(color_target)],
             }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -381,7 +449,9 @@ impl PipelinesSdf {
 
     /// Save pipeline cache data to disk for next run.
     fn save_cache(cache: &wgpu::PipelineCache) {
-        let Some(path) = Self::cache_path() else { return };
+        let Some(path) = Self::cache_path() else {
+            return;
+        };
         let Some(data) = cache.get_data() else { return };
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -393,15 +463,19 @@ impl PipelinesSdf {
         }
     }
 
-
     /// Compile the SDF compute pipeline for the given device.
     pub(crate) fn compile(device: &wgpu::Device) -> Self {
         let t0 = std::time::Instant::now();
-        crate::scry_debug!("[scry-gpu] Compiling SDF shader module ({} bytes WGSL)...",
-            include_str!("../sdf/shaders/sdf_compute.wgsl").len());
+        crate::scry_debug!(
+            "[scry-gpu] Compiling SDF shader module ({} bytes WGSL)...",
+            include_str!("../sdf/shaders/sdf_compute.wgsl").len()
+        );
 
         let shader_source = include_str!("../sdf/shaders/sdf_compute.wgsl");
-        crate::scry_info!("[scry-gpu] compiling SDF shader ({} lines)…", shader_source.lines().count());
+        crate::scry_info!(
+            "[scry-gpu] compiling SDF shader ({} lines)…",
+            shader_source.lines().count()
+        );
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sdf-compute-shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
@@ -486,14 +560,17 @@ impl PipelinesSdf {
         // Load persistent pipeline cache (Vulkan only — other backends ignore it)
         let cache_loaded = Self::load_cache(device);
         let cache = cache_loaded.unwrap_or_else(|| Self::empty_cache(device));
-        let had_cache = Self::cache_path()
-            .as_ref()
-            .is_some_and(|p| p.exists());
-        crate::scry_debug!("[scry-gpu] Layout created in {:?}, creating compute pipeline (cache={})...",
-            t0.elapsed(), if had_cache { "loaded" } else { "cold" });
+        let had_cache = Self::cache_path().as_ref().is_some_and(|p| p.exists());
+        crate::scry_debug!(
+            "[scry-gpu] Layout created in {:?}, creating compute pipeline (cache={})...",
+            t0.elapsed(),
+            if had_cache { "loaded" } else { "cold" }
+        );
 
-        crate::scry_info!("[scry-gpu] creating compute pipeline (cache={})…",
-            if had_cache { "warm" } else { "cold" });
+        crate::scry_info!(
+            "[scry-gpu] creating compute pipeline (cache={})…",
+            if had_cache { "warm" } else { "cold" }
+        );
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("sdf-compute-pipeline"),
             layout: Some(&pipeline_layout),

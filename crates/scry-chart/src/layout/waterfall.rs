@@ -155,7 +155,16 @@ pub(crate) fn render_waterfall(wc: &WaterfallChart, w: u32, h: u32) -> RenderedC
                 } else {
                     py_bot + 12.0
                 };
-                ctx.add_text(center, label_y, &label, theme.text_color(), TextAlign::Center, data_fs, false, 0.0);
+                ctx.add_text(
+                    center,
+                    label_y,
+                    &label,
+                    theme.text_color(),
+                    TextAlign::Center,
+                    data_fs,
+                    false,
+                    0.0,
+                );
             }
         }
     }

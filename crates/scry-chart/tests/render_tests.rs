@@ -782,8 +782,7 @@ fn bar_chart_has_stroke() {
         .filter(|cmd| matches!(cmd, DrawCommand::Rectangle { style, .. } if style.fill.is_some()))
         .count();
 
-    // Bar stroke rects — should be 0 by default (bar_stroke_width: 0.0)
-    // Tufte: bar outlines are chartjunk when fill already encodes the value.
+    // Bar stroke rects — dark theme has bar_stroke_width: 1.0
     let stroke_rects = rendered
         .canvas
         .commands()
@@ -799,8 +798,8 @@ fn bar_chart_has_stroke() {
         "Should have at least 3 bar fill rectangles, got {fill_rects}"
     );
     assert_eq!(
-        stroke_rects, 0,
-        "Bars should have no stroke by default (bar_stroke_width: 0.0), got {stroke_rects}"
+        stroke_rects, fill_rects,
+        "Each bar should have a stroke rect (dark theme bar_stroke_width: 1.0), got {stroke_rects}"
     );
 }
 
@@ -848,7 +847,9 @@ fn all_themes_produce_output() {
         ("light", Theme::light()),
         ("pastel", Theme::pastel()),
     ] {
-        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0]).theme(theme).build();
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0])
+            .theme(theme)
+            .build();
 
         let rendered = layout::render_chart(&chart, 400, 300);
         assert!(
@@ -898,18 +899,9 @@ fn full_feature_chart() {
         rendered.text_labels().contains(&"Full Feature Test"),
         "Title"
     );
-    assert!(
-        rendered.text_labels().contains(&"X Axis"),
-        "X label"
-    );
-    assert!(
-        rendered.text_labels().contains(&"Y Axis"),
-        "Y label"
-    );
-    assert!(
-        rendered.text_labels().contains(&"Peak"),
-        "Annotation"
-    );
+    assert!(rendered.text_labels().contains(&"X Axis"), "X label");
+    assert!(rendered.text_labels().contains(&"Y Axis"), "Y label");
+    assert!(rendered.text_labels().contains(&"Peak"), "Annotation");
 
     // Verify draw command types
     let has_polygon = rendered
@@ -1529,12 +1521,9 @@ fn legend_avoids_data_overlap() {
     let ys_a: Vec<f64> = xs.iter().map(|x| x * x).collect(); // quadratic rise
     let ys_b: Vec<f64> = xs.iter().map(|x| x * x * 0.8 + 10.0).collect();
 
-    let chart = LineChart::new(vec![
-        Series::new("Alpha", ys_a),
-        Series::new("Beta", ys_b),
-    ])
-    .title("Overlap Test")
-    .build();
+    let chart = LineChart::new(vec![Series::new("Alpha", ys_a), Series::new("Beta", ys_b)])
+        .title("Overlap Test")
+        .build();
 
     let rendered = layout::render_chart(&chart, 500, 350);
 
@@ -1567,9 +1556,7 @@ fn legend_avoids_data_overlap() {
     );
 
     let legend_in_data_zone = legend_labels.iter().any(|(lx, ly, _)| {
-        *lx >= top_right_quadrant.0
-            && *ly >= top_right_quadrant.1
-            && *ly <= top_right_quadrant.2
+        *lx >= top_right_quadrant.0 && *ly >= top_right_quadrant.1 && *ly <= top_right_quadrant.2
     });
 
     assert!(
@@ -1761,9 +1748,15 @@ use scry_chart::chart::GanttTask;
 #[test]
 fn render_gantt_basic() {
     let chart = Charts::gantt(vec![
-        GanttTask::new("Research", 0.0, 3.0).group("Phase 1").progress(1.0),
-        GanttTask::new("Design", 2.0, 6.0).group("Phase 1").progress(0.8),
-        GanttTask::new("Implement", 5.0, 12.0).group("Phase 2").progress(0.4),
+        GanttTask::new("Research", 0.0, 3.0)
+            .group("Phase 1")
+            .progress(1.0),
+        GanttTask::new("Design", 2.0, 6.0)
+            .group("Phase 1")
+            .progress(0.8),
+        GanttTask::new("Implement", 5.0, 12.0)
+            .group("Phase 2")
+            .progress(0.4),
         GanttTask::new("Test", 10.0, 14.0).group("Phase 2"),
         GanttTask::new("Deploy", 14.0, 15.0).group("Phase 3"),
     ])

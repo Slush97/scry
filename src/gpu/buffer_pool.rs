@@ -166,11 +166,9 @@ mod tests {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))?;
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor::default(),
-            None,
-        ))
-        .ok()?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .ok()?;
         Some((device, queue))
     }
 

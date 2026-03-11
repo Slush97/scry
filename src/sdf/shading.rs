@@ -14,9 +14,7 @@ use super::lighting::{
 use super::materials::{self, Material};
 use super::math::Vec3;
 use super::profiler::{RowProfile, SdfStage};
-use super::ray_march::{
-    ray_march, scene_sdf, RayBudget, MAX_DIST, SURF_DIST,
-};
+use super::ray_march::{ray_march, scene_sdf, RayBudget, MAX_DIST, SURF_DIST};
 use super::scene::{SdfScene, SdfShape};
 
 // ── Tracing infrastructure ──────────────────────────────────────────
@@ -75,8 +73,23 @@ impl SdfTracer for ProfilingTracer<'_> {
 // ── Unified shading entry points ────────────────────────────────────
 
 /// Top-level per-ray shading: march, hit → shade surface, miss → sky.
-pub(super) fn shade_ray(scene: &SdfScene, origin: Vec3, dir: Vec3, time: f32, bounce: u32, exclude_idx: Option<usize>) -> Color {
-    shade_ray_traced(scene, origin, dir, time, bounce, exclude_idx, &mut NoOpTracer)
+pub(super) fn shade_ray(
+    scene: &SdfScene,
+    origin: Vec3,
+    dir: Vec3,
+    time: f32,
+    bounce: u32,
+    exclude_idx: Option<usize>,
+) -> Color {
+    shade_ray_traced(
+        scene,
+        origin,
+        dir,
+        time,
+        bounce,
+        exclude_idx,
+        &mut NoOpTracer,
+    )
 }
 
 /// Profiled variant of [`shade_ray`].
@@ -220,7 +233,9 @@ fn shade_surface_traced<T: SdfTracer>(
                 tracer.end(SdfStage::Shading);
                 r
             } else {
-                phong_traced(scene, hit, normal, ray_dir, *color, *specular, time, budget, tracer)
+                phong_traced(
+                    scene, hit, normal, ray_dir, *color, *specular, time, budget, tracer,
+                )
             };
 
             // Reflections
@@ -257,8 +272,15 @@ fn shade_surface_traced<T: SdfTracer>(
                 tracer.begin(SdfStage::Reflection);
                 let refr_color = if let Some(refr_dir) = ray_dir.refract(normal, eta) {
                     let refr_origin = hit - normal * (SURF_DIST * 2.0);
-                    let mut rc =
-                        shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, None, tracer);
+                    let mut rc = shade_ray_traced(
+                        scene,
+                        refr_origin,
+                        refr_dir,
+                        time,
+                        bounce + 1,
+                        None,
+                        tracer,
+                    );
                     rc.r *= tint.r;
                     rc.g *= tint.g;
                     rc.b *= tint.b;
@@ -311,7 +333,9 @@ fn shade_surface_traced<T: SdfTracer>(
                 tracer.end(SdfStage::Shading);
                 r
             } else {
-                phong_traced(scene, hit, normal, ray_dir, base_color, *specular, time, budget, tracer)
+                phong_traced(
+                    scene, hit, normal, ray_dir, base_color, *specular, time, budget, tracer,
+                )
             };
 
             if *reflectivity > 0.01 && bounce < scene.max_bounces {
@@ -358,32 +382,60 @@ fn shade_surface_traced<T: SdfTracer>(
                     let exclude = Some(obj_idx);
                     let shade_channel = |eta: f32| -> f32 {
                         if let Some(refr_dir) = ray_dir.refract(normal, eta) {
-                            let rc = shade_ray(scene, refr_origin, refr_dir, time, bounce + 1, exclude);
+                            let rc =
+                                shade_ray(scene, refr_origin, refr_dir, time, bounce + 1, exclude);
                             // Return luminance-ish single channel (we pick per-channel below)
                             rc.r * 0.33 + rc.g * 0.34 + rc.b * 0.33
                         } else {
                             // Total internal reflection fallback
-                            let rc = shade_ray(scene, refl_origin, refl_dir, time, bounce + 1, None);
+                            let rc =
+                                shade_ray(scene, refl_origin, refl_dir, time, bounce + 1, None);
                             rc.r * 0.33 + rc.g * 0.34 + rc.b * 0.33
                         }
                     };
 
                     // Refract each channel separately for prismatic effect
-                    let mut cr = Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                    let mut cr = Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    };
                     if let Some(dir_r) = ray_dir.refract(normal, ior_r) {
-                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_r, time, bounce + 1, exclude);
+                        let c = shade_ray(
+                            scene,
+                            hit - normal * (SURF_DIST * 2.0),
+                            dir_r,
+                            time,
+                            bounce + 1,
+                            exclude,
+                        );
                         cr.r = c.r * tint.r;
                     } else {
                         cr.r = shade_channel(ior_r) * tint.r;
                     }
                     if let Some(dir_g) = ray_dir.refract(normal, ior_g) {
-                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_g, time, bounce + 1, exclude);
+                        let c = shade_ray(
+                            scene,
+                            hit - normal * (SURF_DIST * 2.0),
+                            dir_g,
+                            time,
+                            bounce + 1,
+                            exclude,
+                        );
                         cr.g = c.g * tint.g;
                     } else {
                         cr.g = shade_channel(ior_g) * tint.g;
                     }
                     if let Some(dir_b) = ray_dir.refract(normal, ior_b) {
-                        let c = shade_ray(scene, hit - normal * (SURF_DIST * 2.0), dir_b, time, bounce + 1, exclude);
+                        let c = shade_ray(
+                            scene,
+                            hit - normal * (SURF_DIST * 2.0),
+                            dir_b,
+                            time,
+                            bounce + 1,
+                            exclude,
+                        );
                         cr.b = c.b * tint.b;
                     } else {
                         cr.b = shade_channel(ior_b) * tint.b;
@@ -394,8 +446,15 @@ fn shade_surface_traced<T: SdfTracer>(
                     let eta = 1.0 / ior;
                     if let Some(refr_dir) = ray_dir.refract(normal, eta) {
                         let refr_origin = hit - normal * (SURF_DIST * 2.0);
-                        let mut rc =
-                            shade_ray_traced(scene, refr_origin, refr_dir, time, bounce + 1, Some(obj_idx), tracer);
+                        let mut rc = shade_ray_traced(
+                            scene,
+                            refr_origin,
+                            refr_dir,
+                            time,
+                            bounce + 1,
+                            Some(obj_idx),
+                            tracer,
+                        );
                         rc.r *= tint.r;
                         rc.g *= tint.g;
                         rc.b *= tint.b;
@@ -467,7 +526,9 @@ fn shade_surface_traced<T: SdfTracer>(
                 tracer.end(SdfStage::Shading);
                 r
             } else {
-                phong_traced(scene, hit, normal, ray_dir, base_color, *specular, time, budget, tracer)
+                phong_traced(
+                    scene, hit, normal, ray_dir, base_color, *specular, time, budget, tracer,
+                )
             }
         }
         Material::Subsurface {
@@ -483,7 +544,9 @@ fn shade_surface_traced<T: SdfTracer>(
                 tracer.end(SdfStage::Shading);
                 r
             } else {
-                phong_traced(scene, hit, normal, ray_dir, *color, *specular, time, budget, tracer)
+                phong_traced(
+                    scene, hit, normal, ray_dir, *color, *specular, time, budget, tracer,
+                )
             };
 
             // Subsurface scattering: evaluate SDF thickness for back-illumination.

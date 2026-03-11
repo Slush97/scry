@@ -57,7 +57,11 @@ fn scatter_multi() -> Chart {
         &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         &[2.1, 3.5, 2.8, 5.2, 4.1, 6.3, 5.5, 7.0],
     )
-    .add_named_series("Strain B", &[1.5, 3.0, 4.5, 6.0, 7.5], &[3.0, 4.2, 5.8, 6.1, 8.2])
+    .add_named_series(
+        "Strain B",
+        &[1.5, 3.0, 4.5, 6.0, 7.5],
+        &[3.0, 4.2, 5.8, 6.1, 8.2],
+    )
     .add_named_series("Strain C", &[2.0, 4.0, 6.0, 8.0], &[1.5, 3.8, 4.5, 6.8])
     .title("Scatter: Legend ● Circle Swatches")
     .x_label("Concentration (μg/mL)")
@@ -71,8 +75,14 @@ fn scatter_multi() -> Chart {
 // ---------------------------------------------------------------------------
 fn line_multi() -> Chart {
     LineChart::new(vec![
-        Series::new("Revenue", vec![10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 38.0, 50.0]),
-        Series::new("Expenses", vec![15.0, 20.0, 22.0, 25.0, 30.0, 28.0, 35.0, 32.0]),
+        Series::new(
+            "Revenue",
+            vec![10.0, 25.0, 18.0, 35.0, 28.0, 42.0, 38.0, 50.0],
+        ),
+        Series::new(
+            "Expenses",
+            vec![15.0, 20.0, 22.0, 25.0, 30.0, 28.0, 35.0, 32.0],
+        ),
         Series::new("Profit", vec![-5.0, 5.0, -4.0, 10.0, -2.0, 14.0, 3.0, 18.0]),
     ])
     .title("Line: Legend ─ Line Swatches")
@@ -88,7 +98,13 @@ fn line_multi() -> Chart {
 // ---------------------------------------------------------------------------
 fn bar_multi() -> Chart {
     Charts::bar(
-        vec!["Jan".into(), "Feb".into(), "Mar".into(), "Apr".into(), "May".into()],
+        vec![
+            "Jan".into(),
+            "Feb".into(),
+            "Mar".into(),
+            "Apr".into(),
+            "May".into(),
+        ],
         &[120.0, 200.0, 150.0, 280.0, 190.0],
     )
     .add_named_series("Region B", &[90.0, 160.0, 180.0, 110.0, 220.0])
@@ -134,7 +150,10 @@ fn scatter_wide() -> Chart {
 // ---------------------------------------------------------------------------
 fn themed_line(theme: Theme, label: &str) -> Chart {
     Charts::line(&[3.0, 12.0, 8.0, 22.0, 15.0, 30.0, 25.0, 38.0, 32.0, 45.0])
-        .add_named_series("Series B", &[8.0, 15.0, 12.0, 28.0, 20.0, 35.0, 30.0, 42.0, 38.0, 50.0])
+        .add_named_series(
+            "Series B",
+            &[8.0, 15.0, 12.0, 28.0, 20.0, 35.0, 30.0, 42.0, 38.0, 50.0],
+        )
         .title(label)
         .x_label("Sample")
         .y_label("Measurement")
@@ -160,7 +179,9 @@ fn histogram_dual() -> Chart {
     Charts::histogram(&normal)
         .add_series(Series::new(
             "Noise",
-            (0..300).map(|i| (i as f64 * 0.137).sin() * 35.0 + 45.0).collect(),
+            (0..300)
+                .map(|i| (i as f64 * 0.137).sin() * 35.0 + 45.0)
+                .collect(),
         ))
         .title("Histogram: Dual Distribution")
         .x_label("Amplitude")
@@ -175,10 +196,22 @@ fn histogram_dual() -> Chart {
 // ---------------------------------------------------------------------------
 fn boxplot_demo() -> Chart {
     Charts::boxplot(vec![
-        ("Control", vec![4.2, 5.1, 4.8, 5.3, 4.9, 5.0, 5.2, 4.7, 5.1, 4.6]),
-        ("Low Dose", vec![5.5, 6.2, 5.8, 6.0, 6.5, 5.7, 6.1, 5.9, 6.3, 5.6]),
-        ("Mid Dose", vec![7.1, 8.3, 7.5, 8.0, 7.8, 8.5, 7.2, 8.1, 7.9, 7.6]),
-        ("High Dose", vec![9.0, 10.5, 9.8, 11.2, 10.0, 9.5, 10.8, 9.2, 10.3, 12.0]),
+        (
+            "Control",
+            vec![4.2, 5.1, 4.8, 5.3, 4.9, 5.0, 5.2, 4.7, 5.1, 4.6],
+        ),
+        (
+            "Low Dose",
+            vec![5.5, 6.2, 5.8, 6.0, 6.5, 5.7, 6.1, 5.9, 6.3, 5.6],
+        ),
+        (
+            "Mid Dose",
+            vec![7.1, 8.3, 7.5, 8.0, 7.8, 8.5, 7.2, 8.1, 7.9, 7.6],
+        ),
+        (
+            "High Dose",
+            vec![9.0, 10.5, 9.8, 11.2, 10.0, 9.5, 10.8, 9.2, 10.3, 12.0],
+        ),
     ])
     .title("Box Plot: Treatment Response")
     .y_label("Biomarker (ng/mL)")

@@ -15,7 +15,7 @@
 //! ```
 
 use crate::rasterize::backend::BackendKind;
-use crate::scene::validate::{SceneWarning, validate_scene};
+use crate::scene::validate::{validate_scene, SceneWarning};
 
 /// Unified engine health snapshot.
 ///
@@ -171,8 +171,7 @@ mod tests {
         let report = EngineReport::snapshot();
         // Backend should always be one of Cpu or Gpu
         assert!(
-            report.active_backend == BackendKind::Cpu
-                || report.active_backend == BackendKind::Gpu,
+            report.active_backend == BackendKind::Cpu || report.active_backend == BackendKind::Gpu,
         );
         // Display should produce non-empty output
         let display = format!("{report}");

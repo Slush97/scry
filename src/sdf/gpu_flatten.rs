@@ -225,7 +225,11 @@ pub(super) fn flatten_shape(shape: &SdfShape) -> (u32, [f32; 4], [f32; 4], [f32;
             [0.0; 4],
             [0.0; 3],
         ),
-        SdfShape::Gyroid { scale, thickness, bound } => (
+        SdfShape::Gyroid {
+            scale,
+            thickness,
+            bound,
+        } => (
             SHAPE_GYROID,
             [*scale, *thickness, *bound, 0.0],
             [0.0; 4],
@@ -298,17 +302,32 @@ pub(super) fn flatten_material(mat: &Material) -> (u32, [f32; 4], [f32; 4]) {
             [*reflectivity, *specular, *scale, 0.0],
             color_to_arr(*color_a),
         ),
-        Material::Glass { tint, ior, opacity, dispersion } => (
+        Material::Glass {
+            tint,
+            ior,
+            opacity,
+            dispersion,
+        } => (
             MAT_GLASS,
             [*ior, *opacity, *dispersion, 0.0],
             color_to_arr(*tint),
         ),
-        Material::Rainbow { saturation, lightness, hue_offset, specular } => (
+        Material::Rainbow {
+            saturation,
+            lightness,
+            hue_offset,
+            specular,
+        } => (
             MAT_RAINBOW,
             [*saturation, *lightness, *hue_offset, *specular],
             [0.5, 0.5, 0.5, 1.0], // base color unused (computed from angle)
         ),
-        Material::Subsurface { color, scatter_color: _, thickness, specular } => (
+        Material::Subsurface {
+            color,
+            scatter_color: _,
+            thickness,
+            specular,
+        } => (
             MAT_SUBSURFACE,
             [*thickness, *specular, 0.0, 0.0],
             color_to_arr(*color),
@@ -353,8 +372,7 @@ pub(super) fn build_objects(scene: &SdfScene) -> Vec<GpuObject> {
     let mut glyph_cursor: u32 = 0;
 
     for obj in &scene.objects {
-        let (shape_type, shape_params, blend_a, blend_b, blend_b_off) =
-            flatten_shape(&obj.shape);
+        let (shape_type, shape_params, blend_a, blend_b, blend_b_off) = flatten_shape(&obj.shape);
         let (material_type, material_params, material_color) = flatten_material(&obj.material);
 
         // For checkerboard materials, pack color_b into blend_a_params

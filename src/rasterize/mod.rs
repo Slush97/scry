@@ -46,20 +46,20 @@ pub use backend::{
     RasterResult,
 };
 pub use cache::{DirtyTile, RasterCache, TILE_SIZE};
+pub use pipeline::RasterPipeline;
 pub use profiler::{
     CommandTiming, CommandType, PipelineProfile, ProfileHistory, ProfiledRasterizer, RasterProfile,
     SmoothedProfile, TransportProfile,
 };
-pub use pipeline::RasterPipeline;
 pub use skia::{Rasterizer, RenderWarning};
 
-#[cfg(feature = "gpu")]
-pub use backend::GpuBackend;
 #[cfg(feature = "gpu")]
 pub use self::wgpu::rasterize_auto;
 #[cfg(feature = "gpu")]
 pub use self::wgpu::WgpuRasterizer;
 #[cfg(feature = "gpu")]
-pub use wgpu_context::WgpuContext2D;
+pub use backend::GpuBackend;
 #[cfg(feature = "gpu")]
-pub use gpu_commands::{GpuBatches, collect_gpu_batches};
+pub use gpu_commands::{collect_gpu_batches, GpuBatches};
+#[cfg(feature = "gpu")]
+pub use wgpu_context::WgpuContext2D;

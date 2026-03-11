@@ -208,7 +208,6 @@ const TAG_CMD_QUERY_INFO: u8 = 0x84;
 const TAG_CMD_SUBMIT_SCENE: u8 = 0x85;
 const TAG_CMD_SUBMIT_ANIMATION: u8 = 0x86;
 
-
 // Event tags: 0xC0–0xFF
 const TAG_EVT_CLICKED: u8 = 0xC0;
 const TAG_EVT_VISIBILITY: u8 = 0xC1;
@@ -338,9 +337,7 @@ impl Memfd {
         if actual < expected {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!(
-                    "memfd size mismatch: fd has {actual} bytes, expected {expected}"
-                ),
+                format!("memfd size mismatch: fd has {actual} bytes, expected {expected}"),
             ));
         }
         Ok(())
@@ -390,9 +387,7 @@ impl Memfd {
         // SAFETY: ptr is valid for `self.len` bytes and we copy immediately.
         // Using `unsafe` here is confined to this safe wrapper so callers
         // (e.g. scry-terminal which has `deny(unsafe_code)`) can call this freely.
-        unsafe {
-            std::slice::from_raw_parts(self.ptr, self.len).to_vec()
-        }
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len).to_vec() }
     }
 
     /// The file descriptor (for passing via `SCM_RIGHTS`).
@@ -598,7 +593,6 @@ impl IpcCommand {
                 put_u32(&mut payload, *height);
                 payload.push(u8::from(*persist));
             }
-
         }
 
         // Prepend 2-byte LE length (of payload, not including the length field itself).
@@ -625,9 +619,9 @@ impl IpcCommand {
             TAG_CMD_TRANSMIT => {
                 // id(4) + anchor_tag(1) + anchor_data(variable) + w_cells(2) + h_cells(2) + z(4) + px_w(4) + px_h(4)
                 let id = get_u32(data, 0)?;
-                let anchor_tag = *data
-                    .get(4)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag"))?;
+                let anchor_tag = *data.get(4).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag")
+                })?;
 
                 let (anchor, rest_offset) = match anchor_tag {
                     ANCHOR_CANVAS => {
@@ -678,9 +672,9 @@ impl IpcCommand {
             TAG_CMD_QUERY_INFO => Ok(Self::QueryInfo),
             TAG_CMD_SUBMIT_SCENE => {
                 let id = get_u32(data, 0)?;
-                let anchor_tag = *data
-                    .get(4)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag"))?;
+                let anchor_tag = *data.get(4).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag")
+                })?;
 
                 let (anchor, rest_offset) = match anchor_tag {
                     ANCHOR_CANVAS => {
@@ -715,9 +709,9 @@ impl IpcCommand {
             }
             TAG_CMD_SUBMIT_ANIMATION => {
                 let id = get_u32(data, 0)?;
-                let anchor_tag = *data
-                    .get(4)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag"))?;
+                let anchor_tag = *data.get(4).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "missing anchor tag")
+                })?;
 
                 let (anchor, rest_offset) = match anchor_tag {
                     ANCHOR_CANVAS => {
@@ -840,11 +834,9 @@ impl IpcResponse {
             }
             TAG_RESP_ERROR => {
                 let msg_len = get_u16(data, 0)? as usize;
-                let bytes = data
-                    .get(2..2 + msg_len)
-                    .ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::UnexpectedEof, "truncated error message")
-                    })?;
+                let bytes = data.get(2..2 + msg_len).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "truncated error message")
+                })?;
                 let msg = String::from_utf8_lossy(bytes).into_owned();
                 Ok(Self::Error { msg })
             }
@@ -904,12 +896,9 @@ impl IpcEvent {
             }
             TAG_EVT_VISIBILITY => {
                 let id = get_u32(data, 0)?;
-                let visible = *data
-                    .get(4)
-                    .ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::UnexpectedEof, "missing visibility flag")
-                    })?
-                    != 0;
+                let visible = *data.get(4).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "missing visibility flag")
+                })? != 0;
                 Ok(Self::Visibility { id, visible })
             }
             _ => Err(io::Error::new(
@@ -1082,8 +1071,7 @@ fn send_with_fd(sock_fd: RawFd, data: &[u8], fd: RawFd) -> io::Result<()> {
     unsafe {
         (*cmsg).cmsg_level = libc::SOL_SOCKET;
         (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-        (*cmsg).cmsg_len =
-            libc::CMSG_LEN(std::mem::size_of::<RawFd>() as u32) as usize;
+        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<RawFd>() as u32) as usize;
 
         // Copy the fd into the cmsg data area.
         let fd_ptr = libc::CMSG_DATA(cmsg).cast::<RawFd>();

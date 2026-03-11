@@ -7,8 +7,8 @@ use crate::chart::config_builder::{
     chart_config_core, chart_config_margin, chart_config_subtitle_footer,
 };
 use crate::chart::{Chart, ChartConfig};
-use crate::spec::ChartSpec;
 use crate::colormap::Colormap;
+use crate::spec::ChartSpec;
 use scry_engine::style::Color;
 use std::sync::Arc;
 
@@ -129,7 +129,12 @@ impl ChartSpec for ContourChart {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::contour::render_contour(self, w, h)
     }
-    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+    fn render_with_viewport(
+        &self,
+        w: u32,
+        h: u32,
+        vp: Option<(f64, f64, f64, f64)>,
+    ) -> crate::layout::RenderedChart {
         if let Some((x0, x1, y0, y1)) = vp {
             let mut c = self.clone();
             c.config.axes.x_range = Some((x0, x1));
@@ -139,9 +144,15 @@ impl ChartSpec for ContourChart {
             self.render(w, h)
         }
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }
 
 #[cfg(test)]

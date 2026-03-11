@@ -364,10 +364,7 @@ pub fn draw_collected_gridlines(
 /// Call this **after** grid lines and **before** axis spines to ensure
 /// proper z-ordering: grids → ticks → spines → data.
 #[must_use]
-pub fn draw_collected_tick_marks(
-    mut canvas: PixelCanvas,
-    tick_marks: &[TickMark],
-) -> PixelCanvas {
+pub fn draw_collected_tick_marks(mut canvas: PixelCanvas, tick_marks: &[TickMark]) -> PixelCanvas {
     for t in tick_marks {
         canvas = canvas
             .line(t.x0, t.y0, t.x1, t.y1)
@@ -390,7 +387,13 @@ pub fn draw_collected_tick_marks(
 /// [`draw_collected_tick_marks`] at the appropriate z-layers:
 /// grids → ticks → spines → data.
 /// Return type for [`draw_axis`]: canvas, tick labels, grid lines, tick marks, effective rotation.
-pub type DrawAxisResult = (PixelCanvas, Vec<(f32, String)>, Vec<GridLine>, Vec<TickMark>, LabelRotation);
+pub type DrawAxisResult = (
+    PixelCanvas,
+    Vec<(f32, String)>,
+    Vec<GridLine>,
+    Vec<TickMark>,
+    LabelRotation,
+);
 
 /// Draw an axis (spine, ticks, minor ticks) and collect grid/tick geometry for z-ordered rendering.
 #[must_use]
@@ -515,14 +518,23 @@ pub fn draw_axis(
                     let (t_start, t_end) =
                         tick_extents(py + ph, config.tick_length, config.tick_direction, false);
                     tick_marks.push(TickMark {
-                        x0: x, y0: t_start, x1: x, y1: t_end,
-                        color: config.tick_color, width: config.tick_width,
+                        x0: x,
+                        y0: t_start,
+                        x1: x,
+                        y1: t_end,
+                        color: config.tick_color,
+                        width: config.tick_width,
                     });
                 }
 
                 // Collect gridline for later z-ordered drawing
                 if config.show_grid && !at_left_spine && !at_right_spine {
-                    grid_lines.push(GridLine { x0: x, y0: py, x1: x, y1: py + ph });
+                    grid_lines.push(GridLine {
+                        x0: x,
+                        y0: py,
+                        x1: x,
+                        y1: py + ph,
+                    });
                 }
 
                 tick_labels.push((x, label.clone()));
@@ -558,13 +570,22 @@ pub fn draw_axis(
                     let (t_start, t_end) =
                         tick_extents(py, config.tick_length, config.tick_direction, true);
                     tick_marks.push(TickMark {
-                        x0: x, y0: t_start, x1: x, y1: t_end,
-                        color: config.tick_color, width: config.tick_width,
+                        x0: x,
+                        y0: t_start,
+                        x1: x,
+                        y1: t_end,
+                        color: config.tick_color,
+                        width: config.tick_width,
                     });
                 }
 
                 if config.show_grid && !at_left_spine && !at_right_spine {
-                    grid_lines.push(GridLine { x0: x, y0: py, x1: x, y1: py + ph });
+                    grid_lines.push(GridLine {
+                        x0: x,
+                        y0: py,
+                        x1: x,
+                        y1: py + ph,
+                    });
                 }
 
                 tick_labels.push((x, label.clone()));
@@ -600,13 +621,22 @@ pub fn draw_axis(
                     let (t_start, t_end) =
                         tick_extents(px, config.tick_length, config.tick_direction, true);
                     tick_marks.push(TickMark {
-                        x0: t_start, y0: y, x1: t_end, y1: y,
-                        color: config.tick_color, width: config.tick_width,
+                        x0: t_start,
+                        y0: y,
+                        x1: t_end,
+                        y1: y,
+                        color: config.tick_color,
+                        width: config.tick_width,
                     });
                 }
 
                 if config.show_grid && !at_top_spine && !at_bottom_spine {
-                    grid_lines.push(GridLine { x0: px, y0: y, x1: px + pw, y1: y });
+                    grid_lines.push(GridLine {
+                        x0: px,
+                        y0: y,
+                        x1: px + pw,
+                        y1: y,
+                    });
                 }
 
                 tick_labels.push((y, label.clone()));
@@ -641,13 +671,22 @@ pub fn draw_axis(
                     let (t_start, t_end) =
                         tick_extents(px + pw, config.tick_length, config.tick_direction, false);
                     tick_marks.push(TickMark {
-                        x0: t_start, y0: y, x1: t_end, y1: y,
-                        color: config.tick_color, width: config.tick_width,
+                        x0: t_start,
+                        y0: y,
+                        x1: t_end,
+                        y1: y,
+                        color: config.tick_color,
+                        width: config.tick_width,
                     });
                 }
 
                 if config.show_grid && !at_top_spine && !at_bottom_spine {
-                    grid_lines.push(GridLine { x0: px, y0: y, x1: px + pw, y1: y });
+                    grid_lines.push(GridLine {
+                        x0: px,
+                        y0: y,
+                        x1: px + pw,
+                        y1: y,
+                    });
                 }
 
                 tick_labels.push((y, label.clone()));
@@ -660,7 +699,13 @@ pub fn draw_axis(
         }
     }
 
-    (canvas, tick_labels, grid_lines, tick_marks, effective_rotation)
+    (
+        canvas,
+        tick_labels,
+        grid_lines,
+        tick_marks,
+        effective_rotation,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -982,15 +1027,22 @@ fn collect_minor_ticks_h(
                 inward,
             );
             out.push(TickMark {
-                x0: x, y0: t_start, x1: x, y1: t_end,
-                color: config.minor_tick_color, width: config.minor_tick_width,
+                x0: x,
+                y0: t_start,
+                x1: x,
+                y1: t_end,
+                color: config.minor_tick_color,
+                width: config.minor_tick_width,
             });
 
             // Minor grid lines are also collected as tick marks
             // (rendered at the same z-layer as ticks, above main grids).
             if config.minor_grid {
                 out.push(TickMark {
-                    x0: x, y0: py, x1: x, y1: py + ph,
+                    x0: x,
+                    y0: py,
+                    x1: x,
+                    y1: py + ph,
                     color: config.grid_color.with_alpha(0.3),
                     width: config.grid_width * 0.5,
                 });
@@ -1033,13 +1085,20 @@ fn collect_minor_ticks_v(
                 inward,
             );
             out.push(TickMark {
-                x0: t_start, y0: y, x1: t_end, y1: y,
-                color: config.minor_tick_color, width: config.minor_tick_width,
+                x0: t_start,
+                y0: y,
+                x1: t_end,
+                y1: y,
+                color: config.minor_tick_color,
+                width: config.minor_tick_width,
             });
 
             if config.minor_grid {
                 out.push(TickMark {
-                    x0: px, y0: y, x1: px + pw, y1: y,
+                    x0: px,
+                    y0: y,
+                    x1: px + pw,
+                    y1: y,
                     color: config.grid_color.with_alpha(0.3),
                     width: config.grid_width * 0.5,
                 });
@@ -1145,7 +1204,8 @@ mod tests {
             &scale,
             11.0,
         );
-        let result_angle = auto_skip_labels(pairs, 300.0, true, LabelRotation::Angle(60.0), &scale, 11.0);
+        let result_angle =
+            auto_skip_labels(pairs, 300.0, true, LabelRotation::Angle(60.0), &scale, 11.0);
         // Angled labels take less horizontal space, so should skip fewer (or equal)
         assert!(
             result_angle.len() >= result_horiz.len(),
@@ -1165,13 +1225,21 @@ mod tests {
     #[test]
     fn auto_skip_degenerate_scale() {
         // All ticks at the same pixel position (degenerate domain)
-        let pairs: Vec<(f64, String)> = (0..5)
-            .map(|i| (i as f64, format!("{i}")))
-            .collect();
+        let pairs: Vec<(f64, String)> = (0..5).map(|i| (i as f64, format!("{i}"))).collect();
         // Domain is a single point — all pixels will be same
         let scale = crate::scale::LinearScale::new((5.0, 5.0), (100.0, 400.0));
         // Should not panic and should keep all labels
-        let result = auto_skip_labels(pairs.clone(), 300.0, true, LabelRotation::Horizontal, &scale, 11.0);
-        assert!(!result.is_empty(), "degenerate scale should keep some labels");
+        let result = auto_skip_labels(
+            pairs.clone(),
+            300.0,
+            true,
+            LabelRotation::Horizontal,
+            &scale,
+            11.0,
+        );
+        assert!(
+            !result.is_empty(),
+            "degenerate scale should keep some labels"
+        );
     }
 }

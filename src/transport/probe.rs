@@ -258,8 +258,7 @@ pub fn query_terminal(query: &[u8], timeout_ms: u64) -> Vec<u8> {
 
         // SAFETY: poll is a well-defined POSIX call.
         #[allow(unsafe_code)]
-        let ready =
-            unsafe { libc::poll(&mut pfd, 1, remaining.as_millis() as std::ffi::c_int) };
+        let ready = unsafe { libc::poll(&mut pfd, 1, remaining.as_millis() as std::ffi::c_int) };
 
         if ready <= 0 {
             break;

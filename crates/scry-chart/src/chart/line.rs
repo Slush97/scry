@@ -198,7 +198,12 @@ impl ChartSpec for LineChart {
     fn render(&self, w: u32, h: u32) -> crate::layout::RenderedChart {
         crate::layout::line::render_line(self, w, h)
     }
-    fn render_with_viewport(&self, w: u32, h: u32, vp: Option<(f64, f64, f64, f64)>) -> crate::layout::RenderedChart {
+    fn render_with_viewport(
+        &self,
+        w: u32,
+        h: u32,
+        vp: Option<(f64, f64, f64, f64)>,
+    ) -> crate::layout::RenderedChart {
         if let Some((x0, x1, y0, y1)) = vp {
             let mut c = self.clone();
             c.config.axes.x_range = Some((x0, x1));
@@ -208,19 +213,34 @@ impl ChartSpec for LineChart {
             self.render(w, h)
         }
     }
-    fn config(&self) -> Option<&ChartConfig> { Some(&self.config) }
-    fn config_mut(&mut self) -> Option<&mut ChartConfig> { Some(&mut self.config) }
+    fn config(&self) -> Option<&ChartConfig> {
+        Some(&self.config)
+    }
+    fn config_mut(&mut self) -> Option<&mut ChartConfig> {
+        Some(&mut self.config)
+    }
     fn data_extent(&self) -> Option<(f64, f64, f64, f64)> {
-        let ys: Vec<f64> = self.series.iter().flat_map(|s| s.values().iter().copied()).collect();
-        if ys.is_empty() { return None; }
+        let ys: Vec<f64> = self
+            .series
+            .iter()
+            .flat_map(|s| s.values().iter().copied())
+            .collect();
+        if ys.is_empty() {
+            return None;
+        }
         let x_max = self.x_values.as_ref().map_or_else(
             || (ys.len().saturating_sub(1)) as f64,
             |xv| xv.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         );
-        let x_min = self.x_values.as_ref().map_or(0.0, |xv| xv.iter().copied().fold(f64::INFINITY, f64::min));
+        let x_min = self
+            .x_values
+            .as_ref()
+            .map_or(0.0, |xv| xv.iter().copied().fold(f64::INFINITY, f64::min));
         let y_min = ys.iter().copied().fold(f64::INFINITY, f64::min);
         let y_max = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         Some((x_min, x_max, y_min, y_max))
     }
-    fn clone_boxed(&self) -> Box<dyn ChartSpec> { Box::new(self.clone()) }
+    fn clone_boxed(&self) -> Box<dyn ChartSpec> {
+        Box::new(self.clone())
+    }
 }

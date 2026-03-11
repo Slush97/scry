@@ -202,10 +202,7 @@ impl GpuHealthMonitor {
             return false;
         }
 
-        matches!(
-            self.state,
-            GpuHealth::Healthy | GpuHealth::Degraded { .. }
-        )
+        matches!(self.state, GpuHealth::Healthy | GpuHealth::Degraded { .. })
     }
 
     /// Should the 2D rasterizer use GPU for this frame?
@@ -214,10 +211,7 @@ impl GpuHealthMonitor {
     /// sticky CPU hold logic to prevent per-frame flipping.
     pub fn should_use_gpu_raster(&mut self, canvas_gpu_suitable: bool) -> bool {
         // If GPU isn't healthy at all, always no
-        if !matches!(
-            self.state,
-            GpuHealth::Healthy | GpuHealth::Degraded { .. }
-        ) {
+        if !matches!(self.state, GpuHealth::Healthy | GpuHealth::Degraded { .. }) {
             return false;
         }
 
@@ -237,10 +231,7 @@ impl GpuHealthMonitor {
 
     /// Returns `true` if the GPU is healthy or degraded (i.e., available).
     pub fn is_gpu_available(&self) -> bool {
-        matches!(
-            self.state,
-            GpuHealth::Healthy | GpuHealth::Degraded { .. }
-        )
+        matches!(self.state, GpuHealth::Healthy | GpuHealth::Degraded { .. })
     }
 }
 
@@ -301,10 +292,7 @@ mod tests {
             );
         }
         // After warmup, should return true
-        assert!(
-            monitor.should_use_gpu_sdf(),
-            "should be true after warmup"
-        );
+        assert!(monitor.should_use_gpu_sdf(), "should be true after warmup");
     }
 
     #[test]

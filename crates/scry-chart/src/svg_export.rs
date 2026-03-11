@@ -60,9 +60,7 @@ pub fn render_to_svg(chart: &Chart, width: u32, height: u32) -> String {
         let mut desc_parts: Vec<&str> = Vec::new();
         for cmd in rendered.canvas.commands() {
             if let DrawCommand::Text {
-                ref text,
-                rotation,
-                ..
+                ref text, rotation, ..
             } = cmd
             {
                 // Heuristic: the first non-rotated text command is typically
@@ -78,11 +76,7 @@ pub fn render_to_svg(chart: &Chart, width: u32, height: u32) -> String {
             let _ = writeln!(svg, "<title>{}</title>", xml_escape(t));
         }
         if !desc_parts.is_empty() {
-            let _ = writeln!(
-                svg,
-                "<desc>{}</desc>",
-                xml_escape(&desc_parts.join(" — "))
-            );
+            let _ = writeln!(svg, "<desc>{}</desc>", xml_escape(&desc_parts.join(" — ")));
         }
     }
 
@@ -349,7 +343,9 @@ fn emit_command(body: &mut String, defs: &mut String, grad_id: &mut u32, cmd: &D
             rotation,
             ..
         } => {
-            emit_text_command(body, text, *x, *y, *font_size, *color, *align, *rotation, false);
+            emit_text_command(
+                body, text, *x, *y, *font_size, *color, *align, *rotation, false,
+            );
         }
 
         // Feature-gated variants.
@@ -475,10 +471,7 @@ fn emit_text_command(
     let weight = if bold { "bold" } else { "normal" };
 
     let transform = if rotation.abs() > 0.01 {
-        format!(
-            r#" transform="rotate({:.1} {:.1} {:.1})""#,
-            -rotation, x, y
-        )
+        format!(r#" transform="rotate({:.1} {:.1} {:.1})""#, -rotation, x, y)
     } else {
         String::new()
     };
@@ -494,7 +487,6 @@ fn emit_text_command(
     .unwrap();
     body.push('\n');
 }
-
 
 // ---------------------------------------------------------------------------
 // Style helpers
@@ -669,7 +661,9 @@ mod tests {
 
     #[test]
     fn svg_contains_svg_root() {
-        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0]).title("SVG Test").build();
+        let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0])
+            .title("SVG Test")
+            .build();
         let svg = render_to_svg(&chart, 400, 300);
         assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg""#));
         assert!(svg.ends_with("</svg>\n"));

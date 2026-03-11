@@ -164,11 +164,12 @@ impl IncrementalRenderer {
 
         // Check cache — if valid and position unchanged, skip rasterization
         let position_changed = self.last_position != Some(self.position);
-        let content_hash = if self.skip_cache { 0 } else { canvas.content_hash() };
-        if !self.skip_cache
-            && self.pipeline.cache.is_valid(content_hash)
-            && !position_changed
-        {
+        let content_hash = if self.skip_cache {
+            0
+        } else {
+            canvas.content_hash()
+        };
+        if !self.skip_cache && self.pipeline.cache.is_valid(content_hash) && !position_changed {
             if is_halfblock {
                 let cached = self.pipeline.cache.get(content_hash).cloned();
                 if let Some(ref pixmap) = cached {

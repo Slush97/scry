@@ -43,22 +43,30 @@ fn main() {
 
     // 3. Scatter with data in all corners — legend should move outside.
     {
-        let xs_a = Series::new("Sensor A", vec![
-            0.0, 1.0, 2.0, 98.0, 99.0, 100.0,
-            0.0, 1.0, 2.0, 98.0, 99.0, 100.0,
-        ]);
-        let ys_a = Series::new("Sensor A", vec![
-            0.0, 2.0, 1.0, 98.0, 100.0, 99.0,
-            50.0, 48.0, 52.0, 50.0, 48.0, 52.0,
-        ]);
-        let xs_b = Series::new("Sensor B", vec![
-            0.0, 1.0, 2.0, 98.0, 99.0, 100.0,
-            0.0, 1.0, 2.0, 98.0, 99.0, 100.0,
-        ]);
-        let ys_b = Series::new("Sensor B", vec![
-            100.0, 98.0, 99.0, 0.0, 2.0, 1.0,
-            50.0, 52.0, 48.0, 50.0, 52.0, 48.0,
-        ]);
+        let xs_a = Series::new(
+            "Sensor A",
+            vec![
+                0.0, 1.0, 2.0, 98.0, 99.0, 100.0, 0.0, 1.0, 2.0, 98.0, 99.0, 100.0,
+            ],
+        );
+        let ys_a = Series::new(
+            "Sensor A",
+            vec![
+                0.0, 2.0, 1.0, 98.0, 100.0, 99.0, 50.0, 48.0, 52.0, 50.0, 48.0, 52.0,
+            ],
+        );
+        let xs_b = Series::new(
+            "Sensor B",
+            vec![
+                0.0, 1.0, 2.0, 98.0, 99.0, 100.0, 0.0, 1.0, 2.0, 98.0, 99.0, 100.0,
+            ],
+        );
+        let ys_b = Series::new(
+            "Sensor B",
+            vec![
+                100.0, 98.0, 99.0, 0.0, 2.0, 1.0, 50.0, 52.0, 48.0, 50.0, 52.0, 48.0,
+            ],
+        );
         let chart = ScatterChart::new(xs_a, ys_a)
             .add_series(xs_b, ys_b)
             .title("All-Corners Data — Legend Promoted Outside")
@@ -83,14 +91,20 @@ fn main() {
 
     // 5. Histogram multi-series — legend avoids bins.
     {
-        let primary = Series::new("Group A", vec![
-            1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0,
-            6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0,
-        ]);
-        let extra = Series::new("Group B", vec![
-            5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5,
-            10.0, 10.5, 11.0, 11.5, 12.0, 12.5, 13.0, 13.5,
-        ]);
+        let primary = Series::new(
+            "Group A",
+            vec![
+                1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0,
+                9.5, 10.0,
+            ],
+        );
+        let extra = Series::new(
+            "Group B",
+            vec![
+                5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5, 12.0,
+                12.5, 13.0, 13.5,
+            ],
+        );
         let chart = Histogram::new(primary)
             .add_series(extra)
             .title("Histogram — Legend Avoids Bins")

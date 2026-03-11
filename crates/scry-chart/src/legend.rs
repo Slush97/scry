@@ -317,13 +317,8 @@ pub fn draw_positioned_legend(
         .collect();
 
     // --- A6: Auto-column promotion and overflow handling ---
-    let (effective_config, effective_entries) = resolve_legend_layout(
-        &display_entries,
-        config,
-        swatch_size,
-        pw,
-        ph,
-    );
+    let (effective_config, effective_entries) =
+        resolve_legend_layout(&display_entries, config, swatch_size, pw, ph);
 
     let (px, py, pw, ph) = plot;
     let canvas_w = canvas.width() as f32;
@@ -506,9 +501,9 @@ fn compute_position(
     // If data_points are available, check whether this position overlaps.
     // If it does, let best_corner find a clear spot (or promote outside).
     if let Some(pts) = data_points {
-        let overlaps = pts
-            .iter()
-            .any(|&(x, y)| x >= lx - 5.0 && x <= lx + lw + 5.0 && y >= ly - 5.0 && y <= ly + lh + 5.0);
+        let overlaps = pts.iter().any(|&(x, y)| {
+            x >= lx - 5.0 && x <= lx + lw + 5.0 && y >= ly - 5.0 && y <= ly + lh + 5.0
+        });
         if overlaps {
             return best_corner(px, py, pw, ph, lw, lh, pad, data_points);
         }
@@ -559,7 +554,9 @@ fn best_corner(
     for &(_label, (cx, cy)) in &candidates {
         let count = points
             .iter()
-            .filter(|&&(x, y)| x >= cx - 5.0 && x <= cx + lw + 5.0 && y >= cy - 5.0 && y <= cy + lh + 5.0)
+            .filter(|&&(x, y)| {
+                x >= cx - 5.0 && x <= cx + lw + 5.0 && y >= cy - 5.0 && y <= cy + lh + 5.0
+            })
             .count();
         if count < best_count {
             best_count = count;
@@ -575,7 +572,14 @@ fn best_corner(
     if best_count > 0 {
         return compute_position(
             LegendPosition::OutsideRight,
-            px, py, pw, ph, lw, lh, pad, None,
+            px,
+            py,
+            pw,
+            ph,
+            lw,
+            lh,
+            pad,
+            None,
         );
     }
 

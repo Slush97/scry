@@ -70,7 +70,6 @@ enum Commands {
         cmd: Box<viz::VizCommands>,
     },
 
-
     /// Print terminal capabilities and supported features
     Info,
 }
@@ -86,11 +85,11 @@ fn main() {
         Commands::Chart { cmd } => chart::run(*cmd),
 
         Commands::Render(args) => render_image::run(&args),
-        Commands::Play(args)   => play::run(&args),
-        Commands::See(args)    => see::run(&args),
+        Commands::Play(args) => play::run(&args),
+        Commands::See(args) => see::run(&args),
         Commands::Stream(args) => stream::run(&args),
-        Commands::Viz { cmd }  => viz::run(*cmd),
-        Commands::Info         => cmd_info(),
+        Commands::Viz { cmd } => viz::run(*cmd),
+        Commands::Info => cmd_info(),
     };
 
     if let Err(e) = result {

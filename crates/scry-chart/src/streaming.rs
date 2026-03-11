@@ -532,8 +532,10 @@ mod tests {
         let snap = chart.snapshot().unwrap();
         // data_extent reflects all 3 series (y_max = 9*3 = 27 for series 2)
         let (_, _, _y_min, y_max) = snap.data_extent().expect("extent should be Some");
-        assert!(y_max >= 27.0 - 1e-6,
-            "y_max {y_max} should reflect 3rd series (max = 27)");
+        assert!(
+            y_max >= 27.0 - 1e-6,
+            "y_max {y_max} should reflect 3rd series (max = 27)"
+        );
         // Render must not panic and must produce a correctly-sized canvas
         let rendered = snap.render(400, 300);
         assert_eq!(rendered.canvas.width(), 400, "canvas width should be 400");

@@ -53,7 +53,11 @@ impl SdfRenderer {
                     let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
                     let color = shade_ray(scene, scene.camera.eye, dir, time, 0, None);
                     let (r, g, b) = if scene.tone_map {
-                        (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
+                        (
+                            tone_map_reinhard(color.r),
+                            tone_map_reinhard(color.g),
+                            tone_map_reinhard(color.b),
+                        )
                     } else {
                         (color.r, color.g, color.b)
                     };
@@ -70,8 +74,7 @@ impl SdfRenderer {
                     } else {
                         (r8, g8, b8)
                     };
-                    *pixel = tiny_skia::PremultipliedColorU8::from_rgba(r8, g8, b8, a)
-                    .unwrap();
+                    *pixel = tiny_skia::PremultipliedColorU8::from_rgba(r8, g8, b8, a).unwrap();
                 }
             });
 
@@ -125,7 +128,11 @@ impl SdfRenderer {
                             &mut row_profile,
                         );
                         let (r, g, b) = if scene.tone_map {
-                            (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
+                            (
+                                tone_map_reinhard(color.r),
+                                tone_map_reinhard(color.g),
+                                tone_map_reinhard(color.b),
+                            )
                         } else {
                             (color.r, color.g, color.b)
                         };
@@ -138,8 +145,7 @@ impl SdfRenderer {
                         } else {
                             (r8, g8, b8)
                         };
-                        tiny_skia::PremultipliedColorU8::from_rgba(r8, g8, b8, a)
-                        .unwrap()
+                        tiny_skia::PremultipliedColorU8::from_rgba(r8, g8, b8, a).unwrap()
                     })
                     .collect();
                 (row_pixels, row_profile)
@@ -271,7 +277,11 @@ impl SdfRenderer {
                     let dir = (cam_right * ndc_x + cam_up * ndc_y + cam_fwd).normalize();
                     let color = shade_ray(scene, scene.camera.eye, dir, time, 0, None);
                     let (r, g, b) = if scene.tone_map {
-                        (tone_map_reinhard(color.r), tone_map_reinhard(color.g), tone_map_reinhard(color.b))
+                        (
+                            tone_map_reinhard(color.r),
+                            tone_map_reinhard(color.g),
+                            tone_map_reinhard(color.b),
+                        )
                     } else {
                         (color.r, color.g, color.b)
                     };
@@ -298,12 +308,7 @@ impl SdfRenderer {
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss
     )]
-    fn composite_text_labels(
-        pixmap: &mut Pixmap,
-        scene: &SdfScene,
-        width: u32,
-        height: u32,
-    ) {
+    fn composite_text_labels(pixmap: &mut Pixmap, scene: &SdfScene, width: u32, height: u32) {
         if scene.text_labels.is_empty() {
             return;
         }
@@ -379,11 +384,11 @@ impl SdfRenderer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::scene::style::Color;
     use super::super::materials::Material;
     use super::super::ray_march::{ray_march, scene_sdf, RayBudget};
     use super::super::scene::{SdfCamera, SdfLight, SdfObject, SdfShape};
+    use super::*;
+    use crate::scene::style::Color;
 
     fn simple_sphere_scene() -> SdfScene {
         SdfScene::new()

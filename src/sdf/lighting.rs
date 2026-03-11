@@ -13,9 +13,7 @@ use super::math::Vec3;
 use super::noise;
 use super::primitives;
 use super::profiler::SdfStage;
-use super::ray_march::{
-    scene_sdf, water_displacement, MAX_DIST, RayBudget, SURF_DIST,
-};
+use super::ray_march::{scene_sdf, water_displacement, RayBudget, MAX_DIST, SURF_DIST};
 use super::scene::{SdfObject, SdfScene, SdfShape};
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -344,7 +342,14 @@ pub(super) fn phong_traced<T: super::shading::SdfTracer>(
         let shadow = if budget.do_shadows {
             let shadow_origin = hit + normal * (SURF_DIST * 4.0);
             tracer.begin(SdfStage::Shadow);
-            let s = soft_shadow(scene, shadow_origin, to_light, light_dist, time, budget.shadow_steps);
+            let s = soft_shadow(
+                scene,
+                shadow_origin,
+                to_light,
+                light_dist,
+                time,
+                budget.shadow_steps,
+            );
             tracer.end(SdfStage::Shadow);
             if s < 0.001 {
                 continue;

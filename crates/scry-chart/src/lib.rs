@@ -35,8 +35,8 @@ pub mod annotation;
 pub mod axis;
 pub mod chart;
 pub mod chart3d;
-pub mod config;
 pub mod colormap;
+pub mod config;
 pub mod cursor;
 pub mod data;
 pub mod decimate;
@@ -45,16 +45,16 @@ pub mod export;
 pub mod formatter;
 #[cfg(feature = "inline")]
 pub mod inline;
+#[cfg(feature = "serde")]
+pub mod json_spec;
 pub mod layout;
-#[cfg(feature = "pdf")]
-pub mod pdf_export;
 pub mod legend;
 pub mod locator;
 pub mod margin;
+#[cfg(feature = "pdf")]
+pub mod pdf_export;
 pub mod scale;
 pub mod spec;
-#[cfg(feature = "serde")]
-pub mod json_spec;
 pub mod streaming;
 pub mod subplot;
 pub mod svg_export;
@@ -71,12 +71,11 @@ pub mod prelude {
     pub use crate::axis::LabelRotation;
     pub use crate::chart::scatter::Marker;
     pub use crate::chart::{
-        BarChart, BoxPlot, BubbleChart, CandlestickChart, Chart, Charts, ChartConfig,
-        ContourChart, FunnelChart, GanttChart, GanttTask, GaugeChart, Heatmap, Histogram,
-        LineChart, LollipopChart, OhlcEntry, PieChart, RadarChart, ReferenceLine, ScatterChart,
-        Sparkline, SparklineKind, ViolinPlot, WaterfallChart,
+        BarChart, BoxPlot, BubbleChart, CandlestickChart, Chart, ChartConfig, Charts, ContourChart,
+        FunnelChart, GanttChart, GanttTask, GaugeChart, Heatmap, Histogram, LineChart,
+        LollipopChart, OhlcEntry, PieChart, RadarChart, ReferenceLine, ScatterChart, Sparkline,
+        SparklineKind, ViolinPlot, WaterfallChart,
     };
-    pub use crate::spec::ChartSpec;
     pub use crate::chart3d::camera::Camera3D;
     #[cfg(feature = "gpu")]
     pub use crate::chart3d::wgpu_backend::WgpuRasterizer3D;
@@ -87,10 +86,11 @@ pub mod prelude {
     pub use crate::error::ChartError;
     pub use crate::export::{render_to_png, save_png};
     pub use crate::formatter::{AutoFormatter, FnFormatter};
-    #[cfg(feature = "pdf")]
-    pub use crate::pdf_export::{render_to_pdf, save_pdf as save_chart_pdf};
     pub use crate::legend::{LegendConfig, LegendOrientation, LegendPosition};
     pub use crate::margin::Margin;
+    #[cfg(feature = "pdf")]
+    pub use crate::pdf_export::{render_to_pdf, save_pdf as save_chart_pdf};
+    pub use crate::spec::ChartSpec;
     pub use crate::streaming::StreamingChart;
     pub use crate::subplot::{SharedAxisMode, SubplotGrid};
     pub use crate::svg_export::{render_to_svg, save_svg};

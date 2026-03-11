@@ -22,7 +22,9 @@ use std::os::unix::net::UnixStream;
 
 use tiny_skia::Pixmap;
 
-use crate::transport::backend::{ImageHandle, ProtocolBackend, ProtocolKind, TerminalInfoResponse, TerminalPosition};
+use crate::transport::backend::{
+    ImageHandle, ProtocolBackend, ProtocolKind, TerminalInfoResponse, TerminalPosition,
+};
 use crate::transport::ipc::{
     classify_payload, IpcCommand, IpcEvent, IpcResponse, Memfd, MessageKind, OverlayAnchor,
 };
@@ -130,19 +132,24 @@ impl NativeBackend {
         self.ensure_connected()?;
         let stream = self.stream_mut()?;
 
-        crate::transport::ipc::send_command_with_fd(stream, cmd, fd)
-            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, format!("native IPC send: {e}")))?;
+        crate::transport::ipc::send_command_with_fd(stream, cmd, fd).map_err(|e| {
+            io::Error::new(io::ErrorKind::BrokenPipe, format!("native IPC send: {e}"))
+        })?;
 
         // Read response, collecting any interleaved events.
         let mut pending_events = Vec::new();
         let response = loop {
-            let payload = crate::transport::ipc::read_frame(stream)
-                .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, format!("native IPC recv: {e}")))?;
+            let payload = crate::transport::ipc::read_frame(stream).map_err(|e| {
+                io::Error::new(io::ErrorKind::BrokenPipe, format!("native IPC recv: {e}"))
+            })?;
 
             match classify_payload(&payload) {
                 Some(MessageKind::Response) => {
                     break IpcResponse::deserialize(&payload).map_err(|e| {
-                        io::Error::new(io::ErrorKind::InvalidData, format!("native IPC: bad response: {e}"))
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("native IPC: bad response: {e}"),
+                        )
                     })?;
                 }
                 Some(MessageKind::Event) => {
@@ -154,7 +161,8 @@ impl NativeBackend {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "native IPC: unexpected message type",
-                    ).into());
+                    )
+                    .into());
                 }
             }
         };
@@ -316,16 +324,11 @@ impl NativeBackend {
         let program_len = program_bytes.len();
 
         // Write serialized bytes to a memfd.
-        let memfd =
-            Memfd::create(&format!("scry-anim-{id}"), program_len).map_err(|e| {
-                PixelCanvasError::Rasterization(format!(
-                    "native IPC: memfd_create failed: {e}"
-                ))
-            })?;
+        let memfd = Memfd::create(&format!("scry-anim-{id}"), program_len).map_err(|e| {
+            PixelCanvasError::Rasterization(format!("native IPC: memfd_create failed: {e}"))
+        })?;
         memfd.write(&program_bytes).map_err(|e| {
-            PixelCanvasError::Rasterization(format!(
-                "native IPC: memfd write failed: {e}"
-            ))
+            PixelCanvasError::Rasterization(format!("native IPC: memfd write failed: {e}"))
         })?;
 
         let fd = memfd.as_raw_fd();
@@ -353,9 +356,9 @@ impl NativeBackend {
                     protocol: ProtocolKind::Native,
                 })
             }
-            IpcResponse::Error { msg } => Err(PixelCanvasError::Rasterization(
-                format!("native IPC: submit_animation rejected: {msg}"),
-            )),
+            IpcResponse::Error { msg } => Err(PixelCanvasError::Rasterization(format!(
+                "native IPC: submit_animation rejected: {msg}"
+            ))),
             _ => Err(PixelCanvasError::Rasterization(
                 "native IPC: unexpected response to submit_animation".into(),
             )),
@@ -499,7 +502,9 @@ impl ProtocolBackend for NativeBackend {
         if let Some(memfd) = self.memfds.get(&id) {
             if memfd.len() >= rgba.len() {
                 memfd.write(rgba).map_err(|e| {
-                    PixelCanvasError::Rasterization(format!("native IPC: memfd overwrite failed: {e}"))
+                    PixelCanvasError::Rasterization(format!(
+                        "native IPC: memfd overwrite failed: {e}"
+                    ))
                 })?;
 
                 let resp = self.send_recv(&IpcCommand::Refresh { id }, None)?;
@@ -553,9 +558,17 @@ impl ProtocolBackend for NativeBackend {
     fn query_info(&mut self) -> Result<TerminalInfoResponse, PixelCanvasError> {
         let resp = NativeBackend::query_info(self)?;
         match resp {
-            IpcResponse::Info { font_w, font_h, cols, rows } => {
-                Ok(TerminalInfoResponse { font_w, font_h, cols, rows })
-            }
+            IpcResponse::Info {
+                font_w,
+                font_h,
+                cols,
+                rows,
+            } => Ok(TerminalInfoResponse {
+                font_w,
+                font_h,
+                cols,
+                rows,
+            }),
             _ => Err(PixelCanvasError::Rasterization(
                 "native IPC: unexpected response to QueryInfo".into(),
             )),

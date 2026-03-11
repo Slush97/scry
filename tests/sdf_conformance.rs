@@ -6,9 +6,9 @@
 //! RMSE threshold.
 #![cfg(feature = "sdf")]
 
+use scry_engine::scene::style::Color;
 use scry_engine::sdf::pipeline::{SdfBackend, SdfPipeline};
 use scry_engine::sdf::*;
-use scry_engine::scene::style::Color;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -52,16 +52,8 @@ fn test_scene() -> SdfScene {
                 specular: 0.2,
             },
         ))
-        .light(SdfLight::new(
-            Vec3::new(5.0, 10.0, 5.0),
-            Color::WHITE,
-            1.0,
-        ))
-        .camera(SdfCamera::new(
-            Vec3::new(0.0, 3.0, 6.0),
-            Vec3::ZERO,
-            45.0,
-        ))
+        .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.0))
+        .camera(SdfCamera::new(Vec3::new(0.0, 3.0, 6.0), Vec3::ZERO, 45.0))
 }
 
 fn multi_shape_scene() -> SdfScene {
@@ -86,16 +78,8 @@ fn multi_shape_scene() -> SdfScene {
             SdfShape::Plane,
             Material::matte(Color::from_rgba8(200, 200, 200, 255)),
         ))
-        .light(SdfLight::new(
-            Vec3::new(3.0, 8.0, 4.0),
-            Color::WHITE,
-            1.0,
-        ))
-        .camera(SdfCamera::new(
-            Vec3::new(0.0, 3.0, 6.0),
-            Vec3::ZERO,
-            45.0,
-        ))
+        .light(SdfLight::new(Vec3::new(3.0, 8.0, 4.0), Color::WHITE, 1.0))
+        .camera(SdfCamera::new(Vec3::new(0.0, 3.0, 6.0), Vec3::ZERO, 45.0))
 }
 
 // ── CPU determinism tests ──────────────────────────────────────────
@@ -159,10 +143,16 @@ fn cpu_different_camera_produces_different_output() {
     // Same scene rendered from two different camera positions
     let base = SdfScene::new()
         .object(
-            SdfObject::new(SdfShape::Sphere { radius: 1.0 }, Material::matte(Color::RED))
-                .at(Vec3::new(0.0, 1.0, 0.0)),
+            SdfObject::new(
+                SdfShape::Sphere { radius: 1.0 },
+                Material::matte(Color::RED),
+            )
+            .at(Vec3::new(0.0, 1.0, 0.0)),
         )
-        .object(SdfObject::new(SdfShape::Plane, Material::matte(Color::WHITE)))
+        .object(SdfObject::new(
+            SdfShape::Plane,
+            Material::matte(Color::WHITE),
+        ))
         .light(SdfLight::new(Vec3::new(5.0, 10.0, 5.0), Color::WHITE, 1.0));
 
     let scene_a = base
@@ -279,8 +269,6 @@ mod gpu_conformance {
             rmse < RMSE_THRESHOLD,
             "GPU vs CPU multi-shape RMSE={rmse:.2} exceeds threshold {RMSE_THRESHOLD}"
         );
-        eprintln!(
-            "✓ GPU vs CPU multi-shape scene RMSE = {rmse:.2} (threshold: {RMSE_THRESHOLD})"
-        );
+        eprintln!("✓ GPU vs CPU multi-shape scene RMSE = {rmse:.2} (threshold: {RMSE_THRESHOLD})");
     }
 }

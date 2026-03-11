@@ -37,15 +37,12 @@ fn representative_charts() -> Vec<(&'static str, scry_chart::chart::Chart)> {
         ),
         (
             "scatter",
-            Charts::scatter(
-                &[1.0, 2.0, 3.0, 4.0, 5.0],
-                &[2.0, 4.0, 1.0, 8.0, 5.0],
-            )
-            .title("Scatter")
-            .x_label("X")
-            .y_label("Y")
-            .theme(Theme::dark())
-            .build(),
+            Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 1.0, 8.0, 5.0])
+                .title("Scatter")
+                .x_label("X")
+                .y_label("Y")
+                .theme(Theme::dark())
+                .build(),
         ),
         (
             "bar",
@@ -84,14 +81,12 @@ fn representative_charts() -> Vec<(&'static str, scry_chart::chart::Chart)> {
         ),
         (
             "radar",
-            Charts::radar(
-                vec!["Speed", "Power", "Range", "Armor", "Magic"],
-            )
-            .add_series("Alpha", &[80.0, 70.0, 90.0, 60.0, 85.0])
-            .add_series("Beta", &[60.0, 90.0, 70.0, 80.0, 65.0])
-            .title("Radar Chart")
-            .theme(Theme::dark())
-            .build(),
+            Charts::radar(vec!["Speed", "Power", "Range", "Armor", "Magic"])
+                .add_series("Alpha", &[80.0, 70.0, 90.0, 60.0, 85.0])
+                .add_series("Beta", &[60.0, 90.0, 70.0, 80.0, 65.0])
+                .title("Radar Chart")
+                .theme(Theme::dark())
+                .build(),
         ),
         (
             "heatmap",
@@ -197,8 +192,15 @@ fn title_centered() {
             // Find the title text (first text command is usually the title,
             // but we search by known title strings)
             let title_texts: Vec<&str> = vec![
-                "Line Chart", "Scatter", "Bar Chart", "Histogram",
-                "Pie Chart", "Radar Chart", "Heatmap", "Boxplot", "Lollipop",
+                "Line Chart",
+                "Scatter",
+                "Bar Chart",
+                "Histogram",
+                "Pie Chart",
+                "Radar Chart",
+                "Heatmap",
+                "Boxplot",
+                "Lollipop",
             ];
 
             for (x, _y, text) in &positions {
@@ -224,13 +226,10 @@ fn title_centered() {
 fn trend_line_within_plot_area() {
     use scry_engine::scene::command::DrawCommand;
 
-    let chart = Charts::scatter(
-        &[1.0, 2.0, 3.0, 4.0, 5.0],
-        &[2.0, 4.0, 5.0, 4.5, 6.0],
-    )
-    .trend_line()
-    .theme(Theme::dark())
-    .build();
+    let chart = Charts::scatter(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 5.0, 4.5, 6.0])
+        .trend_line()
+        .theme(Theme::dark())
+        .build();
 
     for &(w, h) in RESOLUTIONS {
         let rendered = layout::render_chart(&chart, w, h);
@@ -240,7 +239,12 @@ fn trend_line_within_plot_area() {
         // Find dashed lines (trend line uses DashPattern)
         for cmd in rendered.canvas.commands() {
             if let DrawCommand::Line {
-                x1, y1, x2, y2, stroke, ..
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                ..
             } = cmd
             {
                 if stroke.dash.is_some() {
@@ -373,14 +377,8 @@ fn plot_area_within_canvas() {
         for &(w, h) in RESOLUTIONS {
             let rendered = layout::render_chart(&chart, w, h);
             if let Some((px, py, pw, ph)) = rendered.plot_area {
-                assert!(
-                    px >= 0.0,
-                    "[{name} @ {w}x{h}] plot_area x={px} < 0"
-                );
-                assert!(
-                    py >= 0.0,
-                    "[{name} @ {w}x{h}] plot_area y={py} < 0"
-                );
+                assert!(px >= 0.0, "[{name} @ {w}x{h}] plot_area x={px} < 0");
+                assert!(py >= 0.0, "[{name} @ {w}x{h}] plot_area y={py} < 0");
                 assert!(
                     px + pw <= w as f32 + 1.0,
                     "[{name} @ {w}x{h}] plot_area right edge {} > canvas width {w}",

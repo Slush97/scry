@@ -20,7 +20,9 @@
 //!   - Histogram density mode, single/many bins, custom opacity
 
 use scry_chart::annotation::Annotation;
-use scry_chart::chart::{BarChart, BoxPlot, Chart, Charts, Heatmap, Histogram, LineChart, PieChart};
+use scry_chart::chart::{
+    BarChart, BoxPlot, Chart, Charts, Heatmap, Histogram, LineChart, PieChart,
+};
 use scry_chart::data::Series;
 use scry_chart::error::ChartError;
 use scry_chart::layout;
@@ -172,9 +174,11 @@ fn try_build_boxplot_empty() {
 
 #[test]
 fn try_build_boxplot_valid() {
-    assert!(Charts::boxplot(vec![("A".to_string(), vec![1.0, 2.0, 3.0])])
-        .try_build()
-        .is_ok());
+    assert!(
+        Charts::boxplot(vec![("A".to_string(), vec![1.0, 2.0, 3.0])])
+            .try_build()
+            .is_ok()
+    );
 }
 
 #[test]
@@ -761,7 +765,9 @@ fn histogram_many_bins() {
 
 #[test]
 fn histogram_single_value() {
-    let chart = Charts::histogram(&[42.0]).theme(transparent_theme()).build();
+    let chart = Charts::histogram(&[42.0])
+        .theme(transparent_theme())
+        .build();
     render_transparent(&chart, "histogram_single");
 }
 
@@ -1753,7 +1759,8 @@ fn try_build_bubble_empty() {
         Series::from_values(vec![]),
         Series::from_values(vec![]),
         vec![],
-    ).try_build();
+    )
+    .try_build();
     assert_eq!(r.unwrap_err(), ChartError::EmptyData);
 }
 
@@ -1805,11 +1812,9 @@ fn degenerate_candlestick_doji() {
     use scry_chart::chart::OhlcEntry;
     let data = vec![
         OhlcEntry::new(1.0, 10.0, 12.0, 8.0, 10.0),  // doji
-        OhlcEntry::new(2.0, 15.0, 17.0, 13.0, 15.0),  // doji
+        OhlcEntry::new(2.0, 15.0, 17.0, 13.0, 15.0), // doji
     ];
-    let chart = Charts::candlestick(data)
-        .theme(transparent_theme())
-        .build();
+    let chart = Charts::candlestick(data).theme(transparent_theme()).build();
     render_transparent(&chart, "candlestick_doji");
 }
 
@@ -1838,9 +1843,7 @@ fn degenerate_violin_few_points() {
 fn degenerate_gauge_out_of_range() {
     use scry_chart::chart::GaugeChart;
     // Value exceeds default [0, 100] range
-    let chart = GaugeChart::new(150.0)
-        .theme(transparent_theme())
-        .build();
+    let chart = GaugeChart::new(150.0).theme(transparent_theme()).build();
     render_transparent(&chart, "gauge_over_range");
 }
 

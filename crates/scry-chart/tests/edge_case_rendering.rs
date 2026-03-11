@@ -14,7 +14,10 @@ const H: u32 = 300;
 /// Helper: render a chart to PNG and verify it produces valid output.
 fn assert_renders(chart: &Chart) {
     let rendered = render_chart(chart, W, H);
-    assert!(rendered.canvas.commands().len() > 0, "chart should produce draw commands");
+    assert!(
+        rendered.canvas.commands().len() > 0,
+        "chart should produce draw commands"
+    );
     let png = render_to_png(chart, W, H).expect("render_to_png should not panic");
     assert!(!png.is_empty(), "PNG output should not be empty");
 }
@@ -49,7 +52,9 @@ fn empty_bar_chart() {
 
 #[test]
 fn single_bar() {
-    let chart = Charts::bar(vec!["A".into()], &[10.0]).title("Single Bar").build();
+    let chart = Charts::bar(vec!["A".into()], &[10.0])
+        .title("Single Bar")
+        .build();
     assert_renders(&chart);
 }
 
@@ -81,12 +86,9 @@ fn mixed_nan_line() {
 
 #[test]
 fn infinity_values_scatter() {
-    let chart = Charts::scatter(
-        &[1.0, 2.0, f64::INFINITY],
-        &[f64::NEG_INFINITY, 2.0, 3.0],
-    )
-    .title("Infinity Scatter")
-    .build();
+    let chart = Charts::scatter(&[1.0, 2.0, f64::INFINITY], &[f64::NEG_INFINITY, 2.0, 3.0])
+        .title("Infinity Scatter")
+        .build();
     assert_renders(&chart);
 }
 
@@ -175,10 +177,9 @@ fn asymmetric_error_bars_scatter() {
     // Build a scatter with asymmetric errors on the Y series.
     let y = Series::from_values(vec![10.0, 20.0, 15.0])
         .with_error_asymmetric(vec![2.0, 3.0, 1.0], vec![5.0, 4.0, 6.0]);
-    let chart = scry_chart::chart::ScatterChart::new(
-        Series::from_values(vec![1.0, 2.0, 3.0]),
-        y,
-    ).title("Asymmetric Scatter").build();
+    let chart = scry_chart::chart::ScatterChart::new(Series::from_values(vec![1.0, 2.0, 3.0]), y)
+        .title("Asymmetric Scatter")
+        .build();
     assert_renders(&chart);
 }
 

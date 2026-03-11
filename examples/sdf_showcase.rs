@@ -229,8 +229,7 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
 
     // Auto-detect GPU with timeout to avoid hanging on broken drivers
     #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx =
-        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
+    let mut gpu_ctx = scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
 
     let mut scenes = build_scenes();
     let mut preset_idx: usize = 0;
@@ -380,8 +379,7 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
 
     // Auto-detect GPU with timeout to avoid hanging on broken drivers
     #[cfg(feature = "sdf-gpu")]
-    let mut gpu_ctx =
-        scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
+    let mut gpu_ctx = scry_engine::sdf::SdfGpuContext::try_new(std::time::Duration::from_secs(5));
 
     // Profiler state
     let mut profiling = false;

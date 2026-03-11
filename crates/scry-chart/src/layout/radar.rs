@@ -79,7 +79,16 @@ pub(crate) fn render_radar(rc: &RadarChart, w: u32, h: u32) -> RenderedChart {
         } else {
             String::new()
         };
-        ctx.add_text(lx, ly, &label, theme.text_color(), align, label_fs, false, 0.0);
+        ctx.add_text(
+            lx,
+            ly,
+            &label,
+            theme.text_color(),
+            align,
+            label_fs,
+            false,
+            0.0,
+        );
     }
 
     // Draw each series polygon
@@ -147,7 +156,16 @@ pub(crate) fn render_radar(rc: &RadarChart, w: u32, h: u32) -> RenderedChart {
         });
 
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 

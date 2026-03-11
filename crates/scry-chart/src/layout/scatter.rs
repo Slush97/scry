@@ -154,8 +154,8 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
     // Legend for multi-series scatter
     let total_series = 1 + sc.extra_series.len();
     if total_series > 1 && config.show_legend {
-        use crate::legend::{self, LegendEntry};
         use super::TextAlign;
+        use crate::legend::{self, LegendEntry};
 
         // Collect all marker pixel positions for overlap detection.
         let mut all_points: Vec<(f32, f32)> = Vec::new();
@@ -208,12 +208,25 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
         legend_cfg.apply_theme_and_font_size(&theme.legend, legend_fs);
         // Scatter plots use circle swatches (Cleveland 1985 — match marker shape)
         legend_cfg.swatch_shape = crate::legend::SwatchShape::Circle;
-        let data_pts = if all_points.is_empty() { None } else { Some(all_points.as_slice()) };
+        let data_pts = if all_points.is_empty() {
+            None
+        } else {
+            Some(all_points.as_slice())
+        };
         let legend_text = ctx.draw_with(|c| {
             legend::draw_positioned_legend(c, &entries, plot, &legend_cfg, 10.0, 4.0, data_pts)
         });
         for (lx, ly, label) in legend_text {
-            ctx.add_text(lx, ly, &label, theme.text_color(), TextAlign::Left, legend_fs, false, 0.0);
+            ctx.add_text(
+                lx,
+                ly,
+                &label,
+                theme.text_color(),
+                TextAlign::Left,
+                legend_fs,
+                false,
+                0.0,
+            );
         }
     }
 
@@ -236,15 +249,23 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
 
             // Determine lower and upper offsets.
             let (lo_off, hi_off) = if let (Some(lo), Some(hi)) = (asym_lo, asym_hi) {
-                if i >= lo.len() || i >= hi.len() { continue; }
+                if i >= lo.len() || i >= hi.len() {
+                    continue;
+                }
                 let l = lo[i];
                 let h = hi[i];
-                if !l.is_finite() || !h.is_finite() { continue; }
+                if !l.is_finite() || !h.is_finite() {
+                    continue;
+                }
                 (l, h)
             } else if let Some(errs) = sym_errors {
-                if i >= errs.len() { continue; }
+                if i >= errs.len() {
+                    continue;
+                }
                 let ev = errs[i];
-                if !ev.is_finite() || ev <= 0.0 { continue; }
+                if !ev.is_finite() || ev <= 0.0 {
+                    continue;
+                }
                 (ev, ev)
             } else {
                 continue;
@@ -294,7 +315,16 @@ pub(crate) fn render_scatter(sc: &ScatterChart, w: u32, h: u32) -> RenderedChart
             } else {
                 format!("{yv:.1}")
             };
-            ctx.add_text(sx, sy - radius - 4.0, &label, theme.text_color(), super::TextAlign::Center, data_fs, false, 0.0);
+            ctx.add_text(
+                sx,
+                sy - radius - 4.0,
+                &label,
+                theme.text_color(),
+                super::TextAlign::Center,
+                data_fs,
+                false,
+                0.0,
+            );
         }
     }
 

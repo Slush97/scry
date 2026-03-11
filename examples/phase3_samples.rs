@@ -32,7 +32,13 @@ fn main() {
 
     // 3. Bar chart with show_values
     let bar = Charts::bar(
-        vec!["Engineering".into(), "Sales".into(), "Marketing".into(), "Support".into(), "HR".into()],
+        vec![
+            "Engineering".into(),
+            "Sales".into(),
+            "Marketing".into(),
+            "Support".into(),
+            "HR".into(),
+        ],
         &[42.0, 38.0, 25.0, 18.0, 12.0],
     )
     .title("Headcount by Department")
@@ -44,7 +50,13 @@ fn main() {
 
     // 4. Horizontal bar
     let hbar = Charts::bar(
-        vec!["Rust".into(), "Python".into(), "Go".into(), "TypeScript".into(), "Java".into()],
+        vec![
+            "Rust".into(),
+            "Python".into(),
+            "Go".into(),
+            "TypeScript".into(),
+            "Java".into(),
+        ],
         &[95.0, 82.0, 78.0, 71.0, 65.0],
     )
     .title("Developer Satisfaction (%)")
@@ -69,7 +81,12 @@ fn main() {
 
     // 6. Pie chart
     let pie = Charts::pie(
-        vec!["Desktop".into(), "Mobile".into(), "Tablet".into(), "Other".into()],
+        vec![
+            "Desktop".into(),
+            "Mobile".into(),
+            "Tablet".into(),
+            "Other".into(),
+        ],
         &[45.0, 35.0, 15.0, 5.0],
     )
     .title("Traffic by Device")
@@ -98,10 +115,12 @@ fn main() {
     save_png(&gauge, 500, 400, out.join("08_gauge.png")).unwrap();
 
     // 9. Histogram
-    let data: Vec<f64> = (0..200).map(|i| {
-        let x = i as f64 / 20.0;
-        (x - 5.0).powi(2) * 0.1 + (i as f64 * 0.1).sin() * 2.0
-    }).collect();
+    let data: Vec<f64> = (0..200)
+        .map(|i| {
+            let x = i as f64 / 20.0;
+            (x - 5.0).powi(2) * 0.1 + (i as f64 * 0.1).sin() * 2.0
+        })
+        .collect();
     let hist = Charts::histogram(&data)
         .title("Distribution of Values")
         .x_label("Value")
@@ -132,7 +151,12 @@ fn main() {
 
     // 12. Funnel
     let funnel = Charts::funnel(
-        vec!["Visitors".into(), "Signups".into(), "Trials".into(), "Paid".into()],
+        vec![
+            "Visitors".into(),
+            "Signups".into(),
+            "Trials".into(),
+            "Paid".into(),
+        ],
         &[10000.0, 5200.0, 2100.0, 840.0],
     )
     .title("Conversion Funnel")

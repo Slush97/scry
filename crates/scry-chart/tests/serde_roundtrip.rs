@@ -32,29 +32,29 @@ fn theme_roundtrip() {
 #[test]
 fn chart_config_roundtrip() {
     let mut cfg = ChartConfig::default();
-    cfg.title = Some("Test Chart".to_string());
-    cfg.subtitle = Some("Subtitle".to_string());
-    cfg.x_label = Some("X".to_string());
-    cfg.y_label = Some("Y".to_string());
-    cfg.dpi = 288;
+    cfg.titles.title = Some("Test Chart".to_string());
+    cfg.titles.subtitle = Some("Subtitle".to_string());
+    cfg.titles.x_label = Some("X".to_string());
+    cfg.titles.y_label = Some("Y".to_string());
+    cfg.export.dpi = 288;
     cfg.show_legend = false;
-    cfg.x_range = Some((0.0, 100.0));
-    cfg.y_range = Some((-5.0, 50.0));
-    cfg.show_trend = true;
-    cfg.x_tick_rotation = LabelRotation::Diagonal;
+    cfg.axes.x_range = Some((0.0, 100.0));
+    cfg.axes.y_range = Some((-5.0, 50.0));
+    cfg.overlays.show_trend = true;
+    cfg.ticks.x_tick_rotation = LabelRotation::Diagonal;
 
     let back = roundtrip_json(&cfg);
-    assert_eq!(back.title.as_deref(), Some("Test Chart"));
-    assert_eq!(back.subtitle.as_deref(), Some("Subtitle"));
-    assert_eq!(back.dpi, 288);
+    assert_eq!(back.titles.title.as_deref(), Some("Test Chart"));
+    assert_eq!(back.titles.subtitle.as_deref(), Some("Subtitle"));
+    assert_eq!(back.export.dpi, 288);
     assert_eq!(back.show_legend, false);
-    assert_eq!(back.x_range, Some((0.0, 100.0)));
-    assert_eq!(back.show_trend, true);
+    assert_eq!(back.axes.x_range, Some((0.0, 100.0)));
+    assert_eq!(back.overlays.show_trend, true);
 
     // Formatter fields should be None after roundtrip (they are skipped)
-    assert!(back.x_tick_formatter.is_none());
-    assert!(back.y_tick_formatter.is_none());
-    assert!(back.secondary_y_formatter.is_none());
+    assert!(back.ticks.x_tick_formatter.is_none());
+    assert!(back.ticks.y_tick_formatter.is_none());
+    assert!(back.secondary.formatter.is_none());
 }
 
 #[test]
@@ -135,17 +135,20 @@ fn label_rotation_roundtrip() {
 #[test]
 fn config_with_reference_lines_and_annotations() {
     let mut cfg = ChartConfig::default();
-    cfg.h_lines.push(ReferenceLine::new(50.0).label("median"));
-    cfg.v_lines.push(ReferenceLine::new(10.0));
-    cfg.annotations
+    cfg.overlays
+        .h_lines
+        .push(ReferenceLine::new(50.0).label("median"));
+    cfg.overlays.v_lines.push(ReferenceLine::new(10.0));
+    cfg.overlays
+        .annotations
         .push(Annotation::new(5.0, 50.0, "Important"));
-    cfg.locale = Some(LocaleConfig::swiss());
+    cfg.ticks.locale = Some(LocaleConfig::swiss());
     cfg.margin = Some(Margin::new(5.0, 10.0, 5.0, 10.0));
 
     let back = roundtrip_json(&cfg);
-    assert_eq!(back.h_lines.len(), 1);
-    assert_eq!(back.v_lines.len(), 1);
-    assert_eq!(back.annotations.len(), 1);
-    assert!(back.locale.is_some());
+    assert_eq!(back.overlays.h_lines.len(), 1);
+    assert_eq!(back.overlays.v_lines.len(), 1);
+    assert_eq!(back.overlays.annotations.len(), 1);
+    assert!(back.ticks.locale.is_some());
     assert!(back.margin.is_some());
 }

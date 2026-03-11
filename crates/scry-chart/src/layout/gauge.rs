@@ -72,7 +72,13 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
         let fill_color = gc
             .needle_color
             .unwrap_or_else(|| theme.palette.first().copied().unwrap_or(theme.text_color()));
-        draw_arc_band(&mut ctx, &arc, 0.0, value_t as f32, fill_color.with_alpha(0.7));
+        draw_arc_band(
+            &mut ctx,
+            &arc,
+            0.0,
+            value_t as f32,
+            fill_color.with_alpha(0.7),
+        );
     }
 
     // Draw needle
@@ -99,11 +105,38 @@ pub(crate) fn render_gauge(gc: &GaugeChart, w: u32, h: u32) -> RenderedChart {
             format!("{:.1}", gc.value)
         }
     });
-    ctx.add_text(center_x, center_y + radius * 0.15, &label_text, theme.text_color(), TextAlign::Center, value_fs, true, 0.0);
+    ctx.add_text(
+        center_x,
+        center_y + radius * 0.15,
+        &label_text,
+        theme.text_color(),
+        TextAlign::Center,
+        value_fs,
+        true,
+        0.0,
+    );
 
     // Min/max labels at arc ends
-    ctx.add_text(center_x - radius - gc.arc_width / 2.0, center_y + 8.0, &format_compact(gc.min), theme.text_color().with_alpha(0.6), TextAlign::Center, data_fs, false, 0.0);
-    ctx.add_text(center_x + radius + gc.arc_width / 2.0, center_y + 8.0, &format_compact(gc.max), theme.text_color().with_alpha(0.6), TextAlign::Center, data_fs, false, 0.0);
+    ctx.add_text(
+        center_x - radius - gc.arc_width / 2.0,
+        center_y + 8.0,
+        &format_compact(gc.min),
+        theme.text_color().with_alpha(0.6),
+        TextAlign::Center,
+        data_fs,
+        false,
+        0.0,
+    );
+    ctx.add_text(
+        center_x + radius + gc.arc_width / 2.0,
+        center_y + 8.0,
+        &format_compact(gc.max),
+        theme.text_color().with_alpha(0.6),
+        TextAlign::Center,
+        data_fs,
+        false,
+        0.0,
+    );
 
     ctx.add_common_overlays(config);
     ctx.finish()

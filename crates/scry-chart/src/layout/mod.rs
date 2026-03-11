@@ -370,10 +370,7 @@ impl RenderedChart {
             .commands()
             .iter()
             .filter_map(|cmd| {
-                if let DrawCommand::Text {
-                    ref text, x, y, ..
-                } = cmd
-                {
+                if let DrawCommand::Text { ref text, x, y, .. } = cmd {
                     Some((*x, *y, text.as_str()))
                 } else {
                     None

@@ -42,12 +42,10 @@ use crossterm::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use scry_engine::prelude::{
-    Picker, PixelCanvasState, PixelCanvasWidget,
-};
+use scry_engine::prelude::{Picker, PixelCanvasState, PixelCanvasWidget};
+use scry_engine::scene::command::ImageData;
 use scry_engine::scene::style::Color as C;
 use scry_engine::scene::PixelCanvas;
-use scry_engine::scene::command::ImageData;
 use scry_engine::sdf::pipeline::SdfPipeline;
 use scry_engine::sdf::*;
 
@@ -526,7 +524,11 @@ fn run_terminal() -> Result<(), Box<dyn std::error::Error>> {
         let now = Instant::now();
         let dt = now.duration_since(last_frame);
         last_frame = now;
-        let fps = if dt.as_secs_f32() > 0.0 { 1.0 / dt.as_secs_f32() } else { 0.0 };
+        let fps = if dt.as_secs_f32() > 0.0 {
+            1.0 / dt.as_secs_f32()
+        } else {
+            0.0
+        };
 
         let elapsed = if paused {
             frozen_time

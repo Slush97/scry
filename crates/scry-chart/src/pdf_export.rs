@@ -27,7 +27,7 @@
 use crate::chart::Chart;
 use crate::export::render_to_rgba;
 use crate::subplot::SubplotGrid;
-use pdf_writer::{Content, Finish, Name, Pdf, Ref, Rect};
+use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -136,10 +136,7 @@ fn build_pdf(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     writer.catalog(catalog_ref).pages(page_tree_ref);
 
     // Page tree
-    writer
-        .pages(page_tree_ref)
-        .kids([page_ref])
-        .count(1);
+    writer.pages(page_tree_ref).kids([page_ref]).count(1);
 
     // Page — width×height points, references image as resource
     let mut page = writer.page(page_ref);
@@ -148,9 +145,7 @@ fn build_pdf(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     page.contents(content_ref);
 
     // Resources: XObject dictionary mapping /Img to the image ref
-    page.resources()
-        .x_objects()
-        .pair(Name(b"Img"), image_ref);
+    page.resources().x_objects().pair(Name(b"Img"), image_ref);
     page.finish();
 
     // Content stream: draw the image scaled to the full page

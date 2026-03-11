@@ -176,7 +176,11 @@ impl Rasterizer {
                         Some(font_data),
                         *font_size,
                     );
-                    if m.width > 0.0 { m.width } else { text.len() as f32 * font_size * 0.6 }
+                    if m.width > 0.0 {
+                        m.width
+                    } else {
+                        text.len() as f32 * font_size * 0.6
+                    }
                 };
                 let est_h = font_size * 1.3;
                 // Pad for glyph overhang (first/last glyph extending past advance width)
@@ -192,9 +196,19 @@ impl Rasterizer {
                     let diag = est_w.hypot(est_h) + pad * 2.0;
                     let cx = left_x + est_w / 2.0;
                     let cy = *y - font_size / 2.0;
-                    (cx - diag / 2.0, cy - diag / 2.0, cx + diag / 2.0, cy + diag / 2.0)
+                    (
+                        cx - diag / 2.0,
+                        cy - diag / 2.0,
+                        cx + diag / 2.0,
+                        cy + diag / 2.0,
+                    )
                 } else {
-                    (left_x - pad, y - font_size - pad, left_x + est_w + pad, *y + font_size * 0.3 + pad)
+                    (
+                        left_x - pad,
+                        y - font_size - pad,
+                        left_x + est_w + pad,
+                        *y + font_size * 0.3 + pad,
+                    )
                 }
             }
             #[cfg(feature = "sdf")]

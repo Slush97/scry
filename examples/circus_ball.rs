@@ -50,8 +50,8 @@ use scry_engine::prelude::{
     SequencePlayer, SpringConfig, TextAlign,
 };
 use scry_engine::scene::style::{
-    BlendMode, Color, DashPattern, GradientDef, GradientKind, GradientStop, LineCap,
-    Point, Transform,
+    BlendMode, Color, DashPattern, GradientDef, GradientKind, GradientStop, LineCap, Point,
+    Transform,
 };
 use scry_engine::scene::PixelCanvas;
 use scry_engine::transport;
@@ -91,30 +91,20 @@ fn build_sequence() -> AnimationSequence {
     AnimationSequence::new()
         // Multi-ball staggered entrance (SHOWCASE: Stagger)
         .stagger(ms(300), |p| {
-            p.branch(|b| {
-                b.tween("ball0_enter", 0.0, 1.0, ms(800), Easing::Bounce)
-            })
-            .branch(|b| {
-                b.tween("ball1_enter", 0.0, 1.0, ms(800), Easing::Bounce)
-            })
-            .branch(|b| {
-                b.tween("ball2_enter", 0.0, 1.0, ms(800), Easing::Bounce)
-            })
+            p.branch(|b| b.tween("ball0_enter", 0.0, 1.0, ms(800), Easing::Bounce))
+                .branch(|b| b.tween("ball1_enter", 0.0, 1.0, ms(800), Easing::Bounce))
+                .branch(|b| b.tween("ball2_enter", 0.0, 1.0, ms(800), Easing::Bounce))
         })
         // Bounce phase
         .parallel(|p| {
-            p.branch(|b| {
-                b.tween("bounce_x", 0.0, 1.0, ms(6000), Easing::Linear)
-            })
-            .branch(|b| {
-                b.tween("bounce_y", 0.0, 1.0, ms(1500), Easing::Bounce)
-                    .tween("bounce_y", 1.0, 0.0, ms(1500), Easing::EaseInQuad)
-                    .tween("bounce_y", 0.0, 1.0, ms(1500), Easing::Bounce)
-                    .tween("bounce_y", 1.0, 0.0, ms(1500), Easing::EaseInQuad)
-            })
-            .branch(|b| {
-                b.spring_to("squash", 0.0, 1.0, SpringConfig::BOUNCY)
-            })
+            p.branch(|b| b.tween("bounce_x", 0.0, 1.0, ms(6000), Easing::Linear))
+                .branch(|b| {
+                    b.tween("bounce_y", 0.0, 1.0, ms(1500), Easing::Bounce)
+                        .tween("bounce_y", 1.0, 0.0, ms(1500), Easing::EaseInQuad)
+                        .tween("bounce_y", 0.0, 1.0, ms(1500), Easing::Bounce)
+                        .tween("bounce_y", 1.0, 0.0, ms(1500), Easing::EaseInQuad)
+                })
+                .branch(|b| b.spring_to("squash", 0.0, 1.0, SpringConfig::BOUNCY))
         })
         // Text pop
         .tween("wow_pop", 0.0, 1.0, ms(400), Easing::Elastic)
@@ -497,38 +487,44 @@ fn run_window() -> Result<(), Box<dyn std::error::Error>> {
     let mut frozen_time = 0.0_f32;
     let mut last_time = 0.0_f32;
 
-    run_loop_continuous(960, 640, "Circus Ball", true, move |backend, keys, (w, h)| {
-        for key in keys {
-            if !key.pressed {
-                continue;
+    run_loop_continuous(
+        960,
+        640,
+        "Circus Ball",
+        true,
+        move |backend, keys, (w, h)| {
+            for key in keys {
+                if !key.pressed {
+                    continue;
+                }
+                match key.code {
+                    WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
+                    WKey::Space => state.paused = !state.paused,
+                    _ => {}
+                }
             }
-            match key.code {
-                WKey::Escape | WKey::KeyQ => return LoopAction::Exit,
-                WKey::Space => state.paused = !state.paused,
-                _ => {}
+
+            let elapsed = if state.paused {
+                frozen_time
+            } else {
+                let e = start.elapsed().as_secs_f32();
+                frozen_time = e;
+                e
+            };
+
+            let dt = elapsed - last_time;
+            last_time = elapsed;
+            if dt > 0.0 {
+                state.sequence.advance(Duration::from_secs_f32(dt));
             }
-        }
 
-        let elapsed = if state.paused {
-            frozen_time
-        } else {
-            let e = start.elapsed().as_secs_f32();
-            frozen_time = e;
-            e
-        };
-
-        let dt = elapsed - last_time;
-        last_time = elapsed;
-        if dt > 0.0 {
-            state.sequence.advance(Duration::from_secs_f32(dt));
-        }
-
-        let canvas = build_scene(w, h, &state, elapsed);
-        if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
-            let _ = backend.blit(&pixmap);
-        }
-        LoopAction::Continue
-    })?;
+            let canvas = build_scene(w, h, &state, elapsed);
+            if let Ok(pixmap) = Rasterizer::rasterize(&canvas) {
+                let _ = backend.blit(&pixmap);
+            }
+            LoopAction::Continue
+        },
+    )?;
     Ok(())
 }
 

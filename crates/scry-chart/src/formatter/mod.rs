@@ -13,8 +13,8 @@ mod semantic;
 pub mod zoom;
 
 pub use date::*;
-pub use locale::LocaleConfig;
 use locale::apply_locale_batch;
+pub use locale::LocaleConfig;
 pub use numeric::*;
 pub use semantic::*;
 pub use zoom::{SemanticZoomFormatter, ZoomLevel};
@@ -22,8 +22,6 @@ pub use zoom::{SemanticZoomFormatter, ZoomLevel};
 use std::sync::Arc;
 
 use crate::scale::format_tick_adaptive;
-
-
 
 // ---------------------------------------------------------------------------
 // Trait
@@ -229,8 +227,6 @@ impl<F: TickFormatter + 'static> TickFormatter for LocaleFormatter<F> {
     }
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -252,7 +248,9 @@ pub(crate) fn uniform_precision(labels: Vec<String>) -> Vec<String> {
         .iter()
         .filter_map(|l| {
             // Skip labels with suffixes (K, M, G, %, $, e, etc.)
-            if l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
+            if l.bytes()
+                .any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%')
+            {
                 return None;
             }
             l.find('.').map(|dot| l.len() - dot - 1)
@@ -268,7 +266,9 @@ pub(crate) fn uniform_precision(labels: Vec<String>) -> Vec<String> {
         .into_iter()
         .map(|l| {
             // Only pad plain-number labels
-            if l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
+            if l.bytes()
+                .any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%')
+            {
                 return l;
             }
 
@@ -333,7 +333,11 @@ fn harmonize_si_labels(labels: Vec<String>) -> Vec<String> {
             si_count += 1;
             let suffix = trimmed.chars().last().unwrap();
             dominant_suffix = Some(suffix);
-        } else if !l.is_empty() && !l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
+        } else if !l.is_empty()
+            && !l
+                .bytes()
+                .any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%')
+        {
             plain_count += 1;
         }
     }
@@ -362,7 +366,9 @@ fn harmonize_si_labels(labels: Vec<String>) -> Vec<String> {
                 return l;
             }
             // Not a plain number — keep as-is
-            if l.bytes().any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%') {
+            if l.bytes()
+                .any(|b| (b.is_ascii_alphabetic() && b != b'e' && b != b'E') || b == b'%')
+            {
                 return l;
             }
             // Convert plain number to SI
@@ -613,8 +619,10 @@ mod tests {
         let fmt = AutoFormatter;
         let labels = fmt.format_batch(&[5.0, 5.0, 5.0], (5.0, 5.0));
         // All labels should be identical and readable
-        assert!(labels.iter().all(|l| l == &labels[0]),
-            "All-identical values should produce identical labels: {labels:?}");
+        assert!(
+            labels.iter().all(|l| l == &labels[0]),
+            "All-identical values should produce identical labels: {labels:?}"
+        );
         assert!(!labels[0].is_empty(), "Labels should not be empty");
     }
 
@@ -641,12 +649,12 @@ mod tests {
     #[test]
     fn auto_formatter_large_span_consistency() {
         let fmt = AutoFormatter;
-        let labels = fmt.format_batch(
-            &[0.0, 100000.0, 200000.0, 300000.0],
-            (0.0, 300000.0),
-        );
+        let labels = fmt.format_batch(&[0.0, 100000.0, 200000.0, 300000.0], (0.0, 300000.0));
         // All labels should use the same format style (all SI or all plain)
-        let si_count = labels.iter().filter(|l| l.contains('K') || l.contains('M')).count();
+        let si_count = labels
+            .iter()
+            .filter(|l| l.contains('K') || l.contains('M'))
+            .count();
         let non_zero_count = labels.iter().filter(|l| *l != "0" && *l != "0K").count();
         // Either all SI or all plain — no mixing (except zero)
         assert!(

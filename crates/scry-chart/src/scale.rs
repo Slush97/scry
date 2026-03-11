@@ -417,14 +417,22 @@ pub(crate) fn nice_ticks(lo: f64, hi: f64, target_count: usize) -> Vec<f64> {
     if let Some(&first) = ticks.first() {
         if (first - lo).abs() > step * 0.3 && lo < first {
             // Round to same decimal precision as step for visual consistency.
-            let decimals = if step >= 1.0 { 0 } else { (-step.log10().floor()).max(0.0) as u32 };
+            let decimals = if step >= 1.0 {
+                0
+            } else {
+                (-step.log10().floor()).max(0.0) as u32
+            };
             let factor = 10.0_f64.powi(decimals as i32);
             ticks.insert(0, (lo * factor).round() / factor);
         }
     }
     if let Some(&last) = ticks.last() {
         if (last - hi).abs() > step * 0.3 && hi > last {
-            let decimals = if step >= 1.0 { 0 } else { (-step.log10().floor()).max(0.0) as u32 };
+            let decimals = if step >= 1.0 {
+                0
+            } else {
+                (-step.log10().floor()).max(0.0) as u32
+            };
             let factor = 10.0_f64.powi(decimals as i32);
             ticks.push((hi * factor).round() / factor);
         }
@@ -1299,7 +1307,10 @@ mod tests {
         let ticks = symlog_ticks(1.0, 10000.0, 1.0, 5);
         assert!(!ticks.is_empty());
         for t in &ticks {
-            assert!(*t > 0.0, "positive-only domain should have no negative ticks");
+            assert!(
+                *t > 0.0,
+                "positive-only domain should have no negative ticks"
+            );
         }
     }
 
@@ -1316,7 +1327,10 @@ mod tests {
         // Same value for lo and hi
         let s = SymlogScale::nice((5.0, 5.0), (0.0, 400.0), 1.0);
         let px = s.to_pixel(5.0);
-        assert!(px.is_finite(), "degenerate domain should produce finite pixel");
+        assert!(
+            px.is_finite(),
+            "degenerate domain should produce finite pixel"
+        );
     }
 
     #[test]
@@ -1324,7 +1338,10 @@ mod tests {
         let ticks = symlog_ticks(f64::NAN, f64::NAN, 1.0, 5);
         assert!(!ticks.is_empty());
         for t in &ticks {
-            assert!(t.is_finite(), "symlog ticks should be finite even for NaN domain");
+            assert!(
+                t.is_finite(),
+                "symlog ticks should be finite even for NaN domain"
+            );
         }
     }
 
