@@ -32,6 +32,8 @@ pub mod layout;
 pub mod parser;
 pub mod render;
 pub mod theme;
+#[cfg(feature = "widget")]
+pub mod widget;
 
 use error::MermaidError;
 use parser::Diagram;
@@ -99,6 +101,16 @@ impl Mermaid {
     pub fn diagram(&self) -> &Diagram {
         &self.diagram
     }
+
+    /// Create a clone of this diagram with a different theme.
+    #[must_use]
+    pub fn clone_with_theme(&self, theme: MermaidTheme) -> Self {
+        Self {
+            diagram: self.diagram.clone(),
+            theme,
+            config: self.config.clone(),
+        }
+    }
 }
 
 /// Convenience re-exports.
@@ -108,4 +120,6 @@ pub mod prelude {
     pub use crate::render::RenderedDiagram;
     pub use crate::theme::{LayoutConfig, MermaidTheme};
     pub use crate::Mermaid;
+    #[cfg(feature = "widget")]
+    pub use crate::widget::{MermaidState, MermaidWidget};
 }
