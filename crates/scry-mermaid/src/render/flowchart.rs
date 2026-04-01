@@ -5,7 +5,7 @@ use scry_engine::scene::style::{Color, DashPattern};
 use scry_engine::scene::PixelCanvas;
 
 use crate::layout::flowchart::{FlowchartLayout, NodeLayout};
-use crate::parser::flowchart::{Direction, EdgeStyle, FlowchartAst, NodeShape};
+use crate::parser::flowchart::{Direction, EdgeStyle, FlowchartAst, NodeShape, Subgraph};
 use crate::theme::{LayoutConfig, MermaidTheme};
 
 use super::RenderedDiagram;
@@ -82,6 +82,11 @@ pub fn render(
             current_back_idx,
             &scaled_theme,
         );
+    }
+
+    // Draw subgraph bounding boxes (behind nodes, above edges).
+    for sg in &ast.subgraphs {
+        canvas = draw_subgraph(canvas, sg, &layout, theme, &scaled_theme);
     }
 
     // Draw nodes on top.
@@ -263,6 +268,74 @@ fn draw_cylinder(
         .ellipse(cx, body_top, rx, cap_ry)
         .fill(theme.node_fill)
         .stroke(theme.node_stroke, st.node_stroke_width)
+        .done()
+}
+
+/// Draw a subgraph bounding box with a label.
+fn draw_subgraph(
+    canvas: PixelCanvas,
+    sg: &Subgraph,
+    layout: &FlowchartLayout,
+    theme: &MermaidTheme,
+    st: &ScaledTheme,
+) -> PixelCanvas {
+    // Compute bounding box of all member nodes.
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    let mut found = false;
+    for id in &sg.node_ids {
+        if let Some(nl) = layout.nodes.get(id) {
+            found = true;
+            min_x = min_x.min(nl.rect.left());
+            min_y = min_y.min(nl.rect.top());
+            max_x = max_x.max(nl.rect.right());
+            max_y = max_y.max(nl.rect.bottom());
+        }
+    }
+
+    if !found {
+        return canvas;
+    }
+
+    // Add padding around the group.
+    let pad = 20.0;
+    let label_h = 20.0; // space for the label at the top
+    min_x -= pad;
+    min_y -= pad + label_h;
+    max_x += pad;
+    max_y += pad;
+
+    // Scale to pixel space.
+    let x = st.s(min_x);
+    let y = st.s(min_y);
+    let w = st.s(max_x - min_x);
+    let h = st.s(max_y - min_y);
+
+    // Semi-transparent fill for the group background.
+    let bg = Color {
+        r: theme.node_stroke.r,
+        g: theme.node_stroke.g,
+        b: theme.node_stroke.b,
+        a: 0.1,
+    };
+
+    let canvas = canvas
+        .rect(x, y, w, h)
+        .fill(bg)
+        .stroke(theme.node_stroke, st.node_stroke_width * 0.7)
+        .corner_radius(st.node_corner_radius)
+        .done();
+
+    // Label at top-left of the box.
+    let label_x = x + 10.0 * st.scale;
+    let label_y = y + st.node_font_size * 0.9;
+    canvas
+        .text(&sg.label, label_x, label_y)
+        .size(st.node_font_size * 0.85)
+        .color(theme.edge_label_color)
         .done()
 }
 

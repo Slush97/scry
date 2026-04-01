@@ -21,6 +21,17 @@ pub struct FlowchartAst {
     pub nodes: Vec<Node>,
     /// All edges.
     pub edges: Vec<Edge>,
+    /// Subgraph groupings.
+    pub subgraphs: Vec<Subgraph>,
+}
+
+/// A named group of nodes rendered with a bounding box.
+#[derive(Clone, Debug)]
+pub struct Subgraph {
+    /// Display label.
+    pub label: String,
+    /// Node IDs that belong to this subgraph.
+    pub node_ids: Vec<String>,
 }
 
 /// Graph direction.
@@ -98,6 +109,10 @@ pub fn parse_flowchart(source: &str) -> Result<FlowchartAst, MermaidError> {
     let mut nodes: Vec<Node> = Vec::new();
     let mut edges: Vec<Edge> = Vec::new();
     let mut node_ids = std::collections::HashSet::new();
+    let mut subgraphs: Vec<Subgraph> = Vec::new();
+
+    // Stack of open subgraphs (label, collected node IDs).
+    let mut subgraph_stack: Vec<(String, Vec<String>)> = Vec::new();
 
     // Parse direction from first line.
     let (first_lineno, first_line) = lines
@@ -119,10 +134,24 @@ pub fn parse_flowchart(source: &str) -> Result<FlowchartAst, MermaidError> {
             continue;
         }
 
-        // Skip subgraph/end/style/class directives for now.
-        if line.starts_with("subgraph ")
-            || line == "end"
-            || line.starts_with("style ")
+        // Handle subgraph open/close.
+        if line.starts_with("subgraph ") {
+            let label = line["subgraph ".len()..].trim().to_string();
+            subgraph_stack.push((label, Vec::new()));
+            continue;
+        }
+        if line == "end" {
+            if let Some((label, member_ids)) = subgraph_stack.pop() {
+                subgraphs.push(Subgraph {
+                    label,
+                    node_ids: member_ids,
+                });
+            }
+            continue;
+        }
+
+        // Skip style/class/click directives.
+        if line.starts_with("style ")
             || line.starts_with("class ")
             || line.starts_with("classDef ")
             || line.starts_with("click ")
@@ -130,14 +159,35 @@ pub fn parse_flowchart(source: &str) -> Result<FlowchartAst, MermaidError> {
             continue;
         }
 
+        // Record node count before parsing this statement.
+        let node_count_before = nodes.len();
+
         // Try to parse as edge line (may contain inline node defs).
         parse_statement(line, lineno + 1, &mut nodes, &mut edges, &mut node_ids)?;
+
+        // Any new nodes belong to the innermost open subgraph.
+        if let Some((_label, ref mut member_ids)) = subgraph_stack.last_mut() {
+            for node in &nodes[node_count_before..] {
+                if !member_ids.contains(&node.id) {
+                    member_ids.push(node.id.clone());
+                }
+            }
+        }
+    }
+
+    // Close any unclosed subgraphs gracefully.
+    while let Some((label, member_ids)) = subgraph_stack.pop() {
+        subgraphs.push(Subgraph {
+            label,
+            node_ids: member_ids,
+        });
     }
 
     Ok(FlowchartAst {
         direction,
         nodes,
         edges,
+        subgraphs,
     })
 }
 
@@ -619,6 +669,32 @@ mod tests {
         assert_eq!(ast.edges.len(), 1);
         assert_eq!(ast.edges[0].from, "A");
         assert_eq!(ast.edges[0].to, "A");
+    }
+
+    #[test]
+    fn parse_subgraphs() {
+        let src = r#"graph TD
+    subgraph Backend
+        A[API] --> B[(DB)]
+    end
+    subgraph Frontend
+        C[React] --> D[Redux]
+    end
+    B --> C"#;
+        let ast = parse_flowchart(src).unwrap();
+        assert_eq!(ast.subgraphs.len(), 2);
+        assert_eq!(ast.subgraphs[0].label, "Backend");
+        assert_eq!(ast.subgraphs[0].node_ids, vec!["A", "B"]);
+        assert_eq!(ast.subgraphs[1].label, "Frontend");
+        assert_eq!(ast.subgraphs[1].node_ids, vec!["C", "D"]);
+    }
+
+    #[test]
+    fn unclosed_subgraph() {
+        let src = "graph TD\n    subgraph Oops\n        A --> B";
+        let ast = parse_flowchart(src).unwrap();
+        assert_eq!(ast.subgraphs.len(), 1);
+        assert_eq!(ast.subgraphs[0].label, "Oops");
     }
 
     #[test]

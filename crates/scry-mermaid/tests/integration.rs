@@ -192,6 +192,25 @@ fn render_no_upscale_when_within_bounds() {
 }
 
 #[test]
+fn render_subgraphs() {
+    let src = r#"graph TD
+    subgraph Backend
+        A[API] --> B[(Database)]
+    end
+    subgraph Frontend
+        C[UI] --> D[State]
+    end
+    B --> C"#;
+
+    let diagram = Mermaid::parse(src).unwrap();
+    let rendered = diagram.render(800, 600);
+
+    // Should render without panicking and produce draw commands
+    // for subgraph boxes + nodes + edges.
+    assert!(rendered.canvas.command_count() > 15);
+}
+
+#[test]
 fn unsupported_diagram_type() {
     let result = Mermaid::parse("sequenceDiagram\n    A->>B: hello");
     assert!(result.is_err());
