@@ -191,6 +191,9 @@ fn draw_node(
                 .stroke(theme.node_stroke, st.node_stroke_width)
                 .done()
         }
+        NodeShape::Cylinder => {
+            draw_cylinder(canvas, cx, cy, w, h, theme, st)
+        }
     };
 
     // Draw subroutine double borders.
@@ -211,6 +214,55 @@ fn draw_node(
         .size(st.node_font_size)
         .color(theme.node_text_color)
         .align(scry_engine::scene::TextAlign::Center)
+        .done()
+}
+
+/// Draw a cylinder (database shape): rect body + elliptical top and bottom caps.
+fn draw_cylinder(
+    canvas: PixelCanvas,
+    cx: f32,
+    cy: f32,
+    w: f32,
+    h: f32,
+    theme: &MermaidTheme,
+    st: &ScaledTheme,
+) -> PixelCanvas {
+    let cap_ry = 8.0 * st.scale; // vertical radius of the elliptical caps
+    let rx = w / 2.0;
+    let body_top = cy - h / 2.0 + cap_ry;
+    let body_bottom = cy + h / 2.0 - cap_ry;
+    let body_h = body_bottom - body_top;
+
+    // Body rectangle (no stroke — sides drawn separately so caps overlap cleanly).
+    let canvas = canvas
+        .rect(cx - rx, body_top, w, body_h)
+        .fill(theme.node_fill)
+        .done();
+
+    // Side lines.
+    let canvas = canvas
+        .line(cx - rx, body_top, cx - rx, body_bottom)
+        .color(theme.node_stroke)
+        .width(st.node_stroke_width)
+        .done();
+    let canvas = canvas
+        .line(cx + rx, body_top, cx + rx, body_bottom)
+        .color(theme.node_stroke)
+        .width(st.node_stroke_width)
+        .done();
+
+    // Bottom cap (filled, behind body).
+    let canvas = canvas
+        .ellipse(cx, body_bottom, rx, cap_ry)
+        .fill(theme.node_fill)
+        .stroke(theme.node_stroke, st.node_stroke_width)
+        .done();
+
+    // Top cap (filled, on top).
+    canvas
+        .ellipse(cx, body_top, rx, cap_ry)
+        .fill(theme.node_fill)
+        .stroke(theme.node_stroke, st.node_stroke_width)
         .done()
 }
 

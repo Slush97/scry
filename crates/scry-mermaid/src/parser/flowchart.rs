@@ -6,7 +6,8 @@
 //! Supported syntax:
 //! - Directions: `TD`, `TB`, `LR`, `RL`, `BT`
 //! - Node shapes: `A[text]` (rect), `A(text)` (rounded), `A{text}` (diamond),
-//!   `A([text])` (stadium), `A[[text]]` (subroutine), `A((text))` (circle)
+//!   `A([text])` (stadium), `A[[text]]` (subroutine), `A((text))` (circle),
+//!   `A[(text)]` (cylinder/database)
 //! - Edge types: `-->`, `---`, `-.->`, `==>`, `--text-->`, `-->|text|`
 
 use crate::error::MermaidError;
@@ -61,6 +62,8 @@ pub enum NodeShape {
     Subroutine,
     /// `((text))` — circle.
     Circle,
+    /// `[(text)]` — cylinder (database).
+    Cylinder,
 }
 
 /// An edge between two nodes.
@@ -407,8 +410,11 @@ fn try_node_ref(
 
     let (shape, open, close) = match bytes[p] {
         b'[' => {
-            // Check for [[...]] subroutine.
-            if p + 1 < bytes.len() && bytes[p + 1] == b'[' {
+            if p + 1 < bytes.len() && bytes[p + 1] == b'(' {
+                // [(text)] — cylinder / database.
+                (NodeShape::Cylinder, "[(", ")]")
+            } else if p + 1 < bytes.len() && bytes[p + 1] == b'[' {
+                // [[text]] — subroutine.
                 (NodeShape::Subroutine, "[[", "]]")
             } else {
                 (NodeShape::Rectangle, "[", "]")
@@ -492,7 +498,8 @@ mod tests {
             C{diamond}
             D([stadium])
             E[[subroutine]]
-            F((circle))";
+            F((circle))
+            G[(cylinder)]";
         let ast = parse_flowchart(src).unwrap();
         assert_eq!(ast.nodes[0].shape, NodeShape::Rectangle);
         assert_eq!(ast.nodes[1].shape, NodeShape::Rounded);
@@ -500,6 +507,8 @@ mod tests {
         assert_eq!(ast.nodes[3].shape, NodeShape::Stadium);
         assert_eq!(ast.nodes[4].shape, NodeShape::Subroutine);
         assert_eq!(ast.nodes[5].shape, NodeShape::Circle);
+        assert_eq!(ast.nodes[6].shape, NodeShape::Cylinder);
+        assert_eq!(ast.nodes[6].label, "cylinder");
     }
 
     #[test]

@@ -298,6 +298,10 @@ fn compute_node_size(label: &str, shape: NodeShape, config: &LayoutConfig) -> (f
             let diameter = w.max(h);
             (diameter, diameter)
         }
+        NodeShape::Cylinder => {
+            // Cylinders need extra vertical space for the elliptical caps.
+            (w, h + 16.0)
+        }
         _ => (w, h),
     }
 }

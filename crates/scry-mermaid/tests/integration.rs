@@ -48,11 +48,19 @@ fn all_node_shapes() {
     B --> C{Diamond}
     C --> D([Stadium])
     D --> E[[Subroutine]]
-    E --> F((Circle))"#;
+    E --> F((Circle))
+    F --> G[(Database)]"#;
 
     let diagram = Mermaid::parse(src).unwrap();
     let rendered = diagram.render(800, 600);
     assert!(rendered.canvas.command_count() > 20);
+
+    // Verify the cylinder parsed correctly.
+    if let scry_mermaid::parser::Diagram::Flowchart(ast) = diagram.diagram() {
+        let db = ast.nodes.iter().find(|n| n.id == "G").unwrap();
+        assert_eq!(db.shape, scry_mermaid::prelude::NodeShape::Cylinder);
+        assert_eq!(db.label, "Database");
+    }
 }
 
 #[test]
