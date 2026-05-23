@@ -25,6 +25,7 @@
 //! ```
 
 use crate::chart::Chart;
+use crate::error::ChartError;
 use crate::export::render_to_rgba;
 use crate::subplot::SubplotGrid;
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
@@ -45,8 +46,8 @@ use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
 ///
 /// # Errors
 ///
-/// Returns an error string if rendering or PDF construction fails.
-pub fn render_to_pdf(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, String> {
+/// Returns [`ChartError::Render`] if rendering or PDF construction fails.
+pub fn render_to_pdf(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
     let rgba = render_to_rgba(chart, width, height)?;
     build_pdf(&rgba, width, height)
 }
@@ -55,16 +56,17 @@ pub fn render_to_pdf(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, 
 ///
 /// # Errors
 ///
-/// Returns an error if rendering or file I/O fails.
+/// Returns [`ChartError::Render`] if rendering fails, or [`ChartError::Io`]
+/// if writing the file fails.
 pub fn save_pdf(
     chart: &Chart,
     width: u32,
     height: u32,
     path: impl AsRef<std::path::Path>,
-) -> Result<(), String> {
+) -> Result<(), ChartError> {
     let data = render_to_pdf(chart, width, height)?;
-    std::fs::write(path.as_ref(), data)
-        .map_err(|e| format!("failed to write {}: {e}", path.as_ref().display()))
+    std::fs::write(path.as_ref(), data)?;
+    Ok(())
 }
 
 /// Render a subplot grid to a PDF byte buffer.
@@ -76,7 +78,7 @@ pub fn render_subplot_to_pdf(
     grid: &SubplotGrid,
     width: u32,
     height: u32,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ChartError> {
     let rgba = crate::export::render_subplot_rgba(grid, width, height)?;
     build_pdf(&rgba, width, height)
 }
@@ -91,10 +93,10 @@ pub fn save_subplot_pdf(
     width: u32,
     height: u32,
     path: impl AsRef<std::path::Path>,
-) -> Result<(), String> {
+) -> Result<(), ChartError> {
     let data = render_subplot_to_pdf(grid, width, height)?;
-    std::fs::write(path.as_ref(), data)
-        .map_err(|e| format!("failed to write {}: {e}", path.as_ref().display()))
+    std::fs::write(path.as_ref(), data)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +121,7 @@ fn deflate(data: &[u8]) -> Vec<u8> {
 }
 
 /// Build a single-page PDF with an embedded raster image.
-fn build_pdf(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+fn build_pdf(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
     let rgb = rgba_to_rgb(rgba);
     let compressed = deflate(&rgb);
 

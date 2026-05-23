@@ -73,6 +73,8 @@ pub struct WgpuRasterizer<'ctx> {
     pub(super) mesh_batches: Vec<MeshBatch>,
     pub(super) gradient_draws: Vec<GradientDraw>,
     pub(super) image_overlays: Vec<ImageOverlay>,
+    /// Commands that fell back to CPU rasterization.
+    pub(super) gpu_fallbacks: Vec<super::backend::GpuFallbackWarning>,
     /// Shared buffer pool for cross-frame GPU buffer reuse.
     buffer_pool: &'ctx RefCell<BufferPool>,
 }
@@ -105,6 +107,14 @@ impl WgpuRasterizer<'_> {
         ctx: &WgpuContext2D,
         canvas: &PixelCanvas,
     ) -> Result<Pixmap, PixelCanvasError> {
+        Self::rasterize_with_context_tracked(ctx, canvas).map(|(pixmap, _)| pixmap)
+    }
+
+    /// Rasterize and return both the pixmap and any GPU→CPU fallback warnings.
+    pub(super) fn rasterize_with_context_tracked(
+        ctx: &WgpuContext2D,
+        canvas: &PixelCanvas,
+    ) -> Result<(Pixmap, Vec<super::backend::GpuFallbackWarning>), PixelCanvasError> {
         let w = canvas.width();
         let h = canvas.height();
         if w == 0 || h == 0 {
@@ -115,14 +125,17 @@ impl WgpuRasterizer<'_> {
 
         let mut rast = WgpuRasterizer::with_context(ctx, w, h);
         process_commands(&mut rast, canvas);
+        let fallbacks = std::mem::take(&mut rast.gpu_fallbacks);
         let rgba = rast.finish(canvas)?;
 
-        Pixmap::from_vec(
+        let pixmap = Pixmap::from_vec(
             rgba,
             tiny_skia::IntSize::from_wh(w, h)
                 .ok_or_else(|| PixelCanvasError::PixmapCreation("invalid dimensions".into()))?,
         )
-        .ok_or_else(|| PixelCanvasError::PixmapCreation("pixmap from vec failed".into()))
+        .ok_or_else(|| PixelCanvasError::PixmapCreation("pixmap from vec failed".into()))?;
+
+        Ok((pixmap, fallbacks))
     }
 }
 
@@ -155,6 +168,7 @@ impl<'ctx> WgpuRasterizer<'ctx> {
             mesh_batches: Vec::new(),
             gradient_draws: Vec::new(),
             image_overlays: Vec::new(),
+            gpu_fallbacks: Vec::new(),
             buffer_pool: &ctx.buffer_pool,
         }
     }

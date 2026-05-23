@@ -42,6 +42,7 @@ pub mod sdf_surface;
 #[cfg(feature = "gpu")]
 pub mod wgpu_backend;
 
+use crate::error::ChartError;
 use camera::{Camera3D, Vec3};
 use projection::{
     depth_sort, mat4_mul, project_batch_precomputed, PerspectiveProjection, ProjectedPoint,
@@ -612,7 +613,7 @@ impl Chart3D {
     /// # Errors
     ///
     /// Returns an error if the data is empty or all non-finite.
-    pub fn render(&self, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    pub fn render(&self, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
         let rasterizer = SkiaRasterizer3D::new(width, height, self.background);
         self.render_with(rasterizer)
     }
@@ -630,7 +631,7 @@ impl Chart3D {
     /// Returns an error if GPU initialization fails (no compatible adapter)
     /// or if the data is empty/non-finite.
     #[cfg(feature = "gpu")]
-    pub fn render_gpu(&self, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    pub fn render_gpu(&self, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
         let rasterizer = wgpu_backend::WgpuRasterizer3D::new(width, height, self.background)?;
         self.render_with(rasterizer)
     }
@@ -662,7 +663,7 @@ impl Chart3D {
         gpu: &'static scry_engine::gpu::GpuDevice,
         width: u32,
         height: u32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, ChartError> {
         let rasterizer =
             wgpu_backend::WgpuRasterizer3D::with_device(gpu, width, height, self.background);
         self.render_with(rasterizer)
@@ -673,14 +674,14 @@ impl Chart3D {
     /// # Errors
     ///
     /// Returns an error if the data is empty or all non-finite.
-    pub fn render_with<R: Rasterizer3D>(&self, mut rasterizer: R) -> Result<Vec<u8>, String> {
+    pub fn render_with<R: Rasterizer3D>(&self, mut rasterizer: R) -> Result<Vec<u8>, ChartError> {
         let width = rasterizer.width();
         let height = rasterizer.height();
 
         // --- 1. Validate and normalize data ---
         let n = self.x.len().min(self.y.len()).min(self.z.len());
         if n == 0 {
-            return Err("Chart3D: no data points".into());
+            return Err(ChartError::EmptyData);
         }
 
         // Filter to finite points and normalize to [0, 1] range
@@ -693,7 +694,7 @@ impl Chart3D {
         }
 
         if finite_points.is_empty() {
-            return Err("Chart3D: all data points are non-finite".into());
+            return Err(ChartError::AllNonFinite);
         }
 
         // Compute data extent
@@ -900,14 +901,16 @@ impl Chart3D {
     /// # Errors
     ///
     /// Returns an error if rendering or PNG encoding fails.
-    pub fn render_to_png(&self, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    pub fn render_to_png(&self, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
         let rgba = self.render(width, height)?;
         let pixmap =
             tiny_skia::Pixmap::from_vec(rgba, tiny_skia::IntSize::from_wh(width, height).unwrap())
-                .ok_or("failed to create pixmap from RGBA data")?;
+                .ok_or_else(|| {
+                    ChartError::Render("failed to create pixmap from RGBA data".into())
+                })?;
         pixmap
             .encode_png()
-            .map_err(|e| format!("PNG encoding failed: {e}"))
+            .map_err(|e| ChartError::Render(format!("PNG encoding failed: {e}")))
     }
 
     /// Render and save to a PNG file.
@@ -920,10 +923,10 @@ impl Chart3D {
         width: u32,
         height: u32,
         path: impl AsRef<std::path::Path>,
-    ) -> Result<(), String> {
+    ) -> Result<(), ChartError> {
         let data = self.render_to_png(width, height)?;
-        std::fs::write(path.as_ref(), data)
-            .map_err(|e| format!("failed to write {}: {e}", path.as_ref().display()))
+        std::fs::write(path.as_ref(), data)?;
+        Ok(())
     }
 
     /// Render to a [`PixelCanvas`] scene ready for terminal display.
@@ -942,7 +945,7 @@ impl Chart3D {
         &self,
         width: u32,
         height: u32,
-    ) -> Result<scry_engine::scene::PixelCanvas, String> {
+    ) -> Result<scry_engine::scene::PixelCanvas, ChartError> {
         let rgba = self.render(width, height)?;
         let image = scry_engine::scene::ImageData::new(width, height, rgba);
         Ok(scry_engine::scene::PixelCanvas::new(width, height)
@@ -965,7 +968,7 @@ impl Chart3D {
         gpu: &'static scry_engine::gpu::GpuDevice,
         width: u32,
         height: u32,
-    ) -> Result<scry_engine::scene::PixelCanvas, String> {
+    ) -> Result<scry_engine::scene::PixelCanvas, ChartError> {
         let rgba = self.render_gpu_with_device(gpu, width, height)?;
         let image = scry_engine::scene::ImageData::new(width, height, rgba);
         Ok(scry_engine::scene::PixelCanvas::new(width, height)
@@ -990,7 +993,7 @@ impl Chart3D {
         surface: &scene::Surface3D,
         width: u32,
         height: u32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, ChartError> {
         let center = Vec3::new(0.5, 0.5, 0.5);
         let cam = self
             .camera
@@ -1000,7 +1003,7 @@ impl Chart3D {
         let sdf_scene = sdf_surface::surface_to_sdf_scene(surface, &cam);
         let pixmap =
             scry_engine::sdf::SdfRenderer::render_to_pixmap(&sdf_scene, width, height, 0.0)
-                .map_err(|e| format!("SDF render failed: {e}"))?;
+                .map_err(|e| ChartError::Render(format!("SDF render failed: {e}")))?;
 
         Ok(pixmap.take())
     }
@@ -1024,7 +1027,7 @@ impl Chart3D {
     ///
     /// Returns an error if rendering or terminal interaction fails.
     #[cfg(feature = "widget")]
-    pub fn show(&self) -> Result<(), String> {
+    pub fn show(&self) -> Result<(), ChartError> {
         use crossterm::event::{self, Event, KeyCode, KeyEventKind};
         use crossterm::terminal::{self};
         use crossterm::ExecutableCommand;
@@ -1038,15 +1041,16 @@ impl Chart3D {
         let font = picker.font_size();
 
         // Get terminal dimensions in pixels
-        let (cols, rows) =
-            terminal::size().map_err(|e| format!("failed to get terminal size: {e}"))?;
+        let (cols, rows) = terminal::size()?;
         // Leave 2 rows for the status bar
         let display_rows = rows.saturating_sub(2);
         let pixel_w = u32::from(cols) * u32::from(font.width);
         let pixel_h = u32::from(display_rows) * u32::from(font.height);
 
         if pixel_w == 0 || pixel_h == 0 {
-            return Err("terminal too small for rendering".into());
+            return Err(ChartError::InvalidConfig(
+                "terminal too small for rendering".into(),
+            ));
         }
 
         // Create protocol backend
@@ -1066,10 +1070,8 @@ impl Chart3D {
 
         // Enter alternate screen + raw mode so terminal text is hidden
         let mut stdout = std::io::stdout();
-        stdout
-            .execute(crossterm::terminal::EnterAlternateScreen)
-            .map_err(|e| format!("failed to enter alternate screen: {e}"))?;
-        terminal::enable_raw_mode().map_err(|e| format!("failed to enable raw mode: {e}"))?;
+        stdout.execute(crossterm::terminal::EnterAlternateScreen)?;
+        terminal::enable_raw_mode()?;
         // Hide cursor for a cleaner look
         let _ = stdout.execute(crossterm::cursor::Hide);
 
@@ -1082,11 +1084,11 @@ impl Chart3D {
         );
         let chart = self.clone().camera(cam);
         let canvas = chart.render_to_canvas(pixel_w, pixel_h)?;
-        let pixmap =
-            Rasterizer::rasterize(&canvas).map_err(|e| format!("rasterize failed: {e}"))?;
+        let pixmap = Rasterizer::rasterize(&canvas)
+            .map_err(|e| ChartError::Render(format!("rasterize failed: {e}")))?;
         let mut handle = backend
             .transmit(&pixmap, position, -1)
-            .map_err(|e| format!("transmit failed: {e}"))?;
+            .map_err(|e| ChartError::Render(format!("transmit failed: {e}")))?;
 
         // Status bar
         let status = " ←→↑↓/WASD rotate | +/- zoom | Q quit";
@@ -1095,10 +1097,8 @@ impl Chart3D {
         let _ = stdout.flush();
 
         loop {
-            if event::poll(std::time::Duration::from_millis(50))
-                .map_err(|e| format!("poll failed: {e}"))?
-            {
-                if let Event::Key(key) = event::read().map_err(|e| format!("read failed: {e}"))? {
+            if event::poll(std::time::Duration::from_millis(50))? {
+                if let Event::Key(key) = event::read()? {
                     if key.kind != KeyEventKind::Press {
                         continue;
                     }
@@ -1129,10 +1129,10 @@ impl Chart3D {
                         let chart = self.clone().camera(cam);
                         let canvas = chart.render_to_canvas(pixel_w, pixel_h)?;
                         let pixmap = Rasterizer::rasterize(&canvas)
-                            .map_err(|e| format!("rasterize failed: {e}"))?;
+                            .map_err(|e| ChartError::Render(format!("rasterize failed: {e}")))?;
                         handle = backend
                             .replace(&handle, &pixmap, position, -1)
-                            .map_err(|e| format!("replace failed: {e}"))?;
+                            .map_err(|e| ChartError::Render(format!("replace failed: {e}")))?;
                         let _ = stdout.flush();
                     }
                 }

@@ -106,6 +106,8 @@ pub mod scene;
 pub mod transport;
 
 #[cfg(feature = "widget")]
+pub mod quick;
+#[cfg(feature = "widget")]
 pub mod widget;
 
 #[cfg(feature = "svg")]

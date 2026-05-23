@@ -23,7 +23,6 @@ fn main() {
     M --> N([Binary])"#,
             MermaidTheme::dark(),
         ),
-
         // 2. Kubernetes deployment — wide branching
         (
             "k8s_deploy",
@@ -45,7 +44,6 @@ fn main() {
     K --> L[(Redis Cache)]"#,
             MermaidTheme::dark(),
         ),
-
         // 3. ML training loop — multiple cycles
         (
             "ml_training",
@@ -69,7 +67,6 @@ fn main() {
     K -->|Yes| N"#,
             MermaidTheme::dark(),
         ),
-
         // 4. HTTP request lifecycle — LR wide
         (
             "http_lifecycle",
@@ -91,7 +88,6 @@ fn main() {
     M --> N((Client))"#,
             MermaidTheme::dark(),
         ),
-
         // 5. Event sourcing — complex with many shapes
         (
             "event_sourcing",
@@ -113,7 +109,6 @@ fn main() {
     I --> O((Response))"#,
             MermaidTheme::dark(),
         ),
-
         // 6. Git merge strategy — decision heavy
         (
             "git_merge",
@@ -138,7 +133,6 @@ fn main() {
     M --> N"#,
             MermaidTheme::light(),
         ),
-
         // 7. Database replication — symmetric topology
         (
             "db_replication",
@@ -158,7 +152,6 @@ fn main() {
     I --> E"#,
             MermaidTheme::dark(),
         ),
-
         // 8. Incident response — operational flow
         (
             "incident_response",
@@ -181,7 +174,6 @@ fn main() {
     E --> N[Next Sprint]"#,
             MermaidTheme::dark(),
         ),
-
         // 9. State machine — auth session
         (
             "auth_state_machine",
@@ -204,7 +196,6 @@ fn main() {
     K -->|No| E"#,
             MermaidTheme::dark(),
         ),
-
         // 10. Data warehouse ETL — wide LR pipeline
         (
             "etl_pipeline",
@@ -226,21 +217,14 @@ fn main() {
     N --> O([Dashboard])"#,
             MermaidTheme::dark(),
         ),
-
         // 11. Minimal — single edge
-        (
-            "minimal",
-            "graph TD\n    A --> B",
-            MermaidTheme::dark(),
-        ),
-
+        ("minimal", "graph TD\n    A --> B", MermaidTheme::dark()),
         // 12. Minimal — single node
         (
             "single_node",
             "graph TD\n    A[Hello World]",
             MermaidTheme::dark(),
         ),
-
         // 13. Diamond only — pure decision tree
         (
             "decision_tree",
@@ -254,7 +238,6 @@ fn main() {
     D -->|No| E"#,
             MermaidTheme::light(),
         ),
-
         // 14. Flat wide — stress test horizontal spacing
         (
             "wide_flat",
@@ -271,7 +254,6 @@ fn main() {
     F --> G"#,
             MermaidTheme::dark(),
         ),
-
         // 15. Deep chain — stress test vertical depth
         (
             "deep_chain",
@@ -306,5 +288,8 @@ fn main() {
             cmds = rendered.canvas.command_count(),
         );
     }
-    println!("\nAll {} diagrams written to /tmp/mermaid_stress/", diagrams.len());
+    println!(
+        "\nAll {} diagrams written to /tmp/mermaid_stress/",
+        diagrams.len()
+    );
 }

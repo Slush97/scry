@@ -629,6 +629,12 @@ pub(super) fn process_command(
 /// Rasterize a command via CPU (tiny-skia) and add as image overlay.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(super) fn cpu_fallback_command(rast: &mut super::wgpu::WgpuRasterizer<'_>, cmd: &DrawCommand) {
+    // Record the fallback for diagnostics
+    rast.gpu_fallbacks.push(super::backend::GpuFallbackWarning {
+        command_type: cmd.type_name(),
+        reason: "command not supported by GPU pipeline",
+    });
+
     // Estimate bounds to create a tight temp pixmap
     let (min_x, min_y, max_x, max_y) = Rasterizer::estimate_command_bounds(cmd);
     if min_x >= max_x || min_y >= max_y {

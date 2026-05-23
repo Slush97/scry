@@ -111,10 +111,10 @@ pub fn save_svg(
     width: u32,
     height: u32,
     path: impl AsRef<std::path::Path>,
-) -> Result<(), String> {
+) -> Result<(), crate::error::ChartError> {
     let data = render_to_svg(chart, width, height);
-    std::fs::write(path.as_ref(), data)
-        .map_err(|e| format!("failed to write {}: {e}", path.as_ref().display()))
+    std::fs::write(path.as_ref(), data)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

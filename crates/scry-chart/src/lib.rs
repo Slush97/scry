@@ -27,7 +27,6 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::redundant_pub_crate)]
 #![allow(clippy::use_self)]
-#![allow(clippy::derive_partial_eq_without_eq)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::suspicious_operation_groupings)]
 

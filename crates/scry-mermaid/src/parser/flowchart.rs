@@ -115,12 +115,13 @@ pub fn parse_flowchart(source: &str) -> Result<FlowchartAst, MermaidError> {
     let mut subgraph_stack: Vec<(String, Vec<String>)> = Vec::new();
 
     // Parse direction from first line.
-    let (first_lineno, first_line) = lines
-        .find(|(_, l)| !l.trim().is_empty())
-        .ok_or_else(|| MermaidError::Parse {
-            line: 1,
-            message: "empty input".into(),
-        })?;
+    let (first_lineno, first_line) =
+        lines
+            .find(|(_, l)| !l.trim().is_empty())
+            .ok_or_else(|| MermaidError::Parse {
+                line: 1,
+                message: "empty input".into(),
+            })?;
 
     let direction = parse_direction(first_line.trim()).ok_or_else(|| MermaidError::Parse {
         line: first_lineno + 1,
@@ -354,7 +355,10 @@ fn tokenize(line: &str, lineno: usize) -> Result<Vec<Token>, MermaidError> {
 
         return Err(MermaidError::Parse {
             line: lineno,
-            message: format!("unexpected character '{}' at position {pos}", bytes[pos] as char),
+            message: format!(
+                "unexpected character '{}' at position {pos}",
+                bytes[pos] as char
+            ),
         });
     }
 
@@ -644,7 +648,10 @@ mod tests {
     fn node_redefinition_updates_label() {
         let src = "graph TD\n    A --> B\n    A[Renamed]";
         let ast = parse_flowchart(src).unwrap();
-        assert_eq!(ast.nodes.iter().find(|n| n.id == "A").unwrap().label, "Renamed");
+        assert_eq!(
+            ast.nodes.iter().find(|n| n.id == "A").unwrap().label,
+            "Renamed"
+        );
     }
 
     #[test]

@@ -64,18 +64,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: "scry-learn"
-            cmd: "cargo test -p scry-learn"
-          - name: "scry-learn serde"
-            cmd: "cargo test -p scry-learn --features serde"
+          - name: "scry-engine"
+            cmd: "cargo test -p scry-engine"
+          - name: "scry-engine no-default"
+            cmd: "cargo test -p scry-engine --no-default-features"
           - name: "scry-chart"
             cmd: "cargo test -p scry-chart"
+          - name: "scry-chart widget"
+            cmd: "cargo test -p scry-chart --features widget"
           - name: "scry-pipe"
             cmd: "cargo test -p scry-pipe"
-          - name: "scry-terminal"
-            cmd: "cargo test -p scry-terminal"
-          - name: "scry-llm"
-            cmd: "cargo test -p scry-llm"
+          - name: "scry-cli"
+            cmd: "cargo test -p scry-cli"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -158,8 +158,8 @@ jobs:
         run: cargo +nightly miri test --all-features -- --skip shm --skip picker --skip sixel
       - name: Miri — scry-chart crate
         run: cargo +nightly miri test --manifest-path crates/scry-chart/Cargo.toml
-      - name: Miri — scry-learn crate
-        run: cargo +nightly miri test -p scry-learn -- --skip gpu --skip viz
+      - name: Miri — scry-pipe crate
+        run: cargo +nightly miri test -p scry-pipe
 
   fuzz-smoke:
     name: Fuzz Smoke Test
@@ -174,7 +174,7 @@ jobs:
         run: cargo +nightly fuzz build
       - name: Run core fuzz targets (30s each)
         run: |
-          for target in fuzz_rasterize fuzz_kitty_escape fuzz_scene_hash fuzz_vte_terminal; do
+          for target in fuzz_rasterize fuzz_kitty_escape fuzz_scene_hash; do
             echo "::group::$target"
             cargo +nightly fuzz run "$target" -- -max_total_time=30
             echo "::endgroup::"

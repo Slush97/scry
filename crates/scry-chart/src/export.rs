@@ -8,6 +8,7 @@
 //! Text rendering is delegated to the engine's `DrawCommand::Text` pipeline.
 
 use crate::chart::Chart;
+use crate::error::ChartError;
 use crate::layout::{self, RenderedChart};
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,15 @@ use crate::layout::{self, RenderedChart};
 
 /// Default export DPI.
 const BASE_DPI: u32 = 144;
+
+/// Height reserved for a subplot grid title row, in pixels.
+const SUBPLOT_TITLE_HEIGHT: u32 = 32;
+
+/// Font size for subplot grid titles, in pixels.
+const SUBPLOT_TITLE_FONT_SIZE: f32 = 18.0;
+
+/// Top padding above the subplot grid title text, in pixels.
+const SUBPLOT_TITLE_TOP_PAD: f32 = 4.0;
 
 /// Extract the DPI from a chart's config.
 fn chart_dpi(chart: &Chart) -> u32 {
@@ -47,7 +57,7 @@ fn dpi_scale(width: u32, height: u32, dpi: u32) -> (u32, u32) {
 ///
 /// # Errors
 ///
-/// Returns an error string if pixmap creation or PNG encoding fails.
+/// Returns [`ChartError::Render`] if pixmap creation or PNG encoding fails.
 ///
 /// # Example
 ///
@@ -56,22 +66,22 @@ fn dpi_scale(width: u32, height: u32, dpi: u32) -> (u32, u32) {
 /// let png_bytes = scry_chart::export::render_to_png(&chart, 800, 500)?;
 /// std::fs::write("chart.png", png_bytes)?;
 /// ```
-pub fn render_to_png(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub fn render_to_png(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
     let dpi = chart_dpi(chart);
     let (w, h) = dpi_scale(width, height, dpi);
     let rgba = render_to_rgba_raw(chart, w, h)?;
     let pixmap = tiny_skia::Pixmap::from_vec(rgba, tiny_skia::IntSize::from_wh(w, h).unwrap())
-        .ok_or("failed to create pixmap from RGBA data")?;
+        .ok_or_else(|| ChartError::Render("failed to create pixmap from RGBA data".into()))?;
     pixmap
         .encode_png()
-        .map_err(|e| format!("PNG encoding failed: {e}"))
+        .map_err(|e| ChartError::Render(format!("PNG encoding failed: {e}")))
 }
 
 /// Render a chart to raw RGBA pixel data.
 ///
 /// Returns a `Vec<u8>` of length `width * height * 4` in RGBA order.
 /// Dimensions are scaled by the chart's DPI setting.
-pub fn render_to_rgba(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub fn render_to_rgba(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
     let dpi = chart_dpi(chart);
     let (w, h) = dpi_scale(width, height, dpi);
     render_to_rgba_raw(chart, w, h)
@@ -81,11 +91,11 @@ pub fn render_to_rgba(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>,
 ///
 /// Uses [`RasterPipeline`] which auto-selects the GPU backend when
 /// available and falls back to CPU (tiny-skia) otherwise.
-fn render_to_rgba_raw(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, String> {
+fn render_to_rgba_raw(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
     let rendered = layout::render_chart(chart, width, height);
     let pixmap = scry_engine::rasterize::RasterPipeline::new()
         .rasterize(&rendered.canvas)
-        .map_err(|e| format!("rasterization failed: {e}"))?;
+        .map_err(|e| ChartError::Render(format!("rasterization failed: {e}")))?;
 
     // Text is now rasterized by the engine via DrawCommand::Text commands
     // in the canvas — no separate stamp_text_overlays step needed.
@@ -99,16 +109,17 @@ fn render_to_rgba_raw(chart: &Chart, width: u32, height: u32) -> Result<Vec<u8>,
 ///
 /// # Errors
 ///
-/// Returns an error if rendering or file I/O fails.
+/// Returns [`ChartError::Render`] if rendering fails, or [`ChartError::Io`]
+/// if writing the file fails.
 pub fn save_png(
     chart: &Chart,
     width: u32,
     height: u32,
     path: impl AsRef<std::path::Path>,
-) -> Result<(), String> {
+) -> Result<(), ChartError> {
     let data = render_to_png(chart, width, height)?;
-    std::fs::write(path.as_ref(), data)
-        .map_err(|e| format!("failed to write {}: {e}", path.as_ref().display()))
+    std::fs::write(path.as_ref(), data)?;
+    Ok(())
 }
 
 /// Render a chart, returning the PNG bytes and the `RenderedChart` metadata
@@ -117,17 +128,17 @@ pub fn render_to_png_with_metadata(
     chart: &Chart,
     width: u32,
     height: u32,
-) -> Result<(Vec<u8>, RenderedChart), String> {
+) -> Result<(Vec<u8>, RenderedChart), ChartError> {
     let dpi = chart_dpi(chart);
     let (w, h) = dpi_scale(width, height, dpi);
     let rendered = layout::render_chart(chart, w, h);
     let pixmap = scry_engine::rasterize::RasterPipeline::new()
         .rasterize(&rendered.canvas)
-        .map_err(|e| format!("rasterization failed: {e}"))?;
+        .map_err(|e| ChartError::Render(format!("rasterization failed: {e}")))?;
 
     let png = pixmap
         .encode_png()
-        .map_err(|e| format!("PNG encoding failed: {e}"))?;
+        .map_err(|e| ChartError::Render(format!("PNG encoding failed: {e}")))?;
     Ok((png, rendered))
 }
 
@@ -158,14 +169,14 @@ pub fn render_subplot_to_png(
     grid: &SubplotGrid,
     width: u32,
     height: u32,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ChartError> {
     let rgba = render_subplot_to_rgba_raw(grid, width, height)?;
     let pixmap =
         tiny_skia::Pixmap::from_vec(rgba, tiny_skia::IntSize::from_wh(width, height).unwrap())
-            .ok_or("failed to create pixmap from RGBA data")?;
+            .ok_or_else(|| ChartError::Render("failed to create pixmap from RGBA data".into()))?;
     pixmap
         .encode_png()
-        .map_err(|e| format!("PNG encoding failed: {e}"))
+        .map_err(|e| ChartError::Render(format!("PNG encoding failed: {e}")))
 }
 
 /// Render a subplot grid and save directly to a PNG file.
@@ -178,10 +189,10 @@ pub fn save_subplot_png(
     width: u32,
     height: u32,
     path: impl AsRef<std::path::Path>,
-) -> Result<(), String> {
+) -> Result<(), ChartError> {
     let data = render_subplot_to_png(grid, width, height)?;
-    std::fs::write(path.as_ref(), data)
-        .map_err(|e| format!("failed to write {}: {e}", path.as_ref().display()))
+    std::fs::write(path.as_ref(), data)?;
+    Ok(())
 }
 
 /// Render a subplot grid to raw RGBA pixel data.
@@ -189,7 +200,11 @@ pub fn save_subplot_png(
 /// # Errors
 ///
 /// Returns an error if rendering fails.
-pub fn render_subplot_rgba(grid: &SubplotGrid, width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub fn render_subplot_rgba(
+    grid: &SubplotGrid,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, ChartError> {
     render_subplot_to_rgba_raw(grid, width, height)
 }
 
@@ -198,13 +213,17 @@ fn render_subplot_to_rgba_raw(
     grid: &SubplotGrid,
     width: u32,
     height: u32,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ChartError> {
     let rows = grid.rows as u32;
     let cols = grid.cols as u32;
     let gap = grid.gap;
 
     // Reserve space for an optional title at the top
-    let title_h = if grid.title.is_some() { 32_u32 } else { 0 };
+    let title_h = if grid.title.is_some() {
+        SUBPLOT_TITLE_HEIGHT
+    } else {
+        0
+    };
 
     // Calculate cell dimensions
     let total_h_gap = gap * (cols.saturating_sub(1));
@@ -213,26 +232,20 @@ fn render_subplot_to_rgba_raw(
     let cell_h = (height.saturating_sub(title_h).saturating_sub(total_v_gap)) / rows;
 
     if cell_w == 0 || cell_h == 0 {
-        return Err("Subplot grid dimensions too small for the given rows/cols/gap".into());
+        return Err(ChartError::InvalidConfig(
+            "Subplot grid dimensions too small for the given rows/cols/gap".into(),
+        ));
     }
 
-    // Create master RGBA buffer filled with background color
+    // Create the master pixmap
+    let mut master = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| ChartError::Render("failed to create master pixmap".into()))?;
+
+    // Fill with background color
     let bg = grid.background;
-    let bg_r = (bg.r * 255.0) as u8;
-    let bg_g = (bg.g * 255.0) as u8;
-    let bg_b = (bg.b * 255.0) as u8;
-    let bg_a = (bg.a * 255.0) as u8;
-
-    let stride = width as usize * 4;
-    let mut master = vec![0u8; stride * height as usize];
-
-    // Fill with background
-    for pixel in master.chunks_exact_mut(4) {
-        pixel[0] = bg_r;
-        pixel[1] = bg_g;
-        pixel[2] = bg_b;
-        pixel[3] = bg_a;
-    }
+    let bg_color =
+        tiny_skia::Color::from_rgba(bg.r, bg.g, bg.b, bg.a).unwrap_or(tiny_skia::Color::BLACK);
+    master.fill(bg_color);
 
     // --- Shared axis domain unification ---
     // When axes are shared, we compute the union of all cell data extents
@@ -241,17 +254,17 @@ fn render_subplot_to_rgba_raw(
     let share_x = grid.shared_axes.shares_x();
     let share_y = grid.shared_axes.shares_y();
 
-    // Clone the grid temporarily to mutate cell configs
-    let mut local_cells: Vec<Option<Chart>> = grid.cells.clone();
-
-    if share_x || share_y {
+    // Only clone cells when we need to mutate configs for shared axes;
+    // otherwise borrow directly to avoid unnecessary allocations.
+    let owned_cells: Vec<Option<Chart>>;
+    let cells: &[Option<Chart>] = if share_x || share_y {
         // Compute global extent across all populated cells
         let mut gx_min = f64::INFINITY;
         let mut gx_max = f64::NEG_INFINITY;
         let mut gy_min = f64::INFINITY;
         let mut gy_max = f64::NEG_INFINITY;
 
-        for cell in local_cells.iter().flatten() {
+        for cell in grid.cells.iter().flatten() {
             if let Some((xn, xx, yn, yx)) = cell.data_extent() {
                 if xn < gx_min {
                     gx_min = xn;
@@ -267,6 +280,9 @@ fn render_subplot_to_rgba_raw(
                 }
             }
         }
+
+        // Clone cells so we can mutate their configs
+        let mut local_cells: Vec<Option<Chart>> = grid.cells.clone();
 
         // Apply unified domains and suppress labels on non-primary cells
         let null_fmt: std::sync::Arc<dyn crate::formatter::TickFormatter> =
@@ -298,10 +314,15 @@ fn render_subplot_to_rgba_raw(
                 }
             }
         }
-    }
 
-    // Render each cell and blit onto master
-    for (i, chart_opt) in local_cells.iter().enumerate() {
+        owned_cells = local_cells;
+        &owned_cells
+    } else {
+        &grid.cells
+    };
+
+    // Render each cell and composite onto master via tiny-skia
+    for (i, chart_opt) in cells.iter().enumerate() {
         let row = i / cols as usize;
         let col = i % cols as usize;
         let x_off = col as u32 * (cell_w + gap);
@@ -310,18 +331,17 @@ fn render_subplot_to_rgba_raw(
         if let Some(chart) = chart_opt {
             let cell_rgba = render_to_rgba_raw(chart, cell_w, cell_h)?;
 
-            // Blit cell RGBA onto master at (x_off, y_off)
-            let cell_stride = cell_w as usize * 4;
-            for cy in 0..cell_h as usize {
-                let dst_y = y_off as usize + cy;
-                if dst_y >= height as usize {
-                    break;
-                }
-                let src_start = cy * cell_stride;
-                let dst_start = dst_y * stride + x_off as usize * 4;
-                let copy_len = cell_stride.min(stride - x_off as usize * 4);
-                master[dst_start..dst_start + copy_len]
-                    .copy_from_slice(&cell_rgba[src_start..src_start + copy_len]);
+            if let Some(cell_pixmap) = tiny_skia::PixmapRef::from_bytes(&cell_rgba, cell_w, cell_h)
+            {
+                #[allow(clippy::cast_possible_wrap)]
+                master.draw_pixmap(
+                    x_off as i32,
+                    y_off as i32,
+                    cell_pixmap,
+                    &tiny_skia::PixmapPaint::default(),
+                    tiny_skia::Transform::identity(),
+                    None,
+                );
             }
         }
         // Empty cells keep the background fill
@@ -332,49 +352,38 @@ fn render_subplot_to_rgba_raw(
         use scry_engine::scene::command::{FontData, TextAlign as EngineTextAlign};
 
         let bold_fd = FontData::new(FONT_DATA_BOLD.to_vec());
-        let font_size = 18.0_f32;
         let color = scry_engine::style::Color::from_rgba8(230, 230, 240, 255);
 
         // Measure text to compute baseline y (top padding + ascent)
-        let metrics =
-            scry_engine::rasterize::skia::text::measure_text(title, Some(&bold_fd), font_size);
-        let baseline_y = 4.0 + metrics.ascent;
+        let metrics = scry_engine::rasterize::skia::text::measure_text(
+            title,
+            Some(&bold_fd),
+            SUBPLOT_TITLE_FONT_SIZE,
+        );
+        let baseline_y = SUBPLOT_TITLE_TOP_PAD + metrics.ascent;
 
         // Render title text into a small canvas via the engine
         let title_canvas = scry_engine::scene::PixelCanvas::new(width, title_h)
             .text(title, width as f32 / 2.0, baseline_y)
-            .size(font_size)
+            .size(SUBPLOT_TITLE_FONT_SIZE)
             .color(color)
             .font(bold_fd)
             .align(EngineTextAlign::Center)
             .done();
 
         let title_pixmap = scry_engine::rasterize::skia::Rasterizer::rasterize(&title_canvas)
-            .map_err(|e| format!("title rasterization failed: {e}"))?;
+            .map_err(|e| ChartError::Render(format!("title rasterization failed: {e}")))?;
 
-        // Alpha-composite title pixels onto master buffer
-        let title_data = title_pixmap.data();
-        for ty in 0..title_h as usize {
-            for tx in 0..width as usize {
-                let src_idx = (ty * width as usize + tx) * 4;
-                let dst_idx = (ty * width as usize + tx) * 4;
-                let sa = title_data[src_idx + 3] as u32;
-                if sa == 0 {
-                    continue;
-                }
-                let inv = 255 - sa;
-                master[dst_idx] =
-                    ((title_data[src_idx] as u32 * sa + master[dst_idx] as u32 * inv) / 255) as u8;
-                master[dst_idx + 1] = ((title_data[src_idx + 1] as u32 * sa
-                    + master[dst_idx + 1] as u32 * inv)
-                    / 255) as u8;
-                master[dst_idx + 2] = ((title_data[src_idx + 2] as u32 * sa
-                    + master[dst_idx + 2] as u32 * inv)
-                    / 255) as u8;
-                master[dst_idx + 3] = (sa + master[dst_idx + 3] as u32 * inv / 255).min(255) as u8;
-            }
-        }
+        // Composite title onto master using tiny-skia's proper alpha blending
+        master.draw_pixmap(
+            0,
+            0,
+            title_pixmap.as_ref(),
+            &tiny_skia::PixmapPaint::default(),
+            tiny_skia::Transform::identity(),
+            None,
+        );
     }
 
-    Ok(master)
+    Ok(master.data().to_vec())
 }

@@ -196,9 +196,7 @@ fn draw_node(
                 .stroke(theme.node_stroke, st.node_stroke_width)
                 .done()
         }
-        NodeShape::Cylinder => {
-            draw_cylinder(canvas, cx, cy, w, h, theme, st)
-        }
+        NodeShape::Cylinder => draw_cylinder(canvas, cx, cy, w, h, theme, st),
     };
 
     // Draw subroutine double borders.
@@ -394,8 +392,19 @@ fn draw_edge(
     match kind {
         EdgeKind::SelfLoop => draw_self_loop(canvas, from, direction, style, edge_color, width, st),
         EdgeKind::Back => draw_back_edge(
-            canvas, from, to, style, label, direction, theme, config, layout, edge_color, width,
-            back_edge_idx, st,
+            canvas,
+            from,
+            to,
+            style,
+            label,
+            direction,
+            theme,
+            config,
+            layout,
+            edge_color,
+            width,
+            back_edge_idx,
+            st,
         ),
         EdgeKind::Forward => draw_forward_edge(
             canvas, from, to, style, label, direction, theme, edge_color, width, st,
@@ -452,9 +461,14 @@ fn draw_forward_edge(
     for i in 0..points.len() - 1 {
         canvas = draw_line_segment(
             canvas,
-            points[i].0, points[i].1,
-            points[i + 1].0, points[i + 1].1,
-            style, edge_color, width, st,
+            points[i].0,
+            points[i].1,
+            points[i + 1].0,
+            points[i + 1].1,
+            style,
+            edge_color,
+            width,
+            st,
         );
     }
 
@@ -464,14 +478,26 @@ fn draw_forward_edge(
         EdgeStyle::SolidLine => canvas,
         _ => draw_arrowhead(
             canvas,
-            points[n - 2].0, points[n - 2].1,
-            points[n - 1].0, points[n - 1].1,
-            edge_color, st.arrow_size,
+            points[n - 2].0,
+            points[n - 2].1,
+            points[n - 1].0,
+            points[n - 1].1,
+            edge_color,
+            st.arrow_size,
         ),
     };
 
     // Label at midpoint of the full edge span.
-    draw_edge_label(canvas, st.s(x1), st.s(y1), st.s(x2), st.s(y2), label, theme, st)
+    draw_edge_label(
+        canvas,
+        st.s(x1),
+        st.s(y1),
+        st.s(x2),
+        st.s(y2),
+        label,
+        theme,
+        st,
+    )
 }
 
 /// Draw a back-edge (cycle edge going backward in layers).
@@ -530,7 +556,10 @@ fn draw_back_edge(
     };
 
     // Scale to pixel space.
-    let points: Vec<(f32, f32)> = raw_points.iter().map(|&(px, py)| (st.s(px), st.s(py))).collect();
+    let points: Vec<(f32, f32)> = raw_points
+        .iter()
+        .map(|&(px, py)| (st.s(px), st.s(py)))
+        .collect();
     let label_x = st.s(raw_lx);
     let label_y = st.s(raw_ly);
 
@@ -620,7 +649,10 @@ fn draw_self_loop(
     };
 
     // Scale to pixel space.
-    let points: Vec<(f32, f32)> = raw_points.iter().map(|&(px, py)| (st.s(px), st.s(py))).collect();
+    let points: Vec<(f32, f32)> = raw_points
+        .iter()
+        .map(|&(px, py)| (st.s(px), st.s(py)))
+        .collect();
     let arrow_from = (st.s(raw_arrow_from.0), st.s(raw_arrow_from.1));
     let arrow_to = (st.s(raw_arrow_to.0), st.s(raw_arrow_to.1));
 
@@ -693,12 +725,7 @@ fn draw_edge_label(
         let label_w = text.len() as f32 * st.edge_font_size * 0.55 + 10.0 * st.scale;
         let label_h = st.edge_font_size + 6.0 * st.scale;
         let canvas = canvas
-            .rect(
-                mx - label_w / 2.0,
-                my - label_h / 2.0,
-                label_w,
-                label_h,
-            )
+            .rect(mx - label_w / 2.0, my - label_h / 2.0, label_w, label_h)
             .fill(theme.background)
             .corner_radius(3.0 * st.scale)
             .done();
@@ -715,10 +742,7 @@ fn draw_edge_label(
 }
 
 /// Compute where a forward edge exits a node.
-fn exit_point_forward(
-    rect: &crate::layout::PositionedRect,
-    dir: Direction,
-) -> (f32, f32) {
+fn exit_point_forward(rect: &crate::layout::PositionedRect, dir: Direction) -> (f32, f32) {
     match dir {
         Direction::TB => (rect.cx, rect.bottom()),
         Direction::BT => (rect.cx, rect.top()),
@@ -728,10 +752,7 @@ fn exit_point_forward(
 }
 
 /// Compute where a forward edge enters a node.
-fn entry_point_forward(
-    rect: &crate::layout::PositionedRect,
-    dir: Direction,
-) -> (f32, f32) {
+fn entry_point_forward(rect: &crate::layout::PositionedRect, dir: Direction) -> (f32, f32) {
     match dir {
         Direction::TB => (rect.cx, rect.top()),
         Direction::BT => (rect.cx, rect.bottom()),

@@ -192,24 +192,23 @@ impl GpuBackend {
 #[cfg(feature = "gpu")]
 impl RasterBackend for GpuBackend {
     fn rasterize(&self, canvas: &PixelCanvas) -> Result<RasterResult, PixelCanvasError> {
-        let pixmap = super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas)?;
+        let (pixmap, gpu_fallbacks) =
+            super::wgpu::WgpuRasterizer::rasterize_with_context_tracked(&self.ctx, canvas)?;
         Ok(RasterResult {
             pixmap,
             backend: BackendKind::Gpu,
-            // TODO: wire fallback tracking from WgpuRasterizer once it
-            //       accumulates GpuFallbackWarning entries.
-            gpu_fallbacks: Vec::new(),
+            gpu_fallbacks,
         })
     }
 
     fn rasterize_into(&self, canvas: &PixelCanvas, pixmap: &mut Pixmap) -> RasterMeta {
-        if let Ok(gpu_pixmap) =
-            super::wgpu::WgpuRasterizer::rasterize_with_context(&self.ctx, canvas)
+        if let Ok((gpu_pixmap, gpu_fallbacks)) =
+            super::wgpu::WgpuRasterizer::rasterize_with_context_tracked(&self.ctx, canvas)
         {
             pixmap.data_mut().copy_from_slice(gpu_pixmap.data());
             RasterMeta {
                 backend: BackendKind::Gpu,
-                gpu_fallbacks: Vec::new(),
+                gpu_fallbacks,
             }
         } else {
             // GPU failed for this frame — fall back to CPU for this call

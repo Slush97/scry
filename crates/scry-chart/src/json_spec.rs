@@ -22,6 +22,7 @@ use crate::chart::{
     Sparkline, ViolinPlot, WaterfallChart,
 };
 use crate::data::Series;
+use crate::error::ChartError;
 use crate::theme::Theme;
 use serde::Deserialize;
 
@@ -280,13 +281,18 @@ pub struct GanttTaskSpec {
 // Conversion to Chart
 // ---------------------------------------------------------------------------
 
+/// Shorthand for creating an InvalidConfig error from a string literal.
+fn missing(msg: &str) -> ChartError {
+    ChartError::InvalidConfig(msg.into())
+}
+
 impl JsonChartSpec {
     /// Convert this spec into a [`Chart`].
     ///
     /// # Errors
     ///
     /// Returns `Err` if required data fields are missing for the given chart type.
-    pub fn into_chart(self) -> Result<Chart, String> {
+    pub fn into_chart(self) -> Result<Chart, ChartError> {
         let mut theme = resolve_theme(self.theme.as_deref());
         if self.transparent_bg {
             theme.background = theme.background.with_alpha(0.0);
@@ -315,7 +321,7 @@ impl JsonChartSpec {
         Ok(chart)
     }
 
-    fn build_line(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_line(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
 
         let mut chart = if let Some(ref series) = d.series {
@@ -327,7 +333,9 @@ impl JsonChartSpec {
         } else if let Some(ref y) = d.y {
             LineChart::new(vec![Series::from_values(y.clone())])
         } else {
-            return Err("line chart requires 'y' or 'series' data".into());
+            return Err(ChartError::InvalidConfig(
+                "line chart requires 'y' or 'series' data".into(),
+            ));
         };
 
         if let Some(ref x) = d.x {
@@ -366,10 +374,14 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_scatter(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_scatter(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let x = d.x.as_ref().ok_or("scatter chart requires 'x' data")?;
-        let y = d.y.as_ref().ok_or("scatter chart requires 'y' data")?;
+        let x =
+            d.x.as_ref()
+                .ok_or_else(|| missing("scatter chart requires 'x' data"))?;
+        let y =
+            d.y.as_ref()
+                .ok_or_else(|| missing("scatter chart requires 'y' data"))?;
 
         let mut chart = ScatterChart::new(
             Series::from_values(x.clone()),
@@ -396,9 +408,12 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_bar(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_bar(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let labels = d.labels.as_ref().ok_or("bar chart requires 'labels'")?;
+        let labels = d
+            .labels
+            .as_ref()
+            .ok_or_else(|| missing("bar chart requires 'labels'"))?;
 
         let series_vec: Vec<Series> = if let Some(ref series) = d.series {
             series
@@ -409,7 +424,7 @@ impl JsonChartSpec {
             let values = d
                 .values
                 .as_ref()
-                .ok_or("bar chart requires 'values' or 'series'")?;
+                .ok_or_else(|| missing("bar chart requires 'values' or 'series'"))?;
             vec![Series::from_values(values.clone())]
         };
 
@@ -432,13 +447,13 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_histogram(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_histogram(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let values = d
             .values
             .as_ref()
             .or(d.y.as_ref())
-            .ok_or("histogram requires 'values' or 'y' data")?;
+            .ok_or_else(|| missing("histogram requires 'values' or 'y' data"))?;
 
         let mut chart = Histogram::new(Series::from_values(values.clone()));
 
@@ -466,9 +481,12 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_boxplot(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_boxplot(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let groups = d.groups.as_ref().ok_or("boxplot requires 'groups' data")?;
+        let groups = d
+            .groups
+            .as_ref()
+            .ok_or_else(|| missing("boxplot requires 'groups' data"))?;
 
         let group_data: Vec<(String, Vec<f64>)> = groups
             .iter()
@@ -494,9 +512,12 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_heatmap(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_heatmap(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let grid = d.grid.as_ref().ok_or("heatmap requires 'grid' data")?;
+        let grid = d
+            .grid
+            .as_ref()
+            .ok_or_else(|| missing("heatmap requires 'grid' data"))?;
 
         let mut chart = Heatmap::new(grid.clone());
 
@@ -508,10 +529,16 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_pie(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_pie(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let labels = d.labels.as_ref().ok_or("pie chart requires 'labels'")?;
-        let values = d.values.as_ref().ok_or("pie chart requires 'values'")?;
+        let labels = d
+            .labels
+            .as_ref()
+            .ok_or_else(|| missing("pie chart requires 'labels'"))?;
+        let values = d
+            .values
+            .as_ref()
+            .ok_or_else(|| missing("pie chart requires 'values'"))?;
 
         let mut chart = PieChart::new(labels.clone(), values.clone());
 
@@ -523,13 +550,16 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_radar(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_radar(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let axes = d.axes.as_ref().ok_or("radar chart requires 'axes' data")?;
+        let axes = d
+            .axes
+            .as_ref()
+            .ok_or_else(|| missing("radar chart requires 'axes' data"))?;
         let radar_series = d
             .radar_series
             .as_ref()
-            .ok_or("radar chart requires 'radar_series' data")?;
+            .ok_or_else(|| missing("radar chart requires 'radar_series' data"))?;
 
         let mut chart = RadarChart::new(axes.clone());
 
@@ -545,12 +575,12 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_candlestick(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_candlestick(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let ohlc = d
             .ohlc
             .as_ref()
-            .ok_or("candlestick chart requires 'ohlc' data")?;
+            .ok_or_else(|| missing("candlestick chart requires 'ohlc' data"))?;
 
         let entries: Vec<OhlcEntry> = ohlc
             .iter()
@@ -577,14 +607,18 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_bubble(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_bubble(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let x = d.x.as_ref().ok_or("bubble chart requires 'x' data")?;
-        let y = d.y.as_ref().ok_or("bubble chart requires 'y' data")?;
+        let x =
+            d.x.as_ref()
+                .ok_or_else(|| missing("bubble chart requires 'x' data"))?;
+        let y =
+            d.y.as_ref()
+                .ok_or_else(|| missing("bubble chart requires 'y' data"))?;
         let sizes = d
             .sizes
             .as_ref()
-            .ok_or("bubble chart requires 'sizes' data")?;
+            .ok_or_else(|| missing("bubble chart requires 'sizes' data"))?;
 
         let mut chart = BubbleChart::new(
             Series::from_values(x.clone()),
@@ -612,12 +646,12 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_violin(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_violin(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let groups = d
             .groups
             .as_ref()
-            .ok_or("violin plot requires 'groups' data")?;
+            .ok_or_else(|| missing("violin plot requires 'groups' data"))?;
 
         let group_data: Vec<(String, Vec<f64>)> = groups
             .iter()
@@ -640,13 +674,13 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_sparkline(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_sparkline(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let values = d
             .values
             .as_ref()
             .or(d.y.as_ref())
-            .ok_or("sparkline requires 'values' or 'y' data")?;
+            .ok_or_else(|| missing("sparkline requires 'values' or 'y' data"))?;
 
         let _ = theme; // sparklines are chrome-free, theme is unused
         let chart = Sparkline::new(values.clone());
@@ -654,16 +688,16 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_waterfall(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_waterfall(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let labels = d
             .labels
             .as_ref()
-            .ok_or("waterfall chart requires 'labels'")?;
+            .ok_or_else(|| missing("waterfall chart requires 'labels'"))?;
         let values = d
             .values
             .as_ref()
-            .ok_or("waterfall chart requires 'values'")?;
+            .ok_or_else(|| missing("waterfall chart requires 'values'"))?;
 
         let mut chart = WaterfallChart::new(labels.clone(), values.clone());
 
@@ -681,10 +715,16 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_funnel(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_funnel(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let labels = d.labels.as_ref().ok_or("funnel chart requires 'labels'")?;
-        let values = d.values.as_ref().ok_or("funnel chart requires 'values'")?;
+        let labels = d
+            .labels
+            .as_ref()
+            .ok_or_else(|| missing("funnel chart requires 'labels'"))?;
+        let values = d
+            .values
+            .as_ref()
+            .ok_or_else(|| missing("funnel chart requires 'values'"))?;
 
         let mut chart = FunnelChart::new(labels.clone(), values.clone());
 
@@ -696,9 +736,11 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_gauge(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_gauge(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
-        let value = d.value.ok_or("gauge chart requires 'value' data")?;
+        let value = d
+            .value
+            .ok_or_else(|| missing("gauge chart requires 'value' data"))?;
 
         let mut chart = GaugeChart::new(value);
 
@@ -716,16 +758,16 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_lollipop(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_lollipop(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let labels = d
             .labels
             .as_ref()
-            .ok_or("lollipop chart requires 'labels'")?;
+            .ok_or_else(|| missing("lollipop chart requires 'labels'"))?;
         let values = d
             .values
             .as_ref()
-            .ok_or("lollipop chart requires 'values'")?;
+            .ok_or_else(|| missing("lollipop chart requires 'values'"))?;
 
         let mut chart = LollipopChart::new(labels.clone(), values.clone());
 
@@ -743,12 +785,12 @@ impl JsonChartSpec {
         Ok(chart.build())
     }
 
-    fn build_gantt(&self, theme: Theme) -> Result<Chart, String> {
+    fn build_gantt(&self, theme: Theme) -> Result<Chart, ChartError> {
         let d = &self.data;
         let task_specs = d
             .tasks
             .as_ref()
-            .ok_or("gantt chart requires 'tasks' data")?;
+            .ok_or_else(|| missing("gantt chart requires 'tasks' data"))?;
 
         let tasks: Vec<GanttTask> = task_specs
             .iter()

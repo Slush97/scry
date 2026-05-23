@@ -56,4 +56,4 @@ cargo doc -p scry-engine --all-features --open
 
 ## Known Issues
 
-- `scry-chart/src/formatter/mod.rs` still 915 lines — needs locale extraction
+- `scry-chart/src/formatter/mod.rs` — 665 lines, locale extracted to `formatter/locale.rs`

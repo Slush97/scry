@@ -19,9 +19,9 @@ struct ChartEntry {
     height: u32,
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = "/tmp/scry_gallery";
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir)?;
 
     let themes: Vec<(&str, Theme)> = vec![
         ("dark", Theme::dark()),
@@ -40,26 +40,27 @@ fn main() -> Result<(), String> {
 
     for (theme_name, theme) in &themes {
         let mut idx = 0u32;
-        let mut emit = |label: &str, chart: Chart, w: u32, h: u32| -> Result<(), String> {
-            idx += 1;
-            let name = format!(
-                "{theme_name}_{idx:02}_{}",
-                label
-                    .replace(' ', "_")
-                    .replace('—', "-")
-                    .replace('±', "pm")
-                    .to_lowercase()
-            );
-            save_png(&chart, w, h, format!("{dir}/{name}.png"))?;
-            html_entries.push(ChartEntry {
-                name: name.clone(),
-                label: label.to_string(),
-                width: w,
-                height: h,
-            });
-            count += 1;
-            Ok(())
-        };
+        let mut emit =
+            |label: &str, chart: Chart, w: u32, h: u32| -> Result<(), Box<dyn std::error::Error>> {
+                idx += 1;
+                let name = format!(
+                    "{theme_name}_{idx:02}_{}",
+                    label
+                        .replace(' ', "_")
+                        .replace('—', "-")
+                        .replace('±', "pm")
+                        .to_lowercase()
+                );
+                save_png(&chart, w, h, format!("{dir}/{name}.png"))?;
+                html_entries.push(ChartEntry {
+                    name: name.clone(),
+                    label: label.to_string(),
+                    width: w,
+                    height: h,
+                });
+                count += 1;
+                Ok(())
+            };
 
         // =============================================================
         // CORE CHART TYPES (1–23)
@@ -868,26 +869,27 @@ fn main() -> Result<(), String> {
     {
         let theme = Theme::dark();
         let mut fidx = 0u32;
-        let mut femit = |label: &str, chart: Chart, w: u32, h: u32| -> Result<(), String> {
-            fidx += 1;
-            let name = format!(
-                "showcase_{fidx:02}_{}",
-                label
-                    .replace(' ', "_")
-                    .replace('—', "-")
-                    .replace('±', "pm")
-                    .to_lowercase()
-            );
-            save_png(&chart, w, h, format!("{dir}/{name}.png"))?;
-            html_entries.push(ChartEntry {
-                name: name.clone(),
-                label: label.to_string(),
-                width: w,
-                height: h,
-            });
-            count += 1;
-            Ok(())
-        };
+        let mut femit =
+            |label: &str, chart: Chart, w: u32, h: u32| -> Result<(), Box<dyn std::error::Error>> {
+                fidx += 1;
+                let name = format!(
+                    "showcase_{fidx:02}_{}",
+                    label
+                        .replace(' ', "_")
+                        .replace('—', "-")
+                        .replace('±', "pm")
+                        .to_lowercase()
+                );
+                save_png(&chart, w, h, format!("{dir}/{name}.png"))?;
+                html_entries.push(ChartEntry {
+                    name: name.clone(),
+                    label: label.to_string(),
+                    width: w,
+                    height: h,
+                });
+                count += 1;
+                Ok(())
+            };
 
         // F1. Annotations
         femit(
@@ -1497,7 +1499,7 @@ function showToast() {
 "#,
     );
 
-    std::fs::write(format!("{dir}/index.html"), &html).map_err(|e| e.to_string())?;
+    std::fs::write(format!("{dir}/index.html"), &html)?;
 
     eprintln!("\n✓ Gallery complete: {count} charts rendered to {dir}/");
     eprintln!("  Open: file://{dir}/index.html");

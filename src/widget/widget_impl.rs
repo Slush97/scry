@@ -153,6 +153,21 @@ pub struct PixelCanvasState {
 }
 
 impl PixelCanvasState {
+    /// Auto-detect the terminal protocol and font size, then create state.
+    ///
+    /// This is the simplest way to get started — one line instead of manual
+    /// [`Picker`](crate::transport::Picker) + backend construction:
+    ///
+    /// ```no_run
+    /// use scry_engine::widget::PixelCanvasState;
+    ///
+    /// let mut state = PixelCanvasState::auto();
+    /// ```
+    pub fn auto() -> Self {
+        let picker = crate::transport::Picker::detect();
+        Self::new(picker.create_backend(), picker.font_size())
+    }
+
     /// Create a new state with the given protocol backend and font size.
     pub fn new(backend: Box<dyn ProtocolBackend>, font_size: FontSize) -> Self {
         Self {

@@ -119,7 +119,7 @@ pub mod prelude {
     pub use crate::parser::flowchart::{Direction, EdgeStyle, NodeShape};
     pub use crate::render::RenderedDiagram;
     pub use crate::theme::{LayoutConfig, MermaidTheme};
-    pub use crate::Mermaid;
     #[cfg(feature = "widget")]
     pub use crate::widget::{MermaidState, MermaidWidget};
+    pub use crate::Mermaid;
 }

@@ -27,8 +27,11 @@ or plug in as a Ratatui widget with caching and dirty-tile diffing.
 | [`scry-engine`](.) | Drawing, rasterization, and terminal transport |
 | [`scry-chart`](crates/scry-chart) | 18 chart types, 3D interactive, 6 themes, streaming, PNG/SVG export |
 | [`scry-cli`](crates/scry-cli) | CLI — render charts from JSON/CSV, show images inline |
-| [`scry-learn`](crates/scry-learn) | ML — CART, Random Forest, Gradient Boosting, Linear/Logistic Regression, Lasso, ElasticNet, KNN, Naive Bayes, SVM, K-Means, DBSCAN, preprocessing, cross-validation |
+| [`scry-mermaid`](crates/scry-mermaid) | Mermaid diagram renderer (flowcharts, subgraphs) with Ratatui widget |
 | [`scry-pipe`](crates/scry-pipe) | Feature pipeline IR + codegen |
+| [`scry-gpu`](crates/scry-gpu) | Lightweight GPU compute — dispatch WGSL without the graphics baggage |
+| [`scry-mcp`](crates/scry-mcp) | MCP server that renders charts and images inline in the host terminal |
+| [`scry-top`](crates/scry-top) | Pixel-perfect terminal system monitor |
 
 ## Quick start
 
@@ -76,7 +79,7 @@ Ratatui, or use all three together.
 
 The `scry-chart` crate provides a high-level charting API on top of `scry-engine`:
 
-- **16 2D chart types** — scatter, line, bar, histogram, box plot, heatmap, pie, radar, candlestick, bubble, violin, sparkline, waterfall, funnel, gauge, lollipop
+- **18 2D chart types** — scatter, line, bar, histogram, box plot, heatmap, contour, pie, radar, candlestick, bubble, violin, sparkline, waterfall, funnel, gauge, lollipop, gantt
 - **3D scatter** — interactive rotation/zoom in the terminal
 - **Streaming charts** — ring-buffer backed, auto-scrolling time axis
 - **Interactive features** — zoom, pan, crosshair cursor, and tooltips
@@ -137,9 +140,12 @@ See all examples with `ls examples/`.
 |-------|----------|-----------------|
 | scry-engine | Stable | Semver-protected |
 | scry-chart | Stable | Semver-protected |
-| scry-learn | Beta | API may evolve |
+| scry-mermaid | Beta | API may evolve |
 | scry-cli | Beta | Commands may change |
 | scry-pipe | Beta | Phase 1 shipped, API may evolve |
+| scry-gpu | Alpha | Early — API unstable |
+| scry-mcp | Beta | Tool surface may change |
+| scry-top | Alpha | Early — UI/flags may change |
 
 ## 📄 License
 

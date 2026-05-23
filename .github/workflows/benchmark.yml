@@ -2,24 +2,16 @@ name: Benchmark Suite
 
 on:
   workflow_dispatch:
-    inputs:
-      cloud_mode:
-        description: 'Run with --cloud (CPU pinning + extended scaling)'
-        required: false
-        default: 'false'
-        type: boolean
   push:
     tags:
       - 'v*'
-    paths:
-      - 'crates/scry-learn/**'
 
 env:
   CARGO_TERM_COLOR: always
   RAYON_NUM_THREADS: 1
 
 jobs:
-  # ─── Quick smoke test (runs on every push to benchmark paths) ────
+  # ─── Quick smoke test ──────────────────────────────────────────────
   smoke-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -42,20 +34,12 @@ jobs:
 
       - name: Compile benchmarks (no-run)
         run: |
-          cargo bench --bench fair_bench -p scry-learn --no-run
-          cargo bench --bench competitor_bench -p scry-learn --no-run
+          cargo bench --bench rasterize --no-run
+          cargo bench --bench chart --no-run
+          cargo bench --bench efficiency --no-run
 
-      - name: Run quick_vitals accuracy test
-        run: cargo test --test quick_vitals -p scry-learn --release -- --nocapture
-
-      - name: Run benchmark_audit
-        run: cargo test --test benchmark_audit -p scry-learn --release -- --nocapture 2>&1 | tee audit_output.txt
-
-      - name: Upload audit output
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-audit-output
-          path: audit_output.txt
+      - name: Run workspace tests (release)
+        run: cargo test --workspace --release
 
   # ─── Full benchmark suite (manual dispatch or tag push) ──────────
   full-benchmark:
@@ -89,16 +73,17 @@ jobs:
           echo "RAYON_NUM_THREADS=$RAYON_NUM_THREADS" >> bench_env.txt
           cat bench_env.txt
 
-      - name: Run fair_bench suite
-        run: |
-          if [ "${{ inputs.cloud_mode }}" = "true" ]; then
-            cargo bench --bench fair_bench -p scry-learn --features extended-bench 2>&1 | tee fair_bench_output.txt
-          else
-            cargo bench --bench fair_bench -p scry-learn 2>&1 | tee fair_bench_output.txt
-          fi
+      - name: Run rasterize benchmarks
+        run: cargo bench --bench rasterize 2>&1 | tee rasterize_bench_output.txt
 
-      - name: Run competitor_bench suite
-        run: cargo bench --bench competitor_bench -p scry-learn 2>&1 | tee competitor_bench_output.txt
+      - name: Run chart benchmarks
+        run: cargo bench --bench chart 2>&1 | tee chart_bench_output.txt
+
+      - name: Run efficiency benchmarks
+        run: cargo bench --bench efficiency 2>&1 | tee efficiency_bench_output.txt
+
+      - name: Run scry-chart 3D benchmarks
+        run: cargo bench --bench chart3d_bench -p scry-chart 2>&1 | tee chart3d_bench_output.txt
 
       - name: Upload Criterion reports
         uses: actions/upload-artifact@v4
@@ -112,41 +97,4 @@ jobs:
           name: benchmark-logs
           path: |
             bench_env.txt
-            fair_bench_output.txt
-            competitor_bench_output.txt
-
-  # ─── Python baselines (manual dispatch only) ─────────────────────
-  python-baselines:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: pip install numpy scikit-learn xgboost lightgbm
-
-      - name: Run sklearn baselines
-        run: python3 crates/scry-learn/benches/python/bench_sklearn.py 2>&1 | tee sklearn_output.txt
-
-      - name: Run XGBoost baselines
-        run: python3 crates/scry-learn/benches/python/bench_xgboost.py 2>&1 | tee xgboost_output.txt
-
-      - name: Run LightGBM baselines
-        run: python3 crates/scry-learn/benches/python/bench_lightgbm.py 2>&1 | tee lightgbm_output.txt
-
-      - name: Upload Python baseline results
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-baseline-results
-          path: |
-            sklearn_output.txt
-            xgboost_output.txt
-            lightgbm_output.txt
-            crates/scry-learn/benches/python/*_results.json
+            *_bench_output.txt

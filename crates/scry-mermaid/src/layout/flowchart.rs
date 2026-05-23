@@ -49,7 +49,10 @@ pub fn layout(ast: &FlowchartAst, config: &LayoutConfig) -> FlowchartLayout {
     let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
 
     for edge in &ast.edges {
-        if let (Some(&from), Some(&to)) = (id_to_idx.get(edge.from.as_str()), id_to_idx.get(edge.to.as_str())) {
+        if let (Some(&from), Some(&to)) = (
+            id_to_idx.get(edge.from.as_str()),
+            id_to_idx.get(edge.to.as_str()),
+        ) {
             adj[from].push(to);
         }
     }
@@ -87,8 +90,13 @@ pub fn layout(ast: &FlowchartAst, config: &LayoutConfig) -> FlowchartLayout {
 
     // Step 3: Assign coordinates.
     let is_horizontal = matches!(ast.direction, Direction::LR | Direction::RL);
-    let (node_layouts, width, height) =
-        assign_coordinates(&layer_members, &node_sizes, &node_ids, config, is_horizontal);
+    let (node_layouts, width, height) = assign_coordinates(
+        &layer_members,
+        &node_sizes,
+        &node_ids,
+        config,
+        is_horizontal,
+    );
 
     // If RL or BT, mirror the coordinates.
     let mut node_map: HashMap<String, NodeLayout> = node_layouts;
@@ -195,7 +203,9 @@ fn assign_layers(n: usize, adj: &[Vec<usize>], in_deg: &[usize]) -> Vec<usize> {
     for i in 0..n {
         if !visited[i] {
             // Place after any visited predecessor, or layer 0.
-            let max_pred_layer = adj.iter().enumerate()
+            let max_pred_layer = adj
+                .iter()
+                .enumerate()
                 .filter(|(_, neighbors)| neighbors.contains(&i))
                 .filter(|(u, _)| visited[*u])
                 .map(|(u, _)| layers[u])

@@ -33,6 +33,11 @@ use crate::PixelCanvasError;
 /// terminal session, so we use an atomic counter.
 static NEXT_IMAGE_ID: AtomicU32 = AtomicU32::new(1);
 
+/// Global placement ID counter. Each `KittyBackend` instance gets a unique
+/// placement ID so that multiple widget panels can coexist without
+/// overwriting each other's images.
+static NEXT_PLACEMENT_ID: AtomicU32 = AtomicU32::new(1);
+
 use super::kitty_encode;
 
 /// Maximum bytes to send in a single Kitty protocol chunk.
@@ -130,7 +135,7 @@ impl KittyBackend<std::io::Stdout> {
             encode_buf: String::new(),
             compress_buf: Vec::new(),
             send_buf: Vec::with_capacity(128 * 1024),
-            placement_id: 1,
+            placement_id: NEXT_PLACEMENT_ID.fetch_add(1, Ordering::Relaxed),
             tile_buf: Vec::new(),
             tile_ids: Vec::new(),
             #[cfg(feature = "shm")]
@@ -156,7 +161,7 @@ impl<W: Write + std::fmt::Debug> KittyBackend<W> {
             encode_buf: String::new(),
             compress_buf: Vec::new(),
             send_buf: Vec::with_capacity(128 * 1024),
-            placement_id: 1,
+            placement_id: NEXT_PLACEMENT_ID.fetch_add(1, Ordering::Relaxed),
             tile_buf: Vec::new(),
             tile_ids: Vec::new(),
             #[cfg(feature = "shm")]
@@ -744,7 +749,10 @@ mod tests {
             output.contains("o=z"),
             "default format should use zlib compression"
         );
-        assert!(output.contains("p=1"), "should include placement ID");
+        assert!(
+            output.contains(&format!("p={}", backend.placement_id)),
+            "should include placement ID"
+        );
         // Synchronized output wrapping
         assert!(
             output.contains("\x1b[?2026h"),
@@ -822,7 +830,7 @@ mod tests {
         );
         assert!(output.contains(&format!("i={original_id}")));
         assert!(
-            output.contains("p=1"),
+            output.contains(&format!("p={}", backend.placement_id)),
             "replace should include placement id for atomic swap"
         );
     }

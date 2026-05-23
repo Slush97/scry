@@ -28,15 +28,17 @@ fn render_to_png() {
 
     // PNG magic bytes.
     assert_eq!(&png[..4], &[0x89, 0x50, 0x4E, 0x47]);
-    assert!(png.len() > 1000, "PNG should be non-trivial, got {} bytes", png.len());
+    assert!(
+        png.len() > 1000,
+        "PNG should be non-trivial, got {} bytes",
+        png.len()
+    );
 }
 
 #[test]
 fn theme_customization() {
     let src = "graph TD\n    A --> B";
-    let diagram = Mermaid::parse(src)
-        .unwrap()
-        .theme(MermaidTheme::light());
+    let diagram = Mermaid::parse(src).unwrap().theme(MermaidTheme::light());
     let rendered = diagram.render(800, 600);
     assert!(rendered.canvas.command_count() > 0);
 }
@@ -168,13 +170,20 @@ fn render_scales_to_fit_bounds() {
 
     // The constrained render should be smaller or equal to the bounds.
     assert!(small.width <= 200, "width {} should be <= 200", small.width);
-    assert!(small.height <= 200, "height {} should be <= 200", small.height);
+    assert!(
+        small.height <= 200,
+        "height {} should be <= 200",
+        small.height
+    );
 
     // And it should be smaller than the unconstrained render.
     assert!(
         small.width < big.width || small.height < big.height,
         "constrained render should be smaller: {}x{} vs {}x{}",
-        small.width, small.height, big.width, big.height
+        small.width,
+        small.height,
+        big.width,
+        big.height
     );
 }
 

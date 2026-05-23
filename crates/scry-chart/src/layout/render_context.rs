@@ -46,6 +46,10 @@ pub(crate) struct RenderContext {
     pub overlays: Vec<TextOverlay>,
     /// Plot area rectangle (x, y, w, h).
     pub plot: (f32, f32, f32, f32),
+    /// Canvas dimensions, stored at construction so they're available even
+    /// when the canvas is temporarily taken by `draw()`/`draw_with()`.
+    canvas_width: u32,
+    canvas_height: u32,
     /// Scales for cursor interaction (populated by chart renderers).
     pub x_scale: Option<LinearScale>,
     /// Y scale for cursor interaction.
@@ -67,6 +71,8 @@ impl RenderContext {
             canvas: Some(canvas),
             overlays: Vec::new(),
             plot,
+            canvas_width: w,
+            canvas_height: h,
             x_scale: None,
             y_scale: None,
             series_points: Vec::new(),
@@ -99,12 +105,12 @@ impl RenderContext {
 
     /// Canvas width.
     pub(super) fn width(&self) -> u32 {
-        self.canvas.as_ref().unwrap().width()
+        self.canvas_width
     }
 
     /// Canvas height.
     pub(super) fn height(&self) -> u32 {
-        self.canvas.as_ref().unwrap().height()
+        self.canvas_height
     }
 
     /// Draw X and Y axes, collecting tick labels as text overlays.
@@ -467,7 +473,10 @@ impl RenderContext {
     /// `DrawCommand::Text` commands, so every export path (PNG, SVG,
     /// widget) consumes a single unified scene graph.
     pub fn finish(mut self) -> RenderedChart {
-        let mut canvas = self.canvas.take().unwrap();
+        let mut canvas = self
+            .canvas
+            .take()
+            .expect("RenderContext::finish called after canvas was already consumed");
 
         for ov in &self.overlays {
             let engine_align = match ov.align {

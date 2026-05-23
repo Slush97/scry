@@ -102,6 +102,29 @@ impl PixelCanvas {
         }
     }
 
+    /// Create a canvas sized to fill a Ratatui area in pixels.
+    ///
+    /// Converts cell dimensions to pixel dimensions using the font size,
+    /// eliminating the manual `area.width * font.width` boilerplate.
+    ///
+    /// ```no_run
+    /// # use scry_engine::scene::PixelCanvas;
+    /// # use scry_engine::transport::backend::FontSize;
+    /// # let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    /// # let font_size = FontSize::default();
+    /// let canvas = PixelCanvas::from_area(area, font_size);
+    /// ```
+    #[cfg(feature = "widget")]
+    #[must_use]
+    pub fn from_area(
+        area: ratatui::layout::Rect,
+        font_size: crate::transport::backend::FontSize,
+    ) -> Self {
+        let width = u32::from(area.width) * u32::from(font_size.width);
+        let height = u32::from(area.height) * u32::from(font_size.height);
+        Self::new(width, height)
+    }
+
     /// Set the background color. This is drawn before all other commands.
     #[must_use]
     pub const fn background(mut self, color: Color) -> Self {
@@ -714,6 +737,7 @@ enum ShapeKind {
 ///
 /// Finish building by calling [`.done()`](ShapeBuilder::done) to add the
 /// command to the canvas.
+#[must_use = "shape has no effect until .done() is called"]
 pub struct ShapeBuilder {
     canvas: PixelCanvas,
     kind: ShapeKind,
@@ -949,6 +973,7 @@ impl ShapeBuilder {
 /// Fluent builder for line drawing.
 ///
 /// Finish building by calling [`.done()`](LineBuilder::done).
+#[must_use = "line has no effect until .done() is called"]
 pub struct LineBuilder {
     canvas: PixelCanvas,
     x1: f32,
@@ -1066,6 +1091,7 @@ impl LineBuilder {
 /// Fluent builder for gradient-filled rectangles.
 ///
 /// Finish building by calling [`.done()`](GradientBuilder::done).
+#[must_use = "gradient has no effect until .done() is called"]
 pub struct GradientBuilder {
     canvas: PixelCanvas,
     rect: Rect,
@@ -1138,6 +1164,7 @@ impl GradientBuilder {
 /// Fluent builder for grouped commands with a shared transform.
 ///
 /// Finish building by calling [`.done()`](GroupBuilder::done).
+#[must_use = "group has no effect until .done() is called"]
 pub struct GroupBuilder {
     parent: PixelCanvas,
     child: PixelCanvas,
@@ -1218,6 +1245,7 @@ impl GroupBuilder {
 /// Fluent builder for image blitting.
 ///
 /// Finish building by calling [`.done()`](ImageBuilder::done).
+#[must_use = "image has no effect until .done() is called"]
 pub struct ImageBuilder {
     canvas: PixelCanvas,
     image: ImageData,
@@ -1264,6 +1292,7 @@ impl ImageBuilder {
 ///
 /// Finish building by calling [`.done()`](TextBuilder::done).
 #[cfg(feature = "text")]
+#[must_use = "text has no effect until .done() is called"]
 pub struct TextBuilder {
     canvas: PixelCanvas,
     text: String,

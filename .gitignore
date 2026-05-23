@@ -54,3 +54,6 @@ subplot_demo.png
 FORMATTING_PROGRESS.md
 ml_ecosystem_comparison.*
 scry_chart_audit.*
+
+# Claude Code ephemeral state
+.claude/scheduled_tasks.lock

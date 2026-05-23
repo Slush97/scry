@@ -5,9 +5,9 @@
 use scry_chart::export::save_png;
 use scry_chart::prelude::*;
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = "/tmp/scry_chart_audit";
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir)?;
 
     // 1. Simple line chart
     let chart = Charts::line(&[1.0, 4.0, 2.0, 8.0, 5.0, 3.0, 7.0, 6.0, 9.0, 4.5])

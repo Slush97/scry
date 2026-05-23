@@ -239,7 +239,7 @@ impl StreamingChart {
     pub fn push_now(&mut self, y: f64) {
         let t = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs_f64();
         self.push(t, y);
     }
@@ -348,13 +348,13 @@ impl StreamingChart {
     /// Returns an empty-data error if no points have been pushed.
     pub fn render(&self, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
         let chart = self.snapshot().ok_or(ChartError::EmptyData)?;
-        render_to_png(&chart, width, height).map_err(|_| ChartError::EmptyData)
+        render_to_png(&chart, width, height)
     }
 
     /// Render the current window to raw RGBA bytes.
     pub fn render_rgba(&self, width: u32, height: u32) -> Result<Vec<u8>, ChartError> {
         let chart = self.snapshot().ok_or(ChartError::EmptyData)?;
-        crate::export::render_to_rgba(&chart, width, height).map_err(|_| ChartError::EmptyData)
+        crate::export::render_to_rgba(&chart, width, height)
     }
 
     /// Render and display inline in the terminal (one-shot).

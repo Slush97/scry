@@ -682,10 +682,10 @@ impl Rasterizer {
             TextAlign::Left => 0.0,
             TextAlign::Center | TextAlign::Right => {
                 let metrics = measure_text(text, Some(font_data), font_size);
-                match align {
-                    TextAlign::Center => -metrics.width / 2.0,
-                    TextAlign::Right => -metrics.width,
-                    TextAlign::Left => unreachable!(),
+                if matches!(align, TextAlign::Center) {
+                    -metrics.width / 2.0
+                } else {
+                    -metrics.width
                 }
             }
         };

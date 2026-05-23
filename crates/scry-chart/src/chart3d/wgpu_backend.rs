@@ -31,6 +31,7 @@
 
 use super::projection::ProjectedPoint;
 use super::Rasterizer3D;
+use crate::error::ChartError;
 use scry_engine::gpu::pipelines_3d::{LineVertex3D, PointInstance3D, Uniforms3D};
 use scry_engine::style::Color;
 
@@ -143,8 +144,9 @@ impl WgpuRasterizer3D {
     /// # Errors
     ///
     /// Returns an error string if no compatible GPU adapter is found.
-    pub fn new(width: u32, height: u32, background: Color) -> Result<Self, String> {
-        let gpu = scry_engine::gpu::GpuDevice::global_or_init().map_err(|e| e.to_string())?;
+    pub fn new(width: u32, height: u32, background: Color) -> Result<Self, ChartError> {
+        let gpu = scry_engine::gpu::GpuDevice::global_or_init()
+            .map_err(|e| ChartError::Render(e.to_string()))?;
         Ok(Self::with_device(gpu, width, height, background))
     }
 
