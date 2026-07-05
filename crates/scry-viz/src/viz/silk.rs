@@ -84,16 +84,17 @@ pub(super) fn build(
             .done();
     }
 
-    // Main curve: two glow passes then the bright core line.
+    // Main curve: two glow passes then the bright core line. The open
+    // spline is identical across passes, so build it once and reuse.
     let glow_boost = 1.0 + 0.45 * s.beat.envelope;
-    for (width, alpha, blend) in [
-        (9.0, 0.08, BlendMode::Screen),
-        (4.0, 0.20, BlendMode::Screen),
-        (2.0, 1.0, BlendMode::SrcOver),
-    ] {
-        if let Some(path) = super::spline(&main, None) {
+    if let Some(line) = super::spline(&main, None) {
+        for (width, alpha, blend) in [
+            (9.0, 0.08, BlendMode::Screen),
+            (4.0, 0.20, BlendMode::Screen),
+            (2.0, 1.0, BlendMode::SrcOver),
+        ] {
             canvas = canvas
-                .path(path)
+                .path(line.clone())
                 .stroke(theme.accent, width * glow_boost)
                 .stroke_gradient(x_gradient(w, theme, alpha))
                 .blend_mode(blend)

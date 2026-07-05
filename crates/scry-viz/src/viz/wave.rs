@@ -15,7 +15,7 @@ pub(super) fn build(
 ) -> PixelCanvas {
     let (w, h) = (w as f32, h as f32);
     let mid = h * 0.5;
-    let amp = h * 0.40;
+    let amp = h * 0.40 * (1.0 + 0.08 * s.beat.envelope);
     // Normalize to the window peak so quiet tracks still fill the scope
     // without clipping, capped so silence doesn't amplify noise.
     let peak = s.waveform.iter().fold(0.0f32, |m, &v| m.max(v.abs()));
