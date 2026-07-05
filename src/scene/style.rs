@@ -1103,12 +1103,16 @@ impl Transform {
     }
 
     /// Convert to a `tiny_skia::Transform`.
+    ///
+    /// This crate's convention puts `ky` in the x row (`x' = sx·x + ky·y + tx`,
+    /// see [`Transform::apply_point`]); tiny-skia puts `kx` there, so the two
+    /// skew fields swap on conversion.
     #[must_use]
     pub const fn to_tiny_skia(self) -> tiny_skia::Transform {
         tiny_skia::Transform {
             sx: self.sx,
-            kx: self.kx,
-            ky: self.ky,
+            kx: self.ky,
+            ky: self.kx,
             sy: self.sy,
             tx: self.tx,
             ty: self.ty,

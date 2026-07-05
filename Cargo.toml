@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-gpu", "crates/scry-mcp", "crates/scry-mermaid", "crates/scry-pipe", "crates/scry-top"]
+members = [".", "crates/scry-chart", "crates/scry-cli", "crates/scry-gpu", "crates/scry-mcp", "crates/scry-mermaid", "crates/scry-pipe", "crates/scry-top", "crates/scry-viz"]
 exclude = ["fuzz"]
 resolver = "2"
 

@@ -32,6 +32,7 @@ or plug in as a Ratatui widget with caching and dirty-tile diffing.
 | [`scry-gpu`](crates/scry-gpu) | Lightweight GPU compute — dispatch WGSL without the graphics baggage |
 | [`scry-mcp`](crates/scry-mcp) | MCP server that renders charts and images inline in the host terminal |
 | [`scry-top`](crates/scry-top) | Pixel-perfect terminal system monitor |
+| [`scry-viz`](crates/scry-viz) | Live terminal music visualizer with FFT analysis and reactive vector modes |
 
 ## Quick start
 
@@ -146,6 +147,7 @@ See all examples with `ls examples/`.
 | scry-gpu | Alpha | Early — API unstable |
 | scry-mcp | Beta | Tool surface may change |
 | scry-top | Alpha | Early — UI/flags may change |
+| scry-viz | Alpha | Early — visual modes and CLI may change |
 
 ## 📄 License
 

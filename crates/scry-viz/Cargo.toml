@@ -1,0 +1,38 @@
+[package]
+name = "scry-viz"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83.0"
+description = "Pixel-perfect terminal music visualizer powered by scry"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "scry-viz"
+path = "src/main.rs"
+
+[dependencies]
+scry-engine = { path = "../.." }
+ratatui = { version = "0.29", features = ["crossterm"] }
+crossterm = "0.28"
+clap = { version = "4", features = ["derive"] }
+rustfft = "6"
+fastrand = "2"
+tiny-skia = "0.11"
+libpulse-binding = "2"
+libpulse-simple-binding = "2"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+cast_possible_wrap = "allow"
+similar_names = "allow"
+needless_pass_by_value = "allow"
+items_after_statements = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
